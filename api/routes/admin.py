@@ -105,6 +105,26 @@ async def unlock_user(
     return {"unlocked": True}
 
 
+@router.patch("/users/{user_id}/toggle")
+async def toggle_user_active(
+    user_id: uuid.UUID,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_session),
+):
+    """Flip is_active for a user account. Can't deactivate yourself."""
+    if user_id == admin.id:
+        raise HTTPException(400, detail="You can't deactivate your own account")
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(404)
+    user.is_active = not user.is_active
+    action = "activate_user" if user.is_active else "deactivate_user"
+    await _audit(admin, action, "user", str(user_id), f"{action} {user.username}", db)
+    await db.commit()
+    return {"is_active": user.is_active}
+
+
 @router.patch("/users/{user_id}/roles")
 async def update_user_roles(
     user_id: uuid.UUID,
