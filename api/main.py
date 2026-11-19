@@ -106,21 +106,30 @@ def _register_web_routes(app: FastAPI) -> None:
 
     templates = Jinja2Templates(directory="api/web/templates")
 
-    @app.get("/", response_class=HTMLResponse, include_in_schema=False)
-    async def dashboard(request: Request, current_user=Depends(get_current_user)):
-        return templates.TemplateResponse("pages/dashboard.html", {"request": request, "user": current_user})
+    def _render(template: str):
+        """Return a route handler for a standard authenticated page."""
+        async def handler(request: Request, current_user=Depends(get_current_user)):
+            return templates.TemplateResponse(template, {"request": request, "user": current_user})
+        return handler
 
-    @app.get("/devices", response_class=HTMLResponse, include_in_schema=False)
-    async def devices_page(request: Request, current_user=Depends(get_current_user)):
-        return templates.TemplateResponse("pages/devices.html", {"request": request, "user": current_user})
+    # ── Operations ────────────────────────────────────────────────────────────
+    app.get("/", response_class=HTMLResponse, include_in_schema=False)(_render("pages/dashboard.html"))
+    app.get("/devices", response_class=HTMLResponse, include_in_schema=False)(_render("pages/devices.html"))
+    app.get("/vulns", response_class=HTMLResponse, include_in_schema=False)(_render("pages/vulns.html"))
 
-    @app.get("/integrations", response_class=HTMLResponse, include_in_schema=False)
-    async def integrations_page(request: Request, current_user=Depends(get_current_user)):
-        return templates.TemplateResponse("pages/integrations.html", {"request": request, "user": current_user})
+    # ── Analysis ──────────────────────────────────────────────────────────────
+    app.get("/threat", response_class=HTMLResponse, include_in_schema=False)(_render("pages/threat.html"))
+    app.get("/hunt", response_class=HTMLResponse, include_in_schema=False)(_render("pages/hunt.html"))
+    app.get("/attack-paths", response_class=HTMLResponse, include_in_schema=False)(_render("pages/attack_paths.html"))
+    app.get("/grc", response_class=HTMLResponse, include_in_schema=False)(_render("pages/grc.html"))
+    app.get("/cmdb", response_class=HTMLResponse, include_in_schema=False)(_render("pages/cmdb.html"))
 
-    @app.get("/admin", response_class=HTMLResponse, include_in_schema=False)
-    async def admin_page(request: Request, current_user=Depends(get_current_user)):
-        return templates.TemplateResponse("pages/admin.html", {"request": request, "user": current_user})
+    # ── Settings ──────────────────────────────────────────────────────────────
+    app.get("/settings/integrations", response_class=HTMLResponse, include_in_schema=False)(_render("pages/integrations.html"))
+    app.get("/settings/tokens", response_class=HTMLResponse, include_in_schema=False)(_render("pages/tokens.html"))
+
+    # ── Admin ─────────────────────────────────────────────────────────────────
+    app.get("/admin", response_class=HTMLResponse, include_in_schema=False)(_render("pages/admin.html"))
 
 
 app = create_app()

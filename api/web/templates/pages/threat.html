@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% set active_nav = 'threat' %}
+
+{% block title %}Cyber Threats -- open-ctem{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-header__title">Cyber Threats</h1>
+    <p class="page-header__sub">Active threat alerts and indicators across integrated tools</p>
+  </div>
+  <div class="flex items-center gap-2">
+    <select id="filter-severity" onchange="loadThreats()" style="padding:6px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
+      <option value="">All Severity</option>
+      <option value="critical">Critical</option>
+      <option value="high">High</option>
+      <option value="medium">Medium</option>
+      <option value="low">Low</option>
+    </select>
+    <select id="filter-source" onchange="loadThreats()" style="padding:6px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
+      <option value="">All Sources</option>
+    </select>
+  </div>
+</div>
+
+<div class="panel" style="padding:0">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Alert</th>
+        <th>Source</th>
+        <th>Severity</th>
+        <th>Device</th>
+        <th>MITRE</th>
+        <th>Detected</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody id="threats-tbody">
+      <tr><td colspan="7" class="text-muted text-sm" style="text-align:center;padding:24px">Loading...</td></tr>
+    </tbody>
+  </table>
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-top:1px solid var(--border)">
+    <span id="page-info" class="text-muted text-sm"></span>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn--ghost btn--sm" id="btn-prev" onclick="prevPage()" disabled>Previous</button>
+      <button class="btn btn--ghost btn--sm" id="btn-next" onclick="nextPage()" disabled>Next</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const API = '/api/v1';
+let page = 1;
+const PAGE_SIZE = 50;
+let totalCount = 0;
+
+async function fetchJson(url) {
+  const res = await fetch(url, { headers: { Accept: 'application/json' } });
+  if (!res.ok) throw new Error(res.statusText);
+  return res.json();
+}
+
+function sevChip(s) {
+  const m = { critical: 'critical', high: 'high', medium: 'medium', low: 'low' };
+  return s ? `<span class="chip chip--${m[s.toLowerCase()] || 'info'}">${s}</span>` : '--';
+}
+
+async function loadThreats() {
+  const sev = document.getElementById('filter-severity').value;
+  const src = document.getElementById('filter-source').value;
+  const offset = (page - 1) * PAGE_SIZE;
+  const params = new URLSearchParams({ limit: PAGE_SIZE, offset });
+  if (sev) params.set('severity', sev);
+  if (src) params.set('source', src);
+
+  try {
+    const data = await fetchJson(`${API}/threat/alerts?${params}`);
+    const alerts = data.alerts || [];
+    totalCount = data.total || alerts.length;
+
+    // Populate source filter from first load
+    if (page === 1 && !src) {
+      const sources = [...new Set(alerts.map(a => a.source).filter(Boolean))];
+      const sel = document.getElementById('filter-source');
+      if (sel.options.length <= 1) {
+        sources.forEach(s => {
+          const opt = document.createElement('option');
+          opt.value = s;
+          opt.textContent = s;
+          sel.appendChild(opt);
+        });
+      }
+    }
+
+    document.getElementById('threats-tbody').innerHTML = alerts.map(a => `
+      <tr>
+        <td style="max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500" title="${a.title || ''}">${a.title || '--'}</td>
+        <td class="text-muted text-sm">${a.source || '--'}</td>
+        <td>${sevChip(a.severity)}</td>
+        <td class="text-sm">${a.device_hostname || '--'}</td>
+        <td class="text-mono text-sm">${a.mitre_technique_id || ''}</td>
+        <td class="text-muted text-sm">${a.detected_at ? new Date(a.detected_at).toLocaleString() : '--'}</td>
+        <td>${a.status ? `<span class="chip chip--info">${a.status}</span>` : ''}</td>
+      </tr>
+    `).join('') || '<tr><td colspan="7" class="text-muted text-sm" style="text-align:center;padding:24px">No threat alerts</td></tr>';
+
+    const start = offset + 1;
+    const end = Math.min(offset + alerts.length, totalCount);
+    document.getElementById('page-info').textContent = alerts.length ? `${start}-${end} of ${totalCount}` : '';
+    document.getElementById('btn-prev').disabled = page <= 1;
+    document.getElementById('btn-next').disabled = end >= totalCount;
+  } catch (e) {
+    document.getElementById('threats-tbody').innerHTML = `<tr><td colspan="7" class="text-muted text-sm" style="text-align:center;padding:24px">Error loading threats</td></tr>`;
+  }
+}
+
+function prevPage() { if (page > 1) { page--; loadThreats(); } }
+function nextPage() { page++; loadThreats(); }
+
+document.addEventListener('DOMContentLoaded', loadThreats);
+</script>
+{% endblock %}

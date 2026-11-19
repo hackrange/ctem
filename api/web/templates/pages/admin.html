@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% set active_nav = 'admin' %}
+
+{% block title %}Admin -- open-ctem{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-header__title">Admin</h1>
+    <p class="page-header__sub">User management, roles, and system configuration</p>
+  </div>
+  <button class="btn btn--primary btn--sm" onclick="openUserModal()">+ Add User</button>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+  <!-- Users -->
+  <div class="panel" style="padding:0">
+    <div class="panel__header"><h2 class="panel__title">Users</h2></div>
+    <table class="data-table">
+      <thead><tr><th>Username</th><th>Email</th><th>Roles</th><th>MFA</th><th>Actions</th></tr></thead>
+      <tbody id="users-tbody">
+        <tr><td colspan="5" class="text-muted text-sm" style="text-align:center;padding:20px">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Active API tokens (admin view) -->
+  <div class="panel" style="padding:0">
+    <div class="panel__header"><h2 class="panel__title">All Active Tokens</h2></div>
+    <table class="data-table">
+      <thead><tr><th>User</th><th>Token Name</th><th>Last Used</th><th>IPs</th></tr></thead>
+      <tbody id="admin-tokens-tbody">
+        <tr><td colspan="4" class="text-muted text-sm" style="text-align:center;padding:20px">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- User modal -->
+<div id="user-modal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,0.5);align-items:center;justify-content:center">
+  <div style="background:var(--surface);border-radius:8px;padding:28px;width:100%;max-width:440px;box-shadow:0 8px 32px rgba(0,0,0,.3)">
+    <h2 style="margin:0 0 16px;font-size:1.1rem">Add User</h2>
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div>
+        <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:4px">Username</label>
+        <input id="new-username" type="text" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
+      </div>
+      <div>
+        <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:4px">Email</label>
+        <input id="new-email" type="email" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
+      </div>
+      <div>
+        <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:4px">Role</label>
+        <select id="new-role" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
+          <option value="user">User</option>
+          <option value="analyst">Analyst</option>
+          <option value="admin">Admin</option>
+        </select>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:20px;justify-content:flex-end">
+      <button class="btn btn--ghost btn--sm" onclick="closeUserModal()">Cancel</button>
+      <button class="btn btn--primary btn--sm" onclick="createUser()">Create</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const API = '/api/v1';
+
+async function fetchJson(url) {
+  const res = await fetch(url, { headers: { Accept: 'application/json' } });
+  if (!res.ok) throw new Error(res.statusText);
+  return res.json();
+}
+
+async function loadUsers() {
+  try {
+    const data = await fetchJson(`${API}/admin/users`);
+    const users = data.users || [];
+    document.getElementById('users-tbody').innerHTML = users.map(u => `
+      <tr>
+        <td style="font-weight:600">${u.username}</td>
+        <td class="text-muted text-sm">${u.email || '--'}</td>
+        <td>${(u.roles || []).map(r => `<span class="chip chip--info">${r.role_name}</span>`).join(' ')}</td>
+        <td>${u.totp_enabled ? '<span style="color:var(--severity-low)">&#10003;</span>' : '<span class="text-muted">--</span>'}</td>
+        <td>
+          <button class="btn btn--ghost btn--sm" style="color:var(--severity-critical)"
+            onclick="deactivateUser('${u.id}')">
+            ${u.is_active ? 'Deactivate' : 'Activate'}
+          </button>
+        </td>
+      </tr>
+    `).join('') || '<tr><td colspan="5" class="text-muted text-sm" style="text-align:center;padding:20px">No users</td></tr>';
+  } catch (_) {}
+}
+
+async function loadAdminTokens() {
+  try {
+    const data = await fetchJson(`${API}/tokens/admin/all`);
+    const tokens = data.tokens || [];
+    document.getElementById('admin-tokens-tbody').innerHTML = tokens.map(t => `
+      <tr>
+        <td class="text-sm">${t.username || t.user_id}</td>
+        <td style="font-weight:500">${t.name}</td>
+        <td class="text-muted text-sm">${t.last_used ? new Date(t.last_used).toLocaleString() : 'Never'}</td>
+        <td class="text-mono text-sm">${(t.allowed_ips || []).slice(0, 2).join(', ')}</td>
+      </tr>
+    `).join('') || '<tr><td colspan="4" class="text-muted text-sm" style="text-align:center;padding:20px">No active tokens</td></tr>';
+  } catch (_) {}
+}
+
+async function deactivateUser(id) {
+  if (!confirm('Change user status?')) return;
+  await fetch(`${API}/admin/users/${id}/toggle`, { method: 'PATCH' });
+  loadUsers();
+}
+
+function openUserModal() { document.getElementById('user-modal').style.display = 'flex'; }
+function closeUserModal() { document.getElementById('user-modal').style.display = 'none'; }
+
+async function createUser() {
+  const username = document.getElementById('new-username').value.trim();
+  const email = document.getElementById('new-email').value.trim();
+  const role = document.getElementById('new-role').value;
+  if (!username || !email) { alert('Username and email required'); return; }
+  await fetch(`${API}/admin/users`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, email, role }),
+  });
+  closeUserModal();
+  loadUsers();
+}
+
+document.addEventListener('DOMContentLoaded', () => { loadUsers(); loadAdminTokens(); });
+document.addEventListener('click', e => { if (e.target.id === 'user-modal') closeUserModal(); });
+</script>
+{% endblock %}

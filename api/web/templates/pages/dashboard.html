@@ -323,7 +323,7 @@ async function submitTicket() {
     const findingId = findingsData?.findings?.[0]?.id;
     if (!findingId) throw new Error('No open finding found for this vulnerability');
 
-    const res = await fetch(`${API}/findings/${findingId}/ticket`, {
+    const res = await fetch(`${API}/vulns/findings/${findingId}/ticket`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ method, assignment_group: assignmentGroup, notes }),

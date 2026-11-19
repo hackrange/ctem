@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% set active_nav = 'vulns' %}
+
+{% block title %}Vulnerabilities -- open-ctem{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-header__title">Vulnerabilities</h1>
+    <p class="page-header__sub">All CVEs and scanner findings across your environment</p>
+  </div>
+  <div class="flex items-center gap-2">
+    <input id="search-input" type="search" placeholder="Search CVE, title..." class="input input--sm"
+      style="width:220px" oninput="debounceSearch(this.value)">
+    <select id="filter-kev" onchange="loadVulns()" style="padding:6px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
+      <option value="">All</option>
+      <option value="true">KEV only</option>
+    </select>
+  </div>
+</div>
+
+<div class="panel" style="padding:0">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>CVE</th>
+        <th>Title</th>
+        <th>CVSS</th>
+        <th>EPSS %</th>
+        <th>KEV</th>
+        <th>Exploit</th>
+        <th>Affected</th>
+        <th>Source</th>
+      </tr>
+    </thead>
+    <tbody id="vulns-tbody">
+      <tr><td colspan="8" class="text-muted text-sm" style="text-align:center;padding:24px">Loading...</td></tr>
+    </tbody>
+  </table>
+  <div id="pagination" style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-top:1px solid var(--border)">
+    <span id="page-info" class="text-muted text-sm"></span>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn--ghost btn--sm" id="btn-prev" onclick="prevPage()" disabled>Previous</button>
+      <button class="btn btn--ghost btn--sm" id="btn-next" onclick="nextPage()" disabled>Next</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const API = '/api/v1';
+let page = 1;
+const PAGE_SIZE = 50;
+let searchTimer = null;
+let totalCount = 0;
+
+async function fetchJson(url) {
+  const res = await fetch(url, { headers: { Accept: 'application/json' } });
+  if (!res.ok) throw new Error(res.statusText);
+  return res.json();
+}
+
+function debounceSearch(v) {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => { page = 1; loadVulns(); }, 350);
+}
+
+async function loadVulns() {
+  const kev = document.getElementById('filter-kev').value;
+  const q = document.getElementById('search-input').value.trim();
+  const offset = (page - 1) * PAGE_SIZE;
+  const params = new URLSearchParams({ limit: PAGE_SIZE, offset });
+  if (kev) params.set('is_kev', kev);
+  if (q) params.set('q', q);
+
+  try {
+    const data = await fetchJson(`${API}/vulns?${params}`);
+    const vulns = data.vulns || [];
+    totalCount = data.total || vulns.length;
+
+    document.getElementById('vulns-tbody').innerHTML = vulns.map(v => `
+      <tr>
+        <td class="text-mono text-sm">${v.cve_id || '<span class="text-muted">N/A</span>'}</td>
+        <td style="max-width:320px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${v.title || ''}">${v.title || '--'}</td>
+        <td>${v.cvss_base ? v.cvss_base.toFixed(1) : '--'}</td>
+        <td>${v.epss_score ? (v.epss_score * 100).toFixed(1) + '%' : '--'}</td>
+        <td>${v.is_kev ? '<span class="chip chip--critical">KEV</span>' : ''}</td>
+        <td>${v.exploit_available ? '<span class="chip chip--high">PoC</span>' : ''}</td>
+        <td>${v.affected_devices ?? '--'}</td>
+        <td class="text-muted text-sm">${v.source || '--'}</td>
+      </tr>
+    `).join('') || '<tr><td colspan="8" class="text-muted text-sm" style="text-align:center;padding:24px">No vulnerabilities found</td></tr>';
+
+    const start = offset + 1;
+    const end = Math.min(offset + vulns.length, totalCount);
+    document.getElementById('page-info').textContent = vulns.length ? `${start}-${end} of ${totalCount}` : '';
+    document.getElementById('btn-prev').disabled = page <= 1;
+    document.getElementById('btn-next').disabled = end >= totalCount;
+  } catch (e) {
+    document.getElementById('vulns-tbody').innerHTML = `<tr><td colspan="8" class="text-muted text-sm" style="text-align:center;padding:24px">Error loading vulnerabilities</td></tr>`;
+  }
+}
+
+function prevPage() { if (page > 1) { page--; loadVulns(); } }
+function nextPage() { page++; loadVulns(); }
+
+document.addEventListener('DOMContentLoaded', loadVulns);
+</script>
+{% endblock %}
