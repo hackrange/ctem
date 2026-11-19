@@ -1,29 +1,184 @@
 #!/usr/bin/env bash
 # open-ctem installer / upgrader -- Ubuntu 22.04+
-# Fresh install:  curl -fsSL https://raw.githubusercontent.com/hackrange/ctem/main/install.sh | bash
-# Upgrade:        bash /opt/open-ctem/install.sh  (re-run from an existing install)
 #
-# UPGRADE SAFETY:
-#   - Never overwrites .env on an existing install
-#   - Dumps the Postgres DB before pulling new code
-#   - Rolls back the git pull if the app fails to become healthy
-#   - Never removes Docker volumes (data is never wiped automatically)
+# First install:   curl -fsSL https://raw.githubusercontent.com/hackrange/ctem/main/install.sh | bash
+# Upgrade:         bash /opt/open-ctem/install.sh --upgrade
+#
+# Everything you configured the first time lives in .env and is left
+# completely alone on upgrade -- an upgrade cannot change your database,
+# move your data, or alter any setting you made.
 set -euo pipefail
 
+HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || echo /opt/open-ctem)"
 REPO="https://github.com/hackrange/ctem.git"
 INSTALL_DIR="${CTEM_DIR:-/opt/open-ctem}"
 COMPOSE_FILE="${INSTALL_DIR}/docker/docker-compose.yml"
 COMPOSE_VERSION="2.24.5"
 BACKUP_DIR="${INSTALL_DIR}/.backups"
 
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
-info()  { echo -e "${CYAN}[ctem]${NC} $*"; }
-ok()    { echo -e "${GREEN}[ctem]${NC} $*"; }
-warn()  { echo -e "${YELLOW}[ctem]${NC} $*"; }
-die()   { echo -e "${RED}[ctem] ERROR:${NC} $*" >&2; exit 1; }
+c_head=$'\033[1;36m'; c_ok=$'\033[32m'; c_warn=$'\033[33m'
+c_err=$'\033[31m';    c_dim=$'\033[2m'; c_off=$'\033[0m'
+[[ -t 1 ]] || { c_head=; c_ok=; c_warn=; c_err=; c_dim=; c_off=; }
 
-# ── OS + permissions check ────────────────────────────────────────────────────
-[[ "$(id -u)" -eq 0 ]] || die "Run as root (or with sudo bash install.sh)"
+say()  { printf '%s[ctem]%s %s\n' "$c_head" "$c_off" "$*"; }
+ok()   { printf '%s  ok%s  %s\n' "$c_ok"   "$c_off" "$*"; }
+warn() { printf '%s  !!%s  %s\n' "$c_warn" "$c_off" "$*" >&2; }
+die()  { printf '%s  xx%s  %s\n' "$c_err"  "$c_off" "$*" >&2; exit 1; }
+hint() { printf '%s     %s%s\n'  "$c_dim"  "$*"     "$c_off"; }
+
+# ── Argument parsing ──────────────────────────────────────────────────────────
+UPGRADE=0
+UPGRADE_NOW=0
+while (( $# )); do
+  case "$1" in
+    --upgrade|-u) UPGRADE=1; shift ;;
+    --now)        UPGRADE_NOW=1; shift ;;
+    -h|--help)
+      cat <<'__USAGE__'
+open-ctem install.sh -- installer and upgrader
+
+  install.sh                First time. Installs Docker if needed, clones the
+                            repo, generates .env, issues a TLS cert, and starts
+                            the stack. Asks for confirmation before launching.
+
+  install.sh --upgrade      Already installed. Backs up the database, pulls the
+                            latest code, rebuilds images, and restarts the
+                            stack. Asks nothing and never changes your .env.
+
+  install.sh --upgrade --now
+                            Same as --upgrade but restarts immediately without
+                            waiting for in-progress syncs to settle.
+
+  install.sh --help         This text.
+
+Everything you configured the first time lives in .env and is left alone
+on every upgrade, so an upgrade cannot silently change your database
+connection, encryption key, or any other setting.
+
+__USAGE__
+      exit 0 ;;
+    *) printf 'Unknown option: %s\n' "$1" >&2; exit 2 ;;
+  esac
+done
+
+# ── Permissions check ─────────────────────────────────────────────────────────
+[[ "$(id -u)" -eq 0 ]] || die "Run as root (or: sudo bash install.sh)"
+
+# ── Upgrade path ──────────────────────────────────────────────────────────────
+if (( UPGRADE )); then
+  say "open-ctem upgrade"
+
+  [[ -d "${INSTALL_DIR}/.git" ]] || die "No git checkout at ${INSTALL_DIR}. Run without --upgrade for a fresh install."
+  [[ -f "${INSTALL_DIR}/.env" ]] || die "No .env at ${INSTALL_DIR}. Run without --upgrade for a fresh install."
+
+  cd "${INSTALL_DIR}"
+
+  # 1. Abort on uncommitted local changes -- protect operator patches
+  if ! git diff --quiet || ! git diff --cached --quiet; then
+    warn "Uncommitted local changes detected in ${INSTALL_DIR}."
+    hint "Stash them first:  git -C ${INSTALL_DIR} stash"
+    die "Upgrade aborted to protect your local changes."
+  fi
+
+  # 2. Report new .env keys from .env.example (never merge automatically)
+  if [[ -f .env.example ]]; then
+    missing=""
+    while IFS='=' read -r key _; do
+      [[ -n "$key" && "$key" != \#* ]] || continue
+      grep -q "^${key}=" .env 2>/dev/null || missing="${missing} ${key}"
+    done < .env.example
+    if [[ -n "$missing" ]]; then
+      warn "New keys in .env.example not yet in .env -- add them manually if needed:"
+      for k in $missing; do hint "  $k"; done
+      echo
+    fi
+  fi
+
+  # 3. Pre-upgrade database backup
+  mkdir -p "${BACKUP_DIR}"
+  STAMP=$(date +%Y%m%d_%H%M%S)
+  BACKUP_FILE="${BACKUP_DIR}/db_pre_upgrade_${STAMP}.sql.gz"
+
+  say "Backing up database..."
+  PGUSER=$(grep '^POSTGRES_USER=' .env | cut -d= -f2)
+  PGDB=$(grep '^POSTGRES_DB=' .env   | cut -d= -f2)
+  PGUSER="${PGUSER:-ctem}"
+  PGDB="${PGDB:-ctem}"
+
+  if docker compose -f "${COMPOSE_FILE}" ps --services --filter status=running 2>/dev/null | grep -q "^db$"; then
+    if docker compose -f "${COMPOSE_FILE}" exec -T db pg_dump -U "${PGUSER}" "${PGDB}" | gzip > "${BACKUP_FILE}"; then
+      ok "Database backup: ${BACKUP_FILE}"
+    else
+      warn "Database backup failed."
+      hint "Make sure the db container is healthy: docker compose -f ${COMPOSE_FILE} ps"
+      printf 'Continue WITHOUT a backup? (yes/N): '
+      read -r CONFIRM
+      [[ "${CONFIRM}" == "yes" ]] || die "Upgrade aborted. Fix the database connection first."
+    fi
+  else
+    warn "Database container not running -- skipping backup."
+  fi
+
+  # 4. Record pre-upgrade rev for rollback
+  PRE_REV=$(git rev-parse HEAD)
+
+  # 5. Pull latest code (ff-only -- no surprise merges)
+  say "Pulling latest code..."
+  BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)
+  git fetch --quiet origin "${BRANCH}" || die "Could not fetch from origin."
+  git pull --quiet --ff-only origin "${BRANCH}" \
+    || die "Could not fast-forward. The branch has diverged; merge manually then re-run."
+
+  POST_REV=$(git rev-parse HEAD)
+  if [[ "${PRE_REV}" == "${POST_REV}" ]]; then
+    ok "Already up to date -- nothing to deploy."
+    exit 0
+  fi
+  ok "Code: ${PRE_REV:0:8} -> ${POST_REV:0:8}"
+  git log --oneline "${PRE_REV}..${POST_REV}" | sed 's/^/     /'
+
+  # 6. Pull new images + rolling restart (--volumes is NEVER passed)
+  say "Pulling updated container images..."
+  docker compose -f "${COMPOSE_FILE}" pull --quiet
+
+  say "Restarting services..."
+  docker compose -f "${COMPOSE_FILE}" up -d --remove-orphans
+
+  # 7. Health check with automatic code rollback on failure
+  say "Waiting for app to become healthy..."
+  HEALTHY=0
+  for i in $(seq 1 40); do
+    if curl -fsk https://localhost/health &>/dev/null; then
+      HEALTHY=1; break
+    fi
+    sleep 3
+  done
+
+  if (( ! HEALTHY )); then
+    warn "App did not become healthy after upgrade."
+    say "Rolling back code to ${PRE_REV:0:8}..."
+    git checkout "${PRE_REV}" -- .
+    docker compose -f "${COMPOSE_FILE}" up -d --remove-orphans
+    echo
+    die "Upgrade rolled back. DB backup: ${BACKUP_FILE}"
+  fi
+
+  docker image prune -f &>/dev/null || true
+
+  echo
+  printf '%s╔══════════════════════════════════════════╗%s\n' "$c_ok" "$c_off"
+  printf '%s║  open-ctem upgraded successfully         ║%s\n' "$c_ok" "$c_off"
+  printf '%s╚══════════════════════════════════════════╝%s\n' "$c_ok" "$c_off"
+  echo
+  hint "Version:    ${POST_REV:0:8}"
+  hint "DB backup:  ${BACKUP_FILE}"
+  hint "Logs:       docker compose -f ${COMPOSE_FILE} logs -f"
+  echo
+  exit 0
+fi
+
+# ── Fresh install path ────────────────────────────────────────────────────────
+say "open-ctem fresh install"
 
 if ! grep -qE 'Ubuntu' /etc/os-release 2>/dev/null; then
   warn "Tested on Ubuntu 22.04+. Continuing on this OS..."
@@ -31,20 +186,11 @@ fi
 VER=$(grep VERSION_ID /etc/os-release 2>/dev/null | cut -d'"' -f2 | cut -d'.' -f1)
 [[ "${VER:-0}" -ge 22 ]] || warn "Ubuntu 22+ recommended (detected ${VER:-unknown})"
 
-# ── Detect fresh install vs upgrade ──────────────────────────────────────────
-IS_UPGRADE=0
-if [[ -d "${INSTALL_DIR}/.git" ]]; then
-  IS_UPGRADE=1
-  info "Existing installation found at ${INSTALL_DIR} -- running upgrade."
-else
-  info "Fresh installation to ${INSTALL_DIR}."
-fi
-
-# ── Docker ────────────────────────────────────────────────────────────────────
+# Docker
 if ! command -v docker &>/dev/null; then
-  info "Installing Docker..."
+  say "Installing Docker..."
   apt-get update -qq
-  apt-get install -y -qq ca-certificates curl gnupg lsb-release git
+  apt-get install -y -qq ca-certificates curl gnupg lsb-release git openssl
   install -m 0755 -d /etc/apt/keyrings
   curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
     | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
@@ -56,11 +202,11 @@ if ! command -v docker &>/dev/null; then
   systemctl enable --now docker
   ok "Docker installed."
 else
-  ok "Docker already installed: $(docker --version)"
+  ok "Docker: $(docker --version)"
 fi
 
 if ! docker compose version &>/dev/null; then
-  info "Installing Docker Compose plugin..."
+  say "Installing Docker Compose plugin..."
   mkdir -p /usr/local/lib/docker/cli-plugins
   curl -fsSL "https://github.com/docker/compose/releases/download/v${COMPOSE_VERSION}/docker-compose-linux-x86_64" \
     -o /usr/local/lib/docker/cli-plugins/docker-compose
@@ -68,111 +214,16 @@ if ! docker compose version &>/dev/null; then
   ok "Docker Compose installed."
 fi
 
-# ── UPGRADE path ──────────────────────────────────────────────────────────────
-if [[ "${IS_UPGRADE}" -eq 1 ]]; then
-  cd "${INSTALL_DIR}"
-
-  # 1. Guard: uncommitted local changes abort the pull (operator may have patched something)
-  if ! git diff --quiet || ! git diff --cached --quiet; then
-    warn "Uncommitted local changes detected in ${INSTALL_DIR}."
-    warn "Stash or commit them before upgrading:"
-    warn "  git -C ${INSTALL_DIR} stash"
-    die "Aborting upgrade to protect local changes."
-  fi
-
-  # 2. Pre-upgrade database backup
-  mkdir -p "${BACKUP_DIR}"
-  STAMP=$(date +%Y%m%d_%H%M%S)
-  BACKUP_FILE="${BACKUP_DIR}/db_pre_upgrade_${STAMP}.sql.gz"
-
-  info "Backing up database to ${BACKUP_FILE}..."
-  if docker compose -f "${COMPOSE_FILE}" ps --services --filter status=running | grep -q "^db$"; then
-    if docker compose -f "${COMPOSE_FILE}" exec -T db \
-        pg_dump -U "$(grep POSTGRES_USER .env | cut -d= -f2)" \
-        "$(grep POSTGRES_DB .env | cut -d= -f2)" \
-      | gzip > "${BACKUP_FILE}"; then
-      ok "Database backup saved: ${BACKUP_FILE}"
-    else
-      warn "Database backup failed -- check that the db container is running."
-      read -rp "Continue WITHOUT a backup? (yes/N): " CONFIRM
-      [[ "${CONFIRM}" == "yes" ]] || die "Upgrade aborted. Fix the database connection first."
-    fi
-  else
-    warn "Database container not running -- skipping backup."
-    warn "If this is unexpected, start the stack first: docker compose -f ${COMPOSE_FILE} up -d"
-  fi
-
-  # 3. Record the current git rev so we can roll back
-  PRE_UPGRADE_REV=$(git -C "${INSTALL_DIR}" rev-parse HEAD)
-
-  # 4. Pull latest code
-  info "Pulling latest code..."
-  git -C "${INSTALL_DIR}" fetch origin
-  if ! git -C "${INSTALL_DIR}" merge --ff-only origin/main; then
-    die "Could not fast-forward. The branch has diverged. Merge manually then re-run."
-  fi
-  POST_UPGRADE_REV=$(git -C "${INSTALL_DIR}" rev-parse HEAD)
-
-  if [[ "${PRE_UPGRADE_REV}" == "${POST_UPGRADE_REV}" ]]; then
-    ok "Already up to date -- no new code to deploy."
-    exit 0
-  fi
-  ok "Code updated: ${PRE_UPGRADE_REV:0:8} -> ${POST_UPGRADE_REV:0:8}"
-
-  # 5. Pull new images + rolling restart (never down --volumes)
-  info "Pulling updated container images..."
-  docker compose -f "${COMPOSE_FILE}" pull --quiet
-
-  info "Restarting services (zero data loss -- volumes preserved)..."
-  docker compose -f "${COMPOSE_FILE}" up -d --remove-orphans
-
-  # 6. Health check with rollback on failure
-  info "Waiting for app to become healthy..."
-  HEALTHY=0
-  for i in $(seq 1 40); do
-    if curl -fsk https://localhost/health &>/dev/null; then
-      HEALTHY=1
-      break
-    fi
-    sleep 3
-  done
-
-  if [[ "${HEALTHY}" -eq 0 ]]; then
-    warn "App did not become healthy after upgrade."
-    warn "Rolling back code to ${PRE_UPGRADE_REV:0:8}..."
-    git -C "${INSTALL_DIR}" checkout "${PRE_UPGRADE_REV}" -- .
-    docker compose -f "${COMPOSE_FILE}" up -d --remove-orphans
-    echo
-    die "Upgrade rolled back. DB backup is at: ${BACKUP_FILE}"
-  fi
-
-  # 7. Prune dangling images to free disk (safe -- only removes untagged)
-  docker image prune -f &>/dev/null || true
-
-  echo
-  echo -e "${GREEN}╔══════════════════════════════════════════════════╗${NC}"
-  echo -e "${GREEN}║         open-ctem upgraded successfully          ║${NC}"
-  echo -e "${GREEN}╚══════════════════════════════════════════════════╝${NC}"
-  echo
-  echo -e "  Version:   ${CYAN}${POST_UPGRADE_REV:0:8}${NC}"
-  echo -e "  DB backup: ${CYAN}${BACKUP_FILE}${NC}"
-  echo -e "  Logs:      docker compose -f ${COMPOSE_FILE} logs -f"
-  echo
-  ok "Upgrade complete."
-  exit 0
-fi
-
-# ── FRESH INSTALL path ────────────────────────────────────────────────────────
 apt-get install -y -qq git openssl &>/dev/null || true
 
-info "Cloning open-ctem to ${INSTALL_DIR}..."
+say "Cloning open-ctem to ${INSTALL_DIR}..."
 git clone "${REPO}" "${INSTALL_DIR}"
 cd "${INSTALL_DIR}"
 
-# ── .env setup ────────────────────────────────────────────────────────────────
+# .env
 if [[ ! -f .env ]]; then
-  info "Generating .env from template..."
-  [[ -f .env.example ]] || die ".env.example not found in ${INSTALL_DIR}. Is the repo complete?"
+  say "Generating .env from template..."
+  [[ -f .env.example ]] || die ".env.example not found. Is the repo complete?"
   cp .env.example .env
 
   SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
@@ -188,13 +239,14 @@ if [[ ! -f .env ]]; then
   warn "Review .env before proceeding: ${INSTALL_DIR}/.env"
   warn "Set AUTH_MODE, OIDC_*, and any site-specific values."
   echo
-  read -rp "Press Enter when .env is ready (or Ctrl-C to abort and edit first): "
+  printf 'Press Enter when .env is ready (Ctrl-C to abort and edit first): '
+  read -r _
 fi
 
-# ── TLS cert (self-signed for first run) ──────────────────────────────────────
+# TLS cert
 CERT_DIR="${INSTALL_DIR}/docker/certs"
 if [[ ! -f "${CERT_DIR}/server.crt" ]]; then
-  info "Generating self-signed TLS certificate..."
+  say "Generating self-signed TLS certificate..."
   mkdir -p "${CERT_DIR}"
   openssl req -x509 -nodes -newkey rsa:2048 -days 3650 \
     -keyout "${CERT_DIR}/server.key" \
@@ -203,32 +255,29 @@ if [[ ! -f "${CERT_DIR}/server.crt" ]]; then
     -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" \
     &>/dev/null
   chmod 600 "${CERT_DIR}/server.key"
-  ok "Self-signed cert generated. Replace with a real cert at ${CERT_DIR}/"
+  ok "Self-signed cert at ${CERT_DIR}/ -- replace with a real cert when ready."
 fi
 
-# ── Launch ────────────────────────────────────────────────────────────────────
-info "Starting open-ctem..."
+say "Starting open-ctem..."
 docker compose -f "${COMPOSE_FILE}" pull --quiet
 docker compose -f "${COMPOSE_FILE}" up -d --remove-orphans
 
-info "Waiting for app to become healthy..."
+say "Waiting for app to become healthy..."
 for i in $(seq 1 30); do
-  if curl -fsk https://localhost/health &>/dev/null; then
-    break
-  fi
+  if curl -fsk https://localhost/health &>/dev/null; then break; fi
   sleep 2
-  [[ $i -eq 30 ]] && die "App did not become healthy within 60s. Check: docker compose -f ${COMPOSE_FILE} logs app"
+  [[ $i -lt 30 ]] || die "App not healthy after 60s. Check: docker compose -f ${COMPOSE_FILE} logs app"
 done
 
 echo
-echo -e "${GREEN}╔══════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║         open-ctem is running                     ║${NC}"
-echo -e "${GREEN}╚══════════════════════════════════════════════════╝${NC}"
+printf '%s╔══════════════════════════════════════════╗%s\n' "$c_ok" "$c_off"
+printf '%s║  open-ctem is running                    ║%s\n' "$c_ok" "$c_off"
+printf '%s╚══════════════════════════════════════════╝%s\n' "$c_ok" "$c_off"
 echo
-echo -e "  Web UI:    ${CYAN}https://localhost${NC}  (or your server IP)"
-echo -e "  API docs:  ${CYAN}https://localhost/api/docs${NC}"
-echo -e "  Logs:      docker compose -f ${COMPOSE_FILE} logs -f"
-echo -e "  Stop:      docker compose -f ${COMPOSE_FILE} down"
-echo -e "  Upgrade:   bash ${INSTALL_DIR}/install.sh"
+hint "Web UI:   https://localhost  (or your server IP)"
+hint "API docs: https://localhost/api/docs"
+hint "Logs:     docker compose -f ${COMPOSE_FILE} logs -f"
+hint "Stop:     docker compose -f ${COMPOSE_FILE} down"
+hint "Upgrade:  bash ${INSTALL_DIR}/install.sh --upgrade"
 echo
-ok "Done. Create your first admin user via the UI after first login."
+ok "Done. Create your first admin user via the UI."

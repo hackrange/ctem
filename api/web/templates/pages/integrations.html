@@ -16,31 +16,37 @@
   <div class="text-muted text-sm" style="grid-column:1/-1;padding:32px;text-align:center">Loading...</div>
 </div>
 
-<!-- Add/edit integration modal -->
+<!-- Add/edit modal -->
 <div id="int-modal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,0.5);align-items:center;justify-content:center">
-  <div style="background:var(--surface);border-radius:8px;padding:28px;width:100%;max-width:520px;box-shadow:0 8px 32px rgba(0,0,0,.3)">
+  <div style="background:var(--surface);border-radius:8px;padding:28px;width:100%;max-width:520px;max-height:90vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.3)">
     <h2 style="margin:0 0 16px;font-size:1.1rem" id="modal-title">Add Integration</h2>
     <div style="display:flex;flex-direction:column;gap:12px">
       <div>
-        <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:4px">Vendor</label>
+        <label class="text-sm" style="font-weight:600;display:block;margin-bottom:4px">Vendor</label>
         <select id="int-vendor" onchange="updateVendorFields()"
           style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
           <option value="">Select...</option>
         </select>
       </div>
       <div>
-        <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:4px">Label</label>
+        <label class="text-sm" style="font-weight:600;display:block;margin-bottom:4px">Label</label>
         <input id="int-label" type="text" placeholder="e.g. Production Qualys"
           style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
       </div>
       <div id="int-config-fields"></div>
+      <div>
+        <label class="text-sm" style="font-weight:600;display:block;margin-bottom:4px">Sync Schedule (cron, optional)</label>
+        <input id="int-schedule" type="text" placeholder="0 */6 * * *  (every 6 hours)"
+          style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
+      </div>
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:.9rem">
         <input type="checkbox" id="int-enabled" checked> Enabled
       </label>
     </div>
+    <div id="int-error" style="display:none;color:var(--severity-critical);font-size:.85rem;margin-top:8px"></div>
     <div style="display:flex;gap:10px;margin-top:20px;justify-content:flex-end">
       <button class="btn btn--ghost btn--sm" onclick="closeModal()">Cancel</button>
-      <button class="btn btn--primary btn--sm" onclick="saveIntegration()">Save</button>
+      <button class="btn btn--primary btn--sm" id="save-btn" onclick="saveIntegration()">Save</button>
     </div>
   </div>
 </div>
@@ -49,17 +55,54 @@
 {% block extra_scripts %}
 <script>
 const API = '/api/v1';
+let _editId = null;
 
-async function fetchJson(url) {
-  const res = await fetch(url, { headers: { Accept: 'application/json' } });
-  if (!res.ok) throw new Error(res.statusText);
+// Per-vendor field definitions: [{key, label, type, placeholder, required}]
+// Vendors not listed get the generic base_url + api_key pair.
+const VENDOR_FIELDS = {
+  ldap: [
+    {key:'host',       label:'LDAP Host',      type:'text',     placeholder:'ldap.acme.example.com', required:true},
+    {key:'port',       label:'Port',            type:'number',   placeholder:'389', required:false},
+    {key:'bind_dn',    label:'Bind DN',         type:'text',     placeholder:'CN=svc-ctem,OU=SvcAcct,DC=acme,DC=example', required:true},
+    {key:'bind_pass',  label:'Bind Password',   type:'password', placeholder:'', required:true},
+    {key:'base_dn',    label:'Base DN',         type:'text',     placeholder:'DC=acme,DC=example', required:true},
+    {key:'use_tls',    label:'Use TLS/LDAPS',   type:'checkbox', placeholder:'', required:false},
+  ],
+  servicenow: [
+    {key:'base_url',   label:'Instance URL',    type:'text',     placeholder:'https://acme.service-now.com', required:true},
+    {key:'username',   label:'Username',        type:'text',     placeholder:'svc-ctem', required:true},
+    {key:'password',   label:'Password',        type:'password', placeholder:'', required:true},
+    {key:'cmdb_table', label:'CMDB Table',      type:'text',     placeholder:'cmdb_ci_server', required:false},
+  ],
+  splunk: [
+    {key:'base_url',   label:'Splunk URL',      type:'text',     placeholder:'https://splunk.acme.example.com:8089', required:true},
+    {key:'api_key',    label:'HEC / API Token', type:'password', placeholder:'', required:true},
+    {key:'index',      label:'Index',           type:'text',     placeholder:'ctem', required:false},
+  ],
+  horizon3: [
+    {key:'base_url',   label:'NodeZero URL',    type:'text',     placeholder:'https://app.horizon3.ai', required:true},
+    {key:'api_key',    label:'API Key',         type:'password', placeholder:'', required:true},
+    {key:'org_id',     label:'Organization ID', type:'text',     placeholder:'', required:false},
+  ],
+};
+
+const INPUT_STYLE = 'width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)';
+
+async function fetchJson(url, opts) {
+  const res = await fetch(url, { headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, ...opts });
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({}));
+    throw new Error(e.detail || res.statusText);
+  }
   return res.json();
 }
 
-function statusChip(enabled, last_sync) {
+function statusChip(enabled, last_status) {
   if (!enabled) return '<span class="chip chip--info">Disabled</span>';
-  if (!last_sync) return '<span class="chip chip--medium">Never synced</span>';
-  return '<span class="chip chip--low">Active</span>';
+  if (!last_status) return '<span class="chip chip--medium">Never synced</span>';
+  if (last_status === 'success') return '<span class="chip chip--low">Active</span>';
+  if (last_status === 'failed') return '<span class="chip chip--critical">Failed</span>';
+  return '<span class="chip chip--medium">Pending</span>';
 }
 
 async function loadIntegrations() {
@@ -68,83 +111,166 @@ async function loadIntegrations() {
     const list = data.integrations || [];
     const grid = document.getElementById('integrations-grid');
     if (!list.length) {
-      grid.innerHTML = '<div style="grid-column:1/-1;padding:40px;text-align:center;color:var(--text-muted)">No integrations configured. Add one to start syncing data.</div>';
+      grid.innerHTML = '<div style="grid-column:1/-1;padding:40px;text-align:center;color:var(--text-muted)">No integrations configured. Click <b>+ Add Integration</b> to start syncing data.</div>';
       return;
     }
     grid.innerHTML = list.map(i => `
       <div class="panel" style="margin:0">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px">
           <div>
-            <div style="font-weight:600">${esc(i.label || i.vendor)}</div>
+            <div style="font-weight:600">${esc(i.name || i.vendor)}</div>
             <div class="text-muted text-sm">${esc(i.vendor)}</div>
           </div>
-          ${statusChip(i.is_enabled, i.last_sync_at)}
+          ${statusChip(i.is_enabled, i.last_sync_status)}
         </div>
         <div class="text-muted text-sm" style="margin-bottom:12px">
           Last sync: ${i.last_sync_at ? new Date(i.last_sync_at).toLocaleString() : 'Never'}
+          ${i.sync_schedule ? `&nbsp;&bull;&nbsp;<span title="cron: ${esc(i.sync_schedule)}">Scheduled</span>` : ''}
         </div>
         <div style="display:flex;gap:8px">
-          <button class="btn btn--ghost btn--sm" onclick="triggerSync('${esc(i.id)}')">Sync Now</button>
-          <button class="btn btn--ghost btn--sm" onclick="editIntegration('${esc(i.id)}')">Edit</button>
+          <button class="btn btn--ghost btn--sm" onclick="triggerSync('${esc(i.id)}',this)">Sync Now</button>
+          <button class="btn btn--ghost btn--sm" onclick="editIntegration(${JSON.stringify(i)})">Edit</button>
           <button class="btn btn--ghost btn--sm" style="color:var(--severity-critical)" onclick="deleteIntegration('${esc(i.id)}')">Remove</button>
         </div>
-      </div>
-    `).join('');
+      </div>`).join('');
   } catch (e) {
-    document.getElementById('integrations-grid').innerHTML = `<div style="grid-column:1/-1;padding:32px;text-align:center;color:var(--text-muted)">Error loading integrations</div>`;
+    document.getElementById('integrations-grid').innerHTML = '<div style="grid-column:1/-1;padding:32px;text-align:center;color:var(--text-muted)">Error loading integrations</div>';
   }
 }
 
-async function triggerSync(id) {
+async function triggerSync(id, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = 'Syncing...'; }
   try {
-    await fetch(`${API}/integrations/${id}/sync`, { method: 'POST' });
-    setTimeout(loadIntegrations, 1000);
-  } catch (_) {}
+    await fetchJson(`${API}/integrations/${encodeURIComponent(id)}/sync`, { method: 'POST' });
+    setTimeout(() => { loadIntegrations(); if (btn) { btn.disabled = false; btn.textContent = 'Sync Now'; }}, 1500);
+  } catch (_) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Sync Now'; }
+  }
 }
 
 function openAddModal() {
+  _editId = null;
+  document.getElementById('modal-title').textContent = 'Add Integration';
+  document.getElementById('int-vendor').disabled = false;
+  document.getElementById('int-label').value = '';
+  document.getElementById('int-schedule').value = '';
+  document.getElementById('int-enabled').checked = true;
+  document.getElementById('int-config-fields').innerHTML = '';
+  document.getElementById('int-error').style.display = 'none';
   document.getElementById('int-modal').style.display = 'flex';
   loadVendorOptions();
 }
 
-function closeModal() { document.getElementById('int-modal').style.display = 'none'; }
+function editIntegration(i) {
+  _editId = i.id;
+  document.getElementById('modal-title').textContent = 'Edit Integration';
+  document.getElementById('int-label').value = i.name || '';
+  document.getElementById('int-schedule').value = i.sync_schedule || '';
+  document.getElementById('int-enabled').checked = i.is_enabled !== false;
+  document.getElementById('int-error').style.display = 'none';
+  // Vendor select -- lock it on edit, just show the current vendor
+  const sel = document.getElementById('int-vendor');
+  sel.innerHTML = `<option value="${esc(i.vendor)}">${esc(i.vendor)}</option>`;
+  sel.disabled = true;
+  updateVendorFields();
+  document.getElementById('int-modal').style.display = 'flex';
+}
+
+function closeModal() {
+  document.getElementById('int-modal').style.display = 'none';
+  _editId = null;
+}
 
 async function loadVendorOptions() {
   try {
     const data = await fetchJson(`${API}/integrations/vendors`);
     const sel = document.getElementById('int-vendor');
-    sel.innerHTML = '<option value="">Select...</option>';
+    sel.innerHTML = '<option value="">Select vendor...</option>';
     (data.vendors || []).forEach(v => {
       const opt = document.createElement('option');
-      opt.value = v.id;
-      opt.textContent = v.name;
+      opt.value = v.slug;
+      opt.textContent = v.label;
       sel.appendChild(opt);
     });
   } catch (_) {}
 }
 
 function updateVendorFields() {
-  // Field schema comes from vendor metadata -- placeholder for now
-  document.getElementById('int-config-fields').innerHTML = `
-    <div>
-      <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:4px">Base URL</label>
-      <input type="text" placeholder="https://..." style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
-    </div>
-    <div>
-      <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:4px">API Key / Token</label>
-      <input type="password" placeholder="..." style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
+  const vendor = document.getElementById('int-vendor').value;
+  const container = document.getElementById('int-config-fields');
+  if (!vendor) { container.innerHTML = ''; return; }
+  const fields = VENDOR_FIELDS[vendor] || [
+    {key:'base_url', label:'Base URL',    type:'text',     placeholder:'https://...', required:true},
+    {key:'api_key',  label:'API Key',     type:'password', placeholder:'',            required:true},
+  ];
+  container.innerHTML = fields.map(f => {
+    const id = `cfg-${f.key}`;
+    if (f.type === 'checkbox') {
+      return `<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:.9rem">
+        <input type="checkbox" id="${id}"> ${esc(f.label)}</label>`;
+    }
+    return `<div>
+      <label class="text-sm" style="font-weight:600;display:block;margin-bottom:4px">${esc(f.label)}${f.required ? ' <span style="color:var(--severity-critical)">*</span>' : ''}</label>
+      <input id="${id}" type="${f.type}" placeholder="${esc(f.placeholder)}" autocomplete="off" style="${INPUT_STYLE}">
     </div>`;
+  }).join('');
+}
+
+function _collectConfig() {
+  const vendor = document.getElementById('int-vendor').value;
+  const fields = VENDOR_FIELDS[vendor] || [
+    {key:'base_url', type:'text'}, {key:'api_key', type:'password'},
+  ];
+  const cfg = {};
+  for (const f of fields) {
+    const el = document.getElementById(`cfg-${f.key}`);
+    if (!el) continue;
+    cfg[f.key] = f.type === 'checkbox' ? el.checked : el.value.trim();
+  }
+  return cfg;
 }
 
 async function saveIntegration() {
-  closeModal();
-  loadIntegrations();
+  const errEl = document.getElementById('int-error');
+  errEl.style.display = 'none';
+  const vendor = document.getElementById('int-vendor').value;
+  const name   = document.getElementById('int-label').value.trim();
+  if (!name) { errEl.textContent = 'Label is required'; errEl.style.display = 'block'; return; }
+
+  const body = {
+    vendor,
+    name,
+    config: _collectConfig(),
+    is_enabled: document.getElementById('int-enabled').checked,
+    sync_schedule: document.getElementById('int-schedule').value.trim() || null,
+  };
+
+  try {
+    if (_editId) {
+      await fetchJson(`${API}/integrations/${encodeURIComponent(_editId)}`, {
+        method: 'PUT', body: JSON.stringify({
+          name: body.name, is_enabled: body.is_enabled,
+          config: body.config, sync_schedule: body.sync_schedule,
+        }),
+      });
+    } else {
+      if (!vendor) { errEl.textContent = 'Select a vendor'; errEl.style.display = 'block'; return; }
+      await fetchJson(`${API}/integrations`, { method: 'POST', body: JSON.stringify(body) });
+    }
+    closeModal();
+    loadIntegrations();
+  } catch (e) {
+    errEl.textContent = e.message;
+    errEl.style.display = 'block';
+  }
 }
 
 async function deleteIntegration(id) {
-  if (!confirm('Remove this integration?')) return;
-  await fetch(`${API}/integrations/${id}`, { method: 'DELETE' });
-  loadIntegrations();
+  if (!confirm('Remove this integration? This cannot be undone.')) return;
+  try {
+    await fetchJson(`${API}/integrations/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    loadIntegrations();
+  } catch (e) { alert(e.message); }
 }
 
 document.addEventListener('DOMContentLoaded', loadIntegrations);
