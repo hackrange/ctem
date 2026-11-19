@@ -111,6 +111,12 @@
 </main>
 
 <script>
+  // Safe HTML escape for all API data inserted into innerHTML
+  function esc(s) {
+    if (s == null) return '';
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
+
   // Apply saved theme preference without flash
   try {
     const t = localStorage.getItem('ctem-theme');

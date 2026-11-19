@@ -92,17 +92,17 @@ async function loadTokens() {
     document.getElementById('tokens-tbody').innerHTML = tokens.map(t => `
       <tr>
         <td>
-          <div style="font-weight:600">${t.name}</div>
-          ${t.description ? `<div class="text-muted text-sm">${t.description}</div>` : ''}
+          <div style="font-weight:600">${esc(t.name)}</div>
+          ${t.description ? `<div class="text-muted text-sm">${esc(t.description)}</div>` : ''}
         </td>
-        <td class="text-mono text-sm">${(t.allowed_ips || []).join(', ') || '<span class="text-muted">none</span>'}</td>
+        <td class="text-mono text-sm">${(t.allowed_ips || []).map(esc).join(', ') || '<span class="text-muted">none</span>'}</td>
         <td class="text-muted text-sm">${t.last_used ? new Date(t.last_used).toLocaleString() : 'Never'}</td>
-        <td class="text-mono text-sm">${t.last_used_ip || '--'}</td>
+        <td class="text-mono text-sm">${esc(t.last_used_ip) || '--'}</td>
         <td class="text-muted text-sm">${t.expires_at ? new Date(t.expires_at).toLocaleDateString() : 'Never'}</td>
         <td>
           <div style="display:flex;gap:6px">
-            <button class="btn btn--ghost btn--sm" onclick="openIpsModal('${t.id}', ${JSON.stringify(t.allowed_ips || []).replace(/"/g, '&quot;')})">Edit IPs</button>
-            <button class="btn btn--ghost btn--sm" style="color:var(--severity-critical)" onclick="revokeToken('${t.id}')">Revoke</button>
+            <button class="btn btn--ghost btn--sm" onclick="openIpsModal('${esc(t.id)}', ${JSON.stringify(t.allowed_ips || []).replace(/"/g, '&quot;')})">Edit IPs</button>
+            <button class="btn btn--ghost btn--sm" style="color:var(--severity-critical)" onclick="revokeToken('${esc(t.id)}')">Revoke</button>
           </div>
         </td>
       </tr>

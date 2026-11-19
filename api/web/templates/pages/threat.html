@@ -97,13 +97,13 @@ async function loadThreats() {
 
     document.getElementById('threats-tbody').innerHTML = alerts.map(a => `
       <tr>
-        <td style="max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500" title="${a.title || ''}">${a.title || '--'}</td>
-        <td class="text-muted text-sm">${a.source || '--'}</td>
+        <td style="max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500" title="${esc(a.title || '')}">${esc(a.title) || '--'}</td>
+        <td class="text-muted text-sm">${esc(a.source) || '--'}</td>
         <td>${sevChip(a.severity)}</td>
-        <td class="text-sm">${a.device_hostname || '--'}</td>
-        <td class="text-mono text-sm">${a.mitre_technique_id || ''}</td>
+        <td class="text-sm">${esc(a.device_hostname) || '--'}</td>
+        <td class="text-mono text-sm">${esc(a.mitre_technique_id) || ''}</td>
         <td class="text-muted text-sm">${a.detected_at ? new Date(a.detected_at).toLocaleString() : '--'}</td>
-        <td>${a.status ? `<span class="chip chip--info">${a.status}</span>` : ''}</td>
+        <td>${a.status ? `<span class="chip chip--info">${esc(a.status)}</span>` : ''}</td>
       </tr>
     `).join('') || '<tr><td colspan="7" class="text-muted text-sm" style="text-align:center;padding:24px">No threat alerts</td></tr>';
 

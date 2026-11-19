@@ -34,21 +34,21 @@ async function loadChains() {
       <div class="panel" style="margin:0">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px">
           <div>
-            <div style="font-weight:600">Chain: ${c.device_hostname || c.device_id}</div>
+            <div style="font-weight:600">Chain: ${esc(c.device_hostname || c.device_id)}</div>
             <div class="text-muted text-sm">Score: ${c.chain_score?.toFixed(1) ?? '--'}
               ${c.confirmed_by_pentest ? '&nbsp;<span class="chip chip--critical">Pentest Confirmed</span>' : ''}
             </div>
           </div>
-          <span style="font-size:.8rem;color:var(--text-muted)">${c.mitre_techniques || ''}</span>
+          <span style="font-size:.8rem;color:var(--text-muted)">${esc(c.mitre_techniques) || ''}</span>
         </div>
         ${c.members?.length ? `
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
             ${c.members.map((m, i) => `
               ${i > 0 ? '<span style="color:var(--text-muted)">&#8594;</span>' : ''}
-              <span class="chip chip--high" style="font-family:monospace">${m.cve_id || m.vuln_id}</span>
+              <span class="chip chip--high" style="font-family:monospace">${esc(m.cve_id || m.vuln_id)}</span>
             `).join('')}
           </div>` : ''}
-        ${c.description ? `<p class="text-muted text-sm" style="margin:8px 0 0">${c.description}</p>` : ''}
+        ${c.description ? `<p class="text-muted text-sm" style="margin:8px 0 0">${esc(c.description)}</p>` : ''}
       </div>
     `).join('') || '<div style="padding:40px;text-align:center;color:var(--text-muted)">No attack chains detected</div>';
   } catch (e) {
