@@ -18,6 +18,10 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     _validate_config(settings)
     await init_db()
+    from api.core.db import _session_factory
+    from api.core.seed import run_seed
+    async with _session_factory() as db:
+        await run_seed(db, settings)
     yield
     await close_db()
 

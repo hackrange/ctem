@@ -82,6 +82,10 @@ class Settings(BaseSettings):
     # ── Default branding (overridden per-deployment via DB settings) ──────────
     default_app_name: str = "open-ctem"
 
+    # ── First-boot seeding (cleared / left as-is after first run) ────────────
+    initial_admin_user: str | None = None
+    initial_admin_pass: str | None = None
+
     @field_validator("encryption_key", "encryption_search_key")
     @classmethod
     def _must_be_32_bytes_hex(cls, v: str) -> str:
