@@ -112,3 +112,6 @@ static/dist/
 *.csr
 *.der
 *.cer
+
+# Test infrastructure -- never committed
+test-infra/

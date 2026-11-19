@@ -4,13 +4,14 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.exceptions import HTTPException
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from api.core.config import get_settings
 from api.core.db import close_db, init_db
-from api.core.security import RateLimitMiddleware, SecurityHeadersMiddleware
+from api.core.security import OriginCheckMiddleware, RateLimitMiddleware, SecurityHeadersMiddleware
 
 
 @asynccontextmanager
@@ -39,13 +40,15 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="open-ctem",
         version=settings.app_version,
-        docs_url="/api/docs",
-        redoc_url="/api/redoc",
-        openapi_url="/api/openapi.json",
+        # No public API map in production
+        docs_url="/api/docs" if settings.debug else None,
+        redoc_url="/api/redoc" if settings.debug else None,
+        openapi_url="/api/openapi.json" if settings.debug else None,
         lifespan=lifespan,
     )
 
     # ── Middleware (order matters -- outermost wraps everything) ──────────────
+    app.add_middleware(OriginCheckMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(RateLimitMiddleware, redis_url=settings.redis_url)
     app.add_middleware(
@@ -96,8 +99,18 @@ def create_app() -> FastAPI:
 
     # ── Health ────────────────────────────────────────────────────────────────
     @app.get("/health", include_in_schema=False)
+    @app.get("/healthz", include_in_schema=False)
     async def health():
         return {"status": "ok", "version": settings.app_version}
+
+    # ── 401: redirect browsers to login, return JSON for API clients ─────────
+    @app.exception_handler(HTTPException)
+    async def http_exception_handler(request: Request, exc: HTTPException):
+        if exc.status_code == 401:
+            accept = request.headers.get("accept", "")
+            if "text/html" in accept:
+                return RedirectResponse(url="/login", status_code=302)
+        return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
 
     # ── Generic error handler -- never leak internals ─────────────────────────
     @app.exception_handler(Exception)
@@ -110,23 +123,40 @@ def create_app() -> FastAPI:
     return app
 
 
+async def _get_branding(db) -> dict:
+    """Fetch branding settings from AppSetting table."""
+    from sqlalchemy import select
+    from api.models.settings import AppSetting
+    result = await db.execute(select(AppSetting).where(AppSetting.key.like("brand.%")))
+    return {s.key.removeprefix("brand."): s.value for s in result.scalars()}
+
+
 def _register_web_routes(app: FastAPI) -> None:
     from fastapi.responses import HTMLResponse
     from fastapi.templating import Jinja2Templates
     from fastapi import Depends
     from api.auth.middleware import get_current_user
     from api.core.page_access import can_access_page
+    from api.core.db import get_session
 
     templates = Jinja2Templates(directory="api/web/templates")
 
     def _render(template: str, slug: str):
         """Return a route handler with tag-aware page access control."""
-        async def handler(request: Request, current_user=Depends(get_current_user)):
+        async def handler(request: Request, current_user=Depends(get_current_user), db=Depends(get_session)):
             if not can_access_page(slug, current_user.role_names, current_user.allowed_page_tags):
-                # 404 not 403 -- no enumeration oracle
                 from fastapi import HTTPException
                 raise HTTPException(status_code=404)
-            return templates.TemplateResponse(template, {"request": request, "user": current_user})
+            branding = await _get_branding(db)
+            ctx = {
+                "request": request,
+                "user": current_user,
+                "app_title": branding.get("title", "open-ctem"),
+                "accent_color": branding.get("accent_color", "#f5a623"),
+                "logo_url": branding.get("logo_url"),
+                "org_name": branding.get("org_name"),
+            }
+            return templates.TemplateResponse(template, ctx)
         return handler
 
     # ── Operations ────────────────────────────────────────────────────────────
@@ -149,6 +179,9 @@ def _register_web_routes(app: FastAPI) -> None:
 
     # ── Admin ─────────────────────────────────────────────────────────────────
     app.get("/admin", response_class=HTMLResponse, include_in_schema=False)(_render("pages/admin.html", "/admin"))
+
+    # ── Profile ───────────────────────────────────────────────────────────────
+    app.get("/profile", response_class=HTMLResponse, include_in_schema=False)(_render("pages/profile.html", "/"))
 
 
 app = create_app()

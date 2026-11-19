@@ -4,7 +4,6 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, UniqueConstraint
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from api.core.encryption import EncryptedJSON, EncryptedString
@@ -30,7 +29,7 @@ class Permission(Base):
     __tablename__ = "permissions"
     __table_args__ = (UniqueConstraint("resource", "action", "scope", name="uq_perm"),)
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     resource: Mapped[str] = mapped_column(String(64), nullable=False)   # users, devices, vulns, admin...
     action: Mapped[str] = mapped_column(String(32), nullable=False)      # read, write, delete, export
     scope: Mapped[str] = mapped_column(String(32), default="all")        # all, own, tag
@@ -43,7 +42,7 @@ class RolePermission(Base):
     __tablename__ = "role_permissions"
 
     role_name: Mapped[str] = mapped_column(ForeignKey("roles.name", ondelete="CASCADE"), primary_key=True)
-    permission_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("permissions.id", ondelete="CASCADE"), primary_key=True)
+    permission_id: Mapped[str] = mapped_column(ForeignKey("permissions.id", ondelete="CASCADE"), primary_key=True)
 
     role: Mapped[Role] = relationship(back_populates="permissions")
     permission: Mapped[Permission] = relationship(back_populates="roles")
@@ -80,6 +79,9 @@ class User(Base, UUIDPrimaryKey, TimestampMixin):
     # restricted roles access specific dashboards without a full analyst role
     page_tags: Mapped[list | None] = mapped_column(EncryptedJSON, default=None)
 
+    # UI/accessibility preferences: theme, font_size, high_contrast, etc.
+    ui_prefs: Mapped[dict | None] = mapped_column(EncryptedJSON, default=None)
+
     roles: Mapped[list[UserRole]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
     @property
@@ -94,7 +96,7 @@ class User(Base, UUIDPrimaryKey, TimestampMixin):
 class UserRole(Base):
     __tablename__ = "user_roles"
 
-    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
     role_name: Mapped[str] = mapped_column(ForeignKey("roles.name", ondelete="CASCADE"), primary_key=True)
 
     user: Mapped[User] = relationship(back_populates="roles")
@@ -105,7 +107,7 @@ class ApiToken(Base, UUIDPrimaryKey, TimestampMixin):
     """Long-lived API tokens. Each token is bound to one or more allowed source IPs."""
     __tablename__ = "api_tokens"
 
-    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     description: Mapped[str | None] = mapped_column(String(256))
     token_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)  # SHA-256
@@ -115,5 +117,7 @@ class ApiToken(Base, UUIDPrimaryKey, TimestampMixin):
     last_used_ip: Mapped[str | None] = mapped_column(String(45))  # last IP that used this token
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # Per-token rate limit; None means fall back to global setting
+    rate_limit_per_minute: Mapped[int | None] = mapped_column(nullable=True)
 
     user: Mapped[User] = relationship()

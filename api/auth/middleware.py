@@ -10,6 +10,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from api.core.config import get_settings
 from api.core.db import get_session
@@ -86,7 +87,9 @@ async def get_current_user(
         raise HTTPException(401, detail="Invalid token type")
 
     user_id = claims.get("sub")
-    result = await db.execute(select(User).where(User.id == uuid.UUID(user_id)))
+    result = await db.execute(
+        select(User).where(User.id == str(user_id)).options(selectinload(User.roles))
+    )
     user = result.scalar_one_or_none()
 
     if user is None or not user.is_active or user.is_locked:
@@ -115,7 +118,9 @@ async def _authenticate_api_token(raw_token: str, request: Request, db: AsyncSes
     if not _ip_allowed(caller_ip, api_token.allowed_ips or []):
         raise HTTPException(401, detail="Invalid API token")
 
-    result2 = await db.execute(select(User).where(User.id == api_token.user_id))
+    result2 = await db.execute(
+        select(User).where(User.id == str(api_token.user_id)).options(selectinload(User.roles))
+    )
     user = result2.scalar_one_or_none()
     if user is None or not user.is_active:
         raise HTTPException(401, detail="Invalid API token")
@@ -153,7 +158,5 @@ def _ip_allowed(caller_ip: str, allowed: list[str]) -> bool:
 
 
 def _client_ip(request: Request) -> str:
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+    from api.core.security import _client_ip as real_ip
+    return real_ip(request)

@@ -69,14 +69,14 @@ async def test_create_token_defaults_to_caller_ip(client, admin_user, db):
 
     app.dependency_overrides[get_session] = lambda: db
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test", headers={"Origin": "http://test"}) as ac:
         resp = await ac.post("/api/v1/tokens", json={"name": "test-token"})
 
     assert resp.status_code == 201
     data = resp.json()
     assert "token" in data
     assert len(data["token"]) == 64
-    assert data["allowed_ips"] == ["testclient"]  # httpx test default IP
+    assert data["allowed_ips"] == ["127.0.0.1"]  # httpx ASGITransport default IP
 
 
 @pytest.mark.asyncio
@@ -90,7 +90,7 @@ async def test_create_token_with_explicit_ips(client, admin_user, db):
     app.dependency_overrides[get_current_user] = lambda: admin_user
     app.dependency_overrides[get_session] = lambda: db
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test", headers={"Origin": "http://test"}) as ac:
         resp = await ac.post("/api/v1/tokens", json={
             "name": "acme-integration",
             "allowed_ips": ["10.0.0.1", "10.0.0.2"],
@@ -111,7 +111,7 @@ async def test_create_token_invalid_ip_rejected(client, admin_user, db):
     app.dependency_overrides[get_current_user] = lambda: admin_user
     app.dependency_overrides[get_session] = lambda: db
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test", headers={"Origin": "http://test"}) as ac:
         resp = await ac.post("/api/v1/tokens", json={
             "name": "bad-token",
             "allowed_ips": ["not-an-ip-address"],
@@ -133,7 +133,7 @@ async def test_list_tokens(admin_user, db, api_token_for):
     app.dependency_overrides[get_current_user] = lambda: admin_user
     app.dependency_overrides[get_session] = lambda: db
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test", headers={"Origin": "http://test"}) as ac:
         resp = await ac.get("/api/v1/tokens")
 
     assert resp.status_code == 200

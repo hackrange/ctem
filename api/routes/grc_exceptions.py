@@ -81,7 +81,7 @@ async def create_exception(
     finding_uuid = None
     if body.finding_id:
         try:
-            finding_uuid = uuid.UUID(body.finding_id)
+            finding_uuid = str(uuid.UUID(body.finding_id))
         except ValueError:
             raise HTTPException(400, detail="invalid finding_id")
         from api.models.vuln import Finding
@@ -112,7 +112,7 @@ async def revoke_exception(
     from api.models.risk import RiskException
 
     try:
-        eid = uuid.UUID(exception_id)
+        eid = str(uuid.UUID(exception_id))
     except ValueError:
         raise HTTPException(404)
 

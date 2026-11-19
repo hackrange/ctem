@@ -1,35 +1,81 @@
 """Shared test fixtures."""
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import os
 import secrets
+import tempfile
 import uuid
 from collections.abc import AsyncGenerator
-from datetime import datetime, timezone
+
+import asyncio
 
 import pytest
 import pytest_asyncio
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from api.models.base import Base
+# --- Env vars must come before ANY app imports ---
+_TEST_SECRET = secrets.token_hex(32)
+_TEST_ENC_KEY = secrets.token_hex(32)
+_TEST_ENC_SRCH = secrets.token_hex(32)
+_DB_FILE = tempfile.mktemp(prefix="ctem_test_", suffix=".db")
 
-# In-memory SQLite for tests -- fast, no Postgres needed
-_TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
+os.environ.setdefault("DATABASE_URL", f"sqlite+aiosqlite:///{_DB_FILE}")
+os.environ.setdefault("SECRET_KEY", _TEST_SECRET)
+os.environ.setdefault("ENCRYPTION_KEY", _TEST_ENC_KEY)
+os.environ.setdefault("ENCRYPTION_SEARCH_KEY", _TEST_ENC_SRCH)
+os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
+
+from httpx import ASGITransport, AsyncClient  # noqa: E402
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine  # noqa: E402
+
+# Import all model modules so Base.metadata is fully populated before create_all
+from api.models.base import Base  # noqa: E402
+import api.models.user        # noqa: F401, E402
+import api.models.device      # noqa: F401, E402
+import api.models.vuln        # noqa: F401, E402
+import api.models.tag         # noqa: F401, E402
+import api.models.integration # noqa: F401, E402
+import api.models.settings    # noqa: F401, E402
+import api.models.identity    # noqa: F401, E402
+import api.models.risk        # noqa: F401, E402
+
+_TEST_DB_URL = os.environ["DATABASE_URL"]
+
+# Browsers send Origin on every write; the CSRF guard expects it
+_SAME_ORIGIN = {"Origin": "http://test"}
 
 
-@pytest_asyncio.fixture(scope="session")
-async def engine():
-    eng = create_async_engine(_TEST_DB_URL, echo=False)
+@pytest.fixture(scope="session")
+def event_loop():
+    """Single event loop for the whole test session so async fixtures share state."""
+    loop = asyncio.new_event_loop()
+    yield loop
+    loop.close()
+
+
+# Engine + sessionmaker created lazily inside the session-scoped fixture so they
+# live on the same event loop as the test run.
+@pytest_asyncio.fixture(scope="session", autouse=True)
+async def _test_engine():
+    eng = create_async_engine(_TEST_DB_URL, echo=False,
+                               connect_args={"check_same_thread": False})
     async with eng.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    # require_permission reads role->perm rows; prod gets these from run_seed()
+    from api.core.seed import _seed_roles_and_perms
+    async with async_sessionmaker(eng, expire_on_commit=False)() as s:
+        await _seed_roles_and_perms(s)
+        await s.commit()
     yield eng
     await eng.dispose()
+    with contextlib.suppress(OSError):
+        os.unlink(_DB_FILE)
 
 
 @pytest_asyncio.fixture
-async def db(engine) -> AsyncGenerator[AsyncSession, None]:
-    factory = async_sessionmaker(engine, expire_on_commit=False)
+async def db(_test_engine) -> AsyncGenerator[AsyncSession, None]:
+    factory = async_sessionmaker(_test_engine, expire_on_commit=False)
     async with factory() as session:
         yield session
         await session.rollback()
@@ -37,63 +83,67 @@ async def db(engine) -> AsyncGenerator[AsyncSession, None]:
 
 @pytest_asyncio.fixture
 async def client(db) -> AsyncGenerator[AsyncClient, None]:
-    """Test client with DB session override."""
     from api.core.db import get_session
     from api.main import create_app
 
-    app = create_app()
-    app.dependency_overrides[get_session] = lambda: db
+    async def _session_override():
+        yield db
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+    app = create_app()
+    app.dependency_overrides[get_session] = _session_override
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test", headers=_SAME_ORIGIN) as ac:
         yield ac
+
+
+def _authed_client(app, db, user):
+    from api.auth.middleware import get_current_user
+    from api.core.db import get_session
+
+    async def _session_override():
+        yield db
+
+    app.dependency_overrides[get_session] = _session_override
+    app.dependency_overrides[get_current_user] = lambda: user
+    return AsyncClient(transport=ASGITransport(app=app), base_url="http://test", headers=_SAME_ORIGIN)
+
+
+async def _make_user(db: AsyncSession, role: str) -> "User":
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+    from api.models.user import User, UserRole
+    uid = str(uuid.uuid4())
+    user = User(id=uid, username=f"{role}_{uuid.uuid4().hex[:6]}",
+                is_active=True, is_local=True, is_locked=False)
+    db.add(user)
+    db.add(UserRole(user_id=uid, role_name=role))
+    await db.commit()
+    # Re-query with eager-loaded roles so role_names works without lazy load
+    result = await db.execute(select(User).where(User.id == uid).options(selectinload(User.roles)))
+    return result.scalar_one()
 
 
 @pytest_asyncio.fixture
 async def admin_user(db: AsyncSession):
-    from api.models.user import User, UserRole
-    user = User(
-        id=uuid.uuid4(),
-        username=f"admin_{uuid.uuid4().hex[:6]}",
-        is_active=True,
-        is_local=True,
-        is_locked=False,
-    )
-    db.add(user)
-    db.add(UserRole(user_id=user.id, role_name="admin"))
-    await db.commit()
-    return user
+    return await _make_user(db, "admin")
 
 
 @pytest_asyncio.fixture
 async def cyber_user(db: AsyncSession):
-    from api.models.user import User, UserRole
-    user = User(
-        id=uuid.uuid4(),
-        username=f"cyber_{uuid.uuid4().hex[:6]}",
-        is_active=True,
-        is_local=True,
-        is_locked=False,
-    )
-    db.add(user)
-    db.add(UserRole(user_id=user.id, role_name="cyber"))
-    await db.commit()
-    return user
+    return await _make_user(db, "cyber")
 
 
 @pytest_asyncio.fixture
 async def db_session(db: AsyncSession):
-    """Alias so tests can be explicit about what they're writing to."""
     return db
 
 
-def _authed_client(app, db, user):
-    """Return an AsyncClient with the given user injected as current_user."""
-    from api.auth.middleware import get_current_user
-    from api.core.db import get_session
-
-    app.dependency_overrides[get_session] = lambda: db
-    app.dependency_overrides[get_current_user] = lambda: user
-    return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
+@pytest_asyncio.fixture
+async def client_admin(db: AsyncSession, admin_user) -> AsyncGenerator[AsyncClient, None]:
+    from api.main import create_app
+    app = create_app()
+    async with _authed_client(app, db, admin_user) as ac:
+        yield ac
 
 
 @pytest_asyncio.fixture
@@ -108,21 +158,19 @@ async def client_cyber(db: AsyncSession, cyber_user) -> AsyncGenerator[AsyncClie
 async def client_no_auth(db: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     from api.core.db import get_session
     from api.main import create_app
+
+    async def _session_override():
+        yield db
+
     app = create_app()
-    app.dependency_overrides[get_session] = lambda: db
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+    app.dependency_overrides[get_session] = _session_override
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test", headers=_SAME_ORIGIN) as ac:
         yield ac
 
 
 @pytest_asyncio.fixture
 async def read_only_user(db: AsyncSession):
-    from api.models.user import User, UserRole
-    user = User(id=uuid.uuid4(), username=f"ro_{uuid.uuid4().hex[:6]}",
-                is_active=True, is_local=True, is_locked=False)
-    db.add(user)
-    db.add(UserRole(user_id=user.id, role_name="read_only"))
-    await db.commit()
-    return user
+    return await _make_user(db, "read_only")
 
 
 @pytest_asyncio.fixture
@@ -135,13 +183,7 @@ async def client_read_only(db: AsyncSession, read_only_user) -> AsyncGenerator[A
 
 @pytest_asyncio.fixture
 async def it_user(db: AsyncSession):
-    from api.models.user import User, UserRole
-    user = User(id=uuid.uuid4(), username=f"it_{uuid.uuid4().hex[:6]}",
-                is_active=True, is_local=True, is_locked=False)
-    db.add(user)
-    db.add(UserRole(user_id=user.id, role_name="it_user"))
-    await db.commit()
-    return user
+    return await _make_user(db, "it_user")
 
 
 @pytest_asyncio.fixture

@@ -7,7 +7,7 @@
 <div class="page-header">
   <div>
     <h1 class="page-header__title">Security Overview</h1>
-    <p class="page-header__sub">Executive dashboard &mdash; last updated <span id="last-updated">loading...</span></p>
+    <p class="page-header__sub">Executive dashboard &middot; last updated <span id="last-updated">loading...</span></p>
   </div>
   <div class="flex items-center gap-2">
     <a href="/api/v1/cmdb/export" class="btn btn--ghost btn--sm">Export CMDB</a>
@@ -32,11 +32,11 @@
   </select>
   <select id="filter-grade" onchange="applyFilters()" title="Risk Grade">
     <option value="">All Grades</option>
-    <option value="F">F &mdash; Critical</option>
-    <option value="D">D &mdash; High</option>
-    <option value="C">C &mdash; Medium</option>
-    <option value="B">B &mdash; Low</option>
-    <option value="A">A &mdash; Minimal</option>
+    <option value="F">F: Critical</option>
+    <option value="D">D: High</option>
+    <option value="C">C: Medium</option>
+    <option value="B">B: Low</option>
+    <option value="A">A: Minimal</option>
   </select>
   <button class="btn btn--ghost btn--sm" onclick="clearFilters()">Clear</button>
 </div>
@@ -184,7 +184,7 @@
       <div>
         <label for="ticket-notes" style="font-size:.8rem;font-weight:600;display:block;margin-bottom:4px">Additional Notes <span style="color:var(--text-muted)">(optional)</span></label>
         <textarea id="ticket-notes" rows="3" placeholder="Any context for the responder..."
-          style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:.9rem;resize:vertical"></textarea>
+          style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text);font-size:.9rem;resize:vertical"></textarea>
       </div>
     </div>
 
@@ -234,8 +234,8 @@ async function loadSummary() {
     // Top 10 by score
     const top = devices.slice(0, 10);
     document.getElementById('top-devices-tbody').innerHTML = top.map(d => `
-      <tr onclick="location.href='/devices/${d.id}'">
-        <td><a href="/devices/${d.id}" style="color:inherit;text-decoration:none;font-weight:600">${d.hostname}</a></td>
+      <tr onclick="location.href='/devices/${encodeURIComponent(d.id)}'">
+        <td><a href="/devices/${encodeURIComponent(d.id)}" style="color:inherit;text-decoration:none;font-weight:600">${esc(d.hostname)}</a></td>
         <td>${gradeChip(d.risk_grade)}</td>
         <td>
           <div style="display:flex;align-items:center;gap:8px">
@@ -258,7 +258,7 @@ async function loadSummary() {
     });
     document.getElementById('env-breakdown-tbody').innerHTML = Object.entries(envMap).map(([env, v]) => `
       <tr>
-        <td>${env.replace('env:', '')}</td>
+        <td>${esc(env.replace('env:', ''))}</td>
         <td>${v.count}</td>
         <td>${(v.scores.reduce((a, b) => a + b, 0) / v.scores.length).toFixed(1)}</td>
         <td>${v.crit > 0 ? `<span class="chip chip--critical">${v.crit}</span>` : '<span class="text-muted">0</span>'}</td>
@@ -288,7 +288,7 @@ async function loadKEV() {
     const vulns = data.vulns || [];
     document.getElementById('kev-tbody').innerHTML = vulns.map(v => `
       <tr>
-        <td class="text-mono text-sm">${v.cve_id || 'N/A'}</td>
+        <td class="text-mono text-sm">${esc(v.cve_id || 'N/A')}</td>
         <td>${v.cvss_base ? v.cvss_base.toFixed(1) : '--'}</td>
         <td>${v.epss_score ? (v.epss_score * 100).toFixed(1) + '%' : '--'}</td>
         <td>${v.is_kev ? '<span class="chip chip--critical">KEV</span>' : ''}</td>
@@ -297,7 +297,7 @@ async function loadKEV() {
         <td>${v.composite_score ? v.composite_score.toFixed(1) : '--'}</td>
         <td>
           <button class="btn btn--ghost btn--sm"
-            onclick="openTicketModal('${v.id}','${v.cve_id || v.title || ''}')"
+            onclick="openTicketModal(${esc(JSON.stringify(v.id))}, ${esc(JSON.stringify(v.cve_id || v.title || ''))})"
             title="Create ServiceNow ticket">
             &#127916; Ticket
           </button>
@@ -353,10 +353,11 @@ async function submitTicket() {
 
     if (!res.ok) throw new Error(data.detail || 'Ticket creation failed');
 
-    const ticketNum = data.number || 'pending';
-    const ticketUrl = data.url ? `<a href="${data.url}" target="_blank" style="color:var(--accent)">${ticketNum}</a>` : ticketNum;
+    const ticketNum = esc(data.number || 'pending');
+    const safeUrl = /^https?:\/\//i.test(data.url || '') ? esc(data.url) : '';
+    const ticketUrl = safeUrl ? `<a href="${safeUrl}" target="_blank" rel="noopener" style="color:var(--accent)">${ticketNum}</a>` : ticketNum;
     resultEl.style.cssText = 'display:block;background:rgba(46,125,50,.15);color:var(--severity-low);border:1px solid var(--severity-low)';
-    resultEl.innerHTML = `&#10003; Ticket created: <strong>${ticketUrl}</strong>${data.sent_to ? `<br><small>Sent to ${data.sent_to}</small>` : ''}`;
+    resultEl.innerHTML = `&#10003; Ticket created: <strong>${ticketUrl}</strong>${data.sent_to ? `<br><small>Sent to ${esc(data.sent_to)}</small>` : ''}`;
     btn.textContent = 'Done';
   } catch (err) {
     resultEl.style.cssText = 'display:block;background:rgba(204,0,0,.1);color:var(--severity-critical);border:1px solid var(--severity-critical)';

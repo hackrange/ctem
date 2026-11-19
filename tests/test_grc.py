@@ -15,8 +15,8 @@ async def test_exceptions_requires_auth(client_no_auth):
 
 
 @pytest.mark.asyncio
-async def test_exceptions_read_only_denied(client_read_only):
-    r = await client_read_only.get("/api/v1/grc/exceptions")
+async def test_exceptions_it_user_denied(client_it_user):
+    r = await client_it_user.get("/api/v1/grc/exceptions")
     assert r.status_code in (401, 403)
 
 

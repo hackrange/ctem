@@ -75,6 +75,7 @@ async def create_token(
         allowed_ips=allowed_ips,
         expires_at=expires_at,
         is_active=True,
+        rate_limit_per_minute=body.rate_limit_per_minute,
     )
     db.add(api_token)
     await db.commit()
@@ -143,12 +144,12 @@ async def _get_own_token(token_id: str, user: User, db: AsyncSession) -> ApiToke
     return token
 
 
-def _parse_uuid(val: str):
+def _parse_uuid(val: str) -> str:
     import uuid
     try:
-        return uuid.UUID(val)
+        return str(uuid.UUID(val))
     except ValueError:
-        raise HTTPException(422, detail="Invalid token ID")
+        raise HTTPException(404)
 
 
 def _serialize(t: ApiToken) -> dict:
@@ -161,6 +162,7 @@ def _serialize(t: ApiToken) -> dict:
         "last_used_ip": t.last_used_ip,
         "expires_at": t.expires_at.isoformat() if t.expires_at else None,
         "created_at": t.created_at.isoformat() if t.created_at else None,
+        "rate_limit_per_minute": t.rate_limit_per_minute,
     }
 
 
@@ -183,6 +185,7 @@ class CreateTokenRequest(BaseModel):
     description: str | None = None
     allowed_ips: list[str] | None = None   # defaults to caller's IP
     expires_in_days: int | None = None
+    rate_limit_per_minute: int | None = None  # None = global default
 
     @field_validator("allowed_ips")
     @classmethod

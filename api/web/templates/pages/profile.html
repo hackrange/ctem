@@ -1,0 +1,277 @@
+{% extends "base.html" %}
+{% set active_nav = '' %}
+
+{% block title %}My Profile -- open-ctem{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-header__title">My Profile</h1>
+    <p class="page-header__sub">Account settings, accessibility, and UI preferences</p>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:860px">
+
+  <!-- Account section -->
+  <div class="panel" style="grid-column:1 / -1">
+    <h2 style="font-size:1rem;font-weight:600;margin-bottom:16px">Account</h2>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));column-gap:16px">
+      <div class="form-group">
+        <label class="form-label" for="pref-username">Username</label>
+        <input id="pref-username" type="text" class="form-control" value="{{ user.username }}" readonly aria-readonly="true">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="pref-email">Email</label>
+        <input id="pref-email" type="email" class="form-control" placeholder="you@acme.example.com" autocomplete="email" maxlength="254">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="pref-cur-pass">Current Password</label>
+        <input id="pref-cur-pass" type="password" class="form-control" placeholder="Required to change password" autocomplete="current-password">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="pref-pass">New Password</label>
+        <input id="pref-pass" type="password" class="form-control" placeholder="At least 12 characters" autocomplete="new-password" minlength="12">
+      </div>
+    </div>
+    <div style="display:flex;gap:10px">
+      <button class="btn btn--primary btn--sm" onclick="saveAccount()">Save Account</button>
+      <span id="acct-msg" class="text-sm text-muted" style="line-height:30px"></span>
+    </div>
+  </div>
+
+  <!-- Appearance -->
+  <div class="panel">
+    <h2 style="font-size:1rem;font-weight:600;margin-bottom:16px">Appearance</h2>
+    <div class="form-row">
+      <label class="field-label">Color Theme</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap" role="radiogroup" aria-label="Color theme">
+        <button class="pref-chip" data-pref="theme" data-val="system" onclick="setPref('theme','system')" aria-pressed="false">System</button>
+        <button class="pref-chip" data-pref="theme" data-val="light" onclick="setPref('theme','light')" aria-pressed="false">Light</button>
+        <button class="pref-chip" data-pref="theme" data-val="dark" onclick="setPref('theme','dark')" aria-pressed="false">Dark</button>
+      </div>
+    </div>
+    <div class="form-row" style="margin-top:16px">
+      <label class="field-label">Text Size</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap" role="radiogroup" aria-label="Text size">
+        <button class="pref-chip" data-pref="font_size" data-val="small" onclick="setPref('font_size','small')" aria-pressed="false">Small</button>
+        <button class="pref-chip" data-pref="font_size" data-val="medium" onclick="setPref('font_size','medium')" aria-pressed="false">Medium</button>
+        <button class="pref-chip" data-pref="font_size" data-val="large" onclick="setPref('font_size','large')" aria-pressed="false">Large</button>
+        <button class="pref-chip" data-pref="font_size" data-val="xlarge" onclick="setPref('font_size','xlarge')" aria-pressed="false">X-Large</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Accessibility -->
+  <div class="panel">
+    <h2 style="font-size:1rem;font-weight:600;margin-bottom:16px">Accessibility</h2>
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <label class="toggle-row" aria-label="High contrast mode">
+        <div>
+          <div style="font-size:.9rem;font-weight:500">High Contrast</div>
+          <div class="text-muted text-sm">Increases color contrast for text and borders</div>
+        </div>
+        <input type="checkbox" id="pref-contrast" role="switch" class="pref-toggle"
+          onchange="setPref('high_contrast', this.checked)">
+      </label>
+      <label class="toggle-row" aria-label="Reduce motion">
+        <div>
+          <div style="font-size:.9rem;font-weight:500">Reduce Motion</div>
+          <div class="text-muted text-sm">Disables transitions and animations</div>
+        </div>
+        <input type="checkbox" id="pref-motion" role="switch" class="pref-toggle"
+          onchange="setPref('reduce_motion', this.checked)">
+      </label>
+      <label class="toggle-row" aria-label="Dyslexia-friendly font">
+        <div>
+          <div style="font-size:.9rem;font-weight:500">Dyslexia-Friendly Font</div>
+          <div class="text-muted text-sm">Switches to OpenDyslexic for body text</div>
+        </div>
+        <input type="checkbox" id="pref-dyslexic" role="switch" class="pref-toggle"
+          onchange="setPref('dyslexic_font', this.checked)">
+      </label>
+    </div>
+  </div>
+
+  <!-- MFA section -->
+  <div class="panel" style="grid-column:1 / -1">
+    <h2 style="font-size:1rem;font-weight:600;margin-bottom:4px">Two-Factor Authentication</h2>
+    <p class="text-muted text-sm" style="margin-bottom:16px">Protect your account with an authenticator app</p>
+    <div id="mfa-status">Loading...</div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<style>
+.pref-chip {
+  padding: 6px 14px; border: 1px solid var(--border); border-radius: 20px;
+  background: var(--bg); color: var(--text); font-size: .85rem;
+  cursor: pointer; transition: background .15s, border-color .15s, color .15s;
+  font-family: inherit;
+}
+.pref-chip[aria-pressed="true"],
+.pref-chip.active {
+  background: var(--accent); border-color: var(--accent); color: #000; font-weight: 600;
+}
+.pref-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.pref-chip:hover:not(.active):not([aria-pressed="true"]) { border-color: var(--accent); color: var(--accent); }
+
+.toggle-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; cursor: pointer;
+}
+.pref-toggle {
+  appearance: none; -webkit-appearance: none;
+  width: 44px; height: 24px; background: var(--border2); border-radius: 12px;
+  position: relative; cursor: pointer; flex-shrink: 0;
+  transition: background .2s;
+}
+.pref-toggle::after {
+  content: ''; position: absolute; top: 3px; left: 3px;
+  width: 18px; height: 18px; background: #fff; border-radius: 50%;
+  transition: left .2s; box-shadow: 0 1px 3px rgba(0,0,0,.2);
+}
+.pref-toggle:checked { background: var(--accent); }
+.pref-toggle:checked::after { left: 23px; }
+.pref-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+<script>
+const API = '/api/v1';
+let _prefs = {};
+
+async function loadPrefs() {
+  try {
+    const data = await fetch(`${API}/profile/prefs`, { headers: { Accept: 'application/json' } }).then(r => r.json());
+    _prefs = data.prefs || {};
+    if (data.email) document.getElementById('pref-email').value = data.email;
+    applyPrefsToUI(_prefs);
+  } catch {}
+}
+
+function applyPrefsToUI(prefs) {
+  // Chip buttons
+  document.querySelectorAll('.pref-chip').forEach(btn => {
+    const match = prefs[btn.dataset.pref] === btn.dataset.val;
+    btn.classList.toggle('active', match);
+    btn.setAttribute('aria-pressed', match ? 'true' : 'false');
+  });
+  // Toggles
+  const map = { 'pref-contrast': 'high_contrast', 'pref-motion': 'reduce_motion', 'pref-dyslexic': 'dyslexic_font' };
+  for (const [id, key] of Object.entries(map)) {
+    const el = document.getElementById(id);
+    if (el) el.checked = !!prefs[key];
+  }
+}
+
+async function setPref(key, value) {
+  _prefs[key] = value;
+  applyPrefsToUI(_prefs);
+  applyPrefsToPage(_prefs);
+  try {
+    await fetch(`${API}/profile/prefs`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ [key]: value }),
+    });
+  } catch {}
+}
+
+function applyPrefsToPage(prefs) {
+  const root = document.documentElement;
+  // Theme
+  if (prefs.theme === 'dark') root.dataset.theme = 'dark';
+  else if (prefs.theme === 'light') root.dataset.theme = 'light';
+  else delete root.dataset.theme;
+  // Font size
+  const sizes = { small: '14px', medium: '16px', large: '18px', xlarge: '20px' };
+  document.body.style.fontSize = sizes[prefs.font_size] || '';
+  // High contrast
+  root.classList.toggle('high-contrast', !!prefs.high_contrast);
+  // Reduce motion
+  root.classList.toggle('reduce-motion', !!prefs.reduce_motion);
+}
+
+async function sendJson(url, method, body) {
+  const res = await fetch(url, {
+    method, headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(body || {}),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const d = data.detail;
+    throw new Error(Array.isArray(d) ? d.map(x => x.msg).join('; ') : (d || `Request failed (${res.status})`));
+  }
+  return data;
+}
+
+async function saveAccount() {
+  const msg = document.getElementById('acct-msg');
+  const email = document.getElementById('pref-email').value.trim();
+  const cur = document.getElementById('pref-cur-pass');
+  const pw = document.getElementById('pref-pass');
+  try {
+    await sendJson(`${API}/profile/prefs`, 'PATCH', { email: email || null });
+    if (pw.value) {
+      if (!cur.value) throw new Error('Enter your current password to set a new one.');
+      await sendJson(`${API}/profile/password`, 'POST', { current_password: cur.value, new_password: pw.value });
+      cur.value = ''; pw.value = '';
+    }
+    msg.textContent = 'Saved.';
+    setTimeout(() => { msg.textContent = ''; }, 3000);
+  } catch (e) {
+    msg.textContent = e.message;
+  }
+}
+
+async function loadMfaStatus() {
+  const el = document.getElementById('mfa-status');
+  let enabled = false;
+  try { enabled = (await fetch(`${API}/auth/totp/status`).then(r => r.json())).totp_enabled; } catch {}
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <span class="text-sm">${enabled ? 'Enabled' : 'Not set up'}</span>
+      ${enabled ? '<input id="mfa-current" class="form-control" style="max-width:160px" inputmode="numeric" maxlength="8" placeholder="Current code">' : ''}
+      <button class="btn btn--ghost btn--sm" onclick="setupMfa(${enabled})">${enabled ? 'Replace Authenticator' : 'Set Up TOTP'}</button>
+    </div>
+    <div id="mfa-qr" style="display:none;margin-top:16px"></div>
+  `;
+}
+
+async function setupMfa(enabled) {
+  const qrDiv = document.getElementById('mfa-qr');
+  qrDiv.style.display = '';
+  try {
+    const body = enabled ? { current_code: document.getElementById('mfa-current').value.trim() } : {};
+    const data = await sendJson(`${API}/auth/totp/setup`, 'POST', body);
+    qrDiv.innerHTML = `
+      <p class="text-sm" style="margin-bottom:8px">Scan this QR code with your authenticator app, then enter the code it shows.</p>
+      <div id="totp-qrcode"></div>
+      <p class="text-muted text-sm" style="margin-top:8px;font-family:monospace">${esc(data.secret)}</p>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <input id="mfa-verify" class="form-control" style="max-width:160px" inputmode="numeric" maxlength="8" placeholder="6-digit code">
+        <button class="btn btn--primary btn--sm" onclick="verifyMfa()">Verify</button>
+      </div>
+      <p id="mfa-msg" class="text-sm text-muted" style="margin-top:6px"></p>
+    `;
+    if (data.qr_png && data.qr_png.startsWith('data:image/png;base64,')) {
+      const img = document.createElement('img');
+      img.src = data.qr_png; img.alt = 'QR code'; img.width = 180; img.height = 180;
+      document.getElementById('totp-qrcode').appendChild(img);
+    }
+  } catch (e) { qrDiv.innerHTML = `<span class="text-muted text-sm">${esc(e.message)}</span>`; }
+}
+
+async function verifyMfa() {
+  const msg = document.getElementById('mfa-msg');
+  try {
+    await sendJson(`${API}/auth/totp/verify`, 'POST', { code: document.getElementById('mfa-verify').value.trim() });
+    loadMfaStatus();
+  } catch (e) { msg.textContent = e.message; }
+}
+
+document.addEventListener('DOMContentLoaded', () => { loadPrefs(); loadMfaStatus(); });
+</script>
+<!-- QR codes are server-rendered as PNG data URIs; no CDN needed -->
+{% endblock %}

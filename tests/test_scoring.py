@@ -11,32 +11,32 @@ from api.scoring.chain import detect_chains, chain_score
 
 def test_score_finding_kev_floor():
     """KEV finding must score at least 75 regardless of CVSS."""
-    score = score_finding(
+    score, _ = score_finding(
         cvss_base=2.0, epss_score=0.001, is_kev=True,
-        asset_criticality=1, is_reachable=False, ctx=ControlContext(),
+        asset_criticality=0.2, is_reachable=False, ctx=ControlContext(),
     )
     assert score >= 75
 
 
 def test_score_finding_no_kev_low_cvss():
-    score = score_finding(
+    score, _ = score_finding(
         cvss_base=2.0, epss_score=0.001, is_kev=False,
-        asset_criticality=1, is_reachable=False, ctx=ControlContext(),
+        asset_criticality=0.2, is_reachable=False, ctx=ControlContext(),
     )
     assert score < 30
 
 
 def test_score_finding_high_epss_boosts():
-    low = score_finding(2.0, 0.01, False, 3, True, ControlContext())
-    high = score_finding(2.0, 0.90, False, 3, True, ControlContext())
+    low, _ = score_finding(2.0, 0.01, False, 0.6, True, ControlContext())
+    high, _ = score_finding(2.0, 0.90, False, 0.6, True, ControlContext())
     assert high > low
 
 
 def test_score_finding_capped_at_100():
-    score = score_finding(
+    score, _ = score_finding(
         cvss_base=10.0, epss_score=1.0, is_kev=True,
-        asset_criticality=5, is_reachable=True,
-        ctx=ControlContext(nodezero_confirmed=True, internet_exposed=True),
+        asset_criticality=1.0, is_reachable=True,
+        ctx=ControlContext(nodezero_confirmed_exploitable=True, is_internet_exposed=True),
     )
     assert score <= 100
 
@@ -45,7 +45,7 @@ def test_score_finding_capped_at_100():
 
 def test_nodezero_not_exploitable_reduces():
     base = 60.0
-    ctx = ControlContext(nodezero_not_exploitable=True)
+    ctx = ControlContext(nodezero_confirmed_not_exploitable=True)
     result, reasons = apply_multipliers(base, ctx)
     assert result < base
     assert any("not exploitable" in r.lower() for r in reasons)
@@ -53,7 +53,7 @@ def test_nodezero_not_exploitable_reduces():
 
 def test_nodezero_confirmed_increases():
     base = 50.0
-    ctx = ControlContext(nodezero_confirmed=True)
+    ctx = ControlContext(nodezero_confirmed_exploitable=True)
     result, _ = apply_multipliers(base, ctx)
     assert result > base
 
@@ -67,7 +67,7 @@ def test_edr_active_reduces():
 
 def test_contradictory_controls_net_applied():
     # Both confirmed exploitable AND EDR active -- net result depends on order
-    ctx = ControlContext(nodezero_confirmed=True, edr_active=True)
+    ctx = ControlContext(nodezero_confirmed_exploitable=True, edr_active=True)
     base = 50.0
     result, reasons = apply_multipliers(base, ctx)
     assert 0 < result <= 100  # still bounded
@@ -86,19 +86,19 @@ def test_device_grade(score, expected):
 # ── compute_device_score ──────────────────────────────────────────────────────
 
 def test_compute_device_score_empty():
-    score = compute_device_score([])
-    assert score == 0.0
+    score, grade = compute_device_score([])
+    assert (score, grade) == (0.0, "A")
 
 
 def test_compute_device_score_uses_p90():
     # p90 means top 10% of findings; a single high score should dominate
     findings = [
-        {"cvss_base": 9.5, "epss_score": 0.9, "is_kev": True, "asset_criticality": 5,
-         "is_reachable": True, "compensating": {}},
-        *[{"cvss_base": 1.0, "epss_score": 0.001, "is_kev": False, "asset_criticality": 1,
-           "is_reachable": False, "compensating": {}} for _ in range(9)],
+        {"cvss_base": 9.5, "epss_score": 0.9, "is_kev": True, "asset_criticality": 1.0,
+         "is_reachable": True},
+        *[{"cvss_base": 1.0, "epss_score": 0.001, "is_kev": False, "asset_criticality": 0.2,
+           "is_reachable": False} for _ in range(9)],
     ]
-    score = compute_device_score(findings)
+    score, _ = compute_device_score(findings)
     assert score > 50  # dominated by the critical finding
 
 
@@ -109,7 +109,7 @@ def test_user_score_no_mfa_penalty():
         device_scores=[30.0], ad_groups=[], mfa_enabled=False,
         is_service_account=False, last_login_days_ago=1, saas_risk_score=0,
     )
-    assert breakdown.get("no_mfa", 0) > 0
+    assert breakdown.get("no_mfa_penalty", 0) > 0
 
 
 def test_user_score_privileged_group_penalty():
@@ -117,7 +117,7 @@ def test_user_score_privileged_group_penalty():
         device_scores=[30.0], ad_groups=["Domain Admins"], mfa_enabled=True,
         is_service_account=False, last_login_days_ago=1, saas_risk_score=0,
     )
-    assert breakdown.get("privileged_groups", 0) > 0
+    assert breakdown.get("privileged_group_penalty", 0) > 0
 
 
 def test_user_score_service_account_penalty():
@@ -125,7 +125,7 @@ def test_user_score_service_account_penalty():
         device_scores=[], ad_groups=[], mfa_enabled=False,
         is_service_account=True, last_login_days_ago=1, saas_risk_score=0,
     )
-    assert breakdown.get("service_account", 0) > 0
+    assert breakdown.get("service_account_penalty", 0) > 0
 
 
 def test_user_score_capped_at_100():

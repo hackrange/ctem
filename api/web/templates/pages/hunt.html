@@ -15,14 +15,15 @@
   <div style="display:flex;gap:10px;align-items:flex-end">
     <div style="flex:1">
       <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:4px">Hunt Query</label>
-      <input id="hunt-query" type="text" placeholder='e.g. "Show me all RCE findings on internet-exposed hosts this week"'
-        style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:.9rem"
-        onkeydown="if(event.key==='Enter') runHunt()">
+      <textarea id="hunt-query" rows="1" placeholder='e.g. "Show me all RCE findings on internet-exposed hosts this week"'
+        style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text);font-size:.9rem;resize:none;overflow:hidden;line-height:1.5;box-sizing:border-box"
+        oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"
+        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();runHunt()}"></textarea>
     </div>
     <div>
       <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:4px">Asset Hint</label>
       <input id="hunt-asset" type="text" placeholder="optional hostname/IP"
-        style="width:180px;padding:10px 12px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:.9rem">
+        style="width:180px;padding:10px 12px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text);font-size:.9rem">
     </div>
     <button class="btn btn--primary" onclick="runHunt()" id="hunt-btn">Hunt</button>
   </div>
@@ -110,15 +111,32 @@ function pollResult(taskId) {
         status('AI still analyzing...');
         pollResult(taskId);
       } else {
-        showResults(data.results || [], '');
+        const analysis = data.result && data.result.analysis;
+        if (analysis) showAnalysis(analysis);
+        else showResults(data.results || [], '');
         document.getElementById('hunt-btn').disabled = false;
         document.getElementById('hunt-btn').textContent = 'Hunt';
-        status('Hunt complete', 'success');
+        if (data.status === 'failed' || (data.result && data.result.error)) status('AI analysis failed', 'error');
+        else status('Hunt complete', 'success');
       }
     } catch (e) {
       status('Error polling: ' + e.message, 'error');
     }
   }, 2000);
+}
+
+function showAnalysis(text) {
+  document.getElementById('hunt-results').style.display = 'block';
+  document.getElementById('results-title').textContent = 'AI analysis';
+  document.getElementById('results-head').innerHTML = '';
+  const td = document.createElement('td');
+  td.className = 'text-sm';
+  td.style.whiteSpace = 'pre-wrap';
+  td.textContent = text;
+  const tr = document.createElement('tr');
+  tr.appendChild(td);
+  const body = document.getElementById('results-tbody');
+  body.replaceChildren(tr);
 }
 
 function showResults(results, query) {
@@ -129,20 +147,23 @@ function showResults(results, query) {
     return;
   }
   const keys = Object.keys(results[0]);
-  document.getElementById('results-head').innerHTML = keys.map(k => `<th>${k}</th>`).join('');
+  // Log data is attacker-controlled text: escape every key and value
+  const cell = v => esc(v !== null && typeof v === 'object' ? JSON.stringify(v) : (v ?? ''));
+  document.getElementById('results-head').innerHTML = keys.map(k => `<th>${esc(k)}</th>`).join('');
   document.getElementById('results-tbody').innerHTML = results.map(r =>
-    `<tr>${keys.map(k => `<td class="text-sm">${r[k] ?? ''}</td>`).join('')}</tr>`
+    `<tr>${keys.map(k => `<td class="text-sm">${cell(r[k])}</td>`).join('')}</tr>`
   ).join('');
 }
 
 async function loadCatalog() {
   try {
     const data = await fetchJson(`${API}/hunt/splunk/catalog`);
-    const searches = data.searches || [];
+    const searches = data.catalog || data.searches || [];
     document.getElementById('spl-catalog').innerHTML = searches.length
       ? searches.map(s => `
         <div style="margin-bottom:12px;padding:10px 12px;background:var(--surface);border-radius:4px;border:1px solid var(--border)">
-          <div style="font-weight:600;font-size:.85rem;margin-bottom:4px">${esc(s.name || s.label || 'Search')}</div>
+          <div style="font-weight:600;font-size:.85rem;margin-bottom:4px">${esc(s.title || s.name || 'Search')}</div>
+          ${s.description ? `<div class="text-muted text-sm" style="margin-bottom:4px">${esc(s.description)}</div>` : ''}
           <code style="font-size:.78rem;color:var(--text-muted)">${esc(s.spl || s.query || '')}</code>
         </div>`).join('')
       : '<span class="text-muted">No SPL catalog available -- configure Splunk integration to enable</span>';

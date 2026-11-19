@@ -49,14 +49,37 @@ async def init_db() -> None:
     import api.models.settings      # noqa: F401
     import api.models.identity      # noqa: F401
 
+    # Enum values must be added outside any transaction (Postgres requirement)
+    async with _engine.connect() as conn:
+        ac = await conn.execution_options(isolation_level="AUTOCOMMIT")
+        await ac.run_sync(_evolve_enums, Base.metadata)
+
     async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)   # new tables only
         await conn.run_sync(_evolve, Base.metadata)      # columns + indexes for existing
 
-    await _seed_builtin_roles()
+    await _run_seed()
 
 
 # ── Schema evolution (forward-only, non-destructive) ─────────────────────────
+
+def _evolve_enums(conn, metadata) -> None:
+    """Add any new enum values to existing Postgres ENUM types (autocommit required)."""
+    for table in metadata.sorted_tables:
+        for col in table.columns:
+            if not hasattr(col.type, "enums"):
+                continue
+            type_name = getattr(col.type, "name", None)
+            if not type_name:
+                continue
+            for val in col.type.enums:
+                try:
+                    conn.execute(text(
+                        f"ALTER TYPE {type_name} ADD VALUE IF NOT EXISTS :v"
+                    ), {"v": val})
+                except Exception as exc:
+                    log.debug("enum evolve skip %s.%s: %s", type_name, val, exc)
+
 
 def _evolve(conn, metadata) -> None:  # noqa: ANN001
     """
@@ -123,28 +146,40 @@ def _evolve(conn, metadata) -> None:  # noqa: ANN001
                 log.warning("auto-migrate: skipped index %s -- %s", idx.name, exc)
 
 
-# ── Built-in roles seed ───────────────────────────────────────────────────────
+# ── Seed on startup ───────────────────────────────────────────────────────────
 
-async def _seed_builtin_roles() -> None:
-    from api.models.user import Role
-
-    builtin = [
-        ("admin",                "Administrator",        "Full access including configuration"),
-        ("cyber",                "Cyber",                "All assets and findings, read-write on remediation"),
-        ("it_user",              "IT User",              "Own assets and assigned devices only"),
-        ("business_stakeholder", "Business Stakeholder", "Risk summary for assigned business unit"),
-        ("read_only",            "Read Only",            "Configurable read-only scope"),
-    ]
-
-    async with get_session() as db:
-        for name, display, desc in builtin:
-            existing = await db.get(Role, name)
-            if existing is None:
-                db.add(Role(name=name, display_name=display, description=desc, is_builtin=True))
-        await db.commit()
+async def _run_seed() -> None:
+    from api.core.seed import run_seed
+    settings = get_settings()
+    async with _session_factory() as db:
+        await run_seed(db, settings)
 
 
 # ── Session helpers ───────────────────────────────────────────────────────────
+
+def init_db_worker() -> None:
+    """Set up engine/session for Celery workers -- NullPool so each asyncio.run() gets fresh connections."""
+    global _engine, _session_factory
+    if _session_factory is not None:
+        return
+    from sqlalchemy.pool import NullPool
+    settings = get_settings()
+    _engine = create_async_engine(
+        settings.database_url,
+        poolclass=NullPool,
+        echo=settings.debug,
+    )
+    _session_factory = async_sessionmaker(_engine, expire_on_commit=False)
+    # All models must be imported so SQLAlchemy can resolve relationships
+    import api.models.user          # noqa: F401
+    import api.models.device        # noqa: F401
+    import api.models.vuln          # noqa: F401
+    import api.models.risk          # noqa: F401
+    import api.models.integration   # noqa: F401
+    import api.models.tag           # noqa: F401
+    import api.models.settings      # noqa: F401
+    import api.models.identity      # noqa: F401
+
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
     if _session_factory is None:
