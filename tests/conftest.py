@@ -1,0 +1,102 @@
+"""Shared test fixtures."""
+from __future__ import annotations
+
+import hashlib
+import secrets
+import uuid
+from collections.abc import AsyncGenerator
+from datetime import datetime, timezone
+
+import pytest
+import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+from api.models.base import Base
+
+# In-memory SQLite for tests -- fast, no Postgres needed
+_TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
+
+
+@pytest_asyncio.fixture(scope="session")
+async def engine():
+    eng = create_async_engine(_TEST_DB_URL, echo=False)
+    async with eng.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    yield eng
+    await eng.dispose()
+
+
+@pytest_asyncio.fixture
+async def db(engine) -> AsyncGenerator[AsyncSession, None]:
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with factory() as session:
+        yield session
+        await session.rollback()
+
+
+@pytest_asyncio.fixture
+async def client(db) -> AsyncGenerator[AsyncClient, None]:
+    """Test client with DB session override."""
+    from api.core.db import get_session
+    from api.main import create_app
+
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: db
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        yield ac
+
+
+@pytest_asyncio.fixture
+async def admin_user(db: AsyncSession):
+    from api.models.user import User, UserRole
+    user = User(
+        id=uuid.uuid4(),
+        username=f"admin_{uuid.uuid4().hex[:6]}",
+        is_active=True,
+        is_local=True,
+        is_locked=False,
+    )
+    db.add(user)
+    db.add(UserRole(user_id=user.id, role_name="admin"))
+    await db.commit()
+    return user
+
+
+@pytest_asyncio.fixture
+async def cyber_user(db: AsyncSession):
+    from api.models.user import User, UserRole
+    user = User(
+        id=uuid.uuid4(),
+        username=f"cyber_{uuid.uuid4().hex[:6]}",
+        is_active=True,
+        is_local=True,
+        is_locked=False,
+    )
+    db.add(user)
+    db.add(UserRole(user_id=user.id, role_name="cyber"))
+    await db.commit()
+    return user
+
+
+@pytest_asyncio.fixture
+async def api_token_for(db: AsyncSession):
+    """Factory: returns (plain_token, ApiToken) for a given user and allowed IP."""
+    from api.models.user import ApiToken
+
+    async def _make(user, allowed_ip="127.0.0.1"):
+        plain = secrets.token_hex(32)
+        token_hash = hashlib.sha256(plain.encode()).hexdigest()
+        t = ApiToken(
+            user_id=user.id,
+            name="test-token",
+            token_hash=token_hash,
+            allowed_ips=[allowed_ip],
+            is_active=True,
+        )
+        db.add(t)
+        await db.commit()
+        return plain, t
+
+    return _make
