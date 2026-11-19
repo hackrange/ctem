@@ -64,6 +64,20 @@
     </div>
   </div>
 </div>
+
+<!-- Page access tags modal -->
+<div id="tag-modal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,0.5);align-items:center;justify-content:center">
+  <div style="background:var(--surface);border-radius:8px;padding:28px;width:100%;max-width:460px;box-shadow:0 8px 32px rgba(0,0,0,.3)">
+    <h2 style="margin:0 0 8px;font-size:1.05rem" id="tag-modal-title">Page Access Tags</h2>
+    <p class="text-muted text-sm" style="margin:0 0 16px">Comma-separated tags (e.g. <code>identity, grc, vuln</code>). Grants access to pages whose tag list intersects -- without promoting to analyst role. Available page tags: <code>dashboard, devices, cmdb, vuln, cve, threat, soc, identity, itdr, saas, hunt, grc, risk, compliance, admin</code></p>
+    <input id="tag-input" type="text" placeholder="identity, grc"
+      style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:.9rem;box-sizing:border-box">
+    <div style="display:flex;gap:10px;margin-top:16px;justify-content:flex-end">
+      <button class="btn btn--ghost btn--sm" onclick="closeTagModal()">Cancel</button>
+      <button class="btn btn--primary btn--sm" onclick="savePageTags()">Save</button>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block extra_scripts %}
@@ -87,13 +101,17 @@ async function loadUsers() {
         <td>${(u.roles || []).map(r => `<span class="chip chip--info">${esc(r.role_name)}</span>`).join(' ')}</td>
         <td>${u.totp_enabled ? '<span style="color:var(--severity-low)">&#10003;</span>' : '<span class="text-muted">--</span>'}</td>
         <td>
+          <span class="text-muted text-sm">${(u.page_tags||[]).map(t=>`<span class="chip chip--info">${esc(t)}</span>`).join(' ')||'--'}</span>
+          <button class="btn btn--ghost btn--sm" onclick="openTagModal('${esc(u.id)}','${esc(u.username)}',${JSON.stringify(u.page_tags||[])})">Edit</button>
+        </td>
+        <td>
           <button class="btn btn--ghost btn--sm" style="color:var(--severity-critical)"
             onclick="deactivateUser('${esc(u.id)}')">
             ${u.is_active ? 'Deactivate' : 'Activate'}
           </button>
         </td>
       </tr>
-    `).join('') || '<tr><td colspan="5" class="text-muted text-sm" style="text-align:center;padding:20px">No users</td></tr>';
+    `).join('') || '<tr><td colspan="6" class="text-muted text-sm" style="text-align:center;padding:20px">No users</td></tr>';
   } catch (_) {}
 }
 
@@ -110,6 +128,31 @@ async function loadAdminTokens() {
       </tr>
     `).join('') || '<tr><td colspan="4" class="text-muted text-sm" style="text-align:center;padding:20px">No active tokens</td></tr>';
   } catch (_) {}
+}
+
+// ── Page tags modal ───────────────────────────────────────────────────────────
+
+let _tagUserId = null;
+
+function openTagModal(id, username, tags) {
+  _tagUserId = id;
+  document.getElementById('tag-modal-title').textContent = `Page Access Tags: ${username}`;
+  document.getElementById('tag-input').value = (tags || []).join(', ');
+  document.getElementById('tag-modal').style.display = 'flex';
+}
+
+function closeTagModal() { document.getElementById('tag-modal').style.display = 'none'; }
+
+async function savePageTags() {
+  const raw = document.getElementById('tag-input').value;
+  const tags = raw.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
+  await fetch(`${API}/admin/users/${_tagUserId}/page-tags`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ page_tags: tags }),
+  });
+  closeTagModal();
+  loadUsers();
 }
 
 async function deactivateUser(id) {
@@ -136,6 +179,9 @@ async function createUser() {
 }
 
 document.addEventListener('DOMContentLoaded', () => { loadUsers(); loadAdminTokens(); });
-document.addEventListener('click', e => { if (e.target.id === 'user-modal') closeUserModal(); });
+document.addEventListener('click', e => {
+  if (e.target.id === 'user-modal') closeUserModal();
+  if (e.target.id === 'tag-modal') closeTagModal();
+});
 </script>
 {% endblock %}

@@ -80,14 +80,81 @@ async def recalculate_device(device: Device, db: AsyncSession) -> RiskScore:
     return risk
 
 
+async def recalculate_user(user_model, db: AsyncSession) -> RiskScore | None:
+    """
+    Recalculate risk score for a single user, pulling composite_identity_score
+    from IdentityRiskScore (Grip ITDR + posture + shadow SaaS/AI) if available.
+    """
+    from api.core.encryption import search_hash
+    from api.models.identity import IdentityRiskScore
+
+    email = getattr(user_model, "email", None)
+    identity_score: float | None = None
+
+    if email:
+        try:
+            h = search_hash(email.lower())
+            id_result = await db.execute(
+                select(IdentityRiskScore).where(IdentityRiskScore.user_email_hash == h)
+            )
+            id_row = id_result.scalar_one_or_none()
+            if id_row:
+                # Scale 0-100 to 0-5 for user_score's saas_risk_score param
+                identity_score = id_row.composite_identity_score / 20.0
+        except Exception:
+            pass
+
+    # Gather devices this user owns for blast radius calculation
+    from api.models.device import Device as DeviceModel
+    dev_result = await db.execute(
+        select(DeviceModel).where(DeviceModel.owner_user_id == user_model.id)
+    )
+    devices = dev_result.scalars().all()
+    device_scores = [d.risk_score for d in devices if d.risk_score is not None]
+
+    score, grade, _ = compute_user_score(
+        device_scores=device_scores,
+        ad_groups=getattr(user_model, "ad_groups", []) or [],
+        mfa_enabled=getattr(user_model, "totp_enabled", False),
+        is_service_account=getattr(user_model, "is_service_account", False),
+        last_login_days_ago=_days_since(getattr(user_model, "last_login", None)),
+        saas_risk_score=identity_score,
+    )
+
+    result = await db.execute(
+        select(RiskScore).where(
+            RiskScore.entity_type == "user",
+            RiskScore.entity_id == user_model.id,
+        )
+    )
+    risk = result.scalar_one_or_none() or RiskScore(entity_type="user", entity_id=user_model.id)
+    risk.score = score
+    risk.grade = grade
+    risk.calculated_at = datetime.now(timezone.utc)
+    db.add(risk)
+    db.add(RiskScoreHistory(entity_type="user", entity_id=user_model.id,
+                            score=score, grade=grade, recorded_at=risk.calculated_at))
+    await db.commit()
+    return risk
+
+
 async def recalculate_all(db: AsyncSession) -> None:
     """Scheduled task: recalculate every device and user score."""
+    from api.models.user import User as UserModel
+
     devices_result = await db.execute(select(Device))
     for device in devices_result.scalars():
         try:
             await recalculate_device(device, db)
         except Exception:
-            pass  # one bad device doesn't kill the whole batch
+            pass
+
+    users_result = await db.execute(select(UserModel).where(UserModel.is_active == True))  # noqa: E712
+    for user in users_result.scalars():
+        try:
+            await recalculate_user(user, db)
+        except Exception:
+            pass
 
 
 def _days_since(dt: datetime | None) -> int:
