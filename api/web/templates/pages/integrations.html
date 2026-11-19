@@ -100,6 +100,7 @@ const VENDOR_FIELDS = {
     {key:'bind_pass',  label:'Bind Password',   type:'password', placeholder:'', required:true},
     {key:'base_dn',    label:'Base DN',         type:'text',     placeholder:'DC=acme,DC=example', required:true},
     {key:'use_tls',    label:'Use TLS/LDAPS',   type:'checkbox', placeholder:'', required:false},
+    {key:'tls_skip_verify', label:'Skip certificate check (lab only)', type:'checkbox', placeholder:'', required:false},
     {key:'ldap_type',  label:'LDAP Flavor',     type:'select',   options:['ad','openldap'], placeholder:'', required:false},
   ],
   // ── ITSM ──────────────────────────────────────────────────────────────────

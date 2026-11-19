@@ -40,7 +40,10 @@ class LDAPConnector(BaseConnector):
         # UI sends use_tls, some configs use use_ssl -- accept both
         use_ssl = self.config.get("use_ssl", self.config.get("use_tls", False))
         port = int(self.config.get("port", 636 if use_ssl else 389))
-        tls = Tls(validate=__import__("ssl").CERT_NONE) if use_ssl else None
+        import ssl
+        # Verify LDAPS certs unless an admin explicitly opts out for a lab box
+        skip = str(self.config.get("tls_skip_verify", "")).lower() in ("true", "1", "yes", "on")
+        tls = Tls(validate=ssl.CERT_NONE if skip else ssl.CERT_REQUIRED) if use_ssl else None
         server = Server(host, port=port, use_ssl=use_ssl, tls=tls, get_info=ALL)
         # UI sends bind_pass, some configs use bind_password
         password = self.config.get("bind_password") or self.config.get("bind_pass", "")
