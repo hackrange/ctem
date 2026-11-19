@@ -54,6 +54,31 @@ class Settings(BaseSettings):
     allowed_hosts: str = "localhost"
     app_version: str = "1.0.1"
 
+    # ── Email ─────────────────────────────────────────────────────────────────
+    # EMAIL_MODE: smtp | ms365 | disabled
+    email_mode: Literal["smtp", "ms365", "disabled"] = "disabled"
+
+    # SMTP settings (used when email_mode=smtp)
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_from: str = "open-ctem@example.com"
+    smtp_tls: bool = True                      # True=STARTTLS, port 465 uses implicit TLS
+
+    # Microsoft 365 Graph API (used when email_mode=ms365)
+    ms365_tenant_id: str | None = None
+    ms365_client_id: str | None = None
+    ms365_client_secret: str | None = None
+    ms365_from_address: str | None = None      # UPN of the mailbox to send from
+
+    # ServiceNow inbound email (optional -- used when creating tickets via email)
+    servicenow_inbound_email: str | None = None
+
+    # ── AI ────────────────────────────────────────────────────────────────────
+    ai_api_key: str | None = None
+    ai_model: str = "claude-haiku-5-5"
+
     # ── Default branding (overridden per-deployment via DB settings) ──────────
     default_app_name: str = "open-ctem"
 

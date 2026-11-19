@@ -135,13 +135,55 @@
           <th>KEV</th>
           <th>In Chain</th>
           <th>Affected Devices</th>
-          <th>Composite Score</th>
+          <th>Score</th>
+          <th>Actions</th>
         </tr>
       </thead>
       <tbody id="kev-tbody">
-        <tr><td colspan="7" class="text-muted text-sm" style="text-align:center;padding:20px">Loading...</td></tr>
+        <tr><td colspan="8" class="text-muted text-sm" style="text-align:center;padding:20px">Loading...</td></tr>
       </tbody>
     </table>
+  </div>
+</div>
+
+<!-- Ticket creation modal -->
+<div id="ticket-modal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,0.5);align-items:center;justify-content:center">
+  <div style="background:var(--surface);border-radius:8px;padding:28px;width:100%;max-width:480px;box-shadow:0 8px 32px rgba(0,0,0,0.3)">
+    <h2 style="margin:0 0 4px;font-size:1.1rem">Create ServiceNow Ticket</h2>
+    <p id="ticket-modal-cve" style="color:var(--text-muted);font-size:.85rem;margin:0 0 20px;font-family:monospace"></p>
+
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div>
+        <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:4px">Create via</label>
+        <div style="display:flex;gap:12px">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="radio" name="ticket-method" value="api" checked> ServiceNow API
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="radio" name="ticket-method" value="email"> Inbound Email
+          </label>
+        </div>
+      </div>
+
+      <div>
+        <label for="ticket-assignment" style="font-size:.8rem;font-weight:600;display:block;margin-bottom:4px">Assignment Group <span style="color:var(--text-muted)">(optional)</span></label>
+        <input id="ticket-assignment" type="text" placeholder="e.g. Security Operations"
+          style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:.9rem">
+      </div>
+
+      <div>
+        <label for="ticket-notes" style="font-size:.8rem;font-weight:600;display:block;margin-bottom:4px">Additional Notes <span style="color:var(--text-muted)">(optional)</span></label>
+        <textarea id="ticket-notes" rows="3" placeholder="Any context for the responder..."
+          style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:.9rem;resize:vertical"></textarea>
+      </div>
+    </div>
+
+    <div id="ticket-result" style="display:none;margin-top:14px;padding:10px 14px;border-radius:4px;font-size:.85rem"></div>
+
+    <div style="display:flex;gap:10px;margin-top:20px;justify-content:flex-end">
+      <button class="btn btn--ghost btn--sm" onclick="closeTicketModal()">Cancel</button>
+      <button id="ticket-submit-btn" class="btn btn--primary btn--sm" onclick="submitTicket()">Create Ticket</button>
+    </div>
   </div>
 </div>
 {% endblock %}
@@ -232,10 +274,81 @@ async function loadKEV() {
         <td>${v.in_chain ? '<span class="chip chip--high">Chain</span>' : ''}</td>
         <td>${v.affected_devices || '--'}</td>
         <td>${v.composite_score ? v.composite_score.toFixed(1) : '--'}</td>
+        <td>
+          <button class="btn btn--ghost btn--sm"
+            onclick="openTicketModal('${v.id}','${v.cve_id || v.title || ''}')"
+            title="Create ServiceNow ticket">
+            &#127916; Ticket
+          </button>
+        </td>
       </tr>
-    `).join('') || '<tr><td colspan="7" class="text-muted text-sm" style="text-align:center;padding:16px">No KEV findings -- nice work</td></tr>';
+    `).join('') || '<tr><td colspan="8" class="text-muted text-sm" style="text-align:center;padding:16px">No KEV findings -- nice work</td></tr>';
   } catch (e) { /* silent */ }
 }
+
+// ── Ticket modal ──────────────────────────────────────────────────────────────
+let _ticketVulnId = null;
+
+function openTicketModal(vulnId, cveLabel) {
+  _ticketVulnId = vulnId;
+  document.getElementById('ticket-modal-cve').textContent = cveLabel;
+  document.getElementById('ticket-assignment').value = '';
+  document.getElementById('ticket-notes').value = '';
+  document.getElementById('ticket-result').style.display = 'none';
+  document.getElementById('ticket-submit-btn').disabled = false;
+  document.getElementById('ticket-submit-btn').textContent = 'Create Ticket';
+  document.getElementById('ticket-modal').style.display = 'flex';
+}
+
+function closeTicketModal() {
+  document.getElementById('ticket-modal').style.display = 'none';
+  _ticketVulnId = null;
+}
+
+async function submitTicket() {
+  if (!_ticketVulnId) return;
+  const method = document.querySelector('input[name="ticket-method"]:checked')?.value || 'api';
+  const assignmentGroup = document.getElementById('ticket-assignment').value.trim() || null;
+  const notes = document.getElementById('ticket-notes').value.trim() || null;
+  const btn = document.getElementById('ticket-submit-btn');
+  const resultEl = document.getElementById('ticket-result');
+
+  btn.disabled = true;
+  btn.textContent = 'Creating...';
+  resultEl.style.display = 'none';
+
+  try {
+    // Find a finding ID for this vuln -- use first open finding
+    const findingsData = await fetchJson(`${API}/vulns/${_ticketVulnId}/findings?limit=1`).catch(() => null);
+    const findingId = findingsData?.findings?.[0]?.id;
+    if (!findingId) throw new Error('No open finding found for this vulnerability');
+
+    const res = await fetch(`${API}/findings/${findingId}/ticket`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ method, assignment_group: assignmentGroup, notes }),
+    });
+    const data = await res.json();
+
+    if (!res.ok) throw new Error(data.detail || 'Ticket creation failed');
+
+    const ticketNum = data.number || 'pending';
+    const ticketUrl = data.url ? `<a href="${data.url}" target="_blank" style="color:var(--accent)">${ticketNum}</a>` : ticketNum;
+    resultEl.style.cssText = 'display:block;background:rgba(46,125,50,.15);color:var(--severity-low);border:1px solid var(--severity-low)';
+    resultEl.innerHTML = `&#10003; Ticket created: <strong>${ticketUrl}</strong>${data.sent_to ? `<br><small>Sent to ${data.sent_to}</small>` : ''}`;
+    btn.textContent = 'Done';
+  } catch (err) {
+    resultEl.style.cssText = 'display:block;background:rgba(204,0,0,.1);color:var(--severity-critical);border:1px solid var(--severity-critical)';
+    resultEl.textContent = err.message;
+    btn.disabled = false;
+    btn.textContent = 'Retry';
+  }
+}
+
+// Close modal on backdrop click
+document.addEventListener('click', e => {
+  if (e.target.id === 'ticket-modal') closeTicketModal();
+});
 
 async function loadTagFilters() {
   try {

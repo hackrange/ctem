@@ -68,6 +68,23 @@ class Finding(Base, UUIDPrimaryKey, TimestampMixin):
     vuln: Mapped[Vulnerability] = relationship(back_populates="findings")
 
 
+class TicketRef(Base, UUIDPrimaryKey, TimestampMixin):
+    """
+    Tracks tickets (ServiceNow incidents) created from findings.
+    One finding can have multiple tickets over its lifecycle.
+    """
+    __tablename__ = "ticket_refs"
+
+    finding_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("findings.id", ondelete="CASCADE"), nullable=False, index=True)
+    ticket_number: Mapped[str] = mapped_column(String(64), nullable=False)       # INC0001234 or "pending"
+    ticket_url: Mapped[str | None] = mapped_column(String(512))
+    ticket_system: Mapped[str] = mapped_column(String(32), default="servicenow", nullable=False)
+    method: Mapped[str] = mapped_column(String(16), default="api", nullable=False)  # api | email
+    created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+
+    finding: Mapped[Finding] = relationship()
+
+
 class CVEChain(Base, UUIDPrimaryKey, TimestampMixin):
     """A detected chain of CVEs that together form an exploit path."""
     __tablename__ = "cve_chains"
