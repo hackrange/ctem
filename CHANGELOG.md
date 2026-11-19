@@ -5,6 +5,37 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
 ## [Unreleased]
 
+### Security
+- Client IPs can no longer be spoofed with `X-Forwarded-For`; API token IP binding and sign-in rate limits use the address nginx vetted. Upstream load balancers get a dedicated listener (`LB_BIND_IP:8085`)
+- CSRF: Origin check on every cookie-authenticated write
+- MFA: self-enrollment needs a verified code before it turns on, replacing an authenticator needs a current code, and MFA/password changes are browser-session only
+- `MFA_REQUIRED=true` now enrolls users without TOTP at sign-in instead of locking them out
+- Per-account cool-off after 10 failed passwords; no timing difference between unknown users and wrong passwords
+- Locked accounts can no longer use their API tokens
+- Stored XSS closed in hunt results, dashboard, CMDB, admin, and token views
+- SSRF: AI model lookup goes through the guarded client; the vetted IP is pinned for every hop
+- XML from Qualys and Palo Alto is parsed with defusedxml
+- Ticket creation requires `findings:write`; vulnerability findings honor device-level access
+- Integration secrets masked by name pattern; changing an endpoint requires re-entering credentials
+- Errors no longer echo exception text or internal IPs; API docs hidden unless `DEBUG=true`
+- Input validation on users, roles, branding, profile, hunt, and integration schedules
+- Dependencies upgraded to clear all known advisories (FastAPI/Starlette, Authlib, cryptography, Pillow, Jinja2, python-multipart); python-jose replaced with PyJWT
+
+### Fixed
+- Celery worker had no database connection, so integrations never synced
+- Splunk sync crashed on blank form fields; blank connector settings now mean "use the default"
+- Threat page showed no alerts from any connector; Hunt catalog and AI answers never displayed
+- Token revoke, GRC exceptions, and vulnerability/device findings returned 500s
+- Sign-in after a typo failed CSRF; MFA users could not sign in at all
+- Profile password change silently did nothing; profile and admin form fields were unstyled
+- Chain scores pinned at 100, hiding pentest confirmation
+- Beat container healthcheck always failed
+
+### Changed
+- Test and SBOM tooling moved to `requirements-dev.txt` so they no longer ship in the image
+- CycloneDX SBOM added at `sbom.cdx.json`
+- Example credentials declared in `.github/secret_scanning.yml` and `.gitleaks.toml`
+
 ### Added
 - Cyber Threat module (cyber role only): aggregates alerts from all connected tools and uses AI to surface active threats
 - GRC / FairTPRM integration: outbound risk export and inbound compliance evidence ingestion

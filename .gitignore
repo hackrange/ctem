@@ -16,7 +16,7 @@ id_ed25519
 secrets/
 credentials/
 
-# ── Claude Code scaffolding (never ship) ────────────────────────────────────
+# ── Local scaffolding and prechecks (never ship) ────────────────────────────
 .claude/
 
 # ── Python ──────────────────────────────────────────────────────────────────

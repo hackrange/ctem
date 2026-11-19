@@ -12,7 +12,7 @@ from api.models.integration import Vendor
 
 log = logging.getLogger("open-ctem.msdefender")
 
-_TOKEN_URL = "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
+_TOKEN_URL = "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"  # nosec B105 - an endpoint, not a secret
 _API_BASE = "https://api.securitycenter.microsoft.com/api"
 
 

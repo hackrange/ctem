@@ -247,6 +247,13 @@
     {% if totp_step %}
     <form method="post" action="/auth/totp" autocomplete="off">
       <input type="hidden" name="_csrf" value="{{ csrf_token }}" />
+      {% if enroll %}
+      <p class="login-sub" style="margin-bottom:12px">Two-factor sign-in is required. Scan this code with your authenticator app, then enter the 6-digit code it shows.</p>
+      <div style="text-align:center;margin-bottom:12px">
+        <img src="{{ enroll.qr_png }}" alt="Authenticator QR code" width="180" height="180" style="border-radius:4px;background:#fff;padding:6px">
+        <p style="font-family:monospace;font-size:12px;word-break:break-all;margin-top:6px">{{ enroll.secret }}</p>
+      </div>
+      {% endif %}
       <div class="field">
         <label for="totp_code">Authenticator code</label>
         <input type="text" id="totp_code" name="totp_code" required autofocus

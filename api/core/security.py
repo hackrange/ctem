@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 import secrets
 import time
 from collections.abc import Callable
@@ -48,12 +49,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 
 class OriginCheckMiddleware(BaseHTTPMiddleware):
-    """CSRF guard: cookie-authenticated state changes must come from our own pages.
-
-    Browsers always send Origin (or at least Referer) on POST/PUT/PATCH/DELETE and
-    a hostile page can't fake either. Bearer-token callers carry no ambient
-    cookie, so there's nothing to forge and they skip the check.
-    """
+    """CSRF guard: cookie-backed writes must come from our own pages. Bearer callers have no cookie to ride."""
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         if request.method in _SAFE_METHODS or request.headers.get("authorization", "").lower().startswith("bearer "):
@@ -99,14 +95,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             except HTTPException:
                 raise
             except Exception:
-                # Redis unavailable (e.g. tests) -- skip rate limiting, fail open
-                pass
+                # Redis down: fail open rather than lock everyone out
+                logging.getLogger("open-ctem.security").warning("rate limit skipped (Redis down?)")
         return await call_next(request)
 
 
 def _client_ip(request: Request) -> str:
-    # nginx overwrites X-Forwarded-For and uvicorn maps it onto request.client.
-    # Never parse the raw header here: clients can type anything into it.
+    # nginx already vetted XFF; reading the raw header lets clients pick their IP
     return request.client.host if request.client else "unknown"
 
 

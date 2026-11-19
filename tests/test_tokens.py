@@ -29,20 +29,20 @@ def test_cidr_no_match():
 
 
 def test_empty_allowed_list_denies_all():
-    assert _ip_allowed("1.2.3.4", []) is False
+    assert _ip_allowed("203.0.113.4", []) is False
 
 
 def test_multiple_entries_first_matches():
-    assert _ip_allowed("1.2.3.4", ["9.9.9.9", "1.2.3.4"]) is True
+    assert _ip_allowed("203.0.113.4", ["198.51.100.9", "203.0.113.4"]) is True
 
 
 def test_invalid_caller_ip():
-    assert _ip_allowed("not-an-ip", ["1.2.3.4"]) is False
+    assert _ip_allowed("not-an-ip", ["203.0.113.4"]) is False
 
 
 def test_invalid_entry_skipped():
     # Bad entry in list should be skipped, not crash
-    assert _ip_allowed("1.2.3.4", ["not-valid", "1.2.3.4"]) is True
+    assert _ip_allowed("203.0.113.4", ["not-valid", "203.0.113.4"]) is True
 
 
 def test_ipv6_exact():

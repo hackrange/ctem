@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwt
+import jwt
+from jwt import PyJWTError as JWTError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -17,6 +19,7 @@ from api.core.db import get_session
 from api.models.user import ApiToken, User
 
 _bearer = HTTPBearer(auto_error=False)
+log = logging.getLogger("open-ctem.auth")
 
 _PUBLIC_PATHS = {"/login", "/auth/callback", "/auth/token", "/health"}
 
@@ -122,7 +125,7 @@ async def _authenticate_api_token(raw_token: str, request: Request, db: AsyncSes
         select(User).where(User.id == str(api_token.user_id)).options(selectinload(User.roles))
     )
     user = result2.scalar_one_or_none()
-    if user is None or not user.is_active:
+    if user is None or not user.is_active or user.is_locked:
         raise HTTPException(401, detail="Invalid API token")
 
     try:
@@ -130,7 +133,7 @@ async def _authenticate_api_token(raw_token: str, request: Request, db: AsyncSes
         api_token.last_used_ip = caller_ip
         await db.commit()
     except Exception:
-        pass
+        log.warning("could not record token last-used", exc_info=True)
 
     return user
 

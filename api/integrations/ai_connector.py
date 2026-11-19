@@ -79,8 +79,7 @@ class AIConnector(BaseConnector):
                         headers=self._headers(),
                     )
                 elif vendor == "anthropic":
-                    # Anthropic doesn't have a /models endpoint -- use /v1/messages
-                    # with a minimal prompt to verify the key
+                    # A one-token message proves the key can actually generate
                     resp = await client.post(
                         f"{self._base}/v1/messages",
                         headers=self._headers(),
@@ -195,8 +194,8 @@ class AIConnector(BaseConnector):
             import json
             try:
                 extra = json.loads(self.config["extra_headers"])
-            except Exception:
-                pass
+            except ValueError:
+                log.warning("ignoring extra_headers: not valid JSON")
         if vendor == "anthropic":
             return {
                 "x-api-key": key,

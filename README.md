@@ -40,7 +40,7 @@ Multipliers applied for: NodeZero-confirmed exploitability, internet exposure, n
 | Hunt module | Natural language AI queries across all telemetry sources |
 | GRC / FairTPRM | Risk export and compliance evidence ingestion |
 | CMDB export | ServiceNow import set format JSON |
-| Full REST API | OpenAPI docs at `/api/docs` |
+| Full REST API | OpenAPI docs at `/api/docs` (served only when `DEBUG=true`) |
 | Customizable branding | Logo, accent color, app title all configurable |
 
 ---
@@ -86,6 +86,10 @@ Set `AUTH_MODE` in `.env`:
 
 TOTP brute force protection: 5 fails = 5 min lockout, 10 = 30 min, 15+ = hard lock with admin unlock required.
 
+Password brute force protection: 10 failed passwords on one account = 15 min cool-off, plus a per-IP limit on every sign-in endpoint.
+
+With `MFA_REQUIRED=true`, a local user without TOTP is walked through enrollment (QR code + first code) on their next sign-in. Users can also enroll or replace their authenticator from **My Profile**; replacing one requires a current code.
+
 ---
 
 ## Quick start
@@ -94,14 +98,39 @@ TOTP brute force protection: 5 fails = 5 min lockout, 10 = 30 min, 15+ = hard lo
 cp .env.example .env
 # Edit .env with real values (generate keys with: python3 -c "import secrets; print(secrets.token_hex(32))")
 
-cd docker
-docker compose up -d
+docker compose -f docker/docker-compose.yml --env-file .env up -d
 
 # App:   https://localhost
-# Docs:  https://localhost/api/docs
+# Docs:  https://localhost/api/docs  (DEBUG=true only)
 ```
 
 Requirements: Docker 24+, Docker Compose v2.
+
+### Behind an upstream load balancer
+
+Set `LB_BIND_IP` in `.env` to the private IP your load balancer reaches this host on. nginx publishes a dedicated listener on `LB_BIND_IP:8085` that trusts only the client IP the load balancer appends to `X-Forwarded-For`. Leave it unset and the listener binds to loopback only. The public `:80` and `:443` listeners never trust client-supplied forwarding headers.
+
+---
+
+## Testing
+
+```bash
+python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
+.venv/bin/python -m pytest
+```
+
+Runtime dependencies live in `requirements.txt`; test and SBOM tooling live in `requirements-dev.txt` and never ship in the image.
+
+---
+
+## SBOM
+
+A CycloneDX Software Bill of Materials for the runtime image ships at `sbom.cdx.json`. Regenerate it whenever `requirements.txt` changes:
+
+```bash
+python3 -m venv /tmp/sbom-env && /tmp/sbom-env/bin/pip install -r requirements.txt
+.venv/bin/cyclonedx-py environment /tmp/sbom-env/bin/python --of JSON -o sbom.cdx.json
+```
 
 ---
 
@@ -132,7 +161,9 @@ The executive dashboard filters by tag category: **Executive Owner**, **Technica
 - No SQL injection: parameterized queries only via SQLAlchemy ORM
 - No SSRF: DNS-pinned httpx transport blocks RFC 1918, loopback, link-local, and metadata IPs
 - No secret leakage: generic error handler returns message + request ID only; details go to server logs
-- CSRF: HMAC double-submit token on all browser POST routes
+- No XSS from data: every API value rendered into the page goes through an HTML escape helper
+- CSRF: Origin check on every cookie-authenticated write, plus an HMAC token on the sign-in forms
+- Spoof-proof client IPs: API token IP binding and rate limits use the address nginx vetted, never a raw header
 - Encryption: AES-256-GCM column encryption with per-record nonce; HMAC-SHA256 for indexed lookups
 - Headers: HSTS, CSP, X-Frame-Options: DENY, X-Content-Type-Options: nosniff
 
@@ -156,4 +187,6 @@ docker/        Dockerfile, docker-compose.yml, nginx.conf
 
 ## Contributing
 
-Pre-ship checks run from `.claude/precheck.sh` (never committed). All contributions must pass the security precheck (0 failures) before merging.
+Every commit runs local pre-ship checks first: secrets scan, SAST (Bandit), dependency audit (pip-audit), and the full test suite. Nothing merges with a failure.
+
+Example credentials in tests and `.env.example` are fake and are declared in `.github/secret_scanning.yml` and `.gitleaks.toml` so scanners skip them.

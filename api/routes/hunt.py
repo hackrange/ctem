@@ -112,7 +112,7 @@ async def _gather_telemetry(query: str, asset_hint: str | None, db: AsyncSession
             continue
         try:
             item = json.loads(row.value)
-        except Exception:
+        except ValueError:
             continue
         # Match by keyword
         item_text = json.dumps(item).lower()

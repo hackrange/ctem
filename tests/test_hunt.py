@@ -47,8 +47,29 @@ async def test_hunt_result_requires_auth(client_no_auth):
 
 
 @pytest.mark.asyncio
-async def test_hunt_result_nonexistent_task(client_cyber):
+async def test_hunt_result_nonexistent_task(client_cyber, monkeypatch):
     pytest.importorskip("celery")
+    from api.core import tasks
+
+    class _Unknown:
+        state = "PENDING"
+
+    # Celery reports unknown ids as PENDING; no broker needed to prove that path
+    monkeypatch.setattr(tasks.celery_app, "AsyncResult", lambda _id: _Unknown())
     r = await client_cyber.get("/api/v1/hunt/result/does-not-exist-task-id")
-    # 404 or returns pending status -- either is fine
-    assert r.status_code in (200, 404)
+    assert r.status_code == 200
+    assert r.json() == {"status": "pending"}
+
+
+@pytest.mark.asyncio
+async def test_hunt_result_failure_is_generic(client_cyber, monkeypatch):
+    pytest.importorskip("celery")
+    from api.core import tasks
+
+    class _Boom:
+        state = "FAILURE"
+        result = RuntimeError("db password is hunter2")
+
+    monkeypatch.setattr(tasks.celery_app, "AsyncResult", lambda _id: _Boom())
+    r = await client_cyber.get("/api/v1/hunt/result/some-task")
+    assert "hunter2" not in r.text

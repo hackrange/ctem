@@ -1,6 +1,4 @@
-# Import all connector modules so their @register decorators fire at app startup.
-# Without these imports the _REGISTRY stays empty and every get_connector() call
-# raises ValueError, turning test/sync requests into 500s.
+# Importing these is what registers them. Skip it and every sync is a 500.
 from api.integrations import (  # noqa: F401
     ai_connector,
     crowdstrike,

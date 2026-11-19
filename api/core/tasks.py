@@ -117,8 +117,8 @@ async def _ai_analyze(alert_ids: list[str], device_id: str | None) -> dict:
             if row and row.value:
                 try:
                     alert_data.append(json.loads(row.value))
-                except Exception:
-                    pass
+                except ValueError:
+                    log.warning("skipping unreadable alert %s", aid)
 
     if not alert_data:
         return {"findings": [], "message": "No alert data found for given IDs"}

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timezone
 
 from sqlalchemy import select
@@ -14,6 +15,8 @@ from api.models.vuln import Finding, FindingStatus
 from api.scoring.compensating import ControlContext
 from api.scoring.device_score import compute_device_score, score_finding
 from api.scoring.user_score import compute_user_score
+
+log = logging.getLogger("open-ctem.scoring")
 
 
 async def recalculate_device(device: Device, db: AsyncSession) -> RiskScore:
@@ -102,7 +105,7 @@ async def recalculate_user(user_model, db: AsyncSession) -> RiskScore | None:
                 # Scale 0-100 to 0-5 for user_score's saas_risk_score param
                 identity_score = id_row.composite_identity_score / 20.0
         except Exception:
-            pass
+            log.warning("identity score lookup failed; scoring without it", exc_info=True)
 
     # Gather devices this user owns for blast radius calculation
     from api.models.device import Device as DeviceModel
@@ -147,14 +150,14 @@ async def recalculate_all(db: AsyncSession) -> None:
         try:
             await recalculate_device(device, db)
         except Exception:
-            pass
+            log.exception("risk recalc failed for device %s", device.id)
 
     users_result = await db.execute(select(UserModel).where(UserModel.is_active == True))  # noqa: E712
     for user in users_result.scalars():
         try:
             await recalculate_user(user, db)
         except Exception:
-            pass
+            log.exception("risk recalc failed for user %s", user.id)
 
 
 def _days_since(dt: datetime | None) -> int:

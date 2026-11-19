@@ -1,0 +1,12 @@
+title = "open-ctem"
+
+[extend]
+useDefault = true
+
+# Tests and .env.example only hold fake, example-only credentials. None are live.
+[allowlist]
+description = "Example-only credentials"
+paths = [
+  '''^tests/''',
+  '''^\.env\.example$''',
+]
