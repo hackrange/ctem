@@ -33,7 +33,10 @@ async def list_cmdb(
     tag_ids = await get_accessible_device_tag_ids(current_user, db)
     stmt = (
         select(Device)
-        .options(selectinload(Device.tags))
+        .options(
+            selectinload(Device.owner),
+            selectinload(Device.tags).selectinload(DeviceTag.tag),
+        )
         .order_by(Device.hostname)
     )
     if tag_ids is not None:
@@ -122,7 +125,10 @@ async def export_cmdb(
     Use this JSON as the source for a ServiceNow Import Set transform map.
     """
     tag_ids = await get_accessible_device_tag_ids(current_user, db)
-    stmt = select(Device).options(selectinload(Device.tags)).limit(limit)
+    stmt = select(Device).options(
+        selectinload(Device.owner),
+        selectinload(Device.tags).selectinload(DeviceTag.tag),
+    ).limit(limit)
 
     if tag_ids is not None:
         stmt = stmt.join(DeviceTag).where(DeviceTag.tag_id.in_(tag_ids))
@@ -148,21 +154,35 @@ async def export_cmdb(
     }
 
 
+_ENV_KEYWORDS = {"prod", "production", "staging", "stage", "dev", "development", "test", "qa", "uat", "sandbox"}
+
 def _to_cmdb_record(d: Device) -> dict:
-    """UI-facing CMDB record (fields match what cmdb.html expects)."""
+    """UI-facing CMDB record. IP withheld; use /export (cyber/admin) for full details."""
+    owner_obj = getattr(d, "owner", None)
+    owner_name = None
+    if owner_obj:
+        owner_name = getattr(owner_obj, "display_name", None) or getattr(owner_obj, "username", None)
+
+    environment = None
+    for dt in (d.tags or []):
+        tag = getattr(dt, "tag", None)
+        if tag and tag.name.lower() in _ENV_KEYWORDS:
+            environment = tag.name
+            break
+
     return {
-        "id": str(d.id),
-        "hostname": d.hostname,
-        "ip_address": None,          # IP stored encrypted; exposed only in export (cyber/admin)
-        "device_type": d.device_type.value if d.device_type else None,
-        "os_name": d.os,
-        "os_version": d.os_version,
-        "owner": None,               # TODO: wire to owner field when added
-        "environment": None,         # TODO: wire to environment tag
-        "servicenow_ci_id": None,    # populated after first ServiceNow sync
-        "last_seen": d.last_seen.isoformat() if d.last_seen else None,
-        "risk_grade": d.risk_grade.value if d.risk_grade else None,
-        "source": d.source,
+        "id":               str(d.id),
+        "hostname":         d.hostname,
+        "ip_address":       None,   # encrypted at rest; not exposed in list view
+        "device_type":      d.device_type.value if d.device_type else None,
+        "os_name":          d.os,
+        "os_version":       d.os_version,
+        "owner":            owner_name,
+        "environment":      environment,
+        "servicenow_ci_id": None,   # populated after first ServiceNow sync
+        "last_seen":        d.last_seen.isoformat() if d.last_seen else None,
+        "risk_grade":       d.risk_grade.value if d.risk_grade else None,
+        "source":           d.source,
     }
 
 
