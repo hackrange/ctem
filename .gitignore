@@ -1,0 +1,114 @@
+# ── Secrets & credentials ───────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.env
+.htpasswd
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.jks
+id_rsa
+id_ed25519
+*.secret
+secrets/
+credentials/
+
+# ── Claude Code scaffolding (never ship) ────────────────────────────────────
+.claude/
+
+# ── Python ──────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+parts/
+var/
+sdist/
+wheels/
+.installed.cfg
+lib/
+lib64/
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.ruff_cache/
+venv/
+.venv/
+ENV/
+env/
+
+# ── Node / frontend ──────────────────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnp/
+.pnp.js
+.npm/
+
+# ── Docker ───────────────────────────────────────────────────────────────────
+*.tar
+docker-compose.override.yml
+
+# ── Database dumps & data ────────────────────────────────────────────────────
+*.sql
+*.sql.gz
+*.db
+*.sqlite
+*.sqlite3
+data/
+backups/
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+logs/
+*.log.*
+
+# ── OS & editors ─────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ── Test artifacts ────────────────────────────────────────────────────────────
+.coverage
+coverage/
+test-results/
+junit.xml
+*.html.report
+
+# ── Compiled assets ───────────────────────────────────────────────────────────
+*.min.js.map
+static/dist/
+
+# ── Certificates & keys ───────────────────────────────────────────────────────
+*.csr
+*.der
+*.cer

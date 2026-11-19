@@ -1,0 +1,38 @@
+"""Application settings and immutable audit log."""
+from __future__ import annotations
+
+import uuid as _uuid
+from datetime import datetime
+
+from sqlalchemy import Boolean, DateTime, String, Text
+from sqlalchemy.orm import Mapped, mapped_column
+
+from api.core.encryption import EncryptedString
+from api.models.base import Base, TimestampMixin, UUIDPrimaryKey
+
+
+class AppSetting(Base, UUIDPrimaryKey, TimestampMixin):
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_sensitive: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    @property
+    def safe_value(self):
+        return "[redacted]" if self.is_sensitive else self.value
+
+
+class AuditLog(Base):
+    """Append-only. Never update or delete rows from this table."""
+    __tablename__ = "audit_log"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(_uuid.uuid4()))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    actor_user_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    actor_username: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    action: Mapped[str] = mapped_column(String(100), nullable=False)
+    resource_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    resource_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ip_address: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)

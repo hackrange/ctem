@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+
+{% block title %}Sign in -- open-ctem{% endblock %}
+
+{% block content %}{% endblock %}
+
+{# Login page overrides the whole layout -- no topbar/sidebar #}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sign in -- open-ctem</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@700;800&display=swap" />
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <style>
+    :root { --accent: {{ accent_color | default('#f5a623') }}; }
+    body { background: #0d0d0d; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+    .login-wrap {
+      width: 100%;
+      max-width: 420px;
+      padding: 0 16px;
+    }
+    .login-card {
+      background: #1a1d27;
+      border: 1px solid #2d3148;
+      border-top: 4px solid var(--accent);
+      border-radius: 10px;
+      padding: 40px 36px 36px;
+    }
+    .login-logo {
+      text-align: center;
+      margin-bottom: 28px;
+    }
+    .login-logo svg { width: 48px; height: 48px; }
+    .login-title {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 22px;
+      font-weight: 800;
+      color: #f9fafb;
+      text-align: center;
+      margin: 0 0 4px;
+    }
+    .login-sub {
+      font-size: 12px;
+      color: #6b7280;
+      text-align: center;
+      margin: 0 0 28px;
+    }
+    .form-label { color: #9ca3af; }
+    .form-control {
+      background: #0f1117;
+      border-color: #2d3148;
+      color: #f9fafb;
+    }
+    .form-control:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(245,166,35,0.12); }
+    .login-error {
+      background: rgba(239,68,68,0.12);
+      border: 1px solid rgba(239,68,68,0.3);
+      color: #fca5a5;
+      border-radius: 6px;
+      padding: 10px 14px;
+      font-size: 13px;
+      margin-bottom: 16px;
+    }
+    .login-divider {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 20px 0;
+      color: #374151;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .login-divider::before, .login-divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: #2d3148;
+    }
+  </style>
+</head>
+<body>
+<div class="login-wrap">
+  <div class="login-card">
+    <div class="login-logo">
+      {% if logo_url %}
+        <img src="{{ logo_url }}" alt="{{ app_title | default('open-ctem') }}" style="height:48px;width:auto" />
+      {% else %}
+        <svg viewBox="0 0 48 48" fill="none">
+          <rect width="48" height="48" rx="10" fill="var(--accent)" />
+          <path d="M12 24 L24 12 L36 24 L24 36 Z" fill="#000" opacity="0.9" />
+          <circle cx="24" cy="24" r="5" fill="var(--accent)" />
+        </svg>
+      {% endif %}
+    </div>
+    <h1 class="login-title">{{ app_title | default('open-ctem') }}</h1>
+    <p class="login-sub">Continuous Threat Exposure Management</p>
+
+    {% if error %}
+    <div class="login-error">{{ error }}</div>
+    {% endif %}
+
+    {% if settings.auth_mode in ('local_only', 'both') %}
+    <form method="post" action="/auth/login" autocomplete="on">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}" />
+      <div class="form-group">
+        <label class="form-label" for="username">Username</label>
+        <input class="form-control" type="text" id="username" name="username" required autocomplete="username" />
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="password">Password</label>
+        <input class="form-control" type="password" id="password" name="password" required autocomplete="current-password" />
+      </div>
+      <div class="form-group" id="totp-field" style="display:none">
+        <label class="form-label" for="totp_code">Authenticator code</label>
+        <input class="form-control text-mono" type="text" id="totp_code" name="totp_code" inputmode="numeric" maxlength="6" autocomplete="one-time-code" />
+      </div>
+      <button type="submit" class="btn btn--primary" style="width:100%;justify-content:center;padding:10px">
+        Sign in
+      </button>
+    </form>
+    {% endif %}
+
+    {% if settings.auth_mode == 'both' %}
+    <div class="login-divider">or</div>
+    <a href="/auth/sso" class="btn btn--ghost" style="width:100%;justify-content:center;padding:10px">
+      Continue with SSO
+    </a>
+    {% endif %}
+  </div>
+
+  <p style="text-align:center;color:#374151;font-size:11px;margin-top:16px">
+    {{ app_title | default('open-ctem') }} &mdash; Secure by design
+  </p>
+</div>
+
+<script>
+  // Show TOTP field if user starts typing a password (heuristic)
+  const totpField = document.getElementById('totp-field');
+  const passInput = document.getElementById('password');
+  if (passInput && totpField) {
+    passInput.addEventListener('blur', () => {
+      if (passInput.value.length > 0) totpField.style.display = '';
+    });
+  }
+</script>
+</body>
+</html>
