@@ -26,6 +26,19 @@ async def list_integrations(
     return {"integrations": [_summary(i) for i in result.scalars()]}
 
 
+@router.get("/vendors")
+async def list_vendors(
+    _: User = Depends(require_cyber_or_admin),
+):
+    """All vendor slugs supported by this instance -- for the add-integration modal."""
+    return {
+        "vendors": [
+            {"slug": v.value, "label": v.value.replace("_", " ").title()}
+            for v in Vendor
+        ]
+    }
+
+
 @router.post("")
 async def create_integration(
     body: CreateIntegrationRequest,
