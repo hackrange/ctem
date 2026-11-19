@@ -99,3 +99,23 @@ class ThirdPartyControlGap(Base, UUIDPrimaryKey, TimestampMixin):
 ThirdPartyRisk.gaps = relationship(  # type: ignore[attr-defined]
     ThirdPartyControlGap, back_populates="supplier", cascade="all, delete-orphan"
 )
+
+
+class RiskException(Base, UUIDPrimaryKey, TimestampMixin):
+    """
+    Approved risk exception -- temporarily accepts a finding's risk
+    without remediation. Approval gated by cyber/admin role.
+    Expires automatically; compliance reports treat expired as unapproved.
+    """
+    __tablename__ = "risk_exceptions"
+
+    finding_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("findings.id", ondelete="SET NULL"), index=True
+    )
+    cve_id: Mapped[str | None] = mapped_column(String(32))          # direct CVE ref if no finding FK
+    reason: Mapped[str] = mapped_column(String(1024), nullable=False)
+    approved_by: Mapped[str] = mapped_column(String(128), nullable=False)  # username, not user_id
+    approved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    is_permanent: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
