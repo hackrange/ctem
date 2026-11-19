@@ -75,8 +75,8 @@ async function loadIntegrations() {
       <div class="panel" style="margin:0">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px">
           <div>
-            <div style="font-weight:600">${i.label || i.vendor}</div>
-            <div class="text-muted text-sm">${i.vendor}</div>
+            <div style="font-weight:600">${esc(i.label || i.vendor)}</div>
+            <div class="text-muted text-sm">${esc(i.vendor)}</div>
           </div>
           ${statusChip(i.is_enabled, i.last_sync_at)}
         </div>
@@ -84,9 +84,9 @@ async function loadIntegrations() {
           Last sync: ${i.last_sync_at ? new Date(i.last_sync_at).toLocaleString() : 'Never'}
         </div>
         <div style="display:flex;gap:8px">
-          <button class="btn btn--ghost btn--sm" onclick="triggerSync('${i.id}')">Sync Now</button>
-          <button class="btn btn--ghost btn--sm" onclick="editIntegration('${i.id}')">Edit</button>
-          <button class="btn btn--ghost btn--sm" style="color:var(--severity-critical)" onclick="deleteIntegration('${i.id}')">Remove</button>
+          <button class="btn btn--ghost btn--sm" onclick="triggerSync('${esc(i.id)}')">Sync Now</button>
+          <button class="btn btn--ghost btn--sm" onclick="editIntegration('${esc(i.id)}')">Edit</button>
+          <button class="btn btn--ghost btn--sm" style="color:var(--severity-critical)" onclick="deleteIntegration('${esc(i.id)}')">Remove</button>
         </div>
       </div>
     `).join('');

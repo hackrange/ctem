@@ -100,11 +100,11 @@ async function loadDevices() {
     totalCount = data.total || devices.length;
 
     document.getElementById('devices-tbody').innerHTML = devices.map(d => `
-      <tr onclick="location.href='/devices/${d.id}'" style="cursor:pointer">
-        <td style="font-weight:600">${d.hostname}</td>
-        <td class="text-mono text-sm">${d.ip_address || '--'}</td>
-        <td class="text-sm text-muted">${d.device_type || '--'}</td>
-        <td class="text-sm">${d.os_name ? d.os_name.substring(0, 20) : '--'}</td>
+      <tr onclick="location.href='/devices/${esc(d.id)}'" style="cursor:pointer">
+        <td style="font-weight:600">${esc(d.hostname)}</td>
+        <td class="text-mono text-sm">${esc(d.ip_address) || '--'}</td>
+        <td class="text-sm text-muted">${esc(d.device_type) || '--'}</td>
+        <td class="text-sm">${d.os_name ? esc(d.os_name.substring(0, 20)) : '--'}</td>
         <td>${gradeChip(d.risk_grade)}</td>
         <td>
           <div style="display:flex;align-items:center;gap:6px">
@@ -115,7 +115,7 @@ async function loadDevices() {
         <td>${boolIcon(d.edr_active)}</td>
         <td>${d.is_reachable != null ? boolIcon(d.is_reachable) : '<span class="text-muted">?</span>'}</td>
         <td style="max-width:160px">
-          ${(d.tags || []).slice(0, 3).map(t => `<span class="chip chip--info" style="font-size:.7rem">${t.split(':').pop()}</span>`).join(' ')}
+          ${(d.tags || []).slice(0, 3).map(t => `<span class="chip chip--info" style="font-size:.7rem">${esc(t.split(':').pop())}</span>`).join(' ')}
           ${(d.tags || []).length > 3 ? `<span class="text-muted text-sm">+${d.tags.length - 3}</span>` : ''}
         </td>
       </tr>

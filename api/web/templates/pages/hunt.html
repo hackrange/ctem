@@ -143,8 +143,8 @@ async function loadCatalog() {
     document.getElementById('spl-catalog').innerHTML = searches.length
       ? searches.map(s => `
         <div style="margin-bottom:12px;padding:10px 12px;background:var(--surface);border-radius:4px;border:1px solid var(--border)">
-          <div style="font-weight:600;font-size:.85rem;margin-bottom:4px">${s.name || s.label || 'Search'}</div>
-          <code style="font-size:.78rem;color:var(--text-muted)">${s.spl || s.query || ''}</code>
+          <div style="font-weight:600;font-size:.85rem;margin-bottom:4px">${esc(s.name || s.label || 'Search')}</div>
+          <code style="font-size:.78rem;color:var(--text-muted)">${esc(s.spl || s.query || '')}</code>
         </div>`).join('')
       : '<span class="text-muted">No SPL catalog available -- configure Splunk integration to enable</span>';
   } catch (_) {

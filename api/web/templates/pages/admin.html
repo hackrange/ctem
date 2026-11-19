@@ -82,13 +82,13 @@ async function loadUsers() {
     const users = data.users || [];
     document.getElementById('users-tbody').innerHTML = users.map(u => `
       <tr>
-        <td style="font-weight:600">${u.username}</td>
-        <td class="text-muted text-sm">${u.email || '--'}</td>
-        <td>${(u.roles || []).map(r => `<span class="chip chip--info">${r.role_name}</span>`).join(' ')}</td>
+        <td style="font-weight:600">${esc(u.username)}</td>
+        <td class="text-muted text-sm">${esc(u.email) || '--'}</td>
+        <td>${(u.roles || []).map(r => `<span class="chip chip--info">${esc(r.role_name)}</span>`).join(' ')}</td>
         <td>${u.totp_enabled ? '<span style="color:var(--severity-low)">&#10003;</span>' : '<span class="text-muted">--</span>'}</td>
         <td>
           <button class="btn btn--ghost btn--sm" style="color:var(--severity-critical)"
-            onclick="deactivateUser('${u.id}')">
+            onclick="deactivateUser('${esc(u.id)}')">
             ${u.is_active ? 'Deactivate' : 'Activate'}
           </button>
         </td>
@@ -103,10 +103,10 @@ async function loadAdminTokens() {
     const tokens = data.tokens || [];
     document.getElementById('admin-tokens-tbody').innerHTML = tokens.map(t => `
       <tr>
-        <td class="text-sm">${t.username || t.user_id}</td>
-        <td style="font-weight:500">${t.name}</td>
+        <td class="text-sm">${esc(t.username || t.user_id)}</td>
+        <td style="font-weight:500">${esc(t.name)}</td>
         <td class="text-muted text-sm">${t.last_used ? new Date(t.last_used).toLocaleString() : 'Never'}</td>
-        <td class="text-mono text-sm">${(t.allowed_ips || []).slice(0, 2).join(', ')}</td>
+        <td class="text-mono text-sm">${(t.allowed_ips || []).slice(0, 2).map(esc).join(', ')}</td>
       </tr>
     `).join('') || '<tr><td colspan="4" class="text-muted text-sm" style="text-align:center;padding:20px">No active tokens</td></tr>';
   } catch (_) {}

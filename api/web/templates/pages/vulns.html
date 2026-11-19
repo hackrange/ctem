@@ -81,14 +81,14 @@ async function loadVulns() {
 
     document.getElementById('vulns-tbody').innerHTML = vulns.map(v => `
       <tr>
-        <td class="text-mono text-sm">${v.cve_id || '<span class="text-muted">N/A</span>'}</td>
-        <td style="max-width:320px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${v.title || ''}">${v.title || '--'}</td>
+        <td class="text-mono text-sm">${v.cve_id ? esc(v.cve_id) : '<span class="text-muted">N/A</span>'}</td>
+        <td style="max-width:320px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(v.title || '')}">${esc(v.title) || '--'}</td>
         <td>${v.cvss_base ? v.cvss_base.toFixed(1) : '--'}</td>
         <td>${v.epss_score ? (v.epss_score * 100).toFixed(1) + '%' : '--'}</td>
         <td>${v.is_kev ? '<span class="chip chip--critical">KEV</span>' : ''}</td>
         <td>${v.exploit_available ? '<span class="chip chip--high">PoC</span>' : ''}</td>
         <td>${v.affected_devices ?? '--'}</td>
-        <td class="text-muted text-sm">${v.source || '--'}</td>
+        <td class="text-muted text-sm">${esc(v.source) || '--'}</td>
       </tr>
     `).join('') || '<tr><td colspan="8" class="text-muted text-sm" style="text-align:center;padding:24px">No vulnerabilities found</td></tr>';
 
