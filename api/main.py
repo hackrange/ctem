@@ -62,6 +62,8 @@ def create_app() -> FastAPI:
     from api.routes.vulns import router as vulns_router
     from api.routes.threat import router as threat_router
     from api.routes.grc import router as grc_router
+    from api.routes.tokens import router as tokens_router
+    from api.routes.hunt import router as hunt_router
 
     app.include_router(auth_router)
     app.include_router(admin_router)
@@ -71,6 +73,8 @@ def create_app() -> FastAPI:
     app.include_router(vulns_router)
     app.include_router(threat_router)
     app.include_router(grc_router)
+    app.include_router(tokens_router)
+    app.include_router(hunt_router)
 
     # ── Web UI (must come after API routes) ───────────────────────────────────
     app.mount("/static", StaticFiles(directory="api/web/static"), name="static")

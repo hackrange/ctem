@@ -90,13 +90,17 @@ class UserRole(Base):
 
 
 class ApiToken(Base, UUIDPrimaryKey, TimestampMixin):
-    """Long-lived API tokens for external tool access."""
+    """Long-lived API tokens. Each token is bound to one or more allowed source IPs."""
     __tablename__ = "api_tokens"
 
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(256))
     token_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)  # SHA-256
+    # JSON list of allowed source IPs/CIDRs -- token only works from these addresses
+    allowed_ips: Mapped[list | None] = mapped_column(EncryptedJSON, nullable=False)
     last_used: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_used_ip: Mapped[str | None] = mapped_column(String(45))  # last IP that used this token
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
