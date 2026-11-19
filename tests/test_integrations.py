@@ -117,3 +117,21 @@ async def test_sync_integration_requires_admin(client_cyber, db):
 
     r = await client_cyber.post(f"/api/v1/integrations/{cfg.id}/sync")
     assert r.status_code in (401, 403)
+
+
+def test_ldaps_verifies_certificates_by_default(monkeypatch):
+    import ssl
+    from api.integrations import ldap as ldap_mod
+
+    seen = {}
+
+    class _Conn:
+        def __init__(self, server, **kw):
+            seen["tls"] = server.tls
+
+    monkeypatch.setattr(ldap_mod, "Connection", _Conn)
+    base = {"host": "ldap.acme.example.com", "bind_dn": "cn=x", "base_dn": "dc=acme", "use_tls": True}
+    ldap_mod.LDAPConnector(base)._connect()
+    assert seen["tls"].validate == ssl.CERT_REQUIRED
+    ldap_mod.LDAPConnector({**base, "tls_skip_verify": True})._connect()
+    assert seen["tls"].validate == ssl.CERT_NONE

@@ -35,6 +35,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 - Test and SBOM tooling moved to `requirements-dev.txt` so they no longer ship in the image
 - CycloneDX SBOM added at `sbom.cdx.json`
 - Example credentials declared in `.github/secret_scanning.yml` and `.gitleaks.toml`
+- LDAPS now validates server certificates by default; "Skip certificate check (lab only)" opts out
 
 ### Added
 - Cyber Threat module (cyber role only): aggregates alerts from all connected tools and uses AI to surface active threats
