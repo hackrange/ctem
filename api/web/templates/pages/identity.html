@@ -1,0 +1,421 @@
+{% extends "base.html" %}
+{% set active_nav = 'identity' %}
+
+{% block title %}Identity Risk -- open-ctem{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-header__title">Identity Risk</h1>
+    <p class="page-header__sub">ITDR alerts, posture findings, shadow SaaS, shadow AI and AI agents from Grip Security</p>
+  </div>
+  <div style="display:flex;gap:8px">
+    <select id="filter-severity" onchange="applyFilters()" class="filter-select">
+      <option value="">All severities</option>
+      <option value="critical">Critical</option>
+      <option value="high">High</option>
+      <option value="medium">Medium</option>
+      <option value="low">Low</option>
+    </select>
+  </div>
+</div>
+
+<!-- Summary tiles -->
+<div id="summary-tiles" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:24px">
+  <div class="stat-tile loading" id="tile-itdr">--</div>
+  <div class="stat-tile loading" id="tile-posture">--</div>
+  <div class="stat-tile loading" id="tile-shadow-saas">--</div>
+  <div class="stat-tile loading" id="tile-shadow-ai">--</div>
+  <div class="stat-tile loading" id="tile-ai-agents">--</div>
+  <div class="stat-tile loading" id="tile-unsanctioned">--</div>
+</div>
+
+<!-- Tabs -->
+<div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px">
+  <button class="tab-btn active" id="tab-btn-threats" onclick="switchTab('threats')">ITDR Threats</button>
+  <button class="tab-btn" id="tab-btn-posture" onclick="switchTab('posture')">Posture</button>
+  <button class="tab-btn" id="tab-btn-saas" onclick="switchTab('saas')">Shadow SaaS</button>
+  <button class="tab-btn" id="tab-btn-ai" onclick="switchTab('ai')">Shadow AI</button>
+  <button class="tab-btn" id="tab-btn-agents" onclick="switchTab('agents')">AI Agents</button>
+  <button class="tab-btn" id="tab-btn-scores" onclick="switchTab('scores')">Identity Scores</button>
+</div>
+
+<!-- ITDR Threats -->
+<div id="pane-threats" class="tab-pane">
+  <div class="panel" style="padding:0">
+    <table class="data-table">
+      <thead><tr>
+        <th>Severity</th><th>Type</th><th>Title</th><th>Identity</th><th>App</th><th>MITRE</th><th>Detected</th>
+      </tr></thead>
+      <tbody id="tbody-threats">
+        <tr><td colspan="7" class="text-muted text-sm" style="text-align:center;padding:32px">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div id="threats-pagination" class="pagination-row"></div>
+</div>
+
+<!-- Posture findings -->
+<div id="pane-posture" class="tab-pane" style="display:none">
+  <div class="panel" style="padding:0">
+    <table class="data-table">
+      <thead><tr>
+        <th>Severity</th><th>Type</th><th>Title</th><th>App</th><th>Affected</th><th>Detected</th>
+      </tr></thead>
+      <tbody id="tbody-posture">
+        <tr><td colspan="6" class="text-muted text-sm" style="text-align:center;padding:32px">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div id="posture-pagination" class="pagination-row"></div>
+</div>
+
+<!-- Shadow SaaS -->
+<div id="pane-saas" class="tab-pane" style="display:none">
+  <div class="panel" style="padding:0">
+    <table class="data-table">
+      <thead><tr>
+        <th>App</th><th>Category</th><th>Risk</th><th>Score</th><th>Users</th><th>Sanctioned</th><th>Last Seen</th>
+      </tr></thead>
+      <tbody id="tbody-saas">
+        <tr><td colspan="7" class="text-muted text-sm" style="text-align:center;padding:32px">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div id="saas-pagination" class="pagination-row"></div>
+</div>
+
+<!-- Shadow AI -->
+<div id="pane-ai" class="tab-pane" style="display:none">
+  <div class="panel" style="padding:0">
+    <table class="data-table">
+      <thead><tr>
+        <th>App</th><th>Category</th><th>Risk</th><th>Score</th><th>Users</th><th>Sanctioned</th><th>Last Seen</th>
+      </tr></thead>
+      <tbody id="tbody-ai">
+        <tr><td colspan="7" class="text-muted text-sm" style="text-align:center;padding:32px">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div id="ai-pagination" class="pagination-row"></div>
+</div>
+
+<!-- AI Agents -->
+<div id="pane-agents" class="tab-pane" style="display:none">
+  <div class="panel" style="padding:0">
+    <table class="data-table">
+      <thead><tr>
+        <th>Agent</th><th>Risk</th><th>Score</th><th>Sanctioned</th><th>Last Seen</th>
+      </tr></thead>
+      <tbody id="tbody-agents">
+        <tr><td colspan="5" class="text-muted text-sm" style="text-align:center;padding:32px">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div id="agents-pagination" class="pagination-row"></div>
+</div>
+
+<!-- Identity Scores -->
+<div id="pane-scores" class="tab-pane" style="display:none">
+  <div class="panel" style="padding:0">
+    <table class="data-table">
+      <thead><tr>
+        <th>Identity</th><th>Composite</th><th>ITDR</th><th>Posture</th><th>Shadow SaaS</th><th>Shadow AI</th><th>Synced</th>
+      </tr></thead>
+      <tbody id="tbody-scores">
+        <tr><td colspan="7" class="text-muted text-sm" style="text-align:center;padding:32px">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div id="scores-pagination" class="pagination-row"></div>
+</div>
+
+<style>
+.tab-btn {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 8px 16px;
+  cursor: pointer;
+  font-size: .85rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: -2px;
+  transition: color .15s, border-color .15s;
+}
+.tab-btn.active, .tab-btn:hover { color: var(--text); border-bottom-color: var(--accent, #5b8df0); }
+.stat-tile {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 14px 16px;
+  font-size: .78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.stat-tile .tile-num {
+  font-size: 1.8rem;
+  font-weight: 800;
+  font-family: 'Space Grotesk', sans-serif;
+  color: var(--text);
+  display: block;
+  margin-bottom: 2px;
+  letter-spacing: -.02em;
+}
+.stat-tile.loading { opacity: .5; }
+.stat-tile.crit .tile-num { color: var(--severity-critical, #e53935); }
+.stat-tile.warn .tile-num { color: var(--severity-high, #f57c00); }
+.pagination-row { display:flex;gap:8px;padding:12px 16px;align-items:center;font-size:.82rem;color:var(--text-muted) }
+.filter-select {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: .85rem;
+}
+</style>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const API = '/api/v1/identity';
+const PAGE = 50;
+let currentTab = 'threats';
+let pages = { threats:0, posture:0, saas:0, ai:0, agents:0, scores:0 };
+
+// ── boot ──────────────────────────────────────────────────────────────────────
+
+document.addEventListener('DOMContentLoaded', () => {
+  loadSummary();
+  loadThreats();
+});
+
+// ── tabs ──────────────────────────────────────────────────────────────────────
+
+function switchTab(tab) {
+  document.querySelectorAll('.tab-pane').forEach(p => p.style.display = 'none');
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(`pane-${tab}`).style.display = '';
+  document.getElementById(`tab-btn-${tab}`).classList.add('active');
+  currentTab = tab;
+  if (tab === 'threats')  loadThreats();
+  if (tab === 'posture')  loadPosture();
+  if (tab === 'saas')     loadSaas('shadow_saas');
+  if (tab === 'ai')       loadSaas('shadow_ai');
+  if (tab === 'agents')   loadSaas('ai_agent');
+  if (tab === 'scores')   loadScores();
+}
+
+function applyFilters() { switchTab(currentTab); }
+
+// ── fetch helper ──────────────────────────────────────────────────────────────
+
+async function api(path) {
+  const r = await fetch(path, { headers: { Accept: 'application/json' } });
+  if (!r.ok) throw new Error(r.statusText);
+  return r.json();
+}
+
+function sev(s) {
+  const cls = { critical:'chip--critical', high:'chip--high', medium:'chip--medium', low:'chip--low' }[s] || 'chip--info';
+  return `<span class="chip ${cls}">${esc(s)}</span>`;
+}
+
+function fmt(dt) {
+  if (!dt) return '<span class="text-muted">--</span>';
+  return new Date(dt).toLocaleDateString();
+}
+
+function score(n) {
+  const v = parseFloat(n) || 0;
+  const cls = v >= 80 ? 'style="color:var(--severity-critical)"' : v >= 60 ? 'style="color:var(--severity-high)"' : v >= 40 ? 'style="color:var(--severity-medium,#f9a825)"' : '';
+  return `<b ${cls}>${v.toFixed(0)}</b>`;
+}
+
+function checkChip(val) {
+  return val ? '<span class="chip chip--low">Yes</span>' : '<span class="chip chip--info">No</span>';
+}
+
+function pager(containerId, offset, total, loadFn) {
+  const c = document.getElementById(containerId);
+  const hasPrev = offset > 0;
+  const hasNext = offset + PAGE < total;
+  c.innerHTML = `
+    <span>${total} total</span>
+    <span style="flex:1"></span>
+    ${hasPrev ? `<button class="btn btn--ghost btn--sm" onclick="${loadFn}(${offset - PAGE})">Prev</button>` : ''}
+    ${hasNext ? `<button class="btn btn--ghost btn--sm" onclick="${loadFn}(${offset + PAGE})">Next</button>` : ''}
+  `;
+}
+
+// ── summary tiles ─────────────────────────────────────────────────────────────
+
+async function loadSummary() {
+  try {
+    const [td, sd] = await Promise.all([
+      api(`${API}/threats/summary`),
+      api(`${API}/saas-apps/summary`),
+    ]);
+
+    tile('tile-itdr', td.total_active || 0, 'Active ITDR Alerts', td.total_active > 0 ? 'crit' : '');
+    tile('tile-shadow-saas', sd.shadow_saas || 0, 'Shadow SaaS Apps', sd.shadow_saas > 20 ? 'warn' : '');
+    tile('tile-shadow-ai', sd.shadow_ai || 0, 'Shadow AI Apps', sd.shadow_ai > 5 ? 'warn' : '');
+    tile('tile-ai-agents', sd.ai_agents || 0, 'AI Agents', '');
+    tile('tile-unsanctioned', sd.unsanctioned || 0, 'Unsanctioned', sd.unsanctioned > 10 ? 'crit' : '');
+
+    // posture count
+    const pd = await api(`${API}/posture?limit=1`);
+    tile('tile-posture', pd.total || 0, 'Posture Findings', pd.total > 0 ? 'warn' : '');
+  } catch (_) {}
+}
+
+function tile(id, num, label, cls) {
+  const el = document.getElementById(id);
+  el.className = `stat-tile ${cls}`;
+  el.innerHTML = `<span class="tile-num">${num}</span>${esc(label)}`;
+}
+
+// ── ITDR threats ──────────────────────────────────────────────────────────────
+
+async function loadThreats(offset = 0) {
+  const sev = document.getElementById('filter-severity').value;
+  let url = `${API}/threats?limit=${PAGE}&offset=${offset}`;
+  if (sev) url += `&severity=${encodeURIComponent(sev)}`;
+
+  const tb = document.getElementById('tbody-threats');
+  tb.innerHTML = '<tr><td colspan="7" class="text-muted text-sm" style="text-align:center;padding:24px">Loading...</td></tr>';
+  try {
+    const d = await api(url);
+    if (!d.threats.length) {
+      tb.innerHTML = '<tr><td colspan="7" class="text-muted text-sm" style="text-align:center;padding:32px">No active ITDR alerts -- great news!</td></tr>';
+      document.getElementById('threats-pagination').innerHTML = '';
+      return;
+    }
+    tb.innerHTML = d.threats.map(t => `
+      <tr>
+        <td>${sev(t.severity)}</td>
+        <td class="text-sm">${esc((t.threat_type || '').replace(/_/g, ' '))}</td>
+        <td class="text-sm"><b>${esc(t.title)}</b>${t.description ? `<br><span class="text-muted">${esc(t.description.substring(0,80))}${t.description.length>80?'&hellip;':''}</span>` : ''}</td>
+        <td class="text-sm">${esc(t.user_display || '--')}</td>
+        <td class="text-sm">${esc(t.app_name || '--')}</td>
+        <td class="text-sm">${t.mitre_technique_id ? `<code>${esc(t.mitre_technique_id)}</code>` : '--'}</td>
+        <td class="text-sm">${fmt(t.detected_at)}</td>
+      </tr>`).join('');
+    pager('threats-pagination', offset, d.total, 'loadThreats');
+  } catch (e) {
+    tb.innerHTML = `<tr><td colspan="7" class="text-muted text-sm" style="text-align:center;padding:24px">Error loading threats</td></tr>`;
+  }
+}
+
+// ── posture ───────────────────────────────────────────────────────────────────
+
+async function loadPosture(offset = 0) {
+  const sv = document.getElementById('filter-severity').value;
+  let url = `${API}/posture?limit=${PAGE}&offset=${offset}`;
+  if (sv) url += `&severity=${encodeURIComponent(sv)}`;
+
+  const tb = document.getElementById('tbody-posture');
+  tb.innerHTML = '<tr><td colspan="6" class="text-muted text-sm" style="text-align:center;padding:24px">Loading...</td></tr>';
+  try {
+    const d = await api(url);
+    if (!d.findings.length) {
+      tb.innerHTML = '<tr><td colspan="6" class="text-muted text-sm" style="text-align:center;padding:32px">No open posture findings</td></tr>';
+      document.getElementById('posture-pagination').innerHTML = '';
+      return;
+    }
+    tb.innerHTML = d.findings.map(f => `
+      <tr>
+        <td>${sev(f.severity)}</td>
+        <td class="text-sm">${esc((f.finding_type || '').replace(/_/g, ' '))}</td>
+        <td class="text-sm"><b>${esc(f.title)}</b>${f.description ? `<br><span class="text-muted">${esc(f.description.substring(0,80))}${f.description.length>80?'&hellip;':''}</span>` : ''}</td>
+        <td class="text-sm">${esc(f.app_name || '--')}</td>
+        <td class="text-sm text-center">${esc(String(f.affected_count ?? '--'))}</td>
+        <td class="text-sm">${fmt(f.detected_at)}</td>
+      </tr>`).join('');
+    pager('posture-pagination', offset, d.total, 'loadPosture');
+  } catch (_) {
+    document.getElementById('tbody-posture').innerHTML = '<tr><td colspan="6" class="text-muted text-sm" style="text-align:center;padding:24px">Error loading posture findings</td></tr>';
+  }
+}
+
+// ── SaaS / AI / agents (shared) ───────────────────────────────────────────────
+
+async function loadSaas(type, offset = 0) {
+  const tab   = type === 'shadow_saas' ? 'saas' : type === 'shadow_ai' ? 'ai' : 'agents';
+  const cols  = type === 'ai_agent' ? 5 : 7;
+  const tbId  = `tbody-${tab}`;
+  const pgId  = `${tab}-pagination`;
+  const sv    = document.getElementById('filter-severity').value;
+
+  let url = `${API}/saas-apps?app_type=${type}&limit=${PAGE}&offset=${offset}`;
+  if (sv) url += `&risk_level=${encodeURIComponent(sv)}`;
+
+  const tb = document.getElementById(tbId);
+  tb.innerHTML = `<tr><td colspan="${cols}" class="text-muted text-sm" style="text-align:center;padding:24px">Loading...</td></tr>`;
+  try {
+    const d = await api(url);
+    if (!d.apps.length) {
+      tb.innerHTML = `<tr><td colspan="${cols}" class="text-muted text-sm" style="text-align:center;padding:32px">No ${type.replace(/_/g,' ')} apps found</td></tr>`;
+      document.getElementById(pgId).innerHTML = '';
+      return;
+    }
+    tb.innerHTML = d.apps.map(a => {
+      const riskChip = sev(a.risk_level || 'low');
+      if (type === 'ai_agent') return `
+        <tr>
+          <td class="text-sm"><b>${esc(a.app_name)}</b></td>
+          <td>${riskChip}</td>
+          <td class="text-sm text-center">${score(a.risk_score)}</td>
+          <td class="text-sm text-center">${checkChip(a.is_sanctioned)}</td>
+          <td class="text-sm">${fmt(a.last_seen)}</td>
+        </tr>`;
+      return `
+        <tr>
+          <td class="text-sm"><b>${esc(a.app_name)}</b></td>
+          <td class="text-sm">${esc(a.app_category || '--')}</td>
+          <td>${riskChip}</td>
+          <td class="text-sm text-center">${score(a.risk_score)}</td>
+          <td class="text-sm text-center">${esc(String(a.user_count ?? 0))}</td>
+          <td class="text-sm text-center">${checkChip(a.is_sanctioned)}</td>
+          <td class="text-sm">${fmt(a.last_seen)}</td>
+        </tr>`;
+    }).join('');
+    const loaderName = type === 'shadow_saas' ? `loadSaas('shadow_saas'` : type === 'shadow_ai' ? `loadSaas('shadow_ai'` : `loadSaas('ai_agent'`;
+    pager(pgId, offset, d.total, `function(o){${loaderName},o)}`);
+  } catch (_) {
+    document.getElementById(tbId).innerHTML = `<tr><td colspan="${cols}" class="text-muted text-sm" style="text-align:center;padding:24px">Error loading apps</td></tr>`;
+  }
+}
+
+// ── identity scores ───────────────────────────────────────────────────────────
+
+async function loadScores(offset = 0) {
+  const tb = document.getElementById('tbody-scores');
+  tb.innerHTML = '<tr><td colspan="7" class="text-muted text-sm" style="text-align:center;padding:24px">Loading...</td></tr>';
+  try {
+    const d = await api(`${API}/scores?limit=${PAGE}&offset=${offset}`);
+    if (!d.scores.length) {
+      tb.innerHTML = '<tr><td colspan="7" class="text-muted text-sm" style="text-align:center;padding:32px">No identity risk scores yet -- trigger a Grip sync to populate</td></tr>';
+      document.getElementById('scores-pagination').innerHTML = '';
+      return;
+    }
+    tb.innerHTML = d.scores.map(s => `
+      <tr>
+        <td class="text-sm"><b>${esc(s.user_display || 'unknown')}</b></td>
+        <td class="text-sm text-center">${score(s.composite_identity_score)}</td>
+        <td class="text-sm text-center">${score(s.itdr_score)}</td>
+        <td class="text-sm text-center">${score(s.posture_score)}</td>
+        <td class="text-sm text-center">${score(s.shadow_saas_score)}</td>
+        <td class="text-sm text-center">${score(s.shadow_ai_score)}</td>
+        <td class="text-sm">${fmt(s.last_synced)}</td>
+      </tr>`).join('');
+    pager('scores-pagination', offset, d.total, 'loadScores');
+  } catch (_) {
+    document.getElementById('tbody-scores').innerHTML = '<tr><td colspan="7" class="text-muted text-sm" style="text-align:center;padding:24px">Error loading scores</td></tr>';
+  }
+}
+</script>
+{% endblock %}
