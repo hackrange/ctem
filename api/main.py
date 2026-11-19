@@ -68,6 +68,7 @@ def create_app() -> FastAPI:
     from api.routes.identity import router as identity_router
     from api.routes.attack_paths import router as attack_paths_router
     from api.routes.grc_exceptions import router as grc_exceptions_router
+    from api.routes.tags import router as tags_router
 
     app.include_router(auth_router)
     app.include_router(admin_router)
@@ -83,6 +84,7 @@ def create_app() -> FastAPI:
     app.include_router(identity_router)
     app.include_router(attack_paths_router)
     app.include_router(grc_exceptions_router)
+    app.include_router(tags_router)
 
     # ── Web UI (must come after API routes) ───────────────────────────────────
     app.mount("/static", StaticFiles(directory="api/web/static"), name="static")
