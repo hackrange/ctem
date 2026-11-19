@@ -72,6 +72,10 @@ class User(Base, UUIDPrimaryKey, TimestampMixin):
     # OIDC subject identifier
     oidc_sub: Mapped[str | None] = mapped_column(String(256), index=True)
 
+    # AD / LDAP enrichment -- written by LDAP connector, used in user risk scoring
+    ad_groups: Mapped[list | None] = mapped_column(EncryptedJSON)         # group names, encrypted at rest
+    is_service_account: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
     # Tag-based page access -- admins assign tags like ["identity","grc"] to let
     # restricted roles access specific dashboards without a full analyst role
     page_tags: Mapped[list | None] = mapped_column(EncryptedJSON, default=None)

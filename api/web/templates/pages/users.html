@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% set active_nav = 'users' %}
+
+{% block title %}Users -- open-ctem{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-header__title">Users</h1>
+    <p class="page-header__sub">User risk scores, AD group memberships, and identity exposure</p>
+  </div>
+  <div style="display:flex;gap:8px">
+    <input id="search" type="text" placeholder="Search username..." onkeydown="if(event.key==='Enter')loadUsers(0)"
+      style="padding:6px 12px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:.85rem">
+    <select id="filter-grade" onchange="loadUsers(0)"
+      style="padding:6px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:.85rem">
+      <option value="">All grades</option>
+      <option value="F">F -- Critical</option>
+      <option value="D">D -- High</option>
+      <option value="C">C -- Medium</option>
+      <option value="B">B -- Low</option>
+      <option value="A">A -- Minimal</option>
+    </select>
+  </div>
+</div>
+
+<!-- Summary tiles -->
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:24px" id="user-tiles">
+  <div class="stat-tile" id="tile-total">--<br><small>Total Users</small></div>
+  <div class="stat-tile crit" id="tile-high-risk">--<br><small>High Risk (F/D)</small></div>
+  <div class="stat-tile warn" id="tile-no-mfa">--<br><small>MFA Not Enabled</small></div>
+  <div class="stat-tile warn" id="tile-privileged">--<br><small>Privileged Accounts</small></div>
+  <div class="stat-tile" id="tile-service">--<br><small>Service Accounts</small></div>
+</div>
+
+<div class="panel" style="padding:0">
+  <table class="data-table" id="users-table">
+    <thead>
+      <tr>
+        <th>Username</th>
+        <th>Display Name</th>
+        <th>Risk Grade</th>
+        <th>Score</th>
+        <th>Roles</th>
+        <th>MFA</th>
+        <th>Service Acct</th>
+        <th>AD Groups</th>
+        <th>Last Login</th>
+      </tr>
+    </thead>
+    <tbody id="users-tbody">
+      <tr><td colspan="9" class="text-muted text-sm" style="text-align:center;padding:32px">Loading...</td></tr>
+    </tbody>
+  </table>
+</div>
+<div id="users-pagination" style="display:flex;gap:8px;padding:12px 16px;align-items:center;font-size:.82rem;color:var(--text-muted)"></div>
+
+<style>
+.stat-tile { background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:14px 16px;font-size:.88rem;font-weight:700;line-height:1.4 }
+.stat-tile small { font-size:.75rem;font-weight:500;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em }
+.stat-tile.crit { border-left:3px solid var(--severity-critical,#e53935) }
+.stat-tile.warn { border-left:3px solid var(--severity-high,#f57c00) }
+</style>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const API = '/api/v1';
+const PAGE = 50;
+
+async function fetchJson(url) {
+  const r = await fetch(url, { headers: { Accept: 'application/json' } });
+  if (!r.ok) throw new Error(r.statusText);
+  return r.json();
+}
+
+function gradeChip(g) {
+  const cls = { F:'chip--critical', D:'chip--high', C:'chip--medium', B:'chip--low', A:'chip--low' }[g] || 'chip--info';
+  return g ? `<span class="chip ${cls}">${esc(g)}</span>` : '--';
+}
+
+function fmt(dt) {
+  return dt ? new Date(dt).toLocaleDateString() : '<span class="text-muted">Never</span>';
+}
+
+async function loadUsers(offset = 0) {
+  const search = document.getElementById('search').value.trim();
+  const grade  = document.getElementById('filter-grade').value;
+
+  let url = `${API}/admin/users?limit=${PAGE}&offset=${offset}`;
+  if (search) url += `&q=${encodeURIComponent(search)}`;
+
+  const tb = document.getElementById('users-tbody');
+  tb.innerHTML = '<tr><td colspan="9" class="text-muted text-sm" style="text-align:center;padding:24px">Loading...</td></tr>';
+
+  try {
+    const d = await fetchJson(url);
+    let users = d.users || [];
+
+    if (grade) users = users.filter(u => (u.risk_grade || '') === grade);
+
+    if (!users.length) {
+      tb.innerHTML = '<tr><td colspan="9" class="text-muted text-sm" style="text-align:center;padding:32px">No users found</td></tr>';
+      document.getElementById('users-pagination').innerHTML = '';
+      updateTiles([]);
+      return;
+    }
+
+    tb.innerHTML = users.map(u => {
+      const groups = (u.ad_groups || []).slice(0, 3).map(esc).join(', ');
+      const moreGroups = (u.ad_groups || []).length > 3 ? ` +${(u.ad_groups.length - 3)} more` : '';
+      return `
+        <tr>
+          <td style="font-weight:600">${esc(u.username)}</td>
+          <td class="text-sm text-muted">${esc(u.display_name || '--')}</td>
+          <td>${gradeChip(u.risk_grade)}</td>
+          <td class="text-sm text-center">${u.risk_score != null ? parseFloat(u.risk_score).toFixed(0) : '--'}</td>
+          <td>${(u.roles || []).map(r => `<span class="chip chip--info" style="font-size:.7rem">${esc(r.role_name || r)}</span>`).join(' ')}</td>
+          <td class="text-sm text-center">${u.totp_enabled ? '<span style="color:var(--severity-low)">&#10003;</span>' : '<span class="text-muted">&#8722;</span>'}</td>
+          <td class="text-sm text-center">${u.is_service_account ? '<span class="chip chip--info">SVC</span>' : '<span class="text-muted">--</span>'}</td>
+          <td class="text-sm text-muted" title="${esc((u.ad_groups||[]).join(', '))}">${groups}${moreGroups ? `<span class="text-muted"> ${moreGroups}</span>` : ''}</td>
+          <td class="text-sm">${fmt(u.last_login)}</td>
+        </tr>`;
+    }).join('');
+
+    updateTiles(users);
+
+    const pg = document.getElementById('users-pagination');
+    const total = d.total || users.length;
+    const hasPrev = offset > 0;
+    const hasNext = offset + PAGE < total;
+    pg.innerHTML = `<span>${total} total</span><span style="flex:1"></span>
+      ${hasPrev ? `<button class="btn btn--ghost btn--sm" onclick="loadUsers(${offset - PAGE})">Prev</button>` : ''}
+      ${hasNext ? `<button class="btn btn--ghost btn--sm" onclick="loadUsers(${offset + PAGE})">Next</button>` : ''}`;
+  } catch (e) {
+    tb.innerHTML = `<tr><td colspan="9" class="text-muted text-sm" style="text-align:center;padding:24px">Error loading users</td></tr>`;
+  }
+}
+
+function updateTiles(users) {
+  const total = users.length;
+  const highRisk = users.filter(u => u.risk_grade === 'F' || u.risk_grade === 'D').length;
+  const noMfa  = users.filter(u => !u.totp_enabled).length;
+  const privGroups = new Set(['domain admins','enterprise admins','schema admins','administrators']);
+  const privileged = users.filter(u => (u.ad_groups||[]).some(g => privGroups.has(g.toLowerCase()))).length;
+  const svcAcct    = users.filter(u => u.is_service_account).length;
+
+  document.getElementById('tile-total').innerHTML     = `${total}<br><small>Total Users</small>`;
+  document.getElementById('tile-high-risk').innerHTML = `${highRisk}<br><small>High Risk (F/D)</small>`;
+  document.getElementById('tile-no-mfa').innerHTML    = `${noMfa}<br><small>MFA Not Enabled</small>`;
+  document.getElementById('tile-privileged').innerHTML= `${privileged}<br><small>Privileged Accounts</small>`;
+  document.getElementById('tile-service').innerHTML   = `${svcAcct}<br><small>Service Accounts</small>`;
+}
+
+document.addEventListener('DOMContentLoaded', () => loadUsers(0));
+</script>
+{% endblock %}

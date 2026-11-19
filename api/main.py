@@ -124,6 +124,7 @@ def _register_web_routes(app: FastAPI) -> None:
     # ── Operations ────────────────────────────────────────────────────────────
     app.get("/", response_class=HTMLResponse, include_in_schema=False)(_render("pages/dashboard.html", "/"))
     app.get("/devices", response_class=HTMLResponse, include_in_schema=False)(_render("pages/devices.html", "/devices"))
+    app.get("/users", response_class=HTMLResponse, include_in_schema=False)(_render("pages/users.html", "/users"))
     app.get("/vulns", response_class=HTMLResponse, include_in_schema=False)(_render("pages/vulns.html", "/vulns"))
 
     # ── Analysis ──────────────────────────────────────────────────────────────
