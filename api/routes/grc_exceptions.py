@@ -157,17 +157,17 @@ async def get_compliance(
                 continue
             try:
                 d = json.loads(val or "{}")
-            except Exception:
+            except ValueError:
                 continue
             if d.get("status") not in ("pass", "partial"):
                 continue
             if d.get("expires_at"):
                 try:
-                    exp = datetime.fromisoformat(d["expires_at"].replace("Z", "+00:00"))
-                    if now > exp:
-                        continue
-                except Exception:
-                    pass
+                    exp = datetime.fromisoformat(str(d["expires_at"]).replace("Z", "+00:00"))
+                except ValueError:
+                    continue  # unreadable expiry never counts as passing evidence
+                if now > (exp if exp.tzinfo else exp.replace(tzinfo=timezone.utc)):
+                    continue
             passed += 1
 
         score = round((passed / total_controls) * 100) if total_controls else 0

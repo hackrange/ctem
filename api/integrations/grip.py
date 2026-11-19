@@ -346,7 +346,7 @@ class GripSecurityConnector(BaseConnector):
             if not items:
                 break  # empty page = done (short page != end of data per Grip docs)
 
-            page_hash = hashlib.md5(json.dumps(items, sort_keys=True).encode()).hexdigest()
+            page_hash = hashlib.sha256(json.dumps(items, sort_keys=True).encode()).hexdigest()
             if page_hash in seen_hashes:
                 log.warning("Grip pagination loop detected at offset %d, stopping", offset)
                 break

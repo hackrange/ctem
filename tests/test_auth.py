@@ -45,12 +45,12 @@ async def test_api_requires_auth(client):
 
 @pytest.mark.asyncio
 async def test_api_rejects_bearer_with_wrong_ip(admin_user, db, api_token_for):
-    """Token from IP 1.2.3.4 must be rejected when caller is 127.0.0.1."""
+    """Token from IP 203.0.113.4 must be rejected when caller is 127.0.0.1."""
     from api.main import create_app
     from api.core.db import get_session
     from httpx import ASGITransport, AsyncClient
 
-    plain, _ = await api_token_for(admin_user, allowed_ip="1.2.3.4")
+    plain, _ = await api_token_for(admin_user, allowed_ip="203.0.113.4")
 
     app = create_app()
     app.dependency_overrides[get_session] = lambda: db
@@ -61,7 +61,7 @@ async def test_api_rejects_bearer_with_wrong_ip(admin_user, db, api_token_for):
             headers={"Authorization": f"Bearer {plain}"},
         )
 
-    # httpx ASGITransport reports 127.0.0.1, not "1.2.3.4" -- should reject
+    # httpx ASGITransport reports 127.0.0.1, not "203.0.113.4" -- should reject
     assert resp.status_code == 401
 
 

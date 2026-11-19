@@ -1,6 +1,7 @@
 """Login, logout, OIDC callback, TOTP enrollment, profile."""
 from __future__ import annotations
 
+import logging
 import re
 import secrets
 import time
@@ -23,10 +24,10 @@ from api.models.user import User, UserRole
 
 router = APIRouter()
 _templates = Jinja2Templates(directory="api/web/templates")
+log = logging.getLogger("open-ctem.auth")
 
 _LOGIN_FAILED = "Sign-in failed. Check your credentials or contact your administrator."
-# Failed sign-ins re-render with 200: the upstream LB swaps 4xx bodies for its
-# own error page, which would hide the form and its fresh CSRF token.
+# Failed sign-ins answer 200 because the LB eats 4xx bodies, form and all
 _PENDING_TTL = 300          # seconds to finish the MFA step
 _PW_FAIL_LIMIT = 10         # failed passwords before a cool-off
 _PW_LOCK_SECONDS = 900
@@ -35,19 +36,20 @@ _DUMMY_HASH = local.hash_password(secrets.token_hex(16))
 
 
 async def _render_login(request: Request, db: AsyncSession, *, error: str | None = None,
-                        status: int = 200, totp_step: bool = False) -> HTMLResponse:
+                        status: int = 200, totp_step: bool = False, enroll: dict | None = None) -> HTMLResponse:
     from api.core.security import generate_csrf_token
     from api.models.settings import AppSetting
     if "session_id" not in request.session:
         request.session["session_id"] = secrets.token_hex(16)
     rows = await db.execute(select(AppSetting).where(AppSetting.key.like("brand.%")))
     branding = {s.key.removeprefix("brand."): s.value for s in rows.scalars()}
-    return _templates.TemplateResponse("pages/login.html", {
+    return _templates.TemplateResponse(request, "pages/login.html", {
         "request": request,
         "settings": get_settings(),
         "csrf_token": generate_csrf_token(request.session["session_id"]),
         "error": error,
         "totp_step": totp_step,
+        "enroll": enroll,
         "app_title": branding.get("title", "open-ctem"),
         "accent_color": branding.get("accent_color", "#f5a623"),
         "logo_url": branding.get("logo_url"),
@@ -108,11 +110,14 @@ async def browser_login(
     await _pw_clear(username)
 
     if user.totp_enabled or settings.mfa_required:
-        if not user.totp_enabled or not user.totp_secret:
-            return await _render_login(request, db, error="MFA is required but not set up. Contact your administrator.")
         request.session["pending_user_id"] = str(user.id)
         request.session["pending_at"] = int(time.time())
-        return await _render_login(request, db, totp_step=True)
+        if user.totp_enabled and user.totp_secret:
+            return await _render_login(request, db, totp_step=True)
+        # MFA is mandatory and this account has none yet: enroll right here
+        secret = local.generate_totp_secret()
+        request.session["totp_enroll"] = encrypt(secret)
+        return await _render_login(request, db, totp_step=True, enroll=_enroll_view(secret, user.username))
 
     return await _create_session(request, user, db)
 
@@ -132,13 +137,32 @@ async def browser_totp(
         return await _render_login(request, db, error="Sign-in expired. Please start again.")
 
     user = (await db.execute(select(User).where(User.id == uid))).scalar_one_or_none()
-    if user is None or not user.is_active or user.is_locked or not user.totp_secret:
+    if user is None or not user.is_active or user.is_locked:
+        return await _render_login(request, db, error=_LOGIN_FAILED)
+
+    enrolling = request.session.get("totp_enroll")
+    if enrolling:
+        import pyotp
+        secret = decrypt(enrolling)
+        if not pyotp.TOTP(secret).verify(totp_code.strip(), valid_window=1):
+            return await _render_login(request, db, error="That code didn't match. Try the next one.",
+                                       totp_step=True, enroll=_enroll_view(secret, user.username))
+        user.totp_secret = enrolling  # same shape as the other enrollment paths
+        user.totp_enabled = True
+        return await _create_session(request, user, db)
+
+    if not user.totp_secret:
         return await _render_login(request, db, error=_LOGIN_FAILED)
     try:
         await local.verify_totp(user.username, totp_code.strip(), user.totp_secret)
     except HTTPException as e:
         return await _render_login(request, db, error=str(e.detail), totp_step=True)
     return await _create_session(request, user, db)
+
+
+def _enroll_view(secret: str, username: str) -> dict:
+    from api.routes.admin import _qr_png_b64
+    return {"secret": secret, "qr_png": _qr_png_b64(local.totp_provisioning_uri(secret, username))}
 
 
 @router.get("/auth/logout")
@@ -164,7 +188,8 @@ async def _pw_locked(username: str) -> bool:
     try:
         return bool(await local._redis().exists(f"pw_lock:{username.lower()}"))
     except Exception:
-        return False  # Redis down: the per-IP rate limit still applies
+        log.warning("login lockout check skipped (Redis down?)")
+        return False  # the per-IP rate limit still applies
 
 
 async def _pw_fail(username: str) -> None:
@@ -176,14 +201,14 @@ async def _pw_fail(username: str) -> None:
         if count >= _PW_FAIL_LIMIT:
             await r.set(f"pw_lock:{username.lower()}", "1", ex=_PW_LOCK_SECONDS)
     except Exception:
-        pass
+        log.warning("could not record failed login (Redis down?)")
 
 
 async def _pw_clear(username: str) -> None:
     try:
         await local._redis().delete(f"pw_fail:{username.lower()}")
     except Exception:
-        pass
+        log.warning("could not clear failed-login counter (Redis down?)")
 
 
 def _require_browser_session(request: Request, user: User) -> None:

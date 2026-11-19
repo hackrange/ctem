@@ -156,7 +156,7 @@ def _register_web_routes(app: FastAPI) -> None:
                 "logo_url": branding.get("logo_url"),
                 "org_name": branding.get("org_name"),
             }
-            return templates.TemplateResponse(template, ctx)
+            return templates.TemplateResponse(request, template, ctx)
         return handler
 
     # ── Operations ────────────────────────────────────────────────────────────

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from xml.etree import ElementTree as ET
+from defusedxml import ElementTree as ET
 
 from sqlalchemy.ext.asyncio import AsyncSession
 

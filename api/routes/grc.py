@@ -102,16 +102,16 @@ async def get_compliance_status(
     for r in rows:
         try:
             d = json.loads(r.value or "{}")
-        except Exception:
+        except ValueError:
             continue
         control_id = r.key.replace(f"grc_evidence_{framework}_", "")
         expired = False
         if d.get("expires_at"):
             try:
-                exp = datetime.fromisoformat(d["expires_at"])
-                expired = now > exp.replace(tzinfo=timezone.utc if exp.tzinfo is None else exp.tzinfo)
-            except Exception:
-                pass
+                exp = datetime.fromisoformat(str(d["expires_at"]).replace("Z", "+00:00"))
+                expired = now > (exp if exp.tzinfo else exp.replace(tzinfo=timezone.utc))
+            except ValueError:
+                expired = True  # can't prove it's current, so it isn't
         controls.append({
             "control_id": control_id,
             "status": "expired" if expired else d.get("status", "unknown"),
