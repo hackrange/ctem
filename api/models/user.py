@@ -72,11 +72,19 @@ class User(Base, UUIDPrimaryKey, TimestampMixin):
     # OIDC subject identifier
     oidc_sub: Mapped[str | None] = mapped_column(String(256), index=True)
 
+    # Tag-based page access -- admins assign tags like ["identity","grc"] to let
+    # restricted roles access specific dashboards without a full analyst role
+    page_tags: Mapped[list | None] = mapped_column(EncryptedJSON, default=None)
+
     roles: Mapped[list[UserRole]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
     @property
     def role_names(self) -> list[str]:
         return [ur.role_name for ur in self.roles]
+
+    @property
+    def allowed_page_tags(self) -> list[str]:
+        return self.page_tags or []
 
 
 class UserRole(Base):

@@ -237,3 +237,44 @@ class CreateRoleRequest(BaseModel):
 class DuplicateRoleRequest(BaseModel):
     new_name: str
     display_name: str | None = None
+
+
+class UpdatePageTagsRequest(BaseModel):
+    page_tags: list[str]  # e.g. ["identity", "grc", "vuln"]
+
+
+# ── Page access management ────────────────────────────────────────────────────
+
+@router.get("/page-policies")
+async def list_page_policies(_: User = Depends(require_admin)):
+    """All page slugs with their associated tags and default allowed roles."""
+    from api.core.page_access import all_pages
+    return {"pages": all_pages()}
+
+
+@router.patch("/users/{user_id}/page-tags")
+async def update_user_page_tags(
+    user_id: str,
+    body: UpdatePageTagsRequest,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_session),
+):
+    """
+    Assign page access tags to a user. Tags grant access to pages whose tag list
+    intersects -- without promoting the user to a full analyst role.
+    Example: tags=["identity"] grants /identity; tags=["grc"] grants /grc.
+    """
+    result = await db.execute(select(User).where(User.id == user_id))
+    target = result.scalar_one_or_none()
+    if not target:
+        raise HTTPException(status_code=404)
+
+    # Sanitize -- lowercase alphanumeric + hyphens only
+    cleaned = [t.lower().strip() for t in body.page_tags if t.strip()]
+    cleaned = [t for t in cleaned if t.replace("-", "").isalnum()][:50]
+
+    target.page_tags = cleaned or None
+    await db.commit()
+    await _audit(current_user, "update_page_tags", "user", str(target.id),
+                 f"set page_tags={cleaned}", db)
+    return {"user_id": user_id, "page_tags": cleaned}

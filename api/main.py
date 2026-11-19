@@ -105,33 +105,39 @@ def _register_web_routes(app: FastAPI) -> None:
     from fastapi.templating import Jinja2Templates
     from fastapi import Depends
     from api.auth.middleware import get_current_user
+    from api.core.page_access import can_access_page
 
     templates = Jinja2Templates(directory="api/web/templates")
 
-    def _render(template: str):
-        """Return a route handler for a standard authenticated page."""
+    def _render(template: str, slug: str):
+        """Return a route handler with tag-aware page access control."""
         async def handler(request: Request, current_user=Depends(get_current_user)):
+            if not can_access_page(slug, current_user.role_names, current_user.allowed_page_tags):
+                # 404 not 403 -- no enumeration oracle
+                from fastapi import HTTPException
+                raise HTTPException(status_code=404)
             return templates.TemplateResponse(template, {"request": request, "user": current_user})
         return handler
 
     # ── Operations ────────────────────────────────────────────────────────────
-    app.get("/", response_class=HTMLResponse, include_in_schema=False)(_render("pages/dashboard.html"))
-    app.get("/devices", response_class=HTMLResponse, include_in_schema=False)(_render("pages/devices.html"))
-    app.get("/vulns", response_class=HTMLResponse, include_in_schema=False)(_render("pages/vulns.html"))
+    app.get("/", response_class=HTMLResponse, include_in_schema=False)(_render("pages/dashboard.html", "/"))
+    app.get("/devices", response_class=HTMLResponse, include_in_schema=False)(_render("pages/devices.html", "/devices"))
+    app.get("/vulns", response_class=HTMLResponse, include_in_schema=False)(_render("pages/vulns.html", "/vulns"))
 
     # ── Analysis ──────────────────────────────────────────────────────────────
-    app.get("/threat", response_class=HTMLResponse, include_in_schema=False)(_render("pages/threat.html"))
-    app.get("/hunt", response_class=HTMLResponse, include_in_schema=False)(_render("pages/hunt.html"))
-    app.get("/attack-paths", response_class=HTMLResponse, include_in_schema=False)(_render("pages/attack_paths.html"))
-    app.get("/grc", response_class=HTMLResponse, include_in_schema=False)(_render("pages/grc.html"))
-    app.get("/cmdb", response_class=HTMLResponse, include_in_schema=False)(_render("pages/cmdb.html"))
+    app.get("/threat", response_class=HTMLResponse, include_in_schema=False)(_render("pages/threat.html", "/threat"))
+    app.get("/identity", response_class=HTMLResponse, include_in_schema=False)(_render("pages/identity.html", "/identity"))
+    app.get("/hunt", response_class=HTMLResponse, include_in_schema=False)(_render("pages/hunt.html", "/hunt"))
+    app.get("/attack-paths", response_class=HTMLResponse, include_in_schema=False)(_render("pages/attack_paths.html", "/attack-paths"))
+    app.get("/grc", response_class=HTMLResponse, include_in_schema=False)(_render("pages/grc.html", "/grc"))
+    app.get("/cmdb", response_class=HTMLResponse, include_in_schema=False)(_render("pages/cmdb.html", "/cmdb"))
 
     # ── Settings ──────────────────────────────────────────────────────────────
-    app.get("/settings/integrations", response_class=HTMLResponse, include_in_schema=False)(_render("pages/integrations.html"))
-    app.get("/settings/tokens", response_class=HTMLResponse, include_in_schema=False)(_render("pages/tokens.html"))
+    app.get("/settings/integrations", response_class=HTMLResponse, include_in_schema=False)(_render("pages/integrations.html", "/settings/integrations"))
+    app.get("/settings/tokens", response_class=HTMLResponse, include_in_schema=False)(_render("pages/tokens.html", "/settings/tokens"))
 
     # ── Admin ─────────────────────────────────────────────────────────────────
-    app.get("/admin", response_class=HTMLResponse, include_in_schema=False)(_render("pages/admin.html"))
+    app.get("/admin", response_class=HTMLResponse, include_in_schema=False)(_render("pages/admin.html", "/admin"))
 
 
 app = create_app()
