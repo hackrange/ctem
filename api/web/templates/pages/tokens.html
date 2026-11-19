@@ -130,7 +130,7 @@ function closeTokenModal() {
 
 async function createToken() {
   const name = document.getElementById('token-name').value.trim();
-  if (!name) { alert('Name is required'); return; }
+  if (!name) { toast('Token name is required', 'error'); return; }
   const ipsRaw = document.getElementById('token-ips').value.trim();
   const allowed_ips = ipsRaw ? ipsRaw.split('\n').map(s => s.trim()).filter(Boolean) : null;
   const description = document.getElementById('token-desc').value.trim() || null;

@@ -78,7 +78,6 @@ async function runHunt() {
   status('Running hunt query...');
 
   try {
-    const data = await fetchJson(`${API}/hunt/query`);  // placeholder -- POST below
     const res = await fetch(`${API}/hunt/query`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

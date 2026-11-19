@@ -270,7 +270,7 @@ async function deleteIntegration(id) {
   try {
     await fetchJson(`${API}/integrations/${encodeURIComponent(id)}`, { method: 'DELETE' });
     loadIntegrations();
-  } catch (e) { alert(e.message); }
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 document.addEventListener('DOMContentLoaded', loadIntegrations);

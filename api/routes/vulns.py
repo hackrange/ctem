@@ -61,6 +61,69 @@ async def list_vulns(
     }
 
 
+@router.get("/{vuln_id}/findings")
+async def list_vuln_findings(
+    vuln_id: uuid.UUID,
+    current_user: User = Depends(require_permission("vulns", "read")),
+    db: AsyncSession = Depends(get_session),
+    status: FindingStatus | None = None,
+    limit: int = Query(50, le=200),
+):
+    """Open findings for a specific vulnerability, filtered to devices this user can access."""
+    from api.auth.rbac import get_accessible_device_tag_ids
+    from api.models.device import Device, DeviceTag
+
+    result = await db.execute(select(Vulnerability).where(Vulnerability.id == vuln_id))
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(404)
+
+    stmt = (
+        select(Finding)
+        .options(selectinload(Finding.device))
+        .where(Finding.vuln_id == vuln_id)
+    )
+    if status:
+        stmt = stmt.where(Finding.status == status)
+    else:
+        stmt = stmt.where(Finding.status == FindingStatus.open)
+
+    stmt = stmt.limit(limit)
+    rows = (await db.execute(stmt)).scalars().all()
+
+    # Filter to devices the caller is allowed to see (None = unrestricted)
+    accessible = await get_accessible_device_tag_ids(current_user, db)
+    visible = []
+    for f in rows:
+        dev = f.device
+        if accessible is None:   # admin / cyber -- see everything
+            visible.append(f)
+            continue
+        if not dev.tags:         # untagged device -- visible to restricted roles too
+            visible.append(f)
+            continue
+        dev_tag_ids = {dt.tag_id for dt in dev.tags}
+        if dev_tag_ids & set(accessible):
+            visible.append(f)
+
+    return {
+        "findings": [
+            {
+                "id":              str(f.id),
+                "device_id":       str(f.device_id),
+                "hostname":        f.device.hostname if f.device else None,
+                "status":          f.status.value,
+                "composite_score": f.composite_score,
+                "risk_grade":      f.risk_grade,
+                "is_reachable":    f.is_reachable,
+                "first_detected":  f.first_detected.isoformat() if f.first_detected else None,
+                "last_seen":       f.last_seen.isoformat() if f.last_seen else None,
+            }
+            for f in visible
+        ],
+        "total": len(visible),
+    }
+
+
 @router.get("/{vuln_id}")
 async def get_vuln(
     vuln_id: uuid.UUID,

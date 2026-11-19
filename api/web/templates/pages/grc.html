@@ -201,7 +201,7 @@ async function revokeException(id) {
   try {
     await fetchJson(`${API}/exceptions/${encodeURIComponent(id)}`, { method: 'DELETE' });
     loadExceptions();
-  } catch (e) { alert(e.message); }
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
