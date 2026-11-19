@@ -42,6 +42,7 @@ class Vendor(str, enum.Enum):
     forgerepo = "forgerepo"
     ai = "ai"
     zscaler = "zscaler"
+    fairtprm = "fairtprm"
 
 
 class IntegrationConfig(Base, UUIDPrimaryKey, TimestampMixin):

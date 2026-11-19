@@ -7,55 +7,163 @@
 <div class="page-header">
   <div>
     <h1 class="page-header__title">Attack Paths</h1>
-    <p class="page-header__sub">CVE chains that form multi-step exploit paths</p>
+    <p class="page-header__sub">Multi-hop exploit chains and lateral movement pivot points</p>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center">
+    <label style="display:flex;align-items:center;gap:6px;font-size:.85rem;cursor:pointer">
+      <input type="checkbox" id="kev-only" onchange="loadChains()"> KEV only
+    </label>
   </div>
 </div>
 
-<div id="chains-list" style="display:flex;flex-direction:column;gap:12px">
-  <div class="text-muted text-sm" style="padding:32px;text-align:center">Loading...</div>
+<!-- Summary tiles -->
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:24px">
+  <div class="panel" style="margin:0;padding:14px 16px">
+    <div style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted)">Reachable Findings</div>
+    <div id="tile-reachable" style="font-size:1.8rem;font-weight:800;font-family:'Space Grotesk',sans-serif">--</div>
+  </div>
+  <div class="panel" style="margin:0;padding:14px 16px;border-left:3px solid var(--severity-critical,#e53935)">
+    <div style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted)">KEV Reachable</div>
+    <div id="tile-kev" style="font-size:1.8rem;font-weight:800;font-family:'Space Grotesk',sans-serif;color:var(--severity-critical,#e53935)">--</div>
+  </div>
+  <div class="panel" style="margin:0;padding:14px 16px">
+    <div style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted)">Chains Found</div>
+    <div id="tile-chains" style="font-size:1.8rem;font-weight:800;font-family:'Space Grotesk',sans-serif">--</div>
+  </div>
+</div>
+
+<!-- Two-column layout -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+
+  <!-- Exploit chains -->
+  <div>
+    <div class="panel" style="padding:0">
+      <div class="panel__header">
+        <h2 class="panel__title">Exploit Chains</h2>
+        <span class="text-muted text-sm" id="chains-subtitle"></span>
+      </div>
+      <div id="chains-list" style="padding:0">
+        <div class="text-muted text-sm" style="padding:32px;text-align:center">Loading...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Pivot points -->
+  <div>
+    <div class="panel" style="padding:0">
+      <div class="panel__header">
+        <h2 class="panel__title">Top Pivot Points</h2>
+        <span class="text-muted text-sm">Fix these to cut the most chains</span>
+      </div>
+      <table class="data-table" id="pivot-table">
+        <thead><tr><th>Host</th><th>Type</th><th>Reachable</th><th>KEV</th><th>Grade</th></tr></thead>
+        <tbody id="pivot-tbody">
+          <tr><td colspan="5" class="text-muted text-sm" style="text-align:center;padding:24px">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
 </div>
 {% endblock %}
 
 {% block extra_scripts %}
 <script>
-const API = '/api/v1';
+const API = '/api/v1/attack-paths';
 
 async function fetchJson(url) {
-  const res = await fetch(url, { headers: { Accept: 'application/json' } });
-  if (!res.ok) throw new Error(res.statusText);
-  return res.json();
+  const r = await fetch(url, { headers: { Accept: 'application/json' } });
+  if (!r.ok) throw new Error(r.statusText);
+  return r.json();
+}
+
+function scoreColor(s) {
+  if (s >= 80) return 'var(--severity-critical,#e53935)';
+  if (s >= 60) return 'var(--severity-high,#f57c00)';
+  if (s >= 40) return 'var(--severity-medium,#f9a825)';
+  return 'var(--severity-low,#43a047)';
+}
+
+async function loadSummary() {
+  try {
+    const d = await fetchJson(`${API}/summary`);
+    document.getElementById('tile-reachable').textContent = d.total_reachable_findings ?? '--';
+    document.getElementById('tile-kev').textContent = d.kev_reachable ?? '--';
+  } catch (_) {}
 }
 
 async function loadChains() {
+  const kevOnly = document.getElementById('kev-only').checked;
+  const list = document.getElementById('chains-list');
+  list.innerHTML = '<div class="text-muted text-sm" style="padding:24px;text-align:center">Loading...</div>';
+
   try {
-    const data = await fetchJson(`${API}/vulns/chains?limit=50`);
-    const chains = data.chains || [];
-    document.getElementById('chains-list').innerHTML = chains.map(c => `
-      <div class="panel" style="margin:0">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px">
-          <div>
-            <div style="font-weight:600">Chain: ${esc(c.device_hostname || c.device_id)}</div>
-            <div class="text-muted text-sm">Score: ${c.chain_score?.toFixed(1) ?? '--'}
-              ${c.confirmed_by_pentest ? '&nbsp;<span class="chip chip--critical">Pentest Confirmed</span>' : ''}
+    const d = await fetchJson(`${API}/chains?limit=50${kevOnly ? '&kev_only=true' : ''}`);
+    const chains = d.chains || [];
+    document.getElementById('tile-chains').textContent = d.total ?? chains.length;
+    document.getElementById('chains-subtitle').textContent = `${chains.length} shown`;
+
+    if (!chains.length) {
+      list.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-muted)">No multi-hop chains detected -- great posture!</div>';
+      return;
+    }
+
+    list.innerHTML = chains.map(c => {
+      const src = c.source || {};
+      const dst = c.destination || {};
+      const bar = `<div style="width:${c.chain_score}%;height:4px;background:${scoreColor(c.chain_score)};border-radius:2px;min-width:4px"></div>`;
+      return `
+        <div style="padding:14px 16px;border-bottom:1px solid var(--border)">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+            <div>
+              <span style="font-weight:600;font-size:.85rem">${esc(src.hostname || src.ip || src.device_id?.substring(0,8))}</span>
+              <span style="color:var(--text-muted);margin:0 6px">&#8594;</span>
+              <span style="font-weight:600;font-size:.85rem">${esc(dst.hostname || dst.ip || dst.device_id?.substring(0,8))}</span>
             </div>
+            <span class="chip chip--${c.chain_score >= 70 ? 'critical' : c.chain_score >= 50 ? 'high' : 'medium'}">${c.chain_score?.toFixed(0) ?? '--'}</span>
           </div>
-          <span style="font-size:.8rem;color:var(--text-muted)">${esc(c.mitre_techniques) || ''}</span>
-        </div>
-        ${c.members?.length ? `
-          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-            ${c.members.map((m, i) => `
-              ${i > 0 ? '<span style="color:var(--text-muted)">&#8594;</span>' : ''}
-              <span class="chip chip--high" style="font-family:monospace">${esc(m.cve_id || m.vuln_id)}</span>
-            `).join('')}
-          </div>` : ''}
-        ${c.description ? `<p class="text-muted text-sm" style="margin:8px 0 0">${esc(c.description)}</p>` : ''}
-      </div>
-    `).join('') || '<div style="padding:40px;text-align:center;color:var(--text-muted)">No attack chains detected</div>';
+          <div style="margin-bottom:6px">${bar}</div>
+          <div class="text-muted text-sm">${esc(c.subnet || '')} &nbsp;&bull;&nbsp;
+            Src: ${src.finding_count ?? 0} findings (max CVSS ${(src.max_cvss ?? 0).toFixed(1)}) &nbsp;&bull;&nbsp;
+            Dst: ${dst.finding_count ?? 0} findings (max CVSS ${(dst.max_cvss ?? 0).toFixed(1)})
+          </div>
+        </div>`;
+    }).join('');
   } catch (e) {
-    document.getElementById('chains-list').innerHTML = `<div style="padding:32px;text-align:center;color:var(--text-muted)">Error loading attack paths</div>`;
+    list.innerHTML = `<div style="padding:32px;text-align:center;color:var(--text-muted)">Error: ${esc(e.message)}</div>`;
   }
 }
 
-document.addEventListener('DOMContentLoaded', loadChains);
+async function loadPivotPoints() {
+  const tb = document.getElementById('pivot-tbody');
+  try {
+    const d = await fetchJson(`${API}/pivot-points?limit=20`);
+    const pts = d.pivot_points || [];
+    if (!pts.length) {
+      tb.innerHTML = '<tr><td colspan="5" class="text-muted text-sm" style="text-align:center;padding:24px">No internet-exposed hosts with reachable findings</td></tr>';
+      return;
+    }
+    tb.innerHTML = pts.map(p => {
+      const riskCls = { critical:'chip--critical', high:'chip--high', medium:'chip--medium', low:'chip--low' }[p.pivot_risk] || 'chip--info';
+      return `
+        <tr>
+          <td class="text-sm"><b>${esc(p.hostname || p.ip_address || '--')}</b>
+            ${p.ip_address && p.hostname ? `<br><span class="text-muted">${esc(p.ip_address)}</span>` : ''}
+          </td>
+          <td class="text-sm text-muted">${esc(p.device_type || '--')}</td>
+          <td class="text-sm text-center">${p.reachable_findings}</td>
+          <td class="text-sm text-center">${p.kev_findings > 0 ? `<span class="chip chip--critical">${p.kev_findings}</span>` : '<span class="text-muted">0</span>'}</td>
+          <td>${p.risk_grade ? `<span class="chip ${riskCls}">${esc(p.risk_grade)}</span>` : '--'}</td>
+        </tr>`;
+    }).join('');
+  } catch (_) {
+    tb.innerHTML = '<tr><td colspan="5" class="text-muted text-sm" style="text-align:center;padding:24px">Error loading pivot points</td></tr>';
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  loadSummary();
+  loadChains();
+  loadPivotPoints();
+});
 </script>
 {% endblock %}
