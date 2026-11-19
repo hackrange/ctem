@@ -146,3 +146,90 @@ class EvidenceRequest(BaseModel):
     evidence_url: str | None = None
     expires_at: str | None = None   # ISO 8601
     notes: str | None = None
+
+
+# ── Third-party risk (FairTPRM) endpoints ─────────────────────────────────────
+
+@router.get("/suppliers")
+async def list_suppliers(
+    _: User = Depends(require_permission("grc", "read")),
+    db: AsyncSession = Depends(get_session),
+    tier: str | None = None,
+    min_score: float = 0,
+    limit: int = 50,
+    offset: int = 0,
+):
+    """Supplier risk scores synced from FairTPRM."""
+    from sqlalchemy import func
+    from api.models.risk import ThirdPartyRisk
+
+    q = select(ThirdPartyRisk).order_by(ThirdPartyRisk.risk_score.desc())
+    if tier:
+        q = q.where(ThirdPartyRisk.tier == tier)
+    if min_score:
+        q = q.where(ThirdPartyRisk.risk_score >= min_score)
+
+    total = (await db.execute(select(func.count()).select_from(q.subquery()))).scalar_one()
+    result = await db.execute(q.offset(offset).limit(limit))
+    suppliers = result.scalars().all()
+
+    return {
+        "suppliers": [
+            {
+                "id": str(s.id),
+                "supplier_name": s.supplier_name,
+                "tier": s.tier,
+                "status": s.status,
+                "risk_score": s.risk_score,
+                "risk_grade": s.risk_grade,
+                "open_gaps": s.open_gaps,
+                "last_assessment": s.last_assessment.isoformat() if s.last_assessment else None,
+                "next_review": s.next_review.isoformat() if s.next_review else None,
+                "source": s.source,
+            }
+            for s in suppliers
+        ],
+        "total": total,
+    }
+
+
+@router.get("/suppliers/{supplier_id}/gaps")
+async def list_supplier_gaps(
+    supplier_id: str,
+    _: User = Depends(require_permission("grc", "read")),
+    db: AsyncSession = Depends(get_session),
+):
+    """Control gaps for a specific supplier -- object-level auth via source ownership."""
+    from api.models.risk import ThirdPartyControlGap, ThirdPartyRisk
+    import uuid as _uuid
+
+    try:
+        sid = _uuid.UUID(supplier_id)
+    except ValueError:
+        raise HTTPException(404)
+
+    # Verify supplier exists (404 not 403)
+    s_result = await db.execute(select(ThirdPartyRisk).where(ThirdPartyRisk.id == sid))
+    if not s_result.scalar_one_or_none():
+        raise HTTPException(404)
+
+    result = await db.execute(
+        select(ThirdPartyControlGap)
+        .where(ThirdPartyControlGap.supplier_id == sid)
+        .order_by(ThirdPartyControlGap.severity)
+    )
+    gaps = result.scalars().all()
+    return {
+        "gaps": [
+            {
+                "id": str(g.id),
+                "control_name": g.control_name,
+                "description": g.description,
+                "severity": g.severity,
+                "is_resolved": g.is_resolved,
+                "detected_at": g.detected_at.isoformat() if g.detected_at else None,
+            }
+            for g in gaps
+        ],
+        "total": len(gaps),
+    }

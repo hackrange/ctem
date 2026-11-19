@@ -3,10 +3,11 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, String
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from api.core.encryption import EncryptedJSON
 from api.models.base import Base, TimestampMixin, UUIDPrimaryKey
 
 
@@ -52,3 +53,49 @@ class AttackPath(Base, UUIDPrimaryKey, TimestampMixin):
 
     source_device: Mapped[object | None] = relationship("Device", foreign_keys=[source_device_id])
     target_device: Mapped[object | None] = relationship("Device", foreign_keys=[target_device_id])
+
+
+class ThirdPartyRisk(Base, UUIDPrimaryKey, TimestampMixin):
+    """
+    Third-party / supplier risk record from FairTPRM or similar TPRM platform.
+    Keyed by (source, external_id) -- suppliers don't live in our device/user tables.
+    """
+    __tablename__ = "third_party_risks"
+
+    source: Mapped[str] = mapped_column(String(64), nullable=False, index=True)      # fairtprm, manual
+    external_id: Mapped[str] = mapped_column(String(256), nullable=False, index=True) # supplier ID in source system
+    supplier_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    tier: Mapped[str | None] = mapped_column(String(32))                              # tier1, tier2, tier3
+    status: Mapped[str | None] = mapped_column(String(32))                            # active, offboarded, reviewing
+    risk_score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    risk_grade: Mapped[str] = mapped_column(String(1), default="A", nullable=False)
+    open_gaps: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_assessment: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    next_review: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    extra: Mapped[dict | None] = mapped_column(EncryptedJSON)                        # arbitrary source metadata
+
+
+class ThirdPartyControlGap(Base, UUIDPrimaryKey, TimestampMixin):
+    """
+    A specific control gap from a third-party assessment.
+    Child of ThirdPartyRisk -- one supplier can have many gaps.
+    """
+    __tablename__ = "third_party_control_gaps"
+
+    supplier_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("third_party_risks.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    source: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    external_id: Mapped[str] = mapped_column(String(256), nullable=False, index=True) # control gap ID in source
+    control_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    severity: Mapped[str] = mapped_column(String(16), nullable=False, default="medium")
+    is_resolved: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    detected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    supplier: Mapped[ThirdPartyRisk] = relationship(back_populates="gaps")
+
+
+ThirdPartyRisk.gaps = relationship(  # type: ignore[attr-defined]
+    ThirdPartyControlGap, back_populates="supplier", cascade="all, delete-orphan"
+)

@@ -39,6 +39,7 @@ async def init_db() -> None:
     import api.models.tag           # noqa: F401
     import api.models.settings      # noqa: F401
     import api.models.identity      # noqa: F401 -- ITDR, posture, SaaS/AI app records
+    import api.models.risk          # noqa: F401 -- re-import to pick up ThirdPartyRisk/Gap
 
     async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
