@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% set active_nav = 'attack-paths' %}
+
+{% block title %}Attack Paths -- open-ctem{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-header__title">Attack Paths</h1>
+    <p class="page-header__sub">CVE chains that form multi-step exploit paths</p>
+  </div>
+</div>
+
+<div id="chains-list" style="display:flex;flex-direction:column;gap:12px">
+  <div class="text-muted text-sm" style="padding:32px;text-align:center">Loading...</div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const API = '/api/v1';
+
+async function fetchJson(url) {
+  const res = await fetch(url, { headers: { Accept: 'application/json' } });
+  if (!res.ok) throw new Error(res.statusText);
+  return res.json();
+}
+
+async function loadChains() {
+  try {
+    const data = await fetchJson(`${API}/vulns/chains?limit=50`);
+    const chains = data.chains || [];
+    document.getElementById('chains-list').innerHTML = chains.map(c => `
+      <div class="panel" style="margin:0">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px">
+          <div>
+            <div style="font-weight:600">Chain: ${c.device_hostname || c.device_id}</div>
+            <div class="text-muted text-sm">Score: ${c.chain_score?.toFixed(1) ?? '--'}
+              ${c.confirmed_by_pentest ? '&nbsp;<span class="chip chip--critical">Pentest Confirmed</span>' : ''}
+            </div>
+          </div>
+          <span style="font-size:.8rem;color:var(--text-muted)">${c.mitre_techniques || ''}</span>
+        </div>
+        ${c.members?.length ? `
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            ${c.members.map((m, i) => `
+              ${i > 0 ? '<span style="color:var(--text-muted)">&#8594;</span>' : ''}
+              <span class="chip chip--high" style="font-family:monospace">${m.cve_id || m.vuln_id}</span>
+            `).join('')}
+          </div>` : ''}
+        ${c.description ? `<p class="text-muted text-sm" style="margin:8px 0 0">${c.description}</p>` : ''}
+      </div>
+    `).join('') || '<div style="padding:40px;text-align:center;color:var(--text-muted)">No attack chains detected</div>';
+  } catch (e) {
+    document.getElementById('chains-list').innerHTML = `<div style="padding:32px;text-align:center;color:var(--text-muted)">Error loading attack paths</div>`;
+  }
+}
+
+document.addEventListener('DOMContentLoaded', loadChains);
+</script>
+{% endblock %}

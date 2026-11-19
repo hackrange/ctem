@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% set active_nav = 'cmdb' %}
+
+{% block title %}CMDB -- open-ctem{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-header__title">CMDB</h1>
+    <p class="page-header__sub">Configuration Management Database -- export and sync to ServiceNow</p>
+  </div>
+  <div class="flex items-center gap-2">
+    <a href="/api/v1/cmdb/export" class="btn btn--ghost btn--sm">Export CSV</a>
+    <button class="btn btn--primary btn--sm" onclick="triggerSync()">Push to ServiceNow</button>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:20px" id="cmdb-stats">
+  <div class="summary-card">
+    <p class="summary-card__eyebrow">Total Records</p>
+    <p class="summary-card__value" id="stat-total">--</p>
+  </div>
+  <div class="summary-card">
+    <p class="summary-card__eyebrow">Last Sync</p>
+    <p class="summary-card__value" id="stat-sync" style="font-size:1.1rem">--</p>
+  </div>
+  <div class="summary-card">
+    <p class="summary-card__eyebrow">ServiceNow CMDB</p>
+    <p class="summary-card__value" id="stat-snow" style="font-size:1rem">--</p>
+  </div>
+</div>
+
+<div class="panel" style="padding:0">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Hostname</th>
+        <th>IP Address</th>
+        <th>Type</th>
+        <th>OS</th>
+        <th>Owner</th>
+        <th>Environment</th>
+        <th>ServiceNow CI</th>
+      </tr>
+    </thead>
+    <tbody id="cmdb-tbody">
+      <tr><td colspan="7" class="text-muted text-sm" style="text-align:center;padding:24px">Loading...</td></tr>
+    </tbody>
+  </table>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const API = '/api/v1';
+
+async function fetchJson(url) {
+  const res = await fetch(url, { headers: { Accept: 'application/json' } });
+  if (!res.ok) throw new Error(res.statusText);
+  return res.json();
+}
+
+async function loadCMDB() {
+  try {
+    const data = await fetchJson(`${API}/cmdb?limit=200`);
+    const records = data.records || data.devices || [];
+    document.getElementById('stat-total').textContent = records.length;
+    document.getElementById('stat-sync').textContent = data.last_sync_at ? new Date(data.last_sync_at).toLocaleString() : 'Never';
+    document.getElementById('stat-snow').textContent = data.servicenow_enabled ? 'Connected' : 'Not configured';
+
+    document.getElementById('cmdb-tbody').innerHTML = records.map(r => `
+      <tr>
+        <td style="font-weight:500">${r.hostname}</td>
+        <td class="text-mono text-sm">${r.ip_address || '--'}</td>
+        <td class="text-muted text-sm">${r.device_type || '--'}</td>
+        <td class="text-sm">${r.os_name || '--'}</td>
+        <td class="text-sm">${r.owner || '--'}</td>
+        <td class="text-sm">${r.environment || '--'}</td>
+        <td class="text-mono text-sm">${r.servicenow_ci_id || '<span class="text-muted">Not synced</span>'}</td>
+      </tr>
+    `).join('') || '<tr><td colspan="7" class="text-muted text-sm" style="text-align:center;padding:24px">No CMDB records</td></tr>';
+  } catch (e) {
+    document.getElementById('cmdb-tbody').innerHTML = `<tr><td colspan="7" class="text-muted text-sm" style="text-align:center;padding:24px">Error loading CMDB</td></tr>`;
+  }
+}
+
+async function triggerSync() {
+  const btn = event.target;
+  btn.disabled = true;
+  btn.textContent = 'Syncing...';
+  try {
+    await fetch(`${API}/cmdb/sync`, { method: 'POST' });
+    setTimeout(() => { btn.disabled = false; btn.textContent = 'Push to ServiceNow'; loadCMDB(); }, 2000);
+  } catch (_) {
+    btn.disabled = false;
+    btn.textContent = 'Push to ServiceNow';
+  }
+}
+
+document.addEventListener('DOMContentLoaded', loadCMDB);
+</script>
+{% endblock %}

@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% set active_nav = 'devices' %}
+
+{% block title %}Devices -- open-ctem{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-header__title">Device Inventory</h1>
+    <p class="page-header__sub">All managed assets across your environment</p>
+  </div>
+  <div class="flex items-center gap-2">
+    <input id="search-input" type="search" placeholder="Search hostname, IP..." class="input input--sm"
+      style="width:220px" oninput="debounceSearch(this.value)">
+    <select id="filter-grade" onchange="loadDevices()" style="padding:6px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
+      <option value="">All Grades</option>
+      <option value="F">F -- Critical</option>
+      <option value="D">D -- High</option>
+      <option value="C">C -- Medium</option>
+      <option value="B">B -- Low</option>
+      <option value="A">A -- Minimal</option>
+    </select>
+  </div>
+</div>
+
+<div class="panel" style="padding:0">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Hostname</th>
+        <th>IP</th>
+        <th>Type</th>
+        <th>OS</th>
+        <th>Grade</th>
+        <th>Score</th>
+        <th>EDR</th>
+        <th>Reachable</th>
+        <th>Tags</th>
+      </tr>
+    </thead>
+    <tbody id="devices-tbody">
+      <tr><td colspan="9" class="text-muted text-sm" style="text-align:center;padding:24px">Loading...</td></tr>
+    </tbody>
+  </table>
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-top:1px solid var(--border)">
+    <span id="page-info" class="text-muted text-sm"></span>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn--ghost btn--sm" id="btn-prev" onclick="prevPage()" disabled>Previous</button>
+      <button class="btn btn--ghost btn--sm" id="btn-next" onclick="nextPage()" disabled>Next</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const API = '/api/v1';
+let page = 1;
+const PAGE_SIZE = 50;
+let searchTimer = null;
+let totalCount = 0;
+
+async function fetchJson(url) {
+  const res = await fetch(url, { headers: { Accept: 'application/json' } });
+  if (!res.ok) throw new Error(res.statusText);
+  return res.json();
+}
+
+function gradeChip(g) {
+  const m = { F: 'critical', D: 'high', C: 'medium', B: 'low', A: 'info' };
+  return g ? `<span class="chip chip--${m[g] || 'info'}">${g}</span>` : '--';
+}
+function boolIcon(v) {
+  return v ? '<span style="color:var(--severity-low)">&#10003;</span>'
+           : '<span style="color:var(--severity-critical)">&#10007;</span>';
+}
+function scoreColor(s) {
+  if (s >= 80) return 'var(--severity-critical)';
+  if (s >= 60) return 'var(--severity-high)';
+  if (s >= 40) return 'var(--severity-medium)';
+  return 'var(--severity-low)';
+}
+
+function debounceSearch(v) {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => { page = 1; loadDevices(); }, 350);
+}
+
+async function loadDevices() {
+  const grade = document.getElementById('filter-grade').value;
+  const q = document.getElementById('search-input').value.trim();
+  const offset = (page - 1) * PAGE_SIZE;
+  const params = new URLSearchParams({ limit: PAGE_SIZE, offset });
+  if (grade) params.set('grade', grade);
+  if (q) params.set('q', q);
+
+  try {
+    const data = await fetchJson(`${API}/devices?${params}`);
+    const devices = data.devices || [];
+    totalCount = data.total || devices.length;
+
+    document.getElementById('devices-tbody').innerHTML = devices.map(d => `
+      <tr onclick="location.href='/devices/${d.id}'" style="cursor:pointer">
+        <td style="font-weight:600">${d.hostname}</td>
+        <td class="text-mono text-sm">${d.ip_address || '--'}</td>
+        <td class="text-sm text-muted">${d.device_type || '--'}</td>
+        <td class="text-sm">${d.os_name ? d.os_name.substring(0, 20) : '--'}</td>
+        <td>${gradeChip(d.risk_grade)}</td>
+        <td>
+          <div style="display:flex;align-items:center;gap:6px">
+            <div class="score-bar" style="width:50px"><div class="score-bar__fill" style="width:${d.risk_score || 0}%;background:${scoreColor(d.risk_score)}"></div></div>
+            <span class="text-sm">${d.risk_score || 0}</span>
+          </div>
+        </td>
+        <td>${boolIcon(d.edr_active)}</td>
+        <td>${d.is_reachable != null ? boolIcon(d.is_reachable) : '<span class="text-muted">?</span>'}</td>
+        <td style="max-width:160px">
+          ${(d.tags || []).slice(0, 3).map(t => `<span class="chip chip--info" style="font-size:.7rem">${t.split(':').pop()}</span>`).join(' ')}
+          ${(d.tags || []).length > 3 ? `<span class="text-muted text-sm">+${d.tags.length - 3}</span>` : ''}
+        </td>
+      </tr>
+    `).join('') || '<tr><td colspan="9" class="text-muted text-sm" style="text-align:center;padding:24px">No devices found</td></tr>';
+
+    const start = offset + 1;
+    const end = Math.min(offset + devices.length, totalCount);
+    document.getElementById('page-info').textContent = devices.length ? `${start}-${end} of ${totalCount}` : '';
+    document.getElementById('btn-prev').disabled = page <= 1;
+    document.getElementById('btn-next').disabled = end >= totalCount;
+  } catch (e) {
+    document.getElementById('devices-tbody').innerHTML = `<tr><td colspan="9" class="text-muted" style="text-align:center;padding:24px">Error loading devices</td></tr>`;
+  }
+}
+
+function prevPage() { if (page > 1) { page--; loadDevices(); } }
+function nextPage() { page++; loadDevices(); }
+
+document.addEventListener('DOMContentLoaded', loadDevices);
+</script>
+{% endblock %}

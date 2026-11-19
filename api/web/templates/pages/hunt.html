@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% set active_nav = 'hunt' %}
+
+{% block title %}Threat Hunt -- open-ctem{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-header__title">Threat Hunt</h1>
+    <p class="page-header__sub">Natural language investigation across all integrated tools</p>
+  </div>
+</div>
+
+<div class="panel" style="margin-bottom:20px">
+  <div style="display:flex;gap:10px;align-items:flex-end">
+    <div style="flex:1">
+      <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:4px">Hunt Query</label>
+      <input id="hunt-query" type="text" placeholder='e.g. "Show me all RCE findings on internet-exposed hosts this week"'
+        style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:.9rem"
+        onkeydown="if(event.key==='Enter') runHunt()">
+    </div>
+    <div>
+      <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:4px">Asset Hint</label>
+      <input id="hunt-asset" type="text" placeholder="optional hostname/IP"
+        style="width:180px;padding:10px 12px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:.9rem">
+    </div>
+    <button class="btn btn--primary" onclick="runHunt()" id="hunt-btn">Hunt</button>
+  </div>
+</div>
+
+<div id="hunt-status" style="display:none;padding:12px 16px;border-radius:4px;margin-bottom:16px;font-size:.9rem"></div>
+
+<div id="hunt-results" style="display:none">
+  <div class="panel" style="padding:0">
+    <div class="panel__header"><h2 class="panel__title" id="results-title">Results</h2></div>
+    <table class="data-table" id="results-table">
+      <thead><tr id="results-head"></tr></thead>
+      <tbody id="results-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="panel" style="margin-top:20px">
+  <div class="panel__header">
+    <h2 class="panel__title">SPL Catalog</h2>
+    <button class="btn btn--ghost btn--sm" onclick="loadCatalog()">Refresh</button>
+  </div>
+  <div id="spl-catalog" class="text-muted text-sm" style="padding:12px">Loading Splunk catalog...</div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const API = '/api/v1';
+let pollTimer = null;
+
+async function fetchJson(url) {
+  const res = await fetch(url, { headers: { Accept: 'application/json' } });
+  if (!res.ok) throw new Error(res.statusText);
+  return res.json();
+}
+
+function status(msg, type = 'info') {
+  const el = document.getElementById('hunt-status');
+  const colors = { info: 'var(--bg)', success: 'rgba(46,125,50,.15)', error: 'rgba(204,0,0,.1)' };
+  el.style.cssText = `display:block;background:${colors[type]};border:1px solid var(--border)`;
+  el.textContent = msg;
+}
+
+async function runHunt() {
+  const query = document.getElementById('hunt-query').value.trim();
+  if (!query) return;
+  const asset_hint = document.getElementById('hunt-asset').value.trim() || null;
+  const btn = document.getElementById('hunt-btn');
+  btn.disabled = true;
+  btn.textContent = 'Hunting...';
+  document.getElementById('hunt-results').style.display = 'none';
+  status('Running hunt query...');
+
+  try {
+    const data = await fetchJson(`${API}/hunt/query`);  // placeholder -- POST below
+    const res = await fetch(`${API}/hunt/query`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, asset_hint, max_results: 50 }),
+    });
+    if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+    const result = await res.json();
+
+    if (result.task_id) {
+      status('AI analysis running, polling for results...');
+      pollResult(result.task_id);
+    } else {
+      showResults(result.results || [], query);
+      btn.disabled = false;
+      btn.textContent = 'Hunt';
+    }
+  } catch (e) {
+    status('Hunt failed: ' + e.message, 'error');
+    btn.disabled = false;
+    btn.textContent = 'Hunt';
+  }
+}
+
+function pollResult(taskId) {
+  clearTimeout(pollTimer);
+  pollTimer = setTimeout(async () => {
+    try {
+      const data = await fetchJson(`${API}/hunt/result/${taskId}`);
+      if (data.status === 'pending' || data.status === 'running') {
+        status('AI still analyzing...');
+        pollResult(taskId);
+      } else {
+        showResults(data.results || [], '');
+        document.getElementById('hunt-btn').disabled = false;
+        document.getElementById('hunt-btn').textContent = 'Hunt';
+        status('Hunt complete', 'success');
+      }
+    } catch (e) {
+      status('Error polling: ' + e.message, 'error');
+    }
+  }, 2000);
+}
+
+function showResults(results, query) {
+  document.getElementById('hunt-results').style.display = 'block';
+  document.getElementById('results-title').textContent = `${results.length} result(s) for: ${query}`;
+  if (!results.length) {
+    document.getElementById('results-tbody').innerHTML = '<tr><td class="text-muted text-sm" style="text-align:center;padding:24px">No matching events</td></tr>';
+    return;
+  }
+  const keys = Object.keys(results[0]);
+  document.getElementById('results-head').innerHTML = keys.map(k => `<th>${k}</th>`).join('');
+  document.getElementById('results-tbody').innerHTML = results.map(r =>
+    `<tr>${keys.map(k => `<td class="text-sm">${r[k] ?? ''}</td>`).join('')}</tr>`
+  ).join('');
+}
+
+async function loadCatalog() {
+  try {
+    const data = await fetchJson(`${API}/hunt/splunk/catalog`);
+    const searches = data.searches || [];
+    document.getElementById('spl-catalog').innerHTML = searches.length
+      ? searches.map(s => `
+        <div style="margin-bottom:12px;padding:10px 12px;background:var(--surface);border-radius:4px;border:1px solid var(--border)">
+          <div style="font-weight:600;font-size:.85rem;margin-bottom:4px">${s.name || s.label || 'Search'}</div>
+          <code style="font-size:.78rem;color:var(--text-muted)">${s.spl || s.query || ''}</code>
+        </div>`).join('')
+      : '<span class="text-muted">No SPL catalog available -- configure Splunk integration to enable</span>';
+  } catch (_) {
+    document.getElementById('spl-catalog').textContent = 'SPL catalog unavailable';
+  }
+}
+
+document.addEventListener('DOMContentLoaded', loadCatalog);
+</script>
+{% endblock %}

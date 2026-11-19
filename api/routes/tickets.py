@@ -1,8 +1,8 @@
 """Create ServiceNow tickets from findings -- via API or inbound email."""
 from __future__ import annotations
 
+import html
 import uuid
-from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -17,7 +17,7 @@ from api.core.db import get_session
 from api.models.user import User
 from api.models.vuln import Finding, TicketRef, Vulnerability
 
-router = APIRouter(prefix="/api/v1/findings", tags=["tickets"])
+router = APIRouter(prefix="/api/v1/vulns/findings", tags=["tickets"])
 
 
 @router.post("/{finding_id}/ticket", status_code=201)
@@ -185,19 +185,23 @@ def _build_description(finding, vuln, device, extra_notes: str | None) -> str:
 
 
 def _ticket_email_html(title: str, body: str, severity: str, host: str, cve: str | None) -> str:
+    # html.escape() all untrusted values -- vuln.description is scanner-sourced
     sev_color = {"critical": "#cc0000", "high": "#e65c00", "medium": "#e6a817", "low": "#2e7d32"}.get(
         severity, "#555"
     )
-    escaped = body.replace("\n", "<br>")
+    t = html.escape(title)
+    h = html.escape(host)
+    c = html.escape(cve or "N/A")
+    b = html.escape(body).replace("\n", "<br>")
     return f"""<html><body style="font-family:Arial,sans-serif;font-size:14px;">
-<h2 style="color:{sev_color};">[{severity.upper()}] {title}</h2>
+<h2 style="color:{sev_color};">[{severity.upper()}] {t}</h2>
 <table style="border-collapse:collapse;width:100%;max-width:600px;">
-<tr><td style="padding:4px 8px;font-weight:bold;">Host</td><td style="padding:4px 8px;">{host}</td></tr>
-<tr><td style="padding:4px 8px;font-weight:bold;">CVE</td><td style="padding:4px 8px;">{cve or 'N/A'}</td></tr>
+<tr><td style="padding:4px 8px;font-weight:bold;">Host</td><td style="padding:4px 8px;">{h}</td></tr>
+<tr><td style="padding:4px 8px;font-weight:bold;">CVE</td><td style="padding:4px 8px;">{c}</td></tr>
 <tr><td style="padding:4px 8px;font-weight:bold;">Severity</td><td style="padding:4px 8px;color:{sev_color};">{severity.upper()}</td></tr>
 </table>
 <hr>
-<pre style="background:#f5f5f5;padding:12px;border-radius:4px;">{escaped}</pre>
+<pre style="background:#f5f5f5;padding:12px;border-radius:4px;">{b}</pre>
 <p style="color:#888;font-size:12px;">Created by open-ctem</p>
 </body></html>"""
 
