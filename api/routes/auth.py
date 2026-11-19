@@ -26,11 +26,18 @@ _templates = Jinja2Templates(directory="api/web/templates")
 
 @router.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
+    from api.core.security import generate_csrf_token
     settings = get_settings()
     if settings.auth_mode == "oidc_only":
         redirect_url = await oidc.start_flow(request)
         return RedirectResponse(redirect_url, status_code=302)
-    return _templates.TemplateResponse("pages/login.html", {"request": request, "settings": settings})
+    # Generate a session ID for CSRF binding if not set
+    if "session_id" not in request.session:
+        request.session["session_id"] = secrets.token_hex(16)
+    csrf_token = generate_csrf_token(request.session["session_id"])
+    return _templates.TemplateResponse("pages/login.html", {
+        "request": request, "settings": settings, "csrf_token": csrf_token
+    })
 
 
 @router.get("/auth/sso")
@@ -47,47 +54,20 @@ async def oidc_callback(request: Request, code: str, state: str, db: AsyncSessio
     return await _create_session(request, user)
 
 
-@router.post("/api/v1/auth/token")
-async def get_token(
-    username: Annotated[str, Form()],
-    password: Annotated[str, Form()],
-    totp_code: Annotated[str | None, Form()] = None,
-    db: AsyncSession = Depends(get_session),
-):
-    """API token endpoint for programmatic access."""
-    settings = get_settings()
-    if settings.auth_mode == "oidc_only":
-        raise HTTPException(400, detail="Local auth is disabled")
-
-    result = await db.execute(select(User).where(User.username == username, User.is_local == True))  # noqa: E712
-    user = result.scalar_one_or_none()
-
-    if user is None or not user.password_hash:
-        raise HTTPException(401, detail="Invalid credentials")
-    if user.is_locked:
-        raise HTTPException(401, detail="Account is locked. Contact your administrator.")
-    if not local.verify_password(password, user.password_hash):
-        raise HTTPException(401, detail="Invalid credentials")
-
-    if user.totp_enabled or settings.mfa_required:
-        if not totp_code:
-            raise HTTPException(401, detail="TOTP code required")
-        if not user.totp_secret:
-            raise HTTPException(401, detail="MFA not configured")
-        await local.verify_totp(username, totp_code, user.totp_secret)
-
-    access = create_access_token(str(user.id), user.username)
-    return {"access_token": access, "token_type": "bearer"}
-
 
 @router.post("/auth/login")
 async def browser_login(
     request: Request,
     username: Annotated[str, Form()],
     password: Annotated[str, Form()],
+    csrf: Annotated[str | None, Form(alias="_csrf")] = None,
     totp_code: Annotated[str | None, Form()] = None,
     db: AsyncSession = Depends(get_session),
 ):
+    from api.core.security import verify_csrf_token
+    session_id = request.session.get("session_id", "")
+    if not csrf or not verify_csrf_token(csrf, session_id):
+        raise HTTPException(403, detail="CSRF validation failed")
     settings = get_settings()
     if settings.auth_mode == "oidc_only":
         raise HTTPException(400, detail="Local auth is disabled")

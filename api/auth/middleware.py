@@ -79,7 +79,7 @@ async def get_current_user(
 
     # Check if it looks like a long-lived API token (hex, 64 chars)
     if len(token_str) == 64 and all(c in "0123456789abcdef" for c in token_str.lower()):
-        return await _authenticate_api_token(token_str, db)
+        return await _authenticate_api_token(token_str, request, db)
 
     claims = _decode(token_str)
     if claims.get("type") != "access":
@@ -95,27 +95,65 @@ async def get_current_user(
     return user
 
 
-async def _authenticate_api_token(raw_token: str, db: AsyncSession) -> User:
+async def _authenticate_api_token(raw_token: str, request: Request, db: AsyncSession) -> User:
+    import ipaddress
     token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
     result = await db.execute(
         select(ApiToken).where(ApiToken.token_hash == token_hash, ApiToken.is_active == True)  # noqa: E712
     )
     api_token = result.scalar_one_or_none()
+
+    # Deliberate: return the same error whether the token is unknown, expired, or IP-blocked.
+    # No oracle for which condition failed.
     if api_token is None:
         raise HTTPException(401, detail="Invalid API token")
     if api_token.expires_at and api_token.expires_at < datetime.now(timezone.utc):
-        raise HTTPException(401, detail="API token expired")
+        raise HTTPException(401, detail="Invalid API token")
+
+    # IP enforcement -- token only works from its registered addresses
+    caller_ip = _client_ip(request)
+    if not _ip_allowed(caller_ip, api_token.allowed_ips or []):
+        raise HTTPException(401, detail="Invalid API token")
 
     result2 = await db.execute(select(User).where(User.id == api_token.user_id))
     user = result2.scalar_one_or_none()
     if user is None or not user.is_active:
-        raise HTTPException(401, detail="User not found or disabled")
+        raise HTTPException(401, detail="Invalid API token")
 
-    # Update last_used lazily (best-effort -- don't fail auth if this fails)
     try:
         api_token.last_used = datetime.now(timezone.utc)
+        api_token.last_used_ip = caller_ip
         await db.commit()
     except Exception:
         pass
 
     return user
+
+
+def _ip_allowed(caller_ip: str, allowed: list[str]) -> bool:
+    """Check if caller_ip is in the allowed list (exact IPs or CIDR ranges)."""
+    import ipaddress
+    if not allowed:
+        return False
+    try:
+        addr = ipaddress.ip_address(caller_ip)
+    except ValueError:
+        return False
+    for entry in allowed:
+        try:
+            if "/" in entry:
+                if addr in ipaddress.ip_network(entry, strict=False):
+                    return True
+            else:
+                if addr == ipaddress.ip_address(entry):
+                    return True
+        except ValueError:
+            continue
+    return False
+
+
+def _client_ip(request: Request) -> str:
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
