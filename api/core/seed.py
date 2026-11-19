@@ -16,26 +16,66 @@ _ROLES = [
     ("admin",     "Administrator",    "Full access to all features and settings"),
     ("cyber",     "Cyber Analyst",    "Read/write vulnerability, risk, and attack path data"),
     ("grc",       "GRC Analyst",      "Read/write GRC frameworks, exceptions, and suppliers"),
-    ("it",        "IT Operations",    "Read device and CMDB data"),
+    ("it_user",   "IT Operations",    "Read device and CMDB data"),
     ("read_only", "Read Only",        "Read access across all dashboards"),
     ("service",   "Service Account",  "Machine-to-machine API access via tokens"),
 ]
 
 # (resource, action, scope)
 _PERMISSIONS = [
-    ("admin",   "read",   "all"),
-    ("admin",   "write",  "all"),
-    ("users",   "read",   "all"),
-    ("users",   "write",  "all"),
-    ("devices", "read",   "all"),
-    ("devices", "write",  "all"),
-    ("vulns",   "read",   "all"),
-    ("vulns",   "write",  "all"),
-    ("grc",     "read",   "all"),
-    ("grc",     "write",  "all"),
-    ("reports", "read",   "all"),
-    ("reports", "write",  "all"),
+    ("admin",    "read",   "all"),
+    ("admin",    "write",  "all"),
+    ("users",    "read",   "all"),
+    ("users",    "write",  "all"),
+    ("devices",  "read",   "all"),
+    ("devices",  "write",  "all"),
+    ("vulns",    "read",   "all"),
+    ("vulns",    "write",  "all"),
+    ("findings", "read",   "all"),
+    ("findings", "write",  "all"),
+    ("grc",      "read",   "all"),
+    ("grc",      "write",  "all"),
+    ("reports",  "read",   "all"),
+    ("reports",  "write",  "all"),
 ]
+
+# role -> list of (resource, action) it gets
+_ROLE_PERMS: dict[str, list[tuple[str, str]]] = {
+    "admin": [
+        ("admin", "read"), ("admin", "write"),
+        ("users", "read"), ("users", "write"),
+        ("devices", "read"), ("devices", "write"),
+        ("vulns", "read"), ("vulns", "write"),
+        ("findings", "read"), ("findings", "write"),
+        ("grc", "read"), ("grc", "write"),
+        ("reports", "read"), ("reports", "write"),
+    ],
+    "cyber": [
+        ("devices", "read"), ("devices", "write"),
+        ("vulns", "read"), ("vulns", "write"),
+        ("findings", "read"), ("findings", "write"),
+        ("grc", "read"), ("reports", "read"),
+    ],
+    "grc": [
+        ("grc", "read"), ("grc", "write"),
+        ("vulns", "read"), ("findings", "read"),
+        ("reports", "read"), ("reports", "write"),
+    ],
+    "it_user": [
+        ("devices", "read"), ("vulns", "read"),
+        ("findings", "read"),
+    ],
+    "read_only": [
+        ("devices", "read"), ("vulns", "read"),
+        ("findings", "read"), ("grc", "read"),
+        ("reports", "read"),
+    ],
+    "service": [
+        ("devices", "read"), ("devices", "write"),
+        ("vulns", "read"), ("vulns", "write"),
+        ("findings", "read"), ("findings", "write"),
+    ],
+}
 
 
 async def run_seed(db: AsyncSession, settings) -> None:
@@ -45,27 +85,48 @@ async def run_seed(db: AsyncSession, settings) -> None:
 
 
 async def _seed_roles_and_perms(db: AsyncSession) -> None:
-    from api.models.user import Permission, Role
+    from api.models.user import Permission, Role, RolePermission
 
+    # Upsert permissions, build lookup table
+    perm_lookup: dict[tuple[str, str], str] = {}
     for resource, action, scope in _PERMISSIONS:
-        exists = (await db.execute(
+        existing = (await db.execute(
             select(Permission).where(
                 Permission.resource == resource,
                 Permission.action == action,
                 Permission.scope == scope,
             )
         )).scalar_one_or_none()
-        if not exists:
-            db.add(Permission(resource=resource, action=action, scope=scope))
+        if not existing:
+            existing = Permission(resource=resource, action=action, scope=scope)
+            db.add(existing)
+            await db.flush()
+        perm_lookup[(resource, action)] = str(existing.id)
+
+    # Upsert roles
+    for name, display, desc in _ROLES:
+        existing = (await db.execute(
+            select(Role).where(Role.name == name)
+        )).scalar_one_or_none()
+        if not existing:
+            db.add(Role(name=name, display_name=display, description=desc, is_builtin=True))
 
     await db.flush()
 
-    for name, display, desc in _ROLES:
-        exists = (await db.execute(
-            select(Role).where(Role.name == name)
-        )).scalar_one_or_none()
-        if not exists:
-            db.add(Role(name=name, display_name=display, description=desc, is_builtin=True))
+    # Wire role->permission assignments
+    for role_name, pairs in _ROLE_PERMS.items():
+        for resource, action in pairs:
+            perm_id = perm_lookup.get((resource, action))
+            if not perm_id:
+                continue
+            existing = (await db.execute(
+                select(RolePermission).where(
+                    RolePermission.role_name == role_name,
+                    RolePermission.permission_id == perm_id,
+                )
+            )).scalar_one_or_none()
+            if not existing:
+                db.add(RolePermission(role_name=role_name, permission_id=perm_id))
 
     await db.flush()
     log.info("roles/permissions seeded")

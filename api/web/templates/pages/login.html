@@ -1,150 +1,289 @@
-{% extends "base.html" %}
-
-{% block title %}Sign in -- open-ctem{% endblock %}
-
-{% block content %}{% endblock %}
-
-{# Login page overrides the whole layout -- no topbar/sidebar #}
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Sign in -- open-ctem</title>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@700;800&display=swap" />
-  <link rel="stylesheet" href="/static/css/style.css" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@700;800&display=swap" />
   <style>
-    :root { --accent: {{ accent_color | default('#f5a623') }}; }
-    body { background: #0d0d0d; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+    :root {
+      --accent:   {{ accent_color | default('#f5a623') }};
+      --accent2:  color-mix(in srgb, {{ accent_color | default('#f5a623') }} 80%, #000);
+      --bg:       #eef1f6;
+      --surface:  #ffffff;
+      --border:   #d8dde6;
+      --border2:  #c4ccd8;
+      --text:     #111827;
+      --muted:    #6b7280;
+      --dim:      #9ca3af;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 16px;
+    }
+
+    /* subtle decorative shape top-right */
+    body::before {
+      content: '';
+      position: fixed;
+      top: -120px;
+      right: -120px;
+      width: 480px;
+      height: 480px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(245,166,35,0.10) 0%, transparent 65%);
+      pointer-events: none;
+    }
+
     .login-wrap {
       width: 100%;
       max-width: 420px;
-      padding: 0 16px;
+      position: relative;
+      z-index: 1;
     }
+
+    /* ── card ── */
     .login-card {
-      background: #1a1d27;
-      border: 1px solid #2d3148;
-      border-top: 4px solid var(--accent);
-      border-radius: 10px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
       padding: 40px 36px 36px;
+      box-shadow:
+        0 2px 8px rgba(0,0,0,0.06),
+        0 12px 40px rgba(0,0,0,0.10);
+      position: relative;
+      overflow: hidden;
     }
+
+    /* accent bar at top */
+    .login-card::before {
+      content: '';
+      position: absolute;
+      inset: 0 0 auto;
+      height: 4px;
+      background: linear-gradient(90deg, var(--accent), var(--accent2), transparent 85%);
+    }
+
+    /* ── logo ── */
     .login-logo {
-      text-align: center;
-      margin-bottom: 28px;
+      display: flex;
+      justify-content: center;
+      margin-bottom: 24px;
     }
-    .login-logo svg { width: 48px; height: 48px; }
+    .login-logo svg { width: 52px; height: 52px; }
+
+    /* ── headings ── */
     .login-title {
       font-family: 'Space Grotesk', sans-serif;
-      font-size: 22px;
+      font-size: 24px;
       font-weight: 800;
-      color: #f9fafb;
+      color: var(--text);
       text-align: center;
-      margin: 0 0 4px;
+      letter-spacing: -0.3px;
+      margin-bottom: 4px;
     }
     .login-sub {
       font-size: 12px;
-      color: #6b7280;
+      color: var(--muted);
       text-align: center;
-      margin: 0 0 28px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      margin-bottom: 32px;
     }
-    .form-label { color: #9ca3af; }
-    .form-control {
-      background: #0f1117;
-      border-color: #2d3148;
-      color: #f9fafb;
-    }
-    .form-control:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(245,166,35,0.12); }
+
+    /* ── error ── */
     .login-error {
-      background: rgba(239,68,68,0.12);
-      border: 1px solid rgba(239,68,68,0.3);
+      background: rgba(239,68,68,0.1);
+      border: 1px solid rgba(239,68,68,0.25);
       color: #fca5a5;
-      border-radius: 6px;
+      border-radius: 8px;
       padding: 10px 14px;
       font-size: 13px;
-      margin-bottom: 16px;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
+    .login-error::before { content: '⚠'; font-size: 14px; }
+
+    /* ── form ── */
+    .field { margin-bottom: 16px; }
+
+    .field label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 6px;
+    }
+
+    .field input {
+      width: 100%;
+      background: #f8f9fb;
+      border: 1px solid var(--border2);
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 14px;
+      color: var(--text);
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+    }
+    .field input:focus {
+      background: #fff;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(245,166,35,0.15);
+    }
+    .field input::placeholder { color: var(--dim); }
+
+    /* ── submit button ── */
+    .btn-signin {
+      width: 100%;
+      margin-top: 8px;
+      padding: 11px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: #000;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 700;
+      font-family: inherit;
+      cursor: pointer;
+      transition: opacity 0.15s, transform 0.1s;
+      letter-spacing: 0.02em;
+    }
+    .btn-signin:hover  { opacity: 0.9; }
+    .btn-signin:active { transform: scale(0.99); }
+
+    /* ── divider ── */
     .login-divider {
       display: flex;
       align-items: center;
       gap: 10px;
       margin: 20px 0;
-      color: #374151;
+      color: var(--dim);
       font-size: 11px;
       text-transform: uppercase;
-      letter-spacing: 0.06em;
+      letter-spacing: 0.08em;
     }
-    .login-divider::before, .login-divider::after {
+    .login-divider::before,
+    .login-divider::after {
       content: '';
       flex: 1;
       height: 1px;
-      background: #2d3148;
+      background: var(--border);
+    }
+
+    /* ── SSO button ── */
+    .btn-sso {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      padding: 10px;
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border2);
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      font-family: inherit;
+      cursor: pointer;
+      text-decoration: none;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .btn-sso:hover { background: var(--surface2); border-color: var(--muted); }
+
+    /* ── footer ── */
+    .login-footer {
+      text-align: center;
+      color: var(--muted);
+      font-size: 11px;
+      margin-top: 20px;
+      letter-spacing: 0.04em;
     }
   </style>
 </head>
 <body>
 <div class="login-wrap">
   <div class="login-card">
+
     <div class="login-logo">
       {% if logo_url %}
-        <img src="{{ logo_url }}" alt="{{ app_title | default('open-ctem') }}" style="height:48px;width:auto" />
+        <img src="{{ logo_url }}" alt="{{ app_title | default('open-ctem') }}" style="height:52px;width:auto" />
       {% else %}
-        <svg viewBox="0 0 48 48" fill="none">
-          <rect width="48" height="48" rx="10" fill="var(--accent)" />
-          <path d="M12 24 L24 12 L36 24 L24 36 Z" fill="#000" opacity="0.9" />
-          <circle cx="24" cy="24" r="5" fill="var(--accent)" />
+        <svg viewBox="0 0 52 52" fill="none">
+          <rect width="52" height="52" rx="12" fill="var(--accent)"/>
+          <!-- shield shape -->
+          <path d="M26 11 L38 16 L38 27 C38 34 32 40 26 43 C20 40 14 34 14 27 L14 16 Z"
+                fill="rgba(0,0,0,0.15)" stroke="rgba(0,0,0,0.25)" stroke-width="1.5" stroke-linejoin="round"/>
+          <path d="M26 11 L38 16 L38 27 C38 34 32 40 26 43 C20 40 14 34 14 27 L14 16 Z"
+                fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="1.5" stroke-linejoin="round"/>
+          <!-- inner diamond -->
+          <path d="M26 21 L30 27 L26 33 L22 27 Z" fill="#fff" opacity="0.95"/>
+          <circle cx="26" cy="27" r="2.5" fill="var(--accent)"/>
         </svg>
       {% endif %}
     </div>
+
     <h1 class="login-title">{{ app_title | default('open-ctem') }}</h1>
-    <p class="login-sub">Continuous Threat Exposure Management</p>
+    <p class="login-sub">{{ org_name | default('Threat Exposure Management') }}</p>
 
     {% if error %}
     <div class="login-error">{{ error }}</div>
     {% endif %}
 
-    {% if settings.auth_mode in ('local_only', 'both') %}
+    {% if totp_step %}
+    <form method="post" action="/auth/totp" autocomplete="off">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}" />
+      <div class="field">
+        <label for="totp_code">Authenticator code</label>
+        <input type="text" id="totp_code" name="totp_code" required autofocus
+               inputmode="numeric" pattern="[0-9]{6,8}" maxlength="8"
+               autocomplete="one-time-code" placeholder="6-digit code" />
+      </div>
+      <button type="submit" class="btn-signin">Verify</button>
+      <p style="margin-top:12px;text-align:center"><a href="/login">Start over</a></p>
+    </form>
+    {% elif settings.auth_mode in ('local_only', 'both') %}
     <form method="post" action="/auth/login" autocomplete="on">
       <input type="hidden" name="_csrf" value="{{ csrf_token }}" />
-      <div class="form-group">
-        <label class="form-label" for="username">Username</label>
-        <input class="form-control" type="text" id="username" name="username" required autocomplete="username" />
+
+      <div class="field">
+        <label for="username">Username</label>
+        <input type="text" id="username" name="username" required
+               autocomplete="username" placeholder="Enter your username" />
       </div>
-      <div class="form-group">
-        <label class="form-label" for="password">Password</label>
-        <input class="form-control" type="password" id="password" name="password" required autocomplete="current-password" />
+
+      <div class="field">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" required
+               autocomplete="current-password" placeholder="Enter your password" />
       </div>
-      <div class="form-group" id="totp-field" style="display:none">
-        <label class="form-label" for="totp_code">Authenticator code</label>
-        <input class="form-control text-mono" type="text" id="totp_code" name="totp_code" inputmode="numeric" maxlength="6" autocomplete="one-time-code" />
-      </div>
-      <button type="submit" class="btn btn--primary" style="width:100%;justify-content:center;padding:10px">
-        Sign in
-      </button>
+
+      <button type="submit" class="btn-signin">Sign in</button>
     </form>
     {% endif %}
 
-    {% if settings.auth_mode == 'both' %}
+    {% if settings.auth_mode == 'both' and not totp_step %}
     <div class="login-divider">or</div>
-    <a href="/auth/sso" class="btn btn--ghost" style="width:100%;justify-content:center;padding:10px">
-      Continue with SSO
-    </a>
+    <a href="/auth/sso" class="btn-sso">Continue with SSO</a>
     {% endif %}
+
   </div>
 
-  <p style="text-align:center;color:#374151;font-size:11px;margin-top:16px">
-    {{ app_title | default('open-ctem') }} &mdash; Secure by design
-  </p>
+  <p class="login-footer">open-ctem &middot; Secure by design</p>
 </div>
-
-<script>
-  // Show TOTP field if user starts typing a password (heuristic)
-  const totpField = document.getElementById('totp-field');
-  const passInput = document.getElementById('password');
-  if (passInput && totpField) {
-    passInput.addEventListener('blur', () => {
-      if (passInput.value.length > 0) totpField.style.display = '';
-    });
-  }
-</script>
 </body>
 </html>

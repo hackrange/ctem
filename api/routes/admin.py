@@ -5,10 +5,10 @@ import hashlib
 import secrets
 import uuid
 from datetime import datetime, timezone
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -39,7 +39,7 @@ async def list_users(
     if q:
         stmt = stmt.where(User.username.ilike(f"%{q}%"))
     if cursor:
-        stmt = stmt.where(User.id < uuid.UUID(cursor))
+        stmt = stmt.where(User.id < str(cursor))
     total_result = await db.execute(select(func.count(User.id)))
     total = total_result.scalar_one()
     stmt = stmt.offset(offset).limit(limit + 1)
@@ -71,6 +71,7 @@ async def create_user(
     existing = await db.execute(select(User).where(User.username == body.username))
     if existing.scalar_one_or_none():
         raise HTTPException(409, detail="Username already exists")
+    await _require_roles_exist(body.roles, db)
 
     user = User(
         username=body.username,
@@ -81,10 +82,12 @@ async def create_user(
         user.email = body.email
         user.email_hash = search_hash(body.email)
     db.add(user)
+    await db.flush()  # assigns user.id before UserRole FK
     for role in body.roles:
         db.add(UserRole(user_id=user.id, role_name=role))
 
     await db.commit()
+    await db.refresh(user, attribute_names=["roles"])
     await _audit(admin, "create_user", "user", str(user.id), f"Created user {body.username}", db)
     return _user_summary(user)
 
@@ -96,7 +99,7 @@ async def unlock_user(
     db: AsyncSession = Depends(get_session),
 ):
     """Clear both Redis lockout and DB flag. Admin only."""
-    result = await db.execute(select(User).where(User.id == user_id))
+    result = await db.execute(select(User).where(User.id == str(user_id)))
     user = result.scalar_one_or_none()
     if user is None:
         raise HTTPException(404)
@@ -112,9 +115,9 @@ async def toggle_user_active(
     db: AsyncSession = Depends(get_session),
 ):
     """Flip is_active for a user account. Can't deactivate yourself."""
-    if user_id == admin.id:
+    if str(user_id) == str(admin.id):
         raise HTTPException(400, detail="You can't deactivate your own account")
-    result = await db.execute(select(User).where(User.id == user_id))
+    result = await db.execute(select(User).where(User.id == str(user_id)))
     user = result.scalar_one_or_none()
     if user is None:
         raise HTTPException(404)
@@ -133,11 +136,12 @@ async def update_user_roles(
     db: AsyncSession = Depends(get_session),
 ):
     result = await db.execute(
-        select(User).options(selectinload(User.roles)).where(User.id == user_id)
+        select(User).options(selectinload(User.roles)).where(User.id == str(user_id))
     )
     user = result.scalar_one_or_none()
     if user is None:
         raise HTTPException(404)
+    await _require_roles_exist(body.roles, db)
 
     # Remove old roles, assign new
     for ur in user.roles:
@@ -150,13 +154,79 @@ async def update_user_roles(
     return {"updated": True}
 
 
+@router.patch("/users/{user_id}")
+async def update_user(
+    user_id: uuid.UUID,
+    body: "UpdateUserRequest",
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_session),
+):
+    """Update user fields: email and/or password. Username changes not allowed."""
+    from api.core.encryption import encrypt, search_hash as _search_hash
+    result = await db.execute(
+        select(User).options(selectinload(User.roles)).where(User.id == str(user_id))
+    )
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(404)
+    if body.email is not None:
+        user.email = body.email if body.email else None  # EncryptedString encrypts on write
+        user.email_hash = _search_hash(body.email) if body.email else None
+    if body.password:
+        user.password_hash = local_auth.hash_password(body.password)
+        user.is_locked = False
+    await db.commit()
+    await _audit(admin, "update_user", "user", str(user_id), f"Updated {user.username}", db)
+    return _user_summary(user)
+
+
+@router.post("/users/{user_id}/totp/setup")
+async def admin_setup_totp(
+    user_id: uuid.UUID,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_session),
+):
+    """Generate a new TOTP secret for a user. Returns QR code URI and secret."""
+    from api.auth.local import generate_totp_secret, totp_provisioning_uri
+    from api.core.encryption import encrypt
+    result = await db.execute(select(User).where(User.id == str(user_id)))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(404)
+    secret = generate_totp_secret()
+    user.totp_secret = encrypt(secret)
+    user.totp_enabled = True
+    await db.commit()
+    uri = totp_provisioning_uri(secret, user.username)
+    await _audit(admin, "setup_totp", "user", str(user_id), f"Admin set up TOTP for {user.username}", db)
+    return {"provisioning_uri": uri, "secret": secret, "qr_png": _qr_png_b64(uri)}
+
+
+@router.delete("/users/{user_id}/totp")
+async def admin_remove_totp(
+    user_id: uuid.UUID,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_session),
+):
+    """Disable and clear TOTP for a user."""
+    result = await db.execute(select(User).where(User.id == str(user_id)))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(404)
+    user.totp_secret = None
+    user.totp_enabled = False
+    await db.commit()
+    await _audit(admin, "remove_totp", "user", str(user_id), f"Removed TOTP for {user.username}", db)
+    return {"totp_enabled": False}
+
+
 @router.delete("/users/{user_id}")
 async def delete_user(
     user_id: uuid.UUID,
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_session),
 ):
-    result = await db.execute(select(User).where(User.id == user_id))
+    result = await db.execute(select(User).where(User.id == str(user_id)))
     user = result.scalar_one_or_none()
     if user is None:
         raise HTTPException(404)
@@ -182,6 +252,8 @@ async def create_role(
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_session),
 ):
+    if (await db.execute(select(Role).where(Role.name == body.name))).scalar_one_or_none():
+        raise HTTPException(409, detail="Role already exists")
     role = Role(name=body.name, display_name=body.display_name, description=body.description, is_builtin=False)
     db.add(role)
     await db.commit()
@@ -202,6 +274,8 @@ async def duplicate_role(
     source = result.scalar_one_or_none()
     if source is None:
         raise HTTPException(404)
+    if (await db.execute(select(Role).where(Role.name == body.new_name))).scalar_one_or_none():
+        raise HTTPException(409, detail="Role already exists")
     new_role = Role(name=body.new_name, display_name=body.display_name or f"Copy of {source.display_name}", is_builtin=False)
     db.add(new_role)
     for rp in source.permissions:
@@ -222,7 +296,7 @@ async def get_audit_log(
 ):
     stmt = select(AuditLog).order_by(AuditLog.created_at.desc()).limit(limit + 1)
     if cursor:
-        stmt = stmt.where(AuditLog.id < uuid.UUID(cursor))
+        stmt = stmt.where(AuditLog.id < str(cursor))
     result = await db.execute(stmt)
     rows = result.scalars().all()
     next_cursor = str(rows[-1].id) if len(rows) > limit else None
@@ -238,6 +312,7 @@ def _user_summary(u: User, risk: object | None = None) -> dict:
     return {
         "id": str(u.id),
         "username": u.username,
+        "email_display": u.email,  # decrypted by EncryptedString on read
         "display_name": getattr(u, "display_name", None),
         "is_active": u.is_active,
         "is_locked": u.is_locked,
@@ -253,33 +328,58 @@ def _user_summary(u: User, risk: object | None = None) -> dict:
     }
 
 
+def _qr_png_b64(uri: str) -> str:
+    """Generate a QR code PNG as a base64 data URI -- no CDN needed."""
+    import io, base64, qrcode
+    img = qrcode.make(uri)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
 async def _audit(actor: User, action: str, resource_type: str, resource_id: str, detail: str, db: AsyncSession) -> None:
     db.add(AuditLog(actor_user_id=str(actor.id), actor_username=actor.username, action=action, resource_type=resource_type, resource_id=resource_id, detail=detail))
     await db.commit()
 
 
+async def _require_roles_exist(roles: list[str], db: AsyncSession) -> None:
+    found = set((await db.execute(select(Role.name).where(Role.name.in_(roles)))).scalars())
+    missing = sorted(set(roles) - found)
+    if missing:
+        raise HTTPException(400, detail=f"Unknown role(s): {', '.join(missing)}")
+
+
 # ── Pydantic schemas ──────────────────────────────────────────────────────────
 
+_EMAIL_PATTERN = r"^[^@\s]{1,64}@[^@\s]{1,189}\.[A-Za-z]{2,}$"
+_ROLE_PATTERN = r"^[a-z0-9_]{2,64}$"
+
+
 class CreateUserRequest(BaseModel):
-    username: str
-    password: str
-    email: str | None = None
-    roles: list[str] = ["read_only"]
+    username: str = Field(pattern=r"^[A-Za-z0-9._@-]{2,64}$")
+    password: str = Field(min_length=12, max_length=1024)
+    email: str | None = Field(None, max_length=254, pattern=_EMAIL_PATTERN)
+    roles: list[Annotated[str, Field(pattern=_ROLE_PATTERN)]] = Field(default=["read_only"], max_length=20)
 
 
 class UpdateRolesRequest(BaseModel):
-    roles: list[str]
+    roles: list[Annotated[str, Field(pattern=_ROLE_PATTERN)]] = Field(max_length=20)
+
+
+class UpdateUserRequest(BaseModel):
+    email: str | None = Field(None, max_length=254, pattern=r"^$|" + _EMAIL_PATTERN)
+    password: str | None = Field(None, min_length=12, max_length=1024)
 
 
 class CreateRoleRequest(BaseModel):
-    name: str
-    display_name: str
-    description: str | None = None
+    name: str = Field(pattern=_ROLE_PATTERN)
+    display_name: str = Field(min_length=1, max_length=128)
+    description: str | None = Field(None, max_length=512)
 
 
 class DuplicateRoleRequest(BaseModel):
-    new_name: str
-    display_name: str | None = None
+    new_name: str = Field(pattern=_ROLE_PATTERN)
+    display_name: str | None = Field(None, max_length=128)
 
 
 class UpdatePageTagsRequest(BaseModel):
@@ -307,7 +407,7 @@ async def update_user_page_tags(
     intersects -- without promoting the user to a full analyst role.
     Example: tags=["identity"] grants /identity; tags=["grc"] grants /grc.
     """
-    result = await db.execute(select(User).where(User.id == user_id))
+    result = await db.execute(select(User).where(User.id == str(user_id)))
     target = result.scalar_one_or_none()
     if not target:
         raise HTTPException(status_code=404)
@@ -321,3 +421,62 @@ async def update_user_page_tags(
     await _audit(current_user, "update_page_tags", "user", str(target.id),
                  f"set page_tags={cleaned}", db)
     return {"user_id": user_id, "page_tags": cleaned}
+
+
+# ── Branding ──────────────────────────────────────────────────────────────────
+
+_BRAND_KEYS = {"title", "accent_color", "logo_url", "org_name"}
+
+@router.get("/branding")
+async def get_branding(db: AsyncSession = Depends(get_session)):
+    """Return current branding settings. Public -- used by the login page too."""
+    from api.models.settings import AppSetting
+    result = await db.execute(select(AppSetting).where(AppSetting.key.in_([f"brand.{k}" for k in _BRAND_KEYS])))
+    settings_map = {s.key.removeprefix("brand."): s.value for s in result.scalars()}
+    return settings_map
+
+
+@router.put("/branding", status_code=200)
+async def set_branding(
+    body: "BrandingRequest",
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_session),
+):
+    from api.models.settings import AppSetting
+    pairs = {k: v for k, v in body.model_dump().items() if k in _BRAND_KEYS and v is not None}
+    for key, val in pairs.items():
+        full_key = f"brand.{key}"
+        result = await db.execute(select(AppSetting).where(AppSetting.key == full_key))
+        setting = result.scalar_one_or_none()
+        if setting:
+            setting.value = val
+        else:
+            db.add(AppSetting(key=full_key, value=val))
+    await db.commit()
+    await _audit(admin, "update_branding", "system", "branding", f"Keys: {list(pairs.keys())}", db)
+    return {"updated": list(pairs.keys())}
+
+
+@router.delete("/branding", status_code=200)
+async def reset_branding(
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_session),
+):
+    from api.models.settings import AppSetting
+    result = await db.execute(select(AppSetting).where(AppSetting.key.like("brand.%")))
+    for s in result.scalars():
+        await db.delete(s)
+    await db.commit()
+    await _audit(admin, "reset_branding", "system", "branding", "Reset to defaults", db)
+    return {"reset": True}
+
+
+class BrandingRequest(BaseModel):
+    # These land in a <style> block and an <img> on the public login page
+    title: str | None = Field(None, max_length=128)
+    accent_color: str | None = Field(None, pattern=r"^#[0-9a-fA-F]{6}$")
+    logo_url: str | None = Field(
+        None, max_length=700_000,
+        pattern=r"^(/[A-Za-z0-9._~/-]*|data:image/(png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+)$",
+    )
+    org_name: str | None = Field(None, max_length=128)

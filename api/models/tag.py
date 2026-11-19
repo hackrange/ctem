@@ -28,6 +28,6 @@ class GroupTagAccess(Base):
     __tablename__ = "group_tag_access"
 
     role_name: Mapped[str] = mapped_column(String(64), primary_key=True)        # role name or AD group CN
-    tag_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True)
+    tag_id: Mapped[str] = mapped_column(ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True)
 
     tag: Mapped[Tag] = relationship(back_populates="group_access")

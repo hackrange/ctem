@@ -12,8 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from api.auth.middleware import get_current_user
-from api.auth.rbac import can_access_device
+from api.auth.rbac import can_access_device, require_permission
 from api.core.db import get_session
 from api.models.user import User
 from api.models.vuln import Finding, TicketRef, Vulnerability
@@ -25,7 +24,7 @@ router = APIRouter(prefix="/api/v1/vulns/findings", tags=["tickets"])
 async def create_ticket(
     finding_id: uuid.UUID,
     body: CreateTicketRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("findings", "write")),
     db: AsyncSession = Depends(get_session),
 ):
     finding = await _get_authorized_finding(finding_id, current_user, db)
@@ -59,7 +58,7 @@ async def create_ticket(
 @router.get("/{finding_id}/tickets")
 async def list_tickets(
     finding_id: uuid.UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission("vulns", "read")),
     db: AsyncSession = Depends(get_session),
 ):
     finding = await _get_authorized_finding(finding_id, current_user, db)
@@ -93,8 +92,9 @@ async def _get_authorized_finding(
         .options(
             selectinload(Finding.vuln),
             selectinload(Finding.device).selectinload(Device.owner),
+            selectinload(Finding.device).selectinload(Device.tags),
         )
-        .where(Finding.id == finding_id)
+        .where(Finding.id == str(finding_id))
     )
     finding = result.scalar_one_or_none()
     if finding is None:

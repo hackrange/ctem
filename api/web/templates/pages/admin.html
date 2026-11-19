@@ -9,179 +9,344 @@
     <h1 class="page-header__title">Admin</h1>
     <p class="page-header__sub">User management, roles, and system configuration</p>
   </div>
-  <button class="btn btn--primary btn--sm" onclick="openUserModal()">+ Add User</button>
+  <button class="btn btn--primary btn--sm" onclick="openAddUserModal()">+ Add User</button>
 </div>
 
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
-  <!-- Users -->
+<!-- Tab navigation -->
+<div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px">
+  <button id="tab-users" class="tab-btn tab-btn--active" onclick="switchTab('users')">Users</button>
+  <button id="tab-tokens" class="tab-btn" onclick="switchTab('tokens')">Active Tokens</button>
+  <button id="tab-roles" class="tab-btn" onclick="switchTab('roles')">Roles</button>
+  <button id="tab-branding" class="tab-btn" onclick="switchTab('branding')">Branding</button>
+  <button id="tab-audit" class="tab-btn" onclick="switchTab('audit')">Audit Log</button>
+</div>
+
+<!-- Users tab -->
+<div id="pane-users">
   <div class="panel" style="padding:0">
-    <div class="panel__header"><h2 class="panel__title">Users</h2></div>
     <table class="data-table">
-      <thead><tr><th>Username</th><th>Email</th><th>Roles</th><th>MFA</th><th>Actions</th></tr></thead>
+      <thead>
+        <tr>
+          <th>Username</th>
+          <th>Email</th>
+          <th>Roles</th>
+          <th>MFA</th>
+          <th>Status</th>
+          <th>Last Login</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
       <tbody id="users-tbody">
+        <tr><td colspan="7" class="text-muted text-sm" style="text-align:center;padding:20px">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Active Tokens tab -->
+<div id="pane-tokens" style="display:none">
+  <div class="panel" style="padding:0">
+    <table class="data-table">
+      <thead><tr><th>User</th><th>Token Name</th><th>Allowed IPs</th><th>Rate Limit</th><th>Last Used</th><th>Actions</th></tr></thead>
+      <tbody id="admin-tokens-tbody">
+        <tr><td colspan="6" class="text-muted text-sm" style="text-align:center;padding:20px">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Roles tab -->
+<div id="pane-roles" style="display:none">
+  <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+    <button class="btn btn--primary btn--sm" onclick="openCreateRoleModal()">+ Create Role</button>
+  </div>
+  <div class="panel" style="padding:0">
+    <table class="data-table">
+      <thead><tr><th>Role</th><th>Display Name</th><th>Type</th></tr></thead>
+      <tbody id="roles-tbody">
+        <tr><td colspan="3" class="text-muted text-sm" style="text-align:center;padding:20px">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Branding tab -->
+<div id="pane-branding" style="display:none">
+  <div class="panel" style="max-width:520px">
+    <h3 style="margin:0 0 20px;font-size:1rem;font-weight:600">Organization Branding</h3>
+    <div style="display:flex;flex-direction:column;gap:16px">
+      <div>
+        <label class="field-label">App Title</label>
+        <input id="brand-title" type="text" class="form-input" placeholder="open-ctem">
+        <p class="text-muted text-sm" style="margin-top:4px">Displayed in the header and browser tab.</p>
+      </div>
+      <div>
+        <label class="field-label">Header Accent Color</label>
+        <div style="display:flex;gap:10px;align-items:center">
+          <input id="brand-color" type="color" value="#f5a623"
+            style="width:48px;height:36px;border:1px solid var(--border);border-radius:4px;padding:2px;background:var(--bg);cursor:pointer">
+          <input id="brand-color-hex" type="text" class="form-input" style="width:120px" placeholder="#f5a623"
+            oninput="syncColorPicker(this.value)">
+          <div id="brand-color-preview" style="width:120px;height:36px;border-radius:6px;background:#f5a623"></div>
+        </div>
+      </div>
+      <div>
+        <label class="field-label">Logo <span class="text-muted">(optional)</span></label>
+        <!-- Upload takes priority; URL is fallback -->
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          <div id="brand-logo-preview" style="width:52px;height:52px;border:1px solid var(--border);border-radius:8px;overflow:hidden;display:flex;align-items:center;justify-content:center;background:var(--bg)">
+            <span class="text-muted text-sm">None</span>
+          </div>
+          <div style="flex:1">
+            <label class="btn btn--ghost btn--sm" style="cursor:pointer;display:inline-block">
+              Upload Image
+              <input id="brand-logo-upload" type="file" accept="image/*" style="display:none" onchange="handleLogoUpload(this)">
+            </label>
+            <span class="text-muted text-sm" style="margin-left:8px">or</span>
+          </div>
+        </div>
+        <input id="brand-logo" type="url" class="form-input" placeholder="https://example.com/logo.png" oninput="previewLogoUrl(this.value)">
+        <p class="text-muted text-sm" style="margin-top:4px">Leave blank to use the default shield icon.</p>
+      </div>
+      <div>
+        <label class="field-label">Organization Name <span class="text-muted">(footer)</span></label>
+        <input id="brand-org" type="text" class="form-input" placeholder="Your Organization">
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:24px">
+      <button class="btn btn--primary btn--sm" onclick="saveBranding()">Save Branding</button>
+      <button class="btn btn--ghost btn--sm" onclick="resetBranding()">Reset to Defaults</button>
+    </div>
+  </div>
+</div>
+
+<!-- Audit Log tab -->
+<div id="pane-audit" style="display:none">
+  <div class="panel" style="padding:0">
+    <table class="data-table">
+      <thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Resource</th><th>Detail</th></tr></thead>
+      <tbody id="audit-tbody">
         <tr><td colspan="5" class="text-muted text-sm" style="text-align:center;padding:20px">Loading...</td></tr>
       </tbody>
     </table>
-  </div>
-
-  <!-- Active API tokens (admin view) -->
-  <div class="panel" style="padding:0">
-    <div class="panel__header"><h2 class="panel__title">All Active Tokens</h2></div>
-    <table class="data-table">
-      <thead><tr><th>User</th><th>Token Name</th><th>Last Used</th><th>IPs</th></tr></thead>
-      <tbody id="admin-tokens-tbody">
-        <tr><td colspan="4" class="text-muted text-sm" style="text-align:center;padding:20px">Loading...</td></tr>
-      </tbody>
-    </table>
+    <div style="padding:12px 16px;border-top:1px solid var(--border)">
+      <button class="btn btn--ghost btn--sm" id="audit-more-btn" onclick="loadMoreAudit()" style="display:none">Load more</button>
+    </div>
   </div>
 </div>
 
-<!-- User modal -->
-<div id="user-modal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,0.5);align-items:center;justify-content:center">
-  <div style="background:var(--surface);border-radius:8px;padding:28px;width:100%;max-width:440px;box-shadow:0 8px 32px rgba(0,0,0,.3)">
-    <h2 style="margin:0 0 16px;font-size:1.1rem">Add User</h2>
-    <div style="display:flex;flex-direction:column;gap:12px">
-      <div>
-        <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:4px">Username</label>
-        <input id="new-username" type="text" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
+<!-- ── Add User Modal ───────────────────────────────────────────────────────── -->
+<div id="add-user-modal" class="modal-overlay" style="display:none">
+  <div class="modal-box" style="max-width:460px">
+    <div class="modal-header">
+      <h2 class="modal-title">Add User</h2>
+      <button class="modal-close" onclick="closeAddUserModal()" aria-label="Close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <label class="field-label">Username <span style="color:var(--severity-critical)">*</span></label>
+        <input id="new-username" type="text" class="form-input" autocomplete="off">
       </div>
-      <div>
-        <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:4px">Email</label>
-        <input id="new-email" type="email" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
+      <div class="form-row">
+        <label class="field-label">Email</label>
+        <input id="new-email" type="email" class="form-input">
       </div>
-      <div>
-        <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:4px">Role</label>
-        <select id="new-role" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
-          <option value="user">User</option>
-          <option value="analyst">Analyst</option>
-          <option value="admin">Admin</option>
-        </select>
+      <div class="form-row">
+        <label class="field-label">Password <span style="color:var(--severity-critical)">*</span></label>
+        <input id="new-password" type="password" class="form-input" autocomplete="new-password">
+      </div>
+      <div class="form-row">
+        <label class="field-label">Roles</label>
+        <div id="new-roles-list" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px"></div>
       </div>
     </div>
-    <div style="display:flex;gap:10px;margin-top:20px;justify-content:flex-end">
-      <button class="btn btn--ghost btn--sm" onclick="closeUserModal()">Cancel</button>
+    <div class="modal-footer">
+      <button class="btn btn--ghost btn--sm" onclick="closeAddUserModal()">Cancel</button>
       <button class="btn btn--primary btn--sm" onclick="createUser()">Create</button>
     </div>
   </div>
 </div>
 
-<!-- Page access tags modal -->
-<div id="tag-modal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,0.5);align-items:center;justify-content:center">
-  <div style="background:var(--surface);border-radius:8px;padding:28px;width:100%;max-width:460px;box-shadow:0 8px 32px rgba(0,0,0,.3)">
-    <h2 style="margin:0 0 8px;font-size:1.05rem" id="tag-modal-title">Page Access Tags</h2>
-    <p class="text-muted text-sm" style="margin:0 0 16px">Comma-separated tags (e.g. <code>identity, grc, vuln</code>). Grants access to pages whose tag list intersects -- without promoting to analyst role. Available page tags: <code>dashboard, devices, cmdb, vuln, cve, threat, soc, identity, itdr, saas, hunt, grc, risk, compliance, admin</code></p>
-    <input id="tag-input" type="text" placeholder="identity, grc"
-      style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:.9rem;box-sizing:border-box">
-    <div style="display:flex;gap:10px;margin-top:16px;justify-content:flex-end">
-      <button class="btn btn--ghost btn--sm" onclick="closeTagModal()">Cancel</button>
-      <button class="btn btn--primary btn--sm" onclick="savePageTags()">Save</button>
+<!-- ── Create Role Modal ──────────────────────────────────────────────────── -->
+<div id="create-role-modal" class="modal-overlay" style="display:none">
+  <div class="modal-box" style="max-width:400px">
+    <div class="modal-header">
+      <h2 class="modal-title">Create Role</h2>
+      <button class="modal-close" onclick="closeCreateRoleModal()" aria-label="Close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <label class="field-label">Role Name <span style="color:var(--severity-critical)">*</span></label>
+        <input id="role-name" type="text" class="form-input" placeholder="e.g. soc_analyst" autocomplete="off">
+        <p class="text-muted text-sm" style="margin-top:4px">Lowercase letters, numbers, underscores only.</p>
+      </div>
+      <div class="form-row">
+        <label class="field-label">Display Name <span style="color:var(--severity-critical)">*</span></label>
+        <input id="role-display" type="text" class="form-input" placeholder="e.g. SOC Analyst">
+      </div>
+      <div class="form-row">
+        <label class="field-label">Description <span class="text-muted">(optional)</span></label>
+        <input id="role-desc" type="text" class="form-input">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn--ghost btn--sm" onclick="closeCreateRoleModal()">Cancel</button>
+      <button class="btn btn--primary btn--sm" onclick="createRole()">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Edit User Modal ──────────────────────────────────────────────────────── -->
+<div id="edit-user-modal" class="modal-overlay" style="display:none">
+  <div class="modal-box" style="max-width:500px">
+    <div class="modal-header">
+      <h2 class="modal-title" id="edit-modal-title">Edit User</h2>
+      <button class="modal-close" onclick="closeEditModal()" aria-label="Close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="edit-user-id">
+
+      <div class="form-row">
+        <label class="field-label">Email</label>
+        <input id="edit-email" type="email" class="form-input" placeholder="user@example.com">
+      </div>
+      <div class="form-row">
+        <label class="field-label">New Password <span class="text-muted">(leave blank to keep current)</span></label>
+        <input id="edit-password" type="password" class="form-input" autocomplete="new-password" placeholder="Enter new password to change">
+      </div>
+
+      <hr style="border:none;border-top:1px solid var(--border);margin:16px 0">
+
+      <div class="form-row">
+        <label class="field-label">Roles</label>
+        <div id="edit-roles-list" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px"></div>
+      </div>
+
+      <hr style="border:none;border-top:1px solid var(--border);margin:16px 0">
+
+      <div class="form-row">
+        <label class="field-label">Page Access Tags <span class="text-muted">(comma-separated)</span></label>
+        <input id="edit-page-tags" type="text" class="form-input" placeholder="identity, grc, vuln">
+        <p class="text-muted text-sm" style="margin-top:4px">Available: dashboard, devices, cmdb, vuln, cve, threat, soc, identity, itdr, saas, hunt, grc, risk, compliance, admin</p>
+      </div>
+
+      <hr style="border:none;border-top:1px solid var(--border);margin:16px 0">
+
+      <div>
+        <label class="field-label">TOTP / MFA</label>
+        <div style="display:flex;align-items:center;gap:12px;margin-top:8px">
+          <span id="edit-totp-status" class="text-sm"></span>
+          <button class="btn btn--sm btn--ghost" id="edit-totp-setup-btn" onclick="setupTotp()">Generate TOTP</button>
+          <button class="btn btn--sm btn--ghost" id="edit-totp-remove-btn" onclick="removeTotp()" style="color:var(--severity-critical);display:none">Remove TOTP</button>
+        </div>
+        <!-- TOTP setup result -->
+        <div id="totp-setup-result" style="display:none;margin-top:12px;padding:12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border)">
+          <p class="text-sm text-muted" style="margin:0 0 8px">Scan the QR code with an authenticator app, or enter the secret key manually:</p>
+          <div id="totp-qr-container" style="display:flex;justify-content:center;margin:8px 0"></div>
+          <div style="margin-top:10px">
+            <label class="field-label" style="margin-bottom:4px">Secret Key</label>
+            <div style="display:flex;align-items:center;gap:8px">
+              <code id="totp-secret-display" style="flex:1;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;font-size:.85rem;word-break:break-all;user-select:all"></code>
+              <button class="btn btn--ghost btn--sm" onclick="copyTotpSecret()" title="Copy secret">Copy</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn--ghost btn--sm" onclick="closeEditModal()">Cancel</button>
+      <button class="btn btn--primary btn--sm" onclick="saveEditUser()">Save Changes</button>
     </div>
   </div>
 </div>
 {% endblock %}
 
 {% block extra_scripts %}
-<script>
-const API = '/api/v1';
+<!-- QR codes are now server-rendered as PNG data URIs; no CDN needed -->
+<style>
+.tab-btn {
+  padding: 8px 18px;
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  color: var(--text-muted);
+  font-size: .875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color .15s, border-color .15s;
+  margin-bottom: -2px;
+}
+.tab-btn:hover { color: var(--text); }
+.tab-btn--active { color: var(--accent); border-bottom-color: var(--accent); }
 
-async function fetchJson(url) {
-  const res = await fetch(url, { headers: { Accept: 'application/json' } });
-  if (!res.ok) throw new Error(res.statusText);
-  return res.json();
+.form-row { margin-bottom: 14px; }
+.field-label { display:block;font-size:.8rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted);margin-bottom:5px }
+.form-input {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: .9rem;
+  font-family: inherit;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color .15s, box-shadow .15s;
+}
+.form-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(245,166,35,.15);
 }
 
-async function loadUsers() {
-  try {
-    const data = await fetchJson(`${API}/admin/users`);
-    const users = data.users || [];
-    document.getElementById('users-tbody').innerHTML = users.map(u => `
-      <tr>
-        <td style="font-weight:600">${esc(u.username)}</td>
-        <td class="text-muted text-sm">${esc(u.email) || '--'}</td>
-        <td>${(u.roles || []).map(r => `<span class="chip chip--info">${esc(r.role_name)}</span>`).join(' ')}</td>
-        <td>${u.totp_enabled ? '<span style="color:var(--severity-low)">&#10003;</span>' : '<span class="text-muted">--</span>'}</td>
-        <td>
-          <span class="text-muted text-sm">${(u.page_tags||[]).map(t=>`<span class="chip chip--info">${esc(t)}</span>`).join(' ')||'--'}</span>
-          <button class="btn btn--ghost btn--sm" onclick="openTagModal('${esc(u.id)}','${esc(u.username)}',${JSON.stringify(u.page_tags||[])})">Edit</button>
-        </td>
-        <td>
-          <button class="btn btn--ghost btn--sm" style="color:var(--severity-critical)"
-            onclick="deactivateUser('${esc(u.id)}')">
-            ${u.is_active ? 'Deactivate' : 'Activate'}
-          </button>
-        </td>
-      </tr>
-    `).join('') || '<tr><td colspan="6" class="text-muted text-sm" style="text-align:center;padding:20px">No users</td></tr>';
-  } catch (_) {}
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(0,0,0,.5);
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+}
+.modal-box {
+  background: var(--surface);
+  border-radius: 10px;
+  width: 100%;
+  box-shadow: var(--shadow-modal, 0 20px 60px rgba(0,0,0,.35));
+  overflow: hidden;
+}
+.modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 24px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.modal-title { margin: 0; font-size: 1.05rem; font-weight: 600; }
+.modal-close {
+  background: none; border: none; font-size: 1.4rem; line-height: 1;
+  color: var(--text-muted); cursor: pointer; padding: 0 2px;
+  transition: color .15s;
+}
+.modal-close:hover { color: var(--text); }
+.modal-body { padding: 20px 24px; overflow-y: auto; max-height: 65vh; }
+.modal-footer {
+  display: flex; gap: 10px; justify-content: flex-end;
+  padding: 14px 24px;
+  border-top: 1px solid var(--border);
 }
 
-async function loadAdminTokens() {
-  try {
-    const data = await fetchJson(`${API}/tokens/admin/all`);
-    const tokens = data.tokens || [];
-    document.getElementById('admin-tokens-tbody').innerHTML = tokens.map(t => `
-      <tr>
-        <td class="text-sm">${esc(t.username || t.user_id)}</td>
-        <td style="font-weight:500">${esc(t.name)}</td>
-        <td class="text-muted text-sm">${t.last_used ? new Date(t.last_used).toLocaleString() : 'Never'}</td>
-        <td class="text-mono text-sm">${(t.allowed_ips || []).slice(0, 2).map(esc).join(', ')}</td>
-      </tr>
-    `).join('') || '<tr><td colspan="4" class="text-muted text-sm" style="text-align:center;padding:20px">No active tokens</td></tr>';
-  } catch (_) {}
+.role-toggle {
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: .8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background .15s, border-color .15s, color .15s;
 }
-
-// ── Page tags modal ───────────────────────────────────────────────────────────
-
-let _tagUserId = null;
-
-function openTagModal(id, username, tags) {
-  _tagUserId = id;
-  document.getElementById('tag-modal-title').textContent = `Page Access Tags: ${username}`;
-  document.getElementById('tag-input').value = (tags || []).join(', ');
-  document.getElementById('tag-modal').style.display = 'flex';
+.role-toggle--on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #000;
 }
-
-function closeTagModal() { document.getElementById('tag-modal').style.display = 'none'; }
-
-async function savePageTags() {
-  const raw = document.getElementById('tag-input').value;
-  const tags = raw.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
-  await fetch(`${API}/admin/users/${_tagUserId}/page-tags`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ page_tags: tags }),
-  });
-  closeTagModal();
-  loadUsers();
-}
-
-async function deactivateUser(id) {
-  if (!confirm('Change user status?')) return;
-  await fetch(`${API}/admin/users/${id}/toggle`, { method: 'PATCH' });
-  loadUsers();
-}
-
-function openUserModal() { document.getElementById('user-modal').style.display = 'flex'; }
-function closeUserModal() { document.getElementById('user-modal').style.display = 'none'; }
-
-async function createUser() {
-  const username = document.getElementById('new-username').value.trim();
-  const email = document.getElementById('new-email').value.trim();
-  const role = document.getElementById('new-role').value;
-  if (!username || !email) { toast('Username and email are required', 'error'); return; }
-  await fetch(`${API}/admin/users`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, email, role }),
-  });
-  closeUserModal();
-  loadUsers();
-}
-
-document.addEventListener('DOMContentLoaded', () => { loadUsers(); loadAdminTokens(); });
-document.addEventListener('click', e => {
-  if (e.target.id === 'user-modal') closeUserModal();
-  if (e.target.id === 'tag-modal') closeTagModal();
-});
-</script>
+</style>
+<script src="/static/js/admin.js"></script>
 {% endblock %}

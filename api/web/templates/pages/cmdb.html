@@ -70,13 +70,13 @@ async function loadCMDB() {
 
     document.getElementById('cmdb-tbody').innerHTML = records.map(r => `
       <tr>
-        <td style="font-weight:500">${r.hostname}</td>
-        <td class="text-mono text-sm">${r.ip_address || '--'}</td>
-        <td class="text-muted text-sm">${r.device_type || '--'}</td>
-        <td class="text-sm">${r.os_name || '--'}</td>
-        <td class="text-sm">${r.owner || '--'}</td>
-        <td class="text-sm">${r.environment || '--'}</td>
-        <td class="text-mono text-sm">${r.servicenow_ci_id || '<span class="text-muted">Not synced</span>'}</td>
+        <td style="font-weight:500">${esc(r.hostname)}</td>
+        <td class="text-mono text-sm">${esc(r.ip_address || '--')}</td>
+        <td class="text-muted text-sm">${esc(r.device_type || '--')}</td>
+        <td class="text-sm">${esc(r.os_name || '--')}</td>
+        <td class="text-sm">${esc(r.owner || '--')}</td>
+        <td class="text-sm">${esc(r.environment || '--')}</td>
+        <td class="text-mono text-sm">${r.servicenow_ci_id ? esc(r.servicenow_ci_id) : '<span class="text-muted">Not synced</span>'}</td>
       </tr>
     `).join('') || '<tr><td colspan="7" class="text-muted text-sm" style="text-align:center;padding:24px">No CMDB records</td></tr>';
   } catch (e) {

@@ -56,8 +56,9 @@ done
 # ── Must run as root ──────────────────────────────────────────────────────────
 [[ "$(id -u)" -eq 0 ]] || die "Run as root:  sudo bash install.sh"
 
-# ── Compose helper: pick docker compose or docker-compose ────────────────────
-_compose() { docker compose -f "${COMPOSE_FILE}" "$@"; }
+# ── Compose helper: always pass --env-file so variable substitution works
+# even though .env lives in the project root, not beside the compose file.
+_compose() { docker compose -f "${COMPOSE_FILE}" --env-file "${INSTALL_DIR}/.env" "$@"; }
 
 # ── Password generator ────────────────────────────────────────────────────────
 # Format: XXXXX-XXXXXX-NNNN-XXXXXX  (21 chars + dashes = 23 total)

@@ -12,7 +12,7 @@ from sqlalchemy.orm import selectinload
 from api.auth.middleware import get_current_user
 from api.auth.rbac import get_accessible_device_tag_ids, require_cyber_or_admin
 from api.core.db import get_session
-from api.models.device import Device, DeviceTag
+from api.models.device import Device, DeviceTag, DeviceType
 from api.models.user import User
 
 log = logging.getLogger("open-ctem.cmdb")
@@ -117,7 +117,7 @@ async def export_cmdb(
     current_user: User = Depends(require_cyber_or_admin),
     db: AsyncSession = Depends(get_session),
     tag: str | None = Query(None, description="Filter by tag name"),
-    device_type: str | None = None,
+    device_type: DeviceType | None = None,
     limit: int = Query(10000, le=50000),
 ):
     """

@@ -36,7 +36,7 @@ async def list_vulns(
     if cve_id:
         stmt = stmt.where(Vulnerability.cve_id.ilike(f"%{cve_id}%"))
     if cursor:
-        stmt = stmt.where(Vulnerability.id < uuid.UUID(cursor))
+        stmt = stmt.where(Vulnerability.id < str(cursor))
     stmt = stmt.limit(limit + 1)
 
     result = await db.execute(stmt)
@@ -70,17 +70,17 @@ async def list_vuln_findings(
     limit: int = Query(50, le=200),
 ):
     """Open findings for a specific vulnerability, filtered to devices this user can access."""
-    from api.auth.rbac import get_accessible_device_tag_ids
-    from api.models.device import Device, DeviceTag
+    from api.auth.rbac import can_access_device
+    from api.models.device import Device
 
-    result = await db.execute(select(Vulnerability).where(Vulnerability.id == vuln_id))
+    result = await db.execute(select(Vulnerability).where(Vulnerability.id == str(vuln_id)))
     if result.scalar_one_or_none() is None:
         raise HTTPException(404)
 
     stmt = (
         select(Finding)
-        .options(selectinload(Finding.device))
-        .where(Finding.vuln_id == vuln_id)
+        .options(selectinload(Finding.device).selectinload(Device.tags))
+        .where(Finding.vuln_id == str(vuln_id))
     )
     if status:
         stmt = stmt.where(Finding.status == status)
@@ -90,20 +90,8 @@ async def list_vuln_findings(
     stmt = stmt.limit(limit)
     rows = (await db.execute(stmt)).scalars().all()
 
-    # Filter to devices the caller is allowed to see (None = unrestricted)
-    accessible = await get_accessible_device_tag_ids(current_user, db)
-    visible = []
-    for f in rows:
-        dev = f.device
-        if accessible is None:   # admin / cyber -- see everything
-            visible.append(f)
-            continue
-        if not dev.tags:         # untagged device -- visible to restricted roles too
-            visible.append(f)
-            continue
-        dev_tag_ids = {dt.tag_id for dt in dev.tags}
-        if dev_tag_ids & set(accessible):
-            visible.append(f)
+    # Same rule as the device endpoints, so the two views can't disagree
+    visible = [f for f in rows if f.device and await can_access_device(current_user, f.device, db)]
 
     return {
         "findings": [
@@ -130,7 +118,7 @@ async def get_vuln(
     _: User = Depends(require_permission("vulns", "read")),
     db: AsyncSession = Depends(get_session),
 ):
-    result = await db.execute(select(Vulnerability).where(Vulnerability.id == vuln_id))
+    result = await db.execute(select(Vulnerability).where(Vulnerability.id == str(vuln_id)))
     vuln = result.scalar_one_or_none()
     if vuln is None:
         raise HTTPException(404)
@@ -149,7 +137,9 @@ async def update_finding_status(
     from api.models.device import Device
 
     result = await db.execute(
-        select(Finding).options(selectinload(Finding.device)).where(Finding.id == finding_id)
+        select(Finding)
+        .options(selectinload(Finding.device).selectinload(Device.tags))
+        .where(Finding.id == str(finding_id))
     )
     finding = result.scalar_one_or_none()
     if finding is None:
@@ -179,8 +169,6 @@ def _vuln_summary(v: Vulnerability, affected_devices: int) -> dict:
         "is_kev": v.is_kev,
         "kev_added_date": v.kev_added_date.isoformat() if v.kev_added_date else None,
         "attack_vector": v.attack_vector,
-        "published_date": v.published_date.isoformat() if v.published_date else None,
-        "mitre_technique": v.mitre_technique,
         "affected_devices": affected_devices,
     }
 

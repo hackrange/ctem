@@ -12,7 +12,7 @@ async def test_device_404_for_nonexistent(admin_user, db, api_token_for):
     from api.core.db import get_session
     from httpx import ASGITransport, AsyncClient
 
-    plain, _ = await api_token_for(admin_user, allowed_ip="testclient")
+    plain, _ = await api_token_for(admin_user, allowed_ip="127.0.0.1")
 
     app = create_app()
     app.dependency_overrides[get_session] = lambda: db
@@ -27,9 +27,9 @@ async def test_device_404_for_nonexistent(admin_user, db, api_token_for):
 
 
 @pytest.mark.asyncio
-async def test_device_404_not_403_for_unowned(cyber_user, admin_user, db, api_token_for):
+async def test_device_404_not_403_for_unowned(it_user, admin_user, db, api_token_for):
     """
-    A device that exists but isn't visible to cyber_user should return 404 not 403.
+    A device not visible to it_user (no tag, not owner) must 404, not 403.
     404 prevents enumeration of valid IDs (BOLA-safe).
     """
     from api.main import create_app
@@ -37,13 +37,13 @@ async def test_device_404_not_403_for_unowned(cyber_user, admin_user, db, api_to
     from api.models.device import Device, DeviceType
     from httpx import ASGITransport, AsyncClient
 
-    # Create a device not tagged for cyber_user's tag scope
-    device = Device(id=uuid.uuid4(), hostname="secret-host", device_type=DeviceType.server, source="test")
+    # cyber is global-scope by design, so use a tag-scoped role
+    device = Device(id=str(uuid.uuid4()), hostname="secret-host", device_type=DeviceType.server, source="test")
     db.add(device)
     await db.commit()
 
-    # Token for cyber_user
-    plain, _ = await api_token_for(cyber_user, allowed_ip="testclient")
+    # Token for it_user
+    plain, _ = await api_token_for(it_user, allowed_ip="127.0.0.1")
 
     app = create_app()
     app.dependency_overrides[get_session] = lambda: db
@@ -64,7 +64,7 @@ async def test_device_list_returns_200(admin_user, db, api_token_for):
     from api.core.db import get_session
     from httpx import ASGITransport, AsyncClient
 
-    plain, _ = await api_token_for(admin_user, allowed_ip="testclient")
+    plain, _ = await api_token_for(admin_user, allowed_ip="127.0.0.1")
 
     app = create_app()
     app.dependency_overrides[get_session] = lambda: db

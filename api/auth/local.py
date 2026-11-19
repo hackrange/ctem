@@ -108,10 +108,10 @@ async def verify_totp(username: str, code: str, secret_encrypted: str) -> None:
 
 async def _flag_hard_lockout(username: str) -> None:
     """Mark the user record as hard-locked in DB (admin must unlock from UI)."""
-    from api.core.db import get_session
+    from api.core import db as core_db
     from api.models.user import User
     from sqlalchemy import select
-    async with get_session() as db:
+    async with core_db._session_factory() as db:
         result = await db.execute(select(User).where(User.username == username))
         user = result.scalar_one_or_none()
         if user:
@@ -125,11 +125,12 @@ async def admin_unlock_user(username: str) -> None:
     r = _redis()
     await r.delete(_TOTP_LOCK_KEY.format(username=username))
     await r.delete(_TOTP_FAIL_KEY.format(username=username))
+    await r.delete(f"pw_fail:{username.lower()}", f"pw_lock:{username.lower()}")
 
-    from api.core.db import get_session
+    from api.core import db as core_db
     from api.models.user import User
     from sqlalchemy import select
-    async with get_session() as db:
+    async with core_db._session_factory() as db:
         result = await db.execute(select(User).where(User.username == username))
         user = result.scalar_one_or_none()
         if user:

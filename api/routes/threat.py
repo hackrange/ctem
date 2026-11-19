@@ -33,22 +33,24 @@ async def list_threat_alerts(
     from api.models.device import Device
     from api.models.vuln import Finding, FindingStatus
 
-    # Pull cached alert data written by the Celery sync jobs
+    # Connectors cache one alert per row as threat_alert_<source>_<id>
+    import json
     from api.models.settings import AppSetting
     result = await db.execute(
-        select(AppSetting).where(AppSetting.key.like("threat_cache_%"))
+        select(AppSetting)
+        .where(AppSetting.key.like("threat_alert_%"))
+        .order_by(AppSetting.updated_at.desc())
+        .limit(5000)
     )
-    cached = result.scalars().all()
     alerts = []
-    for row in cached:
-        if row.value:
-            import json
-            try:
-                data = json.loads(row.value)
-                if isinstance(data, list):
-                    alerts.extend(data)
-            except Exception:
-                pass
+    for row in result.scalars():
+        try:
+            data = json.loads(row.value) if row.value else None
+        except ValueError:
+            continue
+        for item in data if isinstance(data, list) else [data]:
+            if isinstance(item, dict):
+                alerts.append({"id": row.key, **item})
 
     if source:
         alerts = [a for a in alerts if a.get("source") == source]
@@ -91,7 +93,9 @@ async def get_analysis_result(
         return {"status": "pending"}
     if result.state == "SUCCESS":
         return {"status": "complete", "result": result.result}
-    return {"status": "failed", "error": str(result.result)}
+    if result.state in ("STARTED", "RETRY", "RECEIVED"):
+        return {"status": "running"}
+    return {"status": "failed", "error": "Analysis failed"}
 
 
 @router.post("/push-to-siem")

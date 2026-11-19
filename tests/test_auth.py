@@ -61,19 +61,19 @@ async def test_api_rejects_bearer_with_wrong_ip(admin_user, db, api_token_for):
             headers={"Authorization": f"Bearer {plain}"},
         )
 
-    # testclient IP is "testclient", not "1.2.3.4" -- should reject
+    # httpx ASGITransport reports 127.0.0.1, not "1.2.3.4" -- should reject
     assert resp.status_code == 401
 
 
 @pytest.mark.asyncio
 async def test_api_accepts_valid_ip_bound_token(admin_user, db, api_token_for):
-    """Token bound to testclient IP must work from that IP."""
+    """Token bound to the caller IP must work from that IP."""
     from api.main import create_app
     from api.core.db import get_session
     from httpx import ASGITransport, AsyncClient
 
-    # httpx test client reports IP as "testclient"
-    plain, _ = await api_token_for(admin_user, allowed_ip="testclient")
+    # httpx ASGITransport reports the caller as 127.0.0.1
+    plain, _ = await api_token_for(admin_user, allowed_ip="127.0.0.1")
 
     app = create_app()
     app.dependency_overrides[get_session] = lambda: db

@@ -17,10 +17,10 @@ class SplunkConnector(BaseConnector):
 
     async def test_connection(self) -> bool:
         try:
-            async with safe_client() as client:
+            async with safe_client(verify=self._verify) as client:
                 resp = await client.get(
                     f"{self._base}/services/server/info",
-                    auth=(self.config["username"], self.config["password"]),
+                    auth=(self._username, self._password),
                     params={"output_mode": "json"},
                 )
             return resp.status_code == 200
@@ -42,7 +42,7 @@ class SplunkConnector(BaseConnector):
         if not hec_url or not hec_token:
             log.warning("Splunk HEC not configured -- cannot push")
             return
-        async with safe_client() as client:
+        async with safe_client(verify=self._verify) as client:
             await client.post(
                 hec_url,
                 headers={"Authorization": f"Splunk {hec_token}"},
@@ -50,17 +50,38 @@ class SplunkConnector(BaseConnector):
             )
 
     async def _fetch_notable_events(self) -> list[dict]:
-        """Run a saved search or SPL query for notable events."""
-        query = self.config.get("notable_query", "search index=notable earliest=-24h | head 500")
-        async with safe_client() as client:
-            # Kick off search job
+        """Run the configured SPL query with a rolling lookback window."""
+        lookback = int(self.config.get("lookback_minutes", 5))
+        max_events = int(self.config.get("max_events", 500))
+        query = self.config.get(
+            "notable_query",
+            "search index=wineventlog OR index=crowdstrike OR index=guardicore | table _time, host, source, _raw",
+        )
+        # Ensure the query starts with 'search' for the REST API
+        if not query.lstrip().lower().startswith("search"):
+            query = f"search {query}"
+
+        job_params: dict = {
+            "search": query,
+            "output_mode": "json",
+            "exec_mode": "oneshot",
+            "count": max_events,
+        }
+        # Inject lookback as job-level time range only when the SPL has no inline earliest=
+        if "earliest=" not in query and "earliest_time=" not in query:
+            job_params["earliest_time"] = f"-{lookback}m@m"
+            job_params["latest_time"] = "now"
+
+        async with safe_client(verify=self._verify) as client:
             resp = await client.post(
                 f"{self._base}/services/search/jobs",
-                auth=(self.config["username"], self.config["password"]),
-                data={"search": query, "output_mode": "json", "exec_mode": "oneshot", "count": 500},
+                auth=(self._username, self._password),
+                data=job_params,
+                timeout=60.0,
             )
             resp.raise_for_status()
         results = resp.json().get("results", [])
+        log.debug("Splunk fetch: lookback=%dm max=%d got=%d", lookback, max_events, len(results))
         return results
 
     async def _cache_threats(self, events: list[dict], db: AsyncSession) -> None:
@@ -68,13 +89,18 @@ class SplunkConnector(BaseConnector):
         from sqlalchemy import select
         import json
 
+        import hashlib
         for ev in events[:200]:
-            key = f"threat_alert_splunk_{ev.get('_serial', ev.get('event_id', ''))}"
+            # _serial is just the row number in this search, so hash the event itself
+            ident = ev.get("event_id") or hashlib.sha256(
+                f"{ev.get('_time')}|{ev.get('host')}|{ev.get('_raw')}".encode()
+            ).hexdigest()[:32]
+            key = f"threat_alert_splunk_{ident}"
             payload = {
                 "source": "splunk",
                 "id": key,
                 "severity": ev.get("urgency", ""),
-                "hostname": ev.get("dest", ev.get("src")),
+                "hostname": ev.get("dest") or ev.get("src") or ev.get("host"),
                 "description": ev.get("search_name") or ev.get("description"),
                 "raw": {k: v for k, v in ev.items() if not k.startswith("_")},
             }
@@ -102,10 +128,10 @@ class SplunkConnector(BaseConnector):
         log.info("SPL catalog rebuilt: %d searches", len(catalog))
 
     async def _list_indexes(self) -> list[dict]:
-        async with safe_client() as client:
+        async with safe_client(verify=self._verify) as client:
             resp = await client.get(
                 f"{self._base}/services/data/indexes",
-                auth=(self.config["username"], self.config["password"]),
+                auth=(self._username, self._password),
                 params={"output_mode": "json", "count": 100},
             )
         if resp.status_code != 200:
@@ -124,10 +150,51 @@ class SplunkConnector(BaseConnector):
         return indexes
 
     @property
+    def _ssl_mode(self) -> str:
+        """
+        ssl_mode values:
+          'https'          -- HTTPS + verify cert (default for new configs)
+          'https_no_verify' -- HTTPS + skip cert check (self-signed certs)
+          'http'           -- plain HTTP, no TLS
+        Legacy: if unset, infer from base_url scheme (https -> https_no_verify for compat,
+        since most self-managed Splunk instances use self-signed certs).
+        """
+        mode = self.config.get("ssl_mode", "")
+        if mode in ("https", "https_no_verify", "http"):
+            return mode
+        # Legacy: derive from base_url scheme
+        url = self.config.get("base_url", "")
+        if url.startswith("http://") or self.config.get("no_ssl"):
+            return "http"
+        return "https_no_verify"  # safe default for self-managed Splunk
+
+    @property
+    def _verify(self) -> bool:
+        return self._ssl_mode == "https"
+
+    @property
     def _base(self) -> str:
+        scheme = "http" if self._ssl_mode == "http" else "https"
+        # Accept either a full base_url from the UI or host+port separately
+        if "base_url" in self.config:
+            url = self.config["base_url"].rstrip("/")
+            if url.endswith("/services"):
+                url = url[:-9]
+            # Normalize scheme to match ssl_mode
+            if url.startswith("http://") or url.startswith("https://"):
+                url = scheme + "://" + url.split("://", 1)[1]
+            return url
         host = self.config["host"]
         port = self.config.get("port", 8089)
-        return f"https://{host}:{port}"
+        return f"{scheme}://{host}:{port}"
+
+    @property
+    def _username(self) -> str:
+        return self.config.get("username") or self.config.get("user", "admin")
+
+    @property
+    def _password(self) -> str:
+        return self.config.get("password") or self.config.get("api_key", "")
 
 
 def _build_spl_catalog(indexes: list[dict]) -> list[dict]:

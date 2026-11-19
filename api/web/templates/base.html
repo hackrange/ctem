@@ -6,6 +6,7 @@
   <title>{% block title %}open-ctem{% endblock %}</title>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@700;800&display=swap" />
   <link rel="stylesheet" href="/static/css/style.css" />
+  <link rel="stylesheet" href="/static/css/components.css" />
   <style>
     /* Accent color injected per-tenant via AppSetting */
     :root { --accent: {{ accent_color | default('#f5a623') }}; --accent-dim: {{ accent_color | default('#f5a623') }}26; }
@@ -31,11 +32,11 @@
   <div class="topbar__divider"></div>
   {% if user %}
   <div class="topbar__user">
-    <span>{{ user.username }}</span>
+    <span style="color:#fff;font-weight:600">{{ user.username }}</span>
     {% for role in user.roles %}
       <span class="topbar__user-badge">{{ role.role_name }}</span>
     {% endfor %}
-    <a href="/auth/logout" class="btn btn--ghost btn--sm" style="margin-left:8px">Sign out</a>
+    <a href="/auth/logout" class="btn btn--ghost btn--sm" style="margin-left:8px;color:#fff;font-weight:600;border-color:rgba(255,255,255,.25)">Sign out</a>
   </div>
   {% endif %}
 </header>
@@ -55,7 +56,7 @@
     </a>
     <a href="/users" class="sidebar__link {% if active_nav == 'users' %}active{% endif %}">
       <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
-      Users
+      Discovered Users
     </a>
     <a href="/vulns" class="sidebar__link {% if active_nav == 'vulns' %}active{% endif %}">
       <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
@@ -105,6 +106,14 @@
       <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93l-1.41 1.41M4.93 4.93l1.41 1.41M19.07 19.07l-1.41-1.41M4.93 19.07l1.41-1.41M20 12h2M2 12h2M12 20v2M12 2v2"/></svg>
       Admin
     </a>
+    <a href="/profile" class="sidebar__link {% if active_nav == 'profile' %}active{% endif %}">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+      My Profile
+    </a>
+    <a href="/api/docs" target="_blank" rel="noopener" class="sidebar__link">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+      API Docs
+    </a>
   </div>
 </nav>
 {% endif %}
@@ -121,11 +130,30 @@
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
   }
 
-  // Apply saved theme preference without flash
-  try {
-    const t = localStorage.getItem('ctem-theme');
-    if (t) document.documentElement.setAttribute('data-theme', t);
-  } catch(_) {}
+  // Apply UI/accessibility preferences without flash
+  (async function() {
+    try {
+      const cached = localStorage.getItem('ctem-prefs');
+      if (cached) _applyPrefs(JSON.parse(cached));
+      const data = await fetch('/api/v1/profile/prefs', { headers: { Accept: 'application/json' } }).then(r => r.json()).catch(() => null);
+      if (data?.prefs) {
+        localStorage.setItem('ctem-prefs', JSON.stringify(data.prefs));
+        _applyPrefs(data.prefs);
+      }
+    } catch(_) {}
+  })();
+
+  function _applyPrefs(prefs) {
+    const root = document.documentElement;
+    if (prefs.theme === 'dark') root.setAttribute('data-theme', 'dark');
+    else if (prefs.theme === 'light') root.setAttribute('data-theme', 'light');
+    if (prefs.font_size) {
+      const sizes = { small: '14px', medium: '16px', large: '18px', xlarge: '20px' };
+      document.body && (document.body.style.fontSize = sizes[prefs.font_size] || '');
+    }
+    if (prefs.high_contrast) root.classList.add('high-contrast');
+    if (prefs.reduce_motion) root.classList.add('reduce-motion');
+  }
 
   // Lightweight toast -- replaces alert() everywhere
   function toast(msg, type) {

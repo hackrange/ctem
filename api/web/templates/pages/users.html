@@ -1,19 +1,23 @@
 {% extends "base.html" %}
 {% set active_nav = 'users' %}
 
-{% block title %}Users -- open-ctem{% endblock %}
+{% block title %}Discovered Users -- open-ctem{% endblock %}
 
 {% block content %}
 <div class="page-header">
   <div>
-    <h1 class="page-header__title">Users</h1>
-    <p class="page-header__sub">User risk scores, AD group memberships, and identity exposure</p>
+    <h1 class="page-header__title">Discovered Users</h1>
+    <p class="page-header__sub">Identity exposure, AD group memberships, and risk scores from CTEM integrations. These are <em>not</em> app login accounts (see Admin)</p>
   </div>
-  <div style="display:flex;gap:8px">
-    <input id="search" type="text" placeholder="Search username..." onkeydown="if(event.key==='Enter')loadUsers(0)"
-      style="padding:6px 12px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:.85rem">
-    <select id="filter-grade" onchange="loadUsers(0)"
-      style="padding:6px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:.85rem">
+  <div style="display:flex;align-items:center;gap:10px">
+    <div class="search-bar-wrap">
+      <svg class="search-icon" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
+      </svg>
+      <input id="search" type="search" class="search-bar" placeholder="Search username or email..." autocomplete="off" spellcheck="false"
+        oninput="_userSearchTimer && clearTimeout(_userSearchTimer); _userSearchTimer = setTimeout(() => loadUsers(0), 220)">
+    </div>
+    <select id="filter-grade" class="filter-select" onchange="loadUsers(0)">
       <option value="">All grades</option>
       <option value="F">F -- Critical</option>
       <option value="D">D -- High</option>
@@ -66,6 +70,7 @@
 {% block extra_scripts %}
 <script>
 const API = '/api/v1';
+let _userSearchTimer = null;
 const PAGE = 50;
 
 async function fetchJson(url) {

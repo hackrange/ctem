@@ -10,9 +10,11 @@
     <p class="page-header__sub">All CVEs and scanner findings across your environment</p>
   </div>
   <div class="flex items-center gap-2">
-    <input id="search-input" type="search" placeholder="Search CVE, title..." class="input input--sm"
-      style="width:220px" oninput="debounceSearch(this.value)">
-    <select id="filter-kev" onchange="loadVulns()" style="padding:6px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
+    <div class="search-bar-wrap">
+      <svg class="search-icon" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+      <input id="search-input" type="search" class="search-bar" placeholder="Search CVE, title..." oninput="debounceSearch(this.value)" autocomplete="off">
+    </div>
+    <select id="filter-kev" class="filter-select" onchange="loadVulns()">
       <option value="">All</option>
       <option value="true">KEV only</option>
     </select>

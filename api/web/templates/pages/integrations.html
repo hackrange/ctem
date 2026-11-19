@@ -12,6 +12,12 @@
   <button class="btn btn--primary btn--sm" onclick="openAddModal()">+ Add Integration</button>
 </div>
 
+<div style="margin-bottom:14px">
+  <input id="int-search" type="text" placeholder="Search integrations..."
+    oninput="filterIntegrations(this.value)"
+    style="width:100%;max-width:360px;padding:8px 12px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text);font-size:.9rem">
+</div>
+
 <div id="integrations-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px">
   <div class="text-muted text-sm" style="grid-column:1/-1;padding:32px;text-align:center">Loading...</div>
 </div>
@@ -19,25 +25,28 @@
 <!-- Add/edit modal -->
 <div id="int-modal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,0.5);align-items:center;justify-content:center">
   <div style="background:var(--surface);border-radius:8px;padding:28px;width:100%;max-width:520px;max-height:90vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.3)">
-    <h2 style="margin:0 0 16px;font-size:1.1rem" id="modal-title">Add Integration</h2>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <h2 style="margin:0;font-size:1.1rem" id="modal-title">Add Integration</h2>
+      <button onclick="closeModal()" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:1.3rem;line-height:1;padding:0 2px" aria-label="Close">&times;</button>
+    </div>
     <div style="display:flex;flex-direction:column;gap:12px">
       <div>
         <label class="text-sm" style="font-weight:600;display:block;margin-bottom:4px">Vendor</label>
         <select id="int-vendor" onchange="updateVendorFields()"
-          style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
+          style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text)">
           <option value="">Select...</option>
         </select>
       </div>
       <div>
         <label class="text-sm" style="font-weight:600;display:block;margin-bottom:4px">Label</label>
         <input id="int-label" type="text" placeholder="e.g. Production Qualys"
-          style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
+          style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text)">
       </div>
       <div id="int-config-fields"></div>
-      <div>
+      <div id="int-schedule-wrap">
         <label class="text-sm" style="font-weight:600;display:block;margin-bottom:4px">Sync Schedule (cron, optional)</label>
         <input id="int-schedule" type="text" placeholder="0 */6 * * *  (every 6 hours)"
-          style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
+          style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text)">
       </div>
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:.9rem">
         <input type="checkbox" id="int-enabled" checked> Enabled
@@ -56,10 +65,34 @@
 <script>
 const API = '/api/v1';
 let _editId = null;
+let _integrations = [];  // cache for edit lookup
 
-// Per-vendor field definitions: [{key, label, type, placeholder, required}]
+// Per-vendor field definitions: [{key, label, type, placeholder, required, default}]
 // Vendors not listed get the generic base_url + api_key pair.
+// AI vendors are flagged so the sync schedule is hidden for them.
+const AI_VENDORS = new Set(['anthropic', 'openai', 'custom_ai', 'ai']);
+
 const VENDOR_FIELDS = {
+  // ── AI / LLM ───────────────────────────────────────────────────────────────
+  anthropic: [
+    {key:'base_url',   label:'API Base URL',    type:'text',     placeholder:'https://api.anthropic.com', default:'https://api.anthropic.com', required:true, readonly:true},
+    {key:'api_key',    label:'API Key',         type:'password', placeholder:'sk-ant-...', required:true},
+    {key:'model',      label:'Default Model',   type:'model_select', vendor:'anthropic', required:false,
+      options:['claude-opus-5-5','claude-sonnet-5-5','claude-haiku-5-5','claude-fable-5-2','claude-opus-5','claude-sonnet-5','claude-haiku-4-5','claude-sonnet-4-6']},
+  ],
+  openai: [
+    {key:'base_url',   label:'API Base URL',    type:'text',     placeholder:'https://api.openai.com', default:'https://api.openai.com', required:true, readonly:true},
+    {key:'api_key',    label:'API Key',         type:'password', placeholder:'sk-...', required:true},
+    {key:'model',      label:'Default Model',   type:'model_select', vendor:'openai', required:false,
+      options:['gpt-4o','gpt-4o-mini','o1','o1-mini','o3-mini','gpt-4-turbo','gpt-3.5-turbo']},
+  ],
+  custom_ai: [
+    {key:'base_url',   label:'API Base URL',    type:'text',     placeholder:'https://your-llm-provider.example.com', required:true},
+    {key:'api_key',    label:'API Key',         type:'password', placeholder:'', required:false},
+    {key:'model',      label:'Default Model',   type:'text',     placeholder:'', required:false},
+    {key:'extra_headers', label:'Extra Headers (JSON)',type:'text', placeholder:'{"X-Custom": "value"}', required:false},
+  ],
+  // ── Identity / Directory ───────────────────────────────────────────────────
   ldap: [
     {key:'host',       label:'LDAP Host',      type:'text',     placeholder:'ldap.acme.example.com', required:true},
     {key:'port',       label:'Port',            type:'number',   placeholder:'389', required:false},
@@ -67,18 +100,30 @@ const VENDOR_FIELDS = {
     {key:'bind_pass',  label:'Bind Password',   type:'password', placeholder:'', required:true},
     {key:'base_dn',    label:'Base DN',         type:'text',     placeholder:'DC=acme,DC=example', required:true},
     {key:'use_tls',    label:'Use TLS/LDAPS',   type:'checkbox', placeholder:'', required:false},
+    {key:'ldap_type',  label:'LDAP Flavor',     type:'select',   options:['ad','openldap'], placeholder:'', required:false},
   ],
+  // ── ITSM ──────────────────────────────────────────────────────────────────
   servicenow: [
     {key:'base_url',   label:'Instance URL',    type:'text',     placeholder:'https://acme.service-now.com', required:true},
     {key:'username',   label:'Username',        type:'text',     placeholder:'svc-ctem', required:true},
     {key:'password',   label:'Password',        type:'password', placeholder:'', required:true},
     {key:'cmdb_table', label:'CMDB Table',      type:'text',     placeholder:'cmdb_ci_server', required:false},
   ],
+  // ── SIEM / Logging ────────────────────────────────────────────────────────
   splunk: [
-    {key:'base_url',   label:'Splunk URL',      type:'text',     placeholder:'https://splunk.acme.example.com:8089', required:true},
-    {key:'api_key',    label:'HEC / API Token', type:'password', placeholder:'', required:true},
-    {key:'index',      label:'Index',           type:'text',     placeholder:'ctem', required:false},
+    {key:'base_url',   label:'REST API URL',    type:'text',     placeholder:'https://splunk.acme.example.com:8089', required:true},
+    {key:'ssl_mode',   label:'SSL Mode',        type:'select',   required:false,
+      options:['https_no_verify','https','http'],
+      optionLabels:{'https':'HTTPS (verify cert)','https_no_verify':'HTTPS (skip verify -- self-signed)','http':'HTTP (no SSL)'}},
+    {key:'username',   label:'Username',        type:'text',     placeholder:'admin', required:true},
+    {key:'password',   label:'Password',        type:'password', placeholder:'', required:true},
+    {key:'hec_token',  label:'HEC Token',       type:'password', placeholder:'Optional -- for push/ingestion', required:false},
+    {key:'lookback_minutes', label:'Lookback Window (minutes)', type:'number', placeholder:'5', required:false},
+    {key:'max_events',       label:'Max Events per Sync',       type:'number', placeholder:'500', required:false},
+    {key:'notable_query', label:'SPL Query', type:'text',
+      placeholder:'index=wineventlog OR index=crowdstrike | table _time, host, source, _raw', required:false},
   ],
+  // ── Pen testing ───────────────────────────────────────────────────────────
   horizon3: [
     {key:'base_url',   label:'NodeZero URL',    type:'text',     placeholder:'https://app.horizon3.ai', required:true},
     {key:'api_key',    label:'API Key',         type:'password', placeholder:'', required:true},
@@ -86,7 +131,7 @@ const VENDOR_FIELDS = {
   ],
 };
 
-const INPUT_STYLE = 'width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)';
+const INPUT_STYLE = 'width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text)';
 
 async function fetchJson(url, opts) {
   const res = await fetch(url, { headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, ...opts });
@@ -97,42 +142,66 @@ async function fetchJson(url, opts) {
   return res.json();
 }
 
-function statusChip(enabled, last_status) {
+function statusChip(enabled, last_status, isAI) {
   if (!enabled) return '<span class="chip chip--info">Disabled</span>';
-  if (!last_status) return '<span class="chip chip--medium">Never synced</span>';
-  if (last_status === 'success') return '<span class="chip chip--low">Active</span>';
-  if (last_status === 'failed') return '<span class="chip chip--critical">Failed</span>';
+  if (!last_status) return `<span class="chip chip--medium">${isAI ? 'Never tested' : 'Never synced'}</span>`;
+  if (last_status === 'success') return `<span class="chip chip--low">${isAI ? 'Connected' : 'Active'}</span>`;
+  if (last_status === 'failed') return `<span class="chip chip--critical">${isAI ? 'Test failed' : 'Failed'}</span>`;
   return '<span class="chip chip--medium">Pending</span>';
+}
+
+function _renderCards(list) {
+  const grid = document.getElementById('integrations-grid');
+  if (!list.length) {
+    grid.innerHTML = '<div style="grid-column:1/-1;padding:40px;text-align:center;color:var(--text-muted)">No integrations configured. Click <b>+ Add Integration</b> to start syncing data.</div>';
+    return;
+  }
+  const AI_VENDOR_SET = new Set(['anthropic', 'openai', 'custom_ai', 'ai']);
+  grid.innerHTML = list.map(i => {
+    const isAI = AI_VENDOR_SET.has(i.vendor);
+    const actionBtn = isAI
+      ? `<button class="btn btn--ghost btn--sm" onclick="testConnection('${esc(i.id)}',this)">Test</button>`
+      : `<button class="btn btn--ghost btn--sm" onclick="triggerSync('${esc(i.id)}',this)">Sync Now</button>`;
+    const lastLabel = isAI ? 'Last tested' : 'Last sync';
+    return `
+    <div class="panel" style="margin:0" data-vendor="${esc(i.vendor)}" data-name="${esc((i.name||'').toLowerCase())}">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px">
+        <div>
+          <div style="font-weight:600">${esc(i.name || i.vendor)}</div>
+          <div class="text-muted text-sm">${esc(i.vendor)}</div>
+        </div>
+        ${statusChip(i.is_enabled, i.last_sync_status, isAI)}
+      </div>
+      <div class="text-muted text-sm" style="margin-bottom:12px">
+        ${lastLabel}: ${i.last_sync_at ? new Date(i.last_sync_at).toLocaleString() : 'Never'}
+        ${i.sync_schedule && !isAI ? `&nbsp;&bull;&nbsp;<span title="cron: ${esc(i.sync_schedule)}">Scheduled</span>` : ''}
+      </div>
+      <div style="display:flex;gap:8px">
+        ${actionBtn}
+        <button class="btn btn--ghost btn--sm" onclick="editIntegration('${esc(i.id)}')">Edit</button>
+        <button class="btn btn--ghost btn--sm" style="color:var(--severity-critical)" onclick="deleteIntegration('${esc(i.id)}')">Remove</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function filterIntegrations(q) {
+  q = (q || '').toLowerCase().trim();
+  const cards = document.querySelectorAll('#integrations-grid .panel[data-vendor]');
+  cards.forEach(card => {
+    const hit = !q || card.dataset.vendor.includes(q) || card.dataset.name.includes(q);
+    card.style.display = hit ? '' : 'none';
+  });
 }
 
 async function loadIntegrations() {
   try {
     const data = await fetchJson(`${API}/integrations`);
-    const list = data.integrations || [];
-    const grid = document.getElementById('integrations-grid');
-    if (!list.length) {
-      grid.innerHTML = '<div style="grid-column:1/-1;padding:40px;text-align:center;color:var(--text-muted)">No integrations configured. Click <b>+ Add Integration</b> to start syncing data.</div>';
-      return;
-    }
-    grid.innerHTML = list.map(i => `
-      <div class="panel" style="margin:0">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px">
-          <div>
-            <div style="font-weight:600">${esc(i.name || i.vendor)}</div>
-            <div class="text-muted text-sm">${esc(i.vendor)}</div>
-          </div>
-          ${statusChip(i.is_enabled, i.last_sync_status)}
-        </div>
-        <div class="text-muted text-sm" style="margin-bottom:12px">
-          Last sync: ${i.last_sync_at ? new Date(i.last_sync_at).toLocaleString() : 'Never'}
-          ${i.sync_schedule ? `&nbsp;&bull;&nbsp;<span title="cron: ${esc(i.sync_schedule)}">Scheduled</span>` : ''}
-        </div>
-        <div style="display:flex;gap:8px">
-          <button class="btn btn--ghost btn--sm" onclick="triggerSync('${esc(i.id)}',this)">Sync Now</button>
-          <button class="btn btn--ghost btn--sm" onclick="editIntegration(${JSON.stringify(i)})">Edit</button>
-          <button class="btn btn--ghost btn--sm" style="color:var(--severity-critical)" onclick="deleteIntegration('${esc(i.id)}')">Remove</button>
-        </div>
-      </div>`).join('');
+    _integrations = data.integrations || [];
+    _renderCards(_integrations);
+    // Re-apply any active search filter
+    const q = document.getElementById('int-search')?.value || '';
+    if (q) filterIntegrations(q);
   } catch (e) {
     document.getElementById('integrations-grid').innerHTML = '<div style="grid-column:1/-1;padding:32px;text-align:center;color:var(--text-muted)">Error loading integrations</div>';
   }
@@ -143,8 +212,21 @@ async function triggerSync(id, btn) {
   try {
     await fetchJson(`${API}/integrations/${encodeURIComponent(id)}/sync`, { method: 'POST' });
     setTimeout(() => { loadIntegrations(); if (btn) { btn.disabled = false; btn.textContent = 'Sync Now'; }}, 1500);
-  } catch (_) {
+  } catch (e) {
     if (btn) { btn.disabled = false; btn.textContent = 'Sync Now'; }
+    alert(`Sync failed: ${e.message}`);
+  }
+}
+
+async function testConnection(id, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = 'Testing...'; }
+  try {
+    const res = await fetchJson(`${API}/integrations/${encodeURIComponent(id)}/test`, { method: 'POST' });
+    alert(res.connected ? 'Connection successful!' : 'Connection failed -- check host, credentials, and network.');
+  } catch (e) {
+    alert(`Test failed: ${e.message}`);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Test'; }
   }
 }
 
@@ -161,18 +243,42 @@ function openAddModal() {
   loadVendorOptions();
 }
 
-function editIntegration(i) {
+function editIntegration(id) {
+  const i = _integrations.find(x => x.id === id);
+  if (!i) return;
   _editId = i.id;
   document.getElementById('modal-title').textContent = 'Edit Integration';
   document.getElementById('int-label').value = i.name || '';
   document.getElementById('int-schedule').value = i.sync_schedule || '';
   document.getElementById('int-enabled').checked = i.is_enabled !== false;
   document.getElementById('int-error').style.display = 'none';
-  // Vendor select -- lock it on edit, just show the current vendor
+  // Vendor select -- lock it on edit
   const sel = document.getElementById('int-vendor');
   sel.innerHTML = `<option value="${esc(i.vendor)}">${esc(i.vendor)}</option>`;
   sel.disabled = true;
   updateVendorFields();
+  // Populate config fields with saved values
+  const cfg = i.config || {};
+  for (const [k, v] of Object.entries(cfg)) {
+    const el = document.getElementById(`cfg-${k}`);
+    if (!el) continue;
+    if (el.type === 'checkbox') {
+      el.checked = !!v;
+    } else if (v === '__REDACTED__') {
+      el.placeholder = '(saved -- leave blank to keep)';
+      el.value = '';
+    } else if (el.tagName === 'SELECT' && v !== null && v !== undefined) {
+      // Add option if saved value not in list (e.g. a model that was removed)
+      if (![...el.options].some(o => o.value === String(v))) {
+        const opt = document.createElement('option');
+        opt.value = String(v); opt.textContent = String(v);
+        el.insertBefore(opt, el.firstChild);
+      }
+      el.value = String(v);
+    } else {
+      el.value = v ?? '';
+    }
+  }
   document.getElementById('int-modal').style.display = 'flex';
 }
 
@@ -181,27 +287,60 @@ function closeModal() {
   _editId = null;
 }
 
+const AI_VENDOR_META = [
+  { slug: 'anthropic',  label: 'Claude (Anthropic)' },
+  { slug: 'openai',     label: 'OpenAI' },
+  { slug: 'custom_ai',  label: 'Custom AI / LLM' },
+];
+
 async function loadVendorOptions() {
   try {
     const data = await fetchJson(`${API}/integrations/vendors`);
     const sel = document.getElementById('int-vendor');
     sel.innerHTML = '<option value="">Select vendor...</option>';
-    (data.vendors || []).forEach(v => {
+
+    // AI group first
+    const aiGroup = document.createElement('optgroup');
+    aiGroup.label = 'AI / LLM';
+    AI_VENDOR_META.forEach(v => {
       const opt = document.createElement('option');
       opt.value = v.slug;
       opt.textContent = v.label;
-      sel.appendChild(opt);
+      aiGroup.appendChild(opt);
     });
+    sel.appendChild(aiGroup);
+
+    // All other vendors
+    const aiSlugs = new Set(AI_VENDOR_META.map(v => v.slug));
+    const others = (data.vendors || []).filter(v => !aiSlugs.has(v.slug) && v.slug !== 'ai');
+    if (others.length) {
+      const otherGroup = document.createElement('optgroup');
+      otherGroup.label = 'Security Tools';
+      others.forEach(v => {
+        const opt = document.createElement('option');
+        opt.value = v.slug;
+        opt.textContent = v.label;
+        otherGroup.appendChild(opt);
+      });
+      sel.appendChild(otherGroup);
+    }
   } catch (_) {}
 }
 
 function updateVendorFields() {
   const vendor = document.getElementById('int-vendor').value;
   const container = document.getElementById('int-config-fields');
+  const schedWrap = document.getElementById('int-schedule-wrap');
+
+  // Hide cron for AI vendors -- they're called on demand, not synced
+  const isAI = AI_VENDORS.has(vendor);
+  schedWrap.style.display = isAI ? 'none' : '';
+  if (isAI) document.getElementById('int-schedule').value = '';
+
   if (!vendor) { container.innerHTML = ''; return; }
   const fields = VENDOR_FIELDS[vendor] || [
-    {key:'base_url', label:'Base URL',    type:'text',     placeholder:'https://...', required:true},
-    {key:'api_key',  label:'API Key',     type:'password', placeholder:'',            required:true},
+    {key:'base_url', label:'Base URL', type:'text', placeholder:'https://...', required:true},
+    {key:'api_key',  label:'API Key',  type:'password', placeholder:'', required:true},
   ];
   container.innerHTML = fields.map(f => {
     const id = `cfg-${f.key}`;
@@ -209,11 +348,75 @@ function updateVendorFields() {
       return `<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:.9rem">
         <input type="checkbox" id="${id}"> ${esc(f.label)}</label>`;
     }
+    if (f.type === 'select') {
+      const labels = f.optionLabels || {};
+      const opts = (f.options || []).map(o => `<option value="${esc(o)}">${esc(labels[o] || o)}</option>`).join('');
+      return `<div>
+        <label class="text-sm" style="font-weight:600;display:block;margin-bottom:4px">${esc(f.label)}</label>
+        <select id="${id}" style="${INPUT_STYLE}">${opts}</select>
+      </div>`;
+    }
+    if (f.type === 'model_select') {
+      const opts = (f.options || []).map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('');
+      return `<div>
+        <label class="text-sm" style="font-weight:600;display:block;margin-bottom:4px">${esc(f.label)}</label>
+        <div style="display:flex;gap:6px;align-items:center">
+          <select id="${id}" data-vendor="${esc(f.vendor || '')}" style="${INPUT_STYLE};flex:1">${opts}</select>
+          <button type="button" id="fetch-models-${esc(f.vendor || 'ai')}"
+            onclick="fetchVendorModels('${esc(f.vendor || 'ai')}', '${id}')"
+            style="padding:8px 10px;font-size:.78rem;background:var(--surface);border:1px solid var(--border);border-radius:4px;cursor:pointer;color:var(--text);white-space:nowrap"
+            title="Fetch live models from API">Fetch</button>
+        </div>
+        <div id="model-fetch-status-${esc(f.vendor || 'ai')}" style="font-size:.75rem;color:var(--text-muted);margin-top:3px"></div>
+      </div>`;
+    }
+    const readonlyAttr = f.readonly ? ' readonly style="' + INPUT_STYLE + ';color:var(--text-muted);cursor:default"' : ` style="${INPUT_STYLE}"`;
+    const val = f.default ? ` value="${esc(f.default)}"` : '';
     return `<div>
       <label class="text-sm" style="font-weight:600;display:block;margin-bottom:4px">${esc(f.label)}${f.required ? ' <span style="color:var(--severity-critical)">*</span>' : ''}</label>
-      <input id="${id}" type="${f.type}" placeholder="${esc(f.placeholder)}" autocomplete="off" style="${INPUT_STYLE}">
+      <input id="${id}" type="${f.type}" placeholder="${esc(f.placeholder)}"${val} autocomplete="off"${readonlyAttr}>
     </div>`;
   }).join('');
+}
+
+const _SENSITIVE_FIELD_TYPES = new Set(['password']);
+
+async function fetchVendorModels(vendor, selectId) {
+  const btn = document.getElementById(`fetch-models-${vendor}`);
+  const status = document.getElementById(`model-fetch-status-${vendor}`);
+  const sel = document.getElementById(selectId);
+  const apiKeyEl = document.getElementById('cfg-api_key');
+  const baseUrlEl = document.getElementById('cfg-base_url');
+  if (!apiKeyEl || !apiKeyEl.value.trim()) {
+    status.textContent = 'Enter API key first.';
+    return;
+  }
+  if (btn) { btn.disabled = true; btn.textContent = 'Fetching...'; }
+  status.textContent = '';
+  try {
+    const res = await fetchJson(`${API}/integrations/vendor-models`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        vendor,
+        api_key: apiKeyEl.value.trim(),
+        base_url: baseUrlEl ? baseUrlEl.value.trim() : '',
+      }),
+    });
+    if (res.error && !res.models?.length) {
+      status.textContent = `Could not fetch: ${res.error}`;
+      return;
+    }
+    const models = res.models || [];
+    const current = sel.value;
+    sel.innerHTML = models.map(m => `<option value="${esc(m)}"${m === current ? ' selected' : ''}>${esc(m)}</option>`).join('');
+    if (!models.includes(current) && models.length) sel.value = models[0];
+    status.textContent = `${models.length} model(s) loaded${res.error ? ' (using fallback)' : ''}.`;
+  } catch (e) {
+    status.textContent = `Fetch failed: ${e.message}`;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Fetch'; }
+  }
 }
 
 function _collectConfig() {
@@ -225,7 +428,17 @@ function _collectConfig() {
   for (const f of fields) {
     const el = document.getElementById(`cfg-${f.key}`);
     if (!el) continue;
-    cfg[f.key] = f.type === 'checkbox' ? el.checked : el.value.trim();
+    if (f.type === 'checkbox') {
+      cfg[f.key] = el.checked;
+    } else {
+      const val = el.value.trim ? el.value.trim() : el.value;
+      // Empty secret field on edit = keep existing value
+      if (_editId && !val && _SENSITIVE_FIELD_TYPES.has(f.type)) {
+        cfg[f.key] = '__REDACTED__';
+      } else {
+        cfg[f.key] = val;
+      }
+    }
   }
   return cfg;
 }
@@ -274,6 +487,6 @@ async function deleteIntegration(id) {
 }
 
 document.addEventListener('DOMContentLoaded', loadIntegrations);
-document.addEventListener('click', e => { if (e.target.id === 'int-modal') closeModal(); });
+// No backdrop dismiss -- clicking off a form loses data
 </script>
 {% endblock %}

@@ -5,7 +5,6 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, String, Text
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from api.core.encryption import EncryptedString
@@ -67,7 +66,7 @@ class Device(Base, UUIDPrimaryKey, TimestampMixin):
     source_id: Mapped[str | None] = mapped_column(String(256))
 
     # Owner
-    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    owner_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
 
     tags: Mapped[list[DeviceTag]] = relationship(back_populates="device", cascade="all, delete-orphan")
     findings: Mapped[list] = relationship("Finding", back_populates="device")
@@ -77,8 +76,8 @@ class Device(Base, UUIDPrimaryKey, TimestampMixin):
 class DeviceTag(Base):
     __tablename__ = "device_tags"
 
-    device_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), primary_key=True)
-    tag_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True)
+    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), primary_key=True)
+    tag_id: Mapped[str] = mapped_column(ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True)
 
     device: Mapped[Device] = relationship(back_populates="tags")
     tag: Mapped[object] = relationship("Tag")

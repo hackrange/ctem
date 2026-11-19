@@ -5,7 +5,7 @@ import json
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -63,7 +63,9 @@ async def hunt_result(
         return {"status": "pending"}
     if result.state == "SUCCESS":
         return {"status": "complete", "result": result.result}
-    return {"status": "failed", "error": str(result.result)}
+    if result.state in ("STARTED", "RETRY", "RECEIVED"):
+        return {"status": "running"}
+    return {"status": "failed", "error": "Analysis failed"}
 
 
 @router.get("/splunk/catalog")
@@ -150,6 +152,6 @@ async def _queue_ai_hunt(query: str, telemetry: dict, settings) -> str:
 
 
 class HuntQueryRequest(BaseModel):
-    query: str
-    asset_hint: str | None = None   # specific hostname/IP to anchor the search
-    max_results: int = 50
+    query: str = Field(min_length=1, max_length=2000)
+    asset_hint: str | None = Field(None, max_length=255)   # hostname/IP to anchor the search
+    max_results: int = Field(50, ge=1, le=500)

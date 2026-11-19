@@ -14,8 +14,10 @@ _MITRE_CHAINS = {
     ("T1134", "T1484"),   # access token -> domain policy modification
 }
 
-_CHAIN_MULTIPLIER = 1.8
-_PENTEST_CHAIN_MULTIPLIER = 2.5
+# Share of the gap to 100 that chaining closes. Multipliers pinned anything
+# above CVSS 5.6 at 100, so pentest confirmation stopped mattering.
+_CHAIN_UPLIFT = 0.45
+_PENTEST_CHAIN_UPLIFT = 0.75
 
 
 @dataclass
@@ -70,7 +72,7 @@ def _deduplicate(chains: list[list[VulnNode]]) -> list[list[VulnNode]]:
 
 
 def chain_score(chain: list[VulnNode], pentest_confirmed: bool = False) -> float:
-    """Score a chain: take the max individual CVSS and apply the chain multiplier."""
-    base = max((n.cvss_base for n in chain), default=0.0)
-    mult = _PENTEST_CHAIN_MULTIPLIER if pentest_confirmed else _CHAIN_MULTIPLIER
-    return min(100.0, (base / 10.0) * 100.0 * mult)
+    """Score a chain: worst member's CVSS on a 0-100 scale, lifted toward 100."""
+    base = min(100.0, max((n.cvss_base or 0.0 for n in chain), default=0.0) * 10.0)
+    uplift = _PENTEST_CHAIN_UPLIFT if pentest_confirmed else _CHAIN_UPLIFT
+    return round(base + (100.0 - base) * uplift, 1)

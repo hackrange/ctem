@@ -12,7 +12,7 @@ from sqlalchemy.orm import selectinload
 from api.auth.middleware import get_current_user
 from api.auth.rbac import can_access_device, get_accessible_device_tag_ids, require_permission
 from api.core.db import get_session
-from api.models.device import Device, DeviceTag
+from api.models.device import Device, DeviceTag, DeviceType
 from api.models.user import User
 from api.models.vuln import Finding, FindingStatus
 
@@ -23,7 +23,7 @@ router = APIRouter(prefix="/api/v1/devices", tags=["devices"])
 async def list_devices(
     current_user: User = Depends(require_permission("devices", "read")),
     db: AsyncSession = Depends(get_session),
-    device_type: str | None = None,
+    device_type: DeviceType | None = None,
     grade: str | None = None,
     tag: str | None = None,
     cursor: str | None = None,
@@ -52,7 +52,7 @@ async def list_devices(
         if t:
             stmt = stmt.join(DeviceTag, isouter=True).where(DeviceTag.tag_id == t.id)
     if cursor:
-        stmt = stmt.where(Device.id < uuid.UUID(cursor))
+        stmt = stmt.where(Device.id < str(cursor))
 
     stmt = stmt.limit(limit + 1)
     result = await db.execute(stmt)
@@ -72,7 +72,7 @@ async def get_device(
     db: AsyncSession = Depends(get_session),
 ):
     result = await db.execute(
-        select(Device).options(selectinload(Device.tags)).where(Device.id == device_id)
+        select(Device).options(selectinload(Device.tags)).where(Device.id == str(device_id))
     )
     device = result.scalar_one_or_none()
     # Return 404 for both "not found" and "no access" -- prevents enumeration
@@ -86,11 +86,11 @@ async def get_device_findings(
     device_id: uuid.UUID,
     current_user: User = Depends(require_permission("devices", "read")),
     db: AsyncSession = Depends(get_session),
-    status: str | None = None,
+    status: FindingStatus | None = None,
 ):
     # Object-level auth first
     device_result = await db.execute(
-        select(Device).options(selectinload(Device.tags)).where(Device.id == device_id)
+        select(Device).options(selectinload(Device.tags)).where(Device.id == str(device_id))
     )
     device = device_result.scalar_one_or_none()
     if device is None or not await can_access_device(current_user, device, db):
@@ -99,7 +99,7 @@ async def get_device_findings(
     stmt = (
         select(Finding)
         .options(selectinload(Finding.vuln))
-        .where(Finding.device_id == device_id)
+        .where(Finding.device_id == str(device_id))
         .order_by(Finding.composite_score.desc().nullslast())
     )
     if status:

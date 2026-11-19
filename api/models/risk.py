@@ -4,7 +4,6 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from api.core.encryption import EncryptedJSON
@@ -16,7 +15,7 @@ class RiskScore(Base, UUIDPrimaryKey, TimestampMixin):
     __tablename__ = "risk_scores"
 
     entity_type: Mapped[str] = mapped_column(String(16), nullable=False)        # user | device
-    entity_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    entity_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     score: Mapped[float] = mapped_column(Float, nullable=False)
     grade: Mapped[str] = mapped_column(String(1), nullable=False)
     score_breakdown: Mapped[str | None] = mapped_column(String(1024))           # JSON snapshot of contributing factors
@@ -31,7 +30,7 @@ class RiskScoreHistory(Base):
     __tablename__ = "risk_score_history"
 
     entity_type: Mapped[str] = mapped_column(String(16), primary_key=True)
-    entity_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    entity_id: Mapped[str] = mapped_column(String(36), primary_key=True)
     score: Mapped[float] = mapped_column(Float, nullable=False)
     grade: Mapped[str] = mapped_column(String(1), nullable=False)
     recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
@@ -41,8 +40,8 @@ class AttackPath(Base, UUIDPrimaryKey, TimestampMixin):
     """NodeZero-confirmed or detected attack path from entry point to target."""
     __tablename__ = "attack_paths"
 
-    source_device_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("devices.id", ondelete="SET NULL"))
-    target_device_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("devices.id", ondelete="SET NULL"))
+    source_device_id: Mapped[str | None] = mapped_column(ForeignKey("devices.id", ondelete="SET NULL"))
+    target_device_id: Mapped[str | None] = mapped_column(ForeignKey("devices.id", ondelete="SET NULL"))
     path_description: Mapped[str | None] = mapped_column(String(2048))
     impact_description: Mapped[str | None] = mapped_column(String(1024))
     path_score: Mapped[float] = mapped_column(Float, nullable=False)
@@ -82,7 +81,7 @@ class ThirdPartyControlGap(Base, UUIDPrimaryKey, TimestampMixin):
     """
     __tablename__ = "third_party_control_gaps"
 
-    supplier_id: Mapped[uuid.UUID] = mapped_column(
+    supplier_id: Mapped[str] = mapped_column(
         ForeignKey("third_party_risks.id", ondelete="CASCADE"), nullable=False, index=True
     )
     source: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
@@ -109,7 +108,7 @@ class RiskException(Base, UUIDPrimaryKey, TimestampMixin):
     """
     __tablename__ = "risk_exceptions"
 
-    finding_id: Mapped[uuid.UUID | None] = mapped_column(
+    finding_id: Mapped[str | None] = mapped_column(
         ForeignKey("findings.id", ondelete="SET NULL"), index=True
     )
     cve_id: Mapped[str | None] = mapped_column(String(32))          # direct CVE ref if no finding FK

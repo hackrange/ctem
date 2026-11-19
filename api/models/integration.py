@@ -41,6 +41,9 @@ class Vendor(str, enum.Enum):
     github_advanced = "github_advanced"
     forgerepo = "forgerepo"
     ai = "ai"
+    anthropic = "anthropic"
+    openai = "openai"
+    custom_ai = "custom_ai"
     zscaler = "zscaler"
     fairtprm = "fairtprm"
 

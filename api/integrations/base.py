@@ -1,7 +1,6 @@
 """Abstract base for all integration connectors."""
 from __future__ import annotations
 
-import uuid
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from typing import Any
@@ -19,7 +18,8 @@ class BaseConnector(ABC):
     vendor: Vendor  # set by subclass
 
     def __init__(self, config: dict[str, Any]) -> None:
-        self.config = config
+        # Blank form fields arrive as "", which should mean "use the default"
+        self.config = {k: v for k, v in (config or {}).items() if v not in ("", None)}
 
     @abstractmethod
     async def test_connection(self) -> bool:
@@ -65,7 +65,7 @@ def get_connector(vendor_slug: str, config: dict) -> BaseConnector:
 async def sync_by_id(db: AsyncSession, integration_id: str) -> None:
     result = await db.execute(
         select(IntegrationConfig).where(
-            IntegrationConfig.id == uuid.UUID(integration_id),
+            IntegrationConfig.id == str(integration_id),
             IntegrationConfig.is_enabled == True,  # noqa: E712
         )
     )

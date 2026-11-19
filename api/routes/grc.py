@@ -204,7 +204,7 @@ async def list_supplier_gaps(
     import uuid as _uuid
 
     try:
-        sid = _uuid.UUID(supplier_id)
+        sid = str(_uuid.UUID(supplier_id))
     except ValueError:
         raise HTTPException(404)
 

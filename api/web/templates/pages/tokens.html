@@ -18,6 +18,7 @@
       <tr>
         <th>Name</th>
         <th>Allowed IPs</th>
+        <th>Rate Limit</th>
         <th>Last Used</th>
         <th>Last IP</th>
         <th>Expires</th>
@@ -25,15 +26,19 @@
       </tr>
     </thead>
     <tbody id="tokens-tbody">
-      <tr><td colspan="6" class="text-muted text-sm" style="text-align:center;padding:24px">Loading...</td></tr>
+      <tr><td colspan="7" class="text-muted text-sm" style="text-align:center;padding:24px">Loading...</td></tr>
     </tbody>
   </table>
 </div>
 
 <!-- Create token modal -->
 <div id="token-modal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,0.5);align-items:center;justify-content:center">
-  <div style="background:var(--surface);border-radius:8px;padding:28px;width:100%;max-width:480px;box-shadow:0 8px 32px rgba(0,0,0,.3)">
-    <h2 style="margin:0 0 16px;font-size:1.1rem">Create API Token</h2>
+  <div style="background:var(--surface);border-radius:8px;width:100%;max-width:480px;box-shadow:0 8px 32px rgba(0,0,0,.3);overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 24px 14px;border-bottom:1px solid var(--border)">
+      <h2 style="margin:0;font-size:1.1rem">Create API Token</h2>
+      <button onclick="closeTokenModal()" style="background:none;border:none;font-size:1.4rem;line-height:1;color:var(--text-muted);cursor:pointer;padding:0 2px" aria-label="Close">&times;</button>
+    </div>
+    <div style="padding:20px 24px">
     <div style="display:flex;flex-direction:column;gap:12px">
       <div>
         <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:4px">Name</label>
@@ -45,16 +50,24 @@
           Allowed IPs <span class="text-muted">(leave blank to default to your current IP)</span>
         </label>
         <textarea id="token-ips" rows="3" placeholder="10.0.0.1&#10;192.168.1.0/24"
-          style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-family:monospace;font-size:.85rem;resize:vertical"></textarea>
+          style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text);font-family:monospace;font-size:.85rem;resize:vertical"></textarea>
       </div>
       <div>
         <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:4px">Description <span class="text-muted">(optional)</span></label>
         <input id="token-desc" type="text" placeholder="What is this token for?"
           style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
       </div>
+      <div>
+        <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:4px">
+          Rate Limit <span class="text-muted">(requests/minute, leave blank for global default)</span>
+        </label>
+        <input id="token-ratelimit" type="number" min="1" max="10000" placeholder="e.g. 60"
+          style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)">
+      </div>
     </div>
     <div id="token-result" style="display:none;margin-top:14px;padding:10px 14px;border-radius:4px;font-size:.85rem;font-family:monospace;word-break:break-all"></div>
-    <div style="display:flex;gap:10px;margin-top:20px;justify-content:flex-end">
+    </div>
+    <div style="display:flex;gap:10px;padding:14px 24px;border-top:1px solid var(--border);justify-content:flex-end">
       <button class="btn btn--ghost btn--sm" id="token-cancel-btn" onclick="closeTokenModal()">Cancel</button>
       <button class="btn btn--primary btn--sm" id="token-create-btn" onclick="createToken()">Create</button>
     </div>
@@ -65,7 +78,7 @@
 <div id="ips-modal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,0.5);align-items:center;justify-content:center">
   <div style="background:var(--surface);border-radius:8px;padding:28px;width:100%;max-width:400px;box-shadow:0 8px 32px rgba(0,0,0,.3)">
     <h2 style="margin:0 0 16px;font-size:1.1rem">Update Allowed IPs</h2>
-    <textarea id="update-ips" rows="5" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-family:monospace;font-size:.85rem;resize:vertical"></textarea>
+    <textarea id="update-ips" rows="5" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text);font-family:monospace;font-size:.85rem;resize:vertical"></textarea>
     <div style="display:flex;gap:10px;margin-top:16px;justify-content:flex-end">
       <button class="btn btn--ghost btn--sm" onclick="closeIpsModal()">Cancel</button>
       <button class="btn btn--primary btn--sm" onclick="saveIps()">Save</button>
@@ -96,6 +109,7 @@ async function loadTokens() {
           ${t.description ? `<div class="text-muted text-sm">${esc(t.description)}</div>` : ''}
         </td>
         <td class="text-mono text-sm">${(t.allowed_ips || []).map(esc).join(', ') || '<span class="text-muted">none</span>'}</td>
+        <td class="text-sm">${t.rate_limit_per_minute ? t.rate_limit_per_minute + ' req/min' : '<span class="text-muted">global</span>'}</td>
         <td class="text-muted text-sm">${t.last_used ? new Date(t.last_used).toLocaleString() : 'Never'}</td>
         <td class="text-mono text-sm">${esc(t.last_used_ip) || '--'}</td>
         <td class="text-muted text-sm">${t.expires_at ? new Date(t.expires_at).toLocaleDateString() : 'Never'}</td>
@@ -125,6 +139,7 @@ function closeTokenModal() {
   document.getElementById('token-name').value = '';
   document.getElementById('token-ips').value = '';
   document.getElementById('token-desc').value = '';
+  document.getElementById('token-ratelimit').value = '';
   loadTokens();
 }
 
@@ -134,6 +149,8 @@ async function createToken() {
   const ipsRaw = document.getElementById('token-ips').value.trim();
   const allowed_ips = ipsRaw ? ipsRaw.split('\n').map(s => s.trim()).filter(Boolean) : null;
   const description = document.getElementById('token-desc').value.trim() || null;
+  const rlRaw = document.getElementById('token-ratelimit').value.trim();
+  const rate_limit_per_minute = rlRaw ? parseInt(rlRaw, 10) : null;
   const btn = document.getElementById('token-create-btn');
   btn.disabled = true;
   btn.textContent = 'Creating...';
@@ -142,14 +159,14 @@ async function createToken() {
     const res = await fetch(`${API}/tokens`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, allowed_ips, description }),
+      body: JSON.stringify({ name, allowed_ips, description, rate_limit_per_minute }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || 'Failed');
 
     const resultEl = document.getElementById('token-result');
     resultEl.style.cssText = 'display:block;background:rgba(46,125,50,.15);color:var(--severity-low);border:1px solid var(--severity-low)';
-    resultEl.innerHTML = `<strong>Copy now -- shown only once:</strong><br><br>${data.token}`;
+    resultEl.innerHTML = `<strong>Copy now -- shown only once:</strong><br><br>${esc(data.token)}`;
     btn.textContent = 'Done';
     document.getElementById('token-cancel-btn').textContent = 'Close';
   } catch (e) {
@@ -186,9 +203,5 @@ async function revokeToken(id) {
 }
 
 document.addEventListener('DOMContentLoaded', loadTokens);
-document.addEventListener('click', e => {
-  if (e.target.id === 'token-modal') closeTokenModal();
-  if (e.target.id === 'ips-modal') closeIpsModal();
-});
 </script>
 {% endblock %}
