@@ -68,6 +68,16 @@
     <p class="summary-card__value" id="count-total">--</p>
     <p class="summary-card__label">In inventory</p>
   </div>
+  <div class="summary-card summary-card--critical">
+    <p class="summary-card__eyebrow">ITDR Alerts</p>
+    <p class="summary-card__value" id="count-itdr">--</p>
+    <p class="summary-card__label"><a href="/identity" style="color:inherit">Active identity threats</a></p>
+  </div>
+  <div class="summary-card summary-card--high">
+    <p class="summary-card__eyebrow">Shadow AI</p>
+    <p class="summary-card__value" id="count-shadow-ai">--</p>
+    <p class="summary-card__label"><a href="/identity" style="color:inherit">Unsanctioned AI apps</a></p>
+  </div>
 </div>
 
 <!-- Two-column layout -->
@@ -259,6 +269,17 @@ async function loadSummary() {
   } catch (e) {
     console.error('Dashboard load error', e);
   }
+
+  // Identity risk tiles -- non-blocking, graceful if Grip not configured
+  try {
+    const [td, sd] = await Promise.all([
+      fetchJson('/api/v1/identity/threats/summary').catch(() => ({})),
+      fetchJson('/api/v1/identity/saas-apps/summary').catch(() => ({})),
+    ]);
+    document.getElementById('count-itdr').textContent = td.total_active ?? '--';
+    document.getElementById('count-shadow-ai').textContent =
+      ((sd.shadow_ai || 0) + (sd.ai_agents || 0)) || '--';
+  } catch (_) {}
 }
 
 async function loadKEV() {
