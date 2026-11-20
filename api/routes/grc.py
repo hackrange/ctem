@@ -180,7 +180,7 @@ async def list_suppliers(
                 "supplier_name": s.supplier_name,
                 "tier": s.tier,
                 "status": s.status,
-                "risk_score": s.risk_score,
+                "risk_score": s.risk_score if s.risk_grade != "-" else None,
                 "risk_grade": s.risk_grade,
                 "open_gaps": s.open_gaps,
                 "last_assessment": s.last_assessment.isoformat() if s.last_assessment else None,

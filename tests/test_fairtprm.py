@@ -69,3 +69,33 @@ async def test_rejected_token_fails_the_sync_with_a_useful_reason(db, monkeypatc
     with pytest.raises(fairtprm.FairTPRMError, match="IP whitelist"):
         await conn.sync(db)
     assert await conn.test_connection() is False
+
+
+@pytest.mark.asyncio
+async def test_unrated_vendor_is_not_graded_a_and_duplicates_dont_break_sync(db, monkeypatch):
+    from api.models.risk import ThirdPartyRisk
+
+    def handle(req):
+        if req.url.path == "/api/v2/vendors":
+            return httpx.Response(200, json={"data": [{"id": 99, "vendor_name": "ACME Unrated"}], "total": 1})
+        return httpx.Response(200, json={"data": []})
+    monkeypatch.setattr(fairtprm, "safe_client", _fake(handle))
+    # Leftovers from two syncs that raced before the lock existed
+    db.add_all([ThirdPartyRisk(source="fairtprm", external_id="99", supplier_name="x") for _ in range(2)])
+    await db.commit()
+    await fairtprm.FairTPRMConnector({"base_url": "https://tprm.acme.example", "api_key": "k"}).sync(db)
+    rows = (await db.execute(select(ThirdPartyRisk).where(ThirdPartyRisk.external_id == "99"))).scalars().all()
+    assert any(r.risk_grade == fairtprm.UNRATED and r.supplier_name == "ACME Unrated" for r in rows)
+
+
+@pytest.mark.asyncio
+async def test_second_concurrent_sync_bows_out(db, monkeypatch):
+    from api.integrations import base
+
+    async def held(_iid):
+        return False
+    monkeypatch.setattr(base, "_sync_lock", held)
+    called = []
+    monkeypatch.setattr(base, "_sync_by_id", lambda *a: called.append(a))
+    assert await base.sync_by_id(db, "00000000-0000-0000-0000-000000000000") is False
+    assert not called
