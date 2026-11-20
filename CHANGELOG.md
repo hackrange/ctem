@@ -44,6 +44,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 - Dependencies upgraded to clear all known advisories (FastAPI/Starlette, Authlib, cryptography, Pillow, Jinja2, python-multipart); python-jose replaced with PyJWT
 
 ### Fixed
+- CMDB showed only the first 200 devices and reported that as the total. The page now pages server-side (25 to 200 per page) with the real total, search (hostname, FQDN, OS), type filter and sorting; tag-scoped users no longer see devices counted twice; the ServiceNow JSON export is no longer cut off at 10,000 CIs and carries the normalized name, FQDN, sources, firewall and USB fields
 - Devices were duplicated across sources because every connector matched on the exact host name: CrowdStrike and AD report `DESKTOP001`, Rapid7 reports `desktop001.ad.acme.example`. The Rapid7 copy showed EDR as missing and no user. Devices now match on a normalized host key (short name, case-insensitive; parent and child domains count as one, a bare short name goes to the AD-joined record or the main domain, unrelated domains stay apart), Rapid7 fills in the FQDN, and `python -m api.maintenance.merge_devices` folds existing duplicates together (dry run by default)
 - CrowdStrike hosts under network containment were shown as having no working EDR
 - Shipper batches over the load balancer's body limit (a 500-user AD batch with group memberships easily passes 1 MB) failed with HTTP 413 and stayed spooled, so every later run hit the same wall. Batches, including ones already spooled, are now split to stay under 768 KB per request

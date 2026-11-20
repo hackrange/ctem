@@ -35,10 +35,10 @@ async def test_cmdb_list_includes_device(client_cyber, db):
     db.add(dev)
     await db.commit()
 
-    r = await client_cyber.get("/api/v1/cmdb")
+    r = await client_cyber.get("/api/v1/cmdb", params={"q": "cmdb-test-host"})
     assert r.status_code == 200
     hostnames = [rec["hostname"] for rec in r.json()["records"]]
-    assert "cmdb-test-host" in hostnames
+    assert "CMDB-TEST-HOST" in hostnames
 
 
 @pytest.mark.asyncio
@@ -50,9 +50,9 @@ async def test_cmdb_record_shape(client_cyber, db):
     db.add(dev)
     await db.commit()
 
-    r = await client_cyber.get("/api/v1/cmdb")
+    r = await client_cyber.get("/api/v1/cmdb", params={"q": "shape-test-host"})
     assert r.status_code == 200
-    rec = next((x for x in r.json()["records"] if x["hostname"] == "shape-test-host"), None)
+    rec = next((x for x in r.json()["records"] if x["hostname"] == "SHAPE-TEST-HOST"), None)
     assert rec is not None
     assert rec["ip_address"] is None          # never exposed in list view
     assert rec["os_name"] == "Ubuntu"
@@ -86,3 +86,19 @@ async def test_cmdb_export_shape(client_cyber):
     assert "configuration_items" in d
     assert "export_time" in d
     assert d["source"] == "open-ctem"
+
+
+@pytest.mark.asyncio
+async def test_cmdb_total_and_paging_go_past_200(client_cyber, db):
+    from api.models.device import Device, DeviceType
+    tag = uuid.uuid4().hex[:8]
+    for i in range(230):
+        db.add(Device(hostname=f"cmdbpage{tag}-{i:03d}.acme.example", device_type=DeviceType.workstation))
+    await db.commit()
+    first = (await client_cyber.get("/api/v1/cmdb", params={"q": f"cmdbpage{tag}", "limit": 200})).json()
+    assert first["total"] == 230 and len(first["records"]) == 200
+    last = (await client_cyber.get("/api/v1/cmdb", params={"q": f"cmdbpage{tag}", "limit": 200, "offset": 200})).json()
+    names = {r["hostname"] for r in first["records"]} | {r["hostname"] for r in last["records"]}
+    assert len(last["records"]) == 30 and len(names) == 230
+    assert first["records"][0]["fqdn"] == f"CMDBPAGE{tag.upper()}-000.ACME.EXAMPLE"
+    assert (await client_cyber.get("/api/v1/cmdb", params={"limit": 500})).status_code == 422
