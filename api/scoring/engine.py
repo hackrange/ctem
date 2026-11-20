@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from api.models.device import Device
+from api.models.device import Device, RiskGrade
 from api.models.risk import RiskScore, RiskScoreHistory
 from api.models.vuln import Finding, FindingStatus
 from api.scoring.compensating import ControlContext
@@ -54,10 +54,13 @@ async def recalculate_device(device: Device, db: AsyncSession) -> RiskScore:
         })
 
     score, grade = compute_device_score(findings_data)
-    contained = bool(getattr(device, "edr_contained", False))
+    from api.core.device_scope_exempt import is_exempt
+    exempt = is_exempt(device)
+    # isolated by the EDR (nothing on it is reachable right now) or marked Not In Scope: nothing counts
+    contained = bool(getattr(device, "edr_contained", False)) or exempt
     device.raw_risk_score, device.raw_risk_grade = score, grade
     if contained:
-        score, grade = 0.0, "A"  # isolated by the EDR: nothing on it is reachable right now
+        score, grade = 0.0, "A"
 
     # Per-finding scores feed the sortable finding lists on the device and vuln pages
     for f, data in zip(findings, findings_data):
@@ -69,8 +72,8 @@ async def recalculate_device(device: Device, db: AsyncSession) -> RiskScore:
         f.raw_score, f.raw_grade = round(fs, 1), device_grade(fs)
         f.composite_score = 0.0 if contained else f.raw_score
         f.risk_grade = "A" if contained else f.raw_grade
-    device.open_findings = len(findings)
-    device.kev_findings = sum(1 for f in findings if f.vuln and f.vuln.is_kev)
+    device.open_findings = 0 if exempt else len(findings)
+    device.kev_findings = 0 if exempt else sum(1 for f in findings if f.vuln and f.vuln.is_kev)
 
     # Upsert the current score
     result = await db.execute(
@@ -87,7 +90,7 @@ async def recalculate_device(device: Device, db: AsyncSession) -> RiskScore:
 
     # Also update the device row for quick access
     device.risk_score = score
-    device.risk_grade = grade
+    device.risk_grade = RiskGrade(grade)
 
     db.add(risk)
     # History only on change, so frequent post-sync runs don't flood the hypertable
@@ -184,6 +187,7 @@ async def recalculate_all(db: AsyncSession) -> None:
     """Scheduled task: recalculate every device and user score."""
     from api.models.user import User as UserModel
 
+    await expire_scope_exemptions(db)
     devices_result = await db.execute(select(Device))
     for device in devices_result.scalars():
         try:
@@ -211,6 +215,7 @@ async def recalculate_changed(db: AsyncSession, since: datetime) -> int:
         select(Device.id).where(or_(Device.created_at >= naive, Device.updated_at >= naive)),
     )
     ids = [r[0] for r in (await db.execute(ids_q)).all()]
+    ids += await expire_scope_exemptions(db)
     for i in range(0, len(ids), 500):
         for device in (await db.execute(select(Device).where(Device.id.in_(ids[i:i + 500])))).scalars():
             try:
@@ -223,13 +228,29 @@ async def recalculate_changed(db: AsyncSession, since: datetime) -> int:
     return len(ids)
 
 
+async def expire_scope_exemptions(db: AsyncSession) -> list[str]:
+    """Not In Scope exclusions whose end date has passed: clear them, audit it, and return the ids to rescore."""
+    from api.models.settings import AuditLog
+    now = datetime.now(timezone.utc)
+    rows = (await db.execute(select(Device).where(Device.scope_exempt_until.is_not(None),
+                                                  Device.scope_exempt_until <= now))).scalars().all()
+    for d in rows:
+        db.add(AuditLog(actor_username="system", action="device.scope_expired", resource_type="device",
+                        resource_id=str(d.id), detail=f"Not In Scope ended {d.scope_exempt_until.date().isoformat()}"))
+        d.scope_exempt_until = d.scope_exempt_reason = d.scope_exempt_by = d.scope_exempt_at = None
+    if rows:
+        await db.commit()
+    return [str(d.id) for d in rows]
+
+
 async def refresh_affected_counts(db: AsyncSession) -> None:
     """One set-based UPDATE so vuln lists can sort by affected count without counting millions of findings."""
     from sqlalchemy import distinct, func, update
 
     from api.models.vuln import Vulnerability
+    from api.core.device_scope_exempt import in_scope_findings
     count = (select(func.count(distinct(Finding.device_id)))
-             .where(Finding.vuln_id == Vulnerability.id,
+             .where(Finding.vuln_id == Vulnerability.id, in_scope_findings(),
                     Finding.status.in_([FindingStatus.open, FindingStatus.in_progress]))
              .correlate(Vulnerability).scalar_subquery())
     await db.execute(update(Vulnerability).values(affected_devices=count).execution_options(synchronize_session=False))

@@ -1,9 +1,10 @@
-"""Who a device is assigned to and where it is (shipped, lost, stolen, returned). Admin and inventory only."""
+"""Who a device is assigned to and where it is (shipped, lost, stolen, returned), by admin and inventory;
+Not In Scope, by admin and cyber."""
 from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -12,8 +13,10 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from api.auth.rbac import require_permission
+from api.auth.rbac import require_cyber_or_admin, require_permission
 from api.core.db import get_session
+from api.core.device_scope_exempt import MAX_DAYS
+from api.core.device_scope_exempt import view as exempt_view
 from api.models.device import DeviceAssignment
 from api.models.settings import AuditLog
 from api.models.user import User
@@ -135,3 +138,63 @@ async def set_device_status(
     await db.commit()
     return {"device_id": str(device.id), "status": row.status, "carrier": row.carrier,
             "tracking_number": row.tracking_number}
+
+
+# ── Not In Scope ─────────────────────────────────────────────────────────────
+
+class ScopeBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    justification: Annotated[str, StringConstraints(strip_whitespace=True, min_length=10, max_length=1000,
+                                                    pattern=r"^[^\x00-\x08\x0b-\x1f<>]+$")]
+    expires_on: date
+
+    @model_validator(mode="after")
+    def _window(self):
+        today = datetime.now(timezone.utc).date()
+        if self.expires_on <= today:
+            raise ValueError("expires_on must be a future date")
+        if self.expires_on > today + timedelta(days=MAX_DAYS):
+            raise ValueError(f"expires_on can be at most {MAX_DAYS} days away; renew it when it ends")
+        return self
+
+
+async def _rescore(device, db: AsyncSession) -> None:
+    from api.scoring.engine import recalculate_device, refresh_affected_counts
+    await recalculate_device(device, db)
+    await db.commit()
+    await refresh_affected_counts(db)
+
+
+@router.put("/{device_id}/scope")
+async def set_out_of_scope(
+    device_id: uuid.UUID,
+    body: ScopeBody,
+    current_user: User = Depends(require_cyber_or_admin),
+    db: AsyncSession = Depends(get_session),
+):
+    """Mark the device Not In Scope until the end of expires_on (UTC): its vulnerabilities stop counting."""
+    device = await _visible_device(device_id, current_user, db)
+    until = datetime.combine(body.expires_on + timedelta(days=1), time.min, tzinfo=timezone.utc)
+    device.scope_exempt_until, device.scope_exempt_reason = until, body.justification
+    device.scope_exempt_by, device.scope_exempt_at = current_user.username[:128], datetime.now(timezone.utc)
+    _audit(db, current_user, "device.scope_out", str(device.id),
+           f"Not In Scope through {body.expires_on.isoformat()}: {body.justification[:300]}")
+    await db.commit()
+    await _rescore(device, db)
+    return {"device_id": str(device.id), "out_of_scope": exempt_view(device)}
+
+
+@router.delete("/{device_id}/scope", status_code=204)
+async def clear_out_of_scope(
+    device_id: uuid.UUID,
+    current_user: User = Depends(require_cyber_or_admin),
+    db: AsyncSession = Depends(get_session),
+):
+    """Back in scope now: its vulnerabilities count again."""
+    device = await _visible_device(device_id, current_user, db)
+    if device.scope_exempt_until is None:
+        return
+    device.scope_exempt_until = device.scope_exempt_reason = device.scope_exempt_by = device.scope_exempt_at = None
+    _audit(db, current_user, "device.scope_in", str(device.id), "back in scope")
+    await db.commit()
+    await _rescore(device, db)

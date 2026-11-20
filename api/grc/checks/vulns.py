@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.grc.checks import EXPOSURE, PENTEST, SCANNERS, Check, Outcome, Threshold, aware, grade_low, now, register
 from api.models.device import Device
+from api.core.device_scope_exempt import in_scope, in_scope_findings
 from api.models.risk import AttackPath, RiskException
 from api.models.vuln import Finding, FindingStatus, Vulnerability
 from api.rules.apply import device_scope
@@ -24,7 +25,7 @@ async def _kev(db: AsyncSession, t: dict, detail: bool) -> Outcome:
     rows = (await db.execute(
         select(Finding, Vulnerability, Device.hostname).join(Vulnerability, Finding.vuln_id == Vulnerability.id)
         .join(Device, Finding.device_id == Device.id)
-        .where(Finding.status.in_(OPEN), Vulnerability.is_kev == True, device_scope()))).all()  # noqa: E712
+        .where(Finding.status.in_(OPEN), Vulnerability.is_kev == True, device_scope(), in_scope()))).all()  # noqa: E712
     overdue, pending, out_rows = 0, 0, []
     for f, v, host in rows:
         # The clock starts when we found it or when CISA listed it, whichever is later
@@ -56,7 +57,7 @@ def _scoped_findings():
 
 def _sla_breach(t: dict):
     crit_cut, high_cut = now() - timedelta(days=t["critical_days"]), now() - timedelta(days=t["high_days"])
-    cond = and_(Finding.status.in_(OPEN), _scoped_findings(), or_(
+    cond = and_(Finding.status.in_(OPEN), _scoped_findings(), in_scope_findings(), or_(
         and_(Vulnerability.cvss_base >= 9.0, Finding.first_detected < crit_cut),
         and_(Vulnerability.cvss_base >= 7.0, Vulnerability.cvss_base < 9.0, Finding.first_detected < high_cut)))
     if t["reachable_only"]:
@@ -85,7 +86,7 @@ async def _sla(db: AsyncSession, t: dict, detail: bool) -> Outcome:
 
 
 def _exposed_cond():
-    return and_(Device.is_internet_exposed == True, Finding.status.in_(OPEN), device_scope(),  # noqa: E712
+    return and_(Device.is_internet_exposed == True, Finding.status.in_(OPEN), device_scope(), in_scope(),  # noqa: E712
                 or_(Vulnerability.cvss_base >= 9.0, Vulnerability.is_kev == True),  # noqa: E712
                 or_(Finding.is_reachable.is_(None), Finding.is_reachable == True))  # noqa: E712
 

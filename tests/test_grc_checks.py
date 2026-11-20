@@ -102,6 +102,11 @@ async def test_kev_deadline(gdb):
     assert body["result"] == "fail" and body["details"]["overdue"] == 1
     body, _ = await evaluate(gdb, REGISTRY["ctem_kev_remediation"], {"due_days": "60"})
     assert body["result"] == "warning"
+    # Not In Scope: the device's KEV findings stop counting until the exclusion ends
+    d.scope_exempt_until = NOW + timedelta(days=10)
+    await gdb.commit()
+    body, _ = await evaluate(gdb, REGISTRY["ctem_kev_remediation"], {})
+    assert body["details"]["open_kev_findings"] == 0 and body["result"] == "pass"
 
 
 @pytest.mark.asyncio

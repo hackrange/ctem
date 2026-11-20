@@ -13,6 +13,8 @@ from api.auth.device_scope import device_scope
 from api.auth.rbac import can_access_device, require_permission
 from api.core.csv_export import csv_paged_response
 from api.core.db import get_session
+from api.core.device_scope_exempt import is_exempt
+from api.core.device_scope_exempt import view as exempt_view
 from api.models.device import Device, DeviceTag, DeviceType
 from api.models.user import User
 from api.models.vuln import Finding, FindingStatus, Vulnerability
@@ -39,7 +41,7 @@ async def _filtered(user, db, q, grade, device_type, source, tag, status=None):
     return dq.build_query(await device_scope(user, db), q, grade, device_type, source, tag, status)
 
 
-_STATUS_FILTER = Query(None, pattern="^(assigned|shipped|lost|stolen|returned|contained)$")
+_STATUS_FILTER = Query(None, pattern="^(assigned|shipped|lost|stolen|returned|contained|out_of_scope)$")
 
 
 _TAGS = Query(None, max_length=128, description="Tag name; repeat to require several")
@@ -153,6 +155,8 @@ async def get_device(
         "recent_logins": device.recent_logins or [],
         "detected_user_upn": device.owner.upn if device.owner is not None else None,
         "detected_user_title": device.owner.title if device.owner is not None else None,
+        "out_of_scope": exempt_view(device),
+        "can_set_scope": bool({"admin", "cyber"}.intersection(current_user.role_names)),
     })
     return base
 
@@ -195,7 +199,7 @@ async def get_device_findings(
     stmt = _findings_query(device.id, status, q)
     total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
     rows = (await db.execute(_sorted_findings(stmt, sort, order).limit(limit).offset(offset))).scalars().all()
-    contained = bool(device.edr_contained)
+    contained = bool(device.edr_contained) or is_exempt(device)   # Not In Scope reads like contained: nothing counts
     return {"findings": [_finding_summary(f, contained) for f in rows], "total": total, "limit": limit,
             "offset": offset, "contained": contained}
 
@@ -212,7 +216,7 @@ async def export_device_findings(
     order: str | None = Query(None, pattern="^(asc|desc)$"),
 ):
     device = await _visible_device(device_id, current_user, db)
-    hostname, contained = dq.short_name(device.hostname), bool(device.edr_contained)
+    hostname, contained = dq.short_name(device.hostname), bool(device.edr_contained) or is_exempt(device)
     stmt = _sorted_findings(_findings_query(device.id, status, q), sort, order)
     header = ["Hostname", "Severity", "CVE", "Title", "CVSS", "EPSS", "KEV", "Score", "Status", "First detected",
               "Last seen", "Source"]

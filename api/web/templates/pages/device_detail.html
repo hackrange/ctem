@@ -17,6 +17,10 @@
   <div class="panel__body"><strong>Contained by CrowdStrike.</strong> This host is isolated from the network, so its vulnerabilities can't be exploited right now: they're shown as info and its risk is 0. Normal scoring returns as soon as containment is lifted.</div>
 </div>
 
+<div id="dev-oos" class="panel" style="display:none;border-left:4px solid var(--severity-medium);margin-bottom:16px">
+  <div class="panel__body" id="dev-oos-text"></div>
+</div>
+
 <div class="panel" id="dev-info-panel">
   <div class="panel__header"><span class="panel__title">Details</span></div>
   <div class="panel__body">
@@ -101,6 +105,42 @@ function statusCell(d) {
       <input id="st-note" class="search-bar" style="width:14em" maxlength="256" placeholder="Note (optional)" value="${esc(st.note || '')}">
       <button type="button" class="btn btn--ghost btn--sm" data-da="status">Save</button>`)}`;
 }
+// The exclusion ends at 00:00 UTC after its last day; show that last day
+const lastDay = until => new Date(Date.parse(until) - 864e5).toISOString().slice(0, 10);
+// Not In Scope: admin and cyber set it with a justification and an end date (the server checks the role too)
+function scopeCell(d) {
+  const o = d.out_of_scope;
+  const view = o ? `<span class="chip chip--medium">Not in scope</span> <span class="text-sm text-muted">through ${esc(lastDay(o.until))}</span>`
+    : '<span class="text-muted">In scope</span>';
+  if (!d.can_set_scope) return view;
+  const today = new Date(), iso = x => x.toISOString().slice(0, 10);
+  const min = new Date(today.getTime() + 864e5), max = new Date(today.getTime() + 365 * 864e5);
+  return view + editLink('ed-scope') + editor('ed-scope', `
+      <input id="sc-reason" class="search-bar" style="width:22em" minlength="10" maxlength="1000"
+        placeholder="Justification (at least 10 characters)" value="${esc(o ? o.reason || '' : '')}">
+      <label class="text-sm" style="display:flex;align-items:center;gap:4px">until
+        <input id="sc-until" type="date" class="search-bar" style="width:11em" min="${iso(min)}" max="${iso(max)}"
+          value="${o ? esc(lastDay(o.until)) : ''}"></label>
+      <button type="button" class="btn btn--ghost btn--sm" data-da="scope">Save</button>
+      ${o ? '<button type="button" class="btn btn--ghost btn--sm" data-da="unscope">Back in scope</button>' : ''}
+      <span id="sc-msg" class="text-sm" style="color:var(--severity-critical)"></span>`);
+}
+async function saveScope(clear) {
+  const msg = t => { $('sc-msg').textContent = t; };
+  const url = `/api/v1/devices/${encodeURIComponent(deviceId)}/scope`;
+  let body;
+  if (!clear) {
+    const justification = $('sc-reason').value.trim(), expires_on = $('sc-until').value;
+    if (justification.length < 10) return msg('Write a justification of at least 10 characters.');
+    if (!expires_on) return msg('Pick the last day it stays out of scope.');
+    body = JSON.stringify({ justification, expires_on });
+  }
+  const res = await fetch(url, { method: clear ? 'DELETE' : 'PUT', body,
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' } });
+  if (!res.ok) return msg(res.status === 403 ? 'Only admin and cyber can change this.' : 'Not saved: check the date (up to a year ahead).');
+  loadDevice();
+}
+
 function syncShipFields() {
   const ship = $('st-status') && $('st-status').value === 'shipped';
   ['st-carrier', 'st-tracking'].forEach(id => { if ($(id)) $(id).style.display = ship ? '' : 'none'; });
@@ -123,6 +163,8 @@ document.addEventListener('click', e => {
   if (b.dataset.da === 'open') DeviceAssign.open(current, done);
   if (b.dataset.da === 'confirm') DeviceAssign.confirmDetected(current, done);
   if (b.dataset.da === 'remove') DeviceAssign.remove(current, done);
+  if (b.dataset.da === 'scope') saveScope(false);
+  if (b.dataset.da === 'unscope') saveScope(true);
   if (b.dataset.da === 'status') {
     const status = $('st-status').value || null, ship = status === 'shipped';
     DeviceAssign.setStatus(current, {
@@ -141,12 +183,21 @@ async function loadDevice() {
   document.title = `${d.hostname} -- open-ctem`;
   $('dev-title').textContent = d.hostname;
   if (d.edr_contained) $('dev-contained').style.display = 'block';
+  const oos = d.out_of_scope;
+  $('dev-oos').style.display = oos ? 'block' : 'none';
+  if (oos) {
+    $('dev-oos-text').innerHTML = `<strong>Not in scope through ${esc(lastDay(oos.until))}.</strong>
+      Its vulnerabilities don't count: risk is 0 and it's left out of vulnerability counts and GRC checks.
+      <div class="text-sm" style="margin-top:6px">${esc(oos.reason || '')}</div>
+      <div class="text-sm text-muted">Set by ${esc(oos.by || '?')}${oos.at ? ` on ${esc(new Date(oos.at).toLocaleDateString())}` : ''}.</div>`;
+  }
   $('dev-sub').textContent = [d.device_type, d.os].filter(Boolean).join(' / ');
   $('dev-grade').innerHTML = `${R.grade(d.risk_grade)} ${R.score(d.risk_score)}`
-    + (d.edr_contained ? ' ' + R.adjusted(d.raw_risk_grade, d.raw_risk_score, d.risk_grade, d.risk_score) : '');
+    + ((d.edr_contained || oos) ? ' ' + R.adjusted(d.raw_risk_grade, d.raw_risk_score, d.risk_grade, d.risk_score) : '');
   $('dev-info').innerHTML = [
     info('Assigned to', assignedCell(d)),
     info('Inventory status', statusCell(d)),
+    info('Scope', scopeCell(d)),
     info('Detected user (from sign-ins)', txt(d.detected_user) + upnLine(d.detected_user_upn, d.detected_user_title)),
     info('Last login user', txt(d.last_login_user)),
     info('Recent sign-ins', (d.recent_logins || []).length ? (d.recent_logins || []).map(esc).join(', ') : txt(null)),

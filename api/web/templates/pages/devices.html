@@ -42,6 +42,7 @@
       <option value="stolen">Stolen</option>
       <option value="returned">Returned</option>
       <option value="contained">Contained</option>
+      <option value="out_of_scope">Not in scope</option>
     </select>
     <select id="filter-source" class="filter-select" aria-label="Source">
       <option value="">All sources</option>
@@ -110,13 +111,13 @@ const table = DataTable.create({
              device_type: $('filter-type').value, source: $('filter-source').value, status: $('filter-status').value };
   },
   columns: [
-    { label: 'Hostname', sort: 'hostname', render: d => `<span title="${esc(d.fqdn || d.hostname)}">${R.link(`/devices/${encodeURIComponent(d.id)}`, d.hostname)}</span> ${DeviceAssign.statusChip(d.inventory_status)}` },
+    { label: 'Hostname', sort: 'hostname', render: d => `<span title="${esc(d.fqdn || d.hostname)}">${R.link(`/devices/${encodeURIComponent(d.id)}`, d.hostname)}</span> ${DeviceAssign.statusChip(d.inventory_status)}${d.out_of_scope_until ? ' <span class="chip chip--medium" style="font-size:.7rem" title="Its vulnerabilities don\'t count">Not in scope</span>' : ''}` },
     { label: 'User', sort: 'user', render: userCell },
     { label: 'IP', render: d => `<span class="text-mono text-sm">${esc(d.ip || '--')}</span>` },
     { label: 'Type', sort: 'device_type', render: d => typeIcon(d.device_type) },
     { label: 'OS', sort: 'os', render: d => `<span class="text-sm" title="${esc(d.os || '')}">${esc((d.os || '--').slice(0, 28))}</span>` },
     { label: 'Grade', sort: 'risk_grade', firstOrder: 'desc', render: d => R.grade(d.risk_grade) },
-    { label: 'Score', sort: 'risk_score', firstOrder: 'desc', render: d => R.score(d.risk_score) + (d.edr_contained ? ' ' + R.adjusted(d.raw_risk_grade, d.raw_risk_score, d.risk_grade, d.risk_score) : '') },
+    { label: 'Score', sort: 'risk_score', firstOrder: 'desc', render: d => R.score(d.risk_score) + ((d.edr_contained || d.out_of_scope_until) ? ' ' + R.adjusted(d.raw_risk_grade, d.raw_risk_score, d.risk_grade, d.risk_score) : '') },
     { label: 'Open', sort: 'open_findings', firstOrder: 'desc', render: d => R.num(d.open_findings) },
     { label: 'KEV', sort: 'kev_findings', firstOrder: 'desc', render: d => d.kev_findings ? `<span class="chip chip--critical">${R.num(d.kev_findings)}</span>` : '0' },
     { label: 'Last seen', sort: 'last_seen', firstOrder: 'desc', render: d => R.date(d.last_seen) },
