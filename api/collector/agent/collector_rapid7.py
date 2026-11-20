@@ -1,6 +1,7 @@
 """Rapid7 InsightVM Security Console module (v3 API): assets every run, vuln catalog once a day."""
 import base64
 import re
+import socket
 import time
 
 import collector_common as cc
@@ -8,7 +9,9 @@ import collector_common as cc
 KIND = "rapid7_console"
 LABEL = "Rapid7 InsightVM Security Console"
 SECRETS = {"password": "Rapid7 console password"}  # nosec B105 - prompt label
-PAGE = 500
+# Each size divides the one before, so shrinking mid-list keeps the row position exact
+SIZES = (200, 100, 50, 25)
+TIMEOUT = 300
 _CVE = re.compile(r"^CVE-\d{4}-\d{4,}$")
 _TAG_TYPES = {"custom", "location", "owner", "criticality"}
 
@@ -20,7 +23,7 @@ def _auth(s, secret):
 
 def _get(s, secret, path):
     return cc.pinned_json("GET", s["host"], s["port"], path, headers=_auth(s, secret),
-                          pin=s.get("pin"), cafile=s.get("ca_file"), timeout=120)
+                          pin=s.get("pin"), cafile=s.get("ca_file"), timeout=TIMEOUT)
 
 
 def test(s, secret):
@@ -38,13 +41,27 @@ def probe(settings):
 
 
 def _pages(s, secret, path):
-    page = 0
-    while page < 5000:  # 2.5M rows; anything past that is a runaway loop
-        data = _get(s, secret, f"{path}?size={PAGE}&page={page}") or {}
-        yield data.get("resources") or []
-        if page >= (data.get("page") or {}).get("totalPages", 1) - 1:
+    """Page through a v3 list; a slow console gets smaller pages instead of a failed run."""
+    offset, i = 0, 0
+    for _ in range(200_000):  # runaway guard
+        size = SIZES[i]
+        try:
+            data = _get(s, secret, f"{path}?size={size}&page={offset // size}") or {}
+        except (TimeoutError, socket.timeout) as e:
+            if i + 1 < len(SIZES):
+                i += 1
+                cc.say(f"  Rapid7 console slow on {path}; retrying with {SIZES[i]} per page")
+                continue
+            raise RuntimeError(f"Rapid7 console took over {TIMEOUT}s for {size} rows of {path}; "
+                               "check console load or any proxy in front of it") from e
+        rows = data.get("resources") or []
+        yield rows
+        offset += size
+        info = data.get("page") or {}
+        total = info.get("totalResources")
+        if not rows or (total is not None and offset >= total) or \
+                (total is None and offset // size >= info.get("totalPages", 1)):
             return
-        page += 1
 
 
 def _asset(a, tags=None):
