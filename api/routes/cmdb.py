@@ -14,7 +14,8 @@ from api.auth.rbac import get_accessible_device_tag_ids, require_cyber_or_admin
 from api.core.db import get_session
 from api.models.device import Device, DeviceTag, DeviceType
 from api.models.user import User
-from api.routes.device_query import environment, full_name, owner_label, short_name, source_codes, tag_value
+from api.routes.device_query import (ASSIGNMENT_LOAD, environment, full_name, owner_label, short_name,
+                                     source_codes, tag_value)
 
 log = logging.getLogger("open-ctem.cmdb")
 router = APIRouter(prefix="/api/v1/cmdb", tags=["cmdb"])
@@ -63,7 +64,8 @@ async def list_cmdb(
     is_ip = or_(Device.host_key.like("%.%"), Device.host_key.like("%:%"))
     named_first = is_ip if col is Device.host_key else None
     keys = [k for k in (named_first, ordered, Device.id) if k is not None]
-    page = (stmt.options(selectinload(Device.owner), selectinload(Device.tags).selectinload(DeviceTag.tag))
+    page = (stmt.options(selectinload(Device.owner), selectinload(Device.tags).selectinload(DeviceTag.tag),
+                         *ASSIGNMENT_LOAD)
             .order_by(*keys).offset(offset).limit(limit))
     devices = (await db.execute(page)).scalars().unique().all()
 
@@ -142,6 +144,7 @@ async def export_cmdb(
     stmt = select(Device).options(
         selectinload(Device.owner),
         selectinload(Device.tags).selectinload(DeviceTag.tag),
+        *ASSIGNMENT_LOAD,
     ).limit(limit)
 
     stmt = _scoped(stmt, tag_ids)

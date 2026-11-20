@@ -49,6 +49,7 @@
 
 {% block extra_scripts %}
 <script src="{{ static('js/data_table.js') }}"></script>
+<script src="{{ static('js/device_assign.js') }}"></script>
 <script>
 const R = DataTable.R;
 const $ = id => document.getElementById(id);
@@ -59,6 +60,59 @@ function info(label, valueHtml) {
   return `<div><dt class="text-sm text-muted">${esc(label)}</dt><dd style="margin:2px 0 0">${valueHtml}</dd></div>`;
 }
 const txt = v => v == null || v === '' ? '<span class="text-muted">--</span>' : esc(v);
+
+// Who should be on this machine, set by a person; the buttons are wired up after render
+let current = null;
+function assignedCell(d) {
+  current = d;
+  const a = d.assigned_user;
+  if (a) {
+    return `<span style="color:var(--severity-low)">&#10003;</span> ${esc(a.name)} <span class="text-sm text-muted">by ${esc(a.assigned_by || '?')}</span>`
+      + (a.note ? `<div class="text-sm text-muted">${esc(a.note)}</div>` : '')
+      + ` <button type="button" class="btn btn--ghost btn--sm" data-da="open">Change</button>`
+      + ` <button type="button" class="btn btn--ghost btn--sm" data-da="remove">Remove</button>`;
+  }
+  const ok = d.detected_user_id ? ` <button type="button" class="btn btn--ghost btn--sm" data-da="confirm">&#10003; Assign to ${esc(d.detected_user)}</button>` : '';
+  return `<span class="text-muted">Not assigned</span>${ok} <button type="button" class="btn btn--ghost btn--sm" data-da="open">Assign to...</button>`;
+}
+// Shipped / lost / stolen / returned; carrier and tracking only matter while shipped
+function statusCell(d) {
+  const st = d.inventory_status || {};
+  const opt = (v, l, cur) => `<option value="${v}"${v === (cur || '') ? ' selected' : ''}>${l}</option>`;
+  const carriers = Object.entries(DeviceAssign.CARRIERS).map(([k, [l]]) => opt(k, l, st.carrier)).join('');
+  return `${DeviceAssign.statusChip(d.inventory_status, true) || '<span class="text-muted">In use</span>'}
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">
+      <select id="st-status" class="filter-select" aria-label="Status">
+        ${opt('', 'In use', st.status)}${opt('shipped', 'Shipped', st.status)}${opt('lost', 'Lost', st.status)}${opt('stolen', 'Stolen', st.status)}${opt('returned', 'Returned', st.status)}
+      </select>
+      <select id="st-carrier" class="filter-select" aria-label="Carrier">${opt('', 'Carrier...', st.carrier)}${carriers}</select>
+      <input id="st-tracking" class="search-bar" style="width:14em" maxlength="40" placeholder="Tracking number" value="${esc(st.tracking_number || '')}">
+      <input id="st-note" class="search-bar" style="width:14em" maxlength="256" placeholder="Note (optional)" value="${esc(st.note || '')}">
+      <button type="button" class="btn btn--ghost btn--sm" data-da="status">Save</button>
+    </div>`;
+}
+function syncShipFields() {
+  const ship = $('st-status') && $('st-status').value === 'shipped';
+  ['st-carrier', 'st-tracking'].forEach(id => { if ($(id)) $(id).style.display = ship ? '' : 'none'; });
+}
+document.addEventListener('change', e => { if (e.target.id === 'st-status') syncShipFields(); });
+
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-da]');
+  if (!b || !current) return;
+  const done = () => loadDevice();
+  if (b.dataset.da === 'open') DeviceAssign.open(current, done);
+  if (b.dataset.da === 'confirm') DeviceAssign.confirmDetected(current, done);
+  if (b.dataset.da === 'remove') DeviceAssign.remove(current, done);
+  if (b.dataset.da === 'status') {
+    const status = $('st-status').value || null, ship = status === 'shipped';
+    DeviceAssign.setStatus(current, {
+      status, note: $('st-note').value.trim() || null,
+      carrier: ship ? ($('st-carrier').value || null) : null,
+      tracking_number: ship ? ($('st-tracking').value.replace(/\s+/g, '') || null) : null,
+    }, done);
+  }
+});
 
 async function loadDevice() {
   if (!UUID.test(deviceId)) return notFound();
@@ -72,7 +126,9 @@ async function loadDevice() {
   $('dev-grade').innerHTML = `${R.grade(d.risk_grade)} ${R.score(d.risk_score)}`
     + (d.edr_contained ? ' ' + R.adjusted(d.raw_risk_grade, d.raw_risk_score, d.risk_grade, d.risk_score) : '');
   $('dev-info').innerHTML = [
-    info('User', txt(d.user)),
+    info('Assigned to', assignedCell(d)),
+    info('Inventory status', statusCell(d)),
+    info('Detected user (from sign-ins)', txt(d.detected_user)),
     info('Last login user', txt(d.last_login_user)),
     info('IP address', `<span class="text-mono">${txt(d.ip)}</span>`),
     info('MAC address', `<span class="text-mono">${txt(d.mac_address)}</span>`),
@@ -90,7 +146,8 @@ async function loadDevice() {
     info('AD joined', R.bool(d.ad_joined)),
     info('Tags', (d.tags || []).map(t => `<span class="chip chip--info" style="font-size:.7rem">${esc(t)}</span>`).join(' ') || txt(null)),
   ].join('');
-  startFindings();
+  syncShipFields();
+  if (!table) startFindings();  // reloading after an assignment shouldn't mount a second table
 }
 
 function notFound() {

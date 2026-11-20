@@ -15,7 +15,7 @@ from api.models.user import Permission, Role, RolePermission, User
 from api.auth.middleware import get_current_user
 
 # Admin and Cyber bypass all tag-scope filters
-_GLOBAL_SCOPE_ROLES = {"admin", "cyber"}
+_GLOBAL_SCOPE_ROLES = {"admin", "cyber", "inventory"}  # inventory tracks every machine, but can't touch findings
 
 
 async def _load_user_permissions(user: User, db: AsyncSession) -> set[str]:
@@ -74,8 +74,10 @@ async def can_access_device(user: User, device: Any, db: AsyncSession) -> bool:
     if set(user.role_names).intersection(_GLOBAL_SCOPE_ROLES):
         return True
 
-    # Check if the user owns this device
-    if device.owner_user_id and device.owner_user_id == user.id:
+    # Assigned to this user by a person (the sign-in-detected owner is a hint, never a grant)
+    from api.models.device import DeviceAssignment as _Assigned
+    if (await db.execute(select(_Assigned.id).where(_Assigned.device_id == device.id,
+                                                    _Assigned.user_id == user.id))).first():
         return True
 
     # Check tag-based group access

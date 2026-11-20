@@ -14,7 +14,7 @@ from api.auth.device_scope import device_scope
 from api.auth.rbac import require_permission
 from api.core.csv_export import csv_paged_response
 from api.core.db import get_session
-from api.models.device import Device, DeviceTag
+from api.models.device import Device, DeviceAssignment, DeviceTag
 from api.models.user import User
 from api.models.vuln import Finding, FindingStatus, Vulnerability
 from api.routes import device_query as dq
@@ -162,6 +162,7 @@ def _sorted_affected(stmt, sort, order):
     direction = col.asc() if (order or "").lower() == "asc" else col.desc()
     return stmt.order_by(direction.nullslast(), Device.hostname.asc(), Finding.id.asc()).options(
         selectinload(Finding.device).selectinload(Device.owner),
+        selectinload(Finding.device).selectinload(Device.assignment).selectinload(DeviceAssignment.user),
         selectinload(Finding.device).selectinload(Device.tags).selectinload(DeviceTag.tag),
     )
 

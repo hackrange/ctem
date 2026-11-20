@@ -19,6 +19,7 @@ _ROLES = [
     ("it_user",   "IT Operations",    "Read device and CMDB data"),
     ("read_only", "Read Only",        "Read access across all dashboards"),
     ("service",   "Service Account",  "Machine-to-machine API access via tokens"),
+    ("inventory", "Inventory",        "Sees every device; sets who it's assigned to and shipped, lost, stolen or returned"),
 ]
 
 # (resource, action, scope)
@@ -37,6 +38,7 @@ _PERMISSIONS = [
     ("grc",      "write",  "all"),
     ("reports",  "read",   "all"),
     ("reports",  "write",  "all"),
+    ("inventory", "write", "all"),
 ]
 
 # role -> list of (resource, action) it gets
@@ -49,6 +51,7 @@ _ROLE_PERMS: dict[str, list[tuple[str, str]]] = {
         ("findings", "read"), ("findings", "write"),
         ("grc", "read"), ("grc", "write"),
         ("reports", "read"), ("reports", "write"),
+        ("inventory", "write"),
     ],
     "cyber": [
         ("devices", "read"), ("devices", "write"),
@@ -69,6 +72,9 @@ _ROLE_PERMS: dict[str, list[tuple[str, str]]] = {
         ("devices", "read"), ("vulns", "read"),
         ("findings", "read"), ("grc", "read"),
         ("reports", "read"),
+    ],
+    "inventory": [
+        ("devices", "read"), ("inventory", "write"),
     ],
     "service": [
         ("devices", "read"), ("devices", "write"),

@@ -85,7 +85,9 @@ class Device(Base, UUIDPrimaryKey, TimestampMixin):
 
     tags: Mapped[list[DeviceTag]] = relationship(back_populates="device", cascade="all, delete-orphan")
     findings: Mapped[list] = relationship("Finding", back_populates="device")
-    owner: Mapped[object | None] = relationship("User", foreign_keys=[owner_user_id])
+    owner: Mapped[object | None] = relationship("User", foreign_keys=[owner_user_id])  # detected from sign-ins
+    assignment: Mapped[DeviceAssignment | None] = relationship(back_populates="device", uselist=False,
+                                                               cascade="all, delete-orphan")
 
 
 @event.listens_for(Device, "before_insert")
@@ -93,6 +95,26 @@ class Device(Base, UUIDPrimaryKey, TimestampMixin):
 def _set_host_key(_mapper, _conn, dev: Device) -> None:
     dev.host_key = None if dev.source in NOT_HOSTS else host_key(dev.hostname)
     add_source(dev, dev.source)
+
+
+class DeviceAssignment(Base, UUIDPrimaryKey, TimestampMixin):
+    """Who is supposed to use a device, and where it is. Set by people (admin/inventory), never by a sync."""
+    __tablename__ = "device_assignments"
+
+    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, unique=True)
+    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True)
+    assigned_by: Mapped[str | None] = mapped_column(String(128))
+    note: Mapped[str | None] = mapped_column(EncryptedString)
+    # shipped | lost | stolen | returned; None = in normal use
+    status: Mapped[str | None] = mapped_column(String(16), index=True)
+    status_by: Mapped[str | None] = mapped_column(String(128))
+    status_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status_note: Mapped[str | None] = mapped_column(EncryptedString)
+    carrier: Mapped[str | None] = mapped_column(String(8))           # ups | fedex | usps | dhl, only while shipped
+    tracking_number: Mapped[str | None] = mapped_column(String(40))
+
+    device: Mapped[Device] = relationship(back_populates="assignment")
+    user: Mapped[object] = relationship("User", foreign_keys=[user_id])
 
 
 class DeviceTag(Base):

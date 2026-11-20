@@ -20,7 +20,10 @@ async def run(db: AsyncSession) -> dict:
     seen = defaultdict(set)
     for device_id, src in (await db.execute(select(Finding.device_id, Finding.source).distinct())).all():
         seen[device_id].add(src)
-    changed = servers = 0
+    from api.core.user_match import UserIndex
+
+    people = await UserIndex.load(db)
+    changed = servers = linked = 0
     rows = list((await db.execute(select(Device))).scalars())
     for i, d in enumerate(rows, 1):
         before, kind = d.sources, d.device_type
@@ -28,12 +31,15 @@ async def run(db: AsyncSession) -> dict:
             add_source(d, name)
         d.device_type = type_from_os(d.os, d.device_type)
         remember_fqdn(d, d.hostname)  # Rapid7 names like desktop001.ad.acme.example are the FQDN
+        if d.last_login_user:
+            d.owner_user_id = people.resolve(d.last_login_user)[0]
+            linked += d.owner_user_id is not None
         changed += d.sources != before
         servers += kind != d.device_type and d.device_type == DeviceType.server
         if i % _BATCH == 0:
             await db.commit()
     await db.commit()
-    return {"devices": len(rows), "sources_updated": changed, "now_servers": servers}
+    return {"devices": len(rows), "sources_updated": changed, "now_servers": servers, "linked": linked}
 
 
 async def _main() -> None:
@@ -43,7 +49,8 @@ async def _main() -> None:
     async with dbm._session_factory() as db:
         out = await run(db)
     print(f"Checked {out['devices']} devices: sources filled on {out['sources_updated']}, "
-          f"{out['now_servers']} reclassified as servers from their OS.")
+          f"{out['now_servers']} reclassified as servers from their OS, "
+          f"{out['linked']} linked to the directory user who signed in last.")
 
 
 if __name__ == "__main__":

@@ -5,13 +5,14 @@ import ipaddress
 import re
 
 from sqlalchemy import func, or_, select
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import aliased, selectinload
 
 import api.models.tag  # noqa: F401  -- aliased() below configures mappers, so every related model must be loaded
 import api.models.vuln  # noqa: F401
 from api.core.device_match import SOURCE_CODES, source_list
 from api.core.encryption import search_hash
-from api.models.device import Device, DeviceTag, DeviceType, RiskGrade
+from api.models.device import Device, DeviceAssignment, DeviceTag, DeviceType, RiskGrade
 from api.models.user import User
 
 Owner = aliased(User)
@@ -33,7 +34,7 @@ SORTS = {
     "usb_storage_blocked": Device.usb_storage_blocked,
 }
 
-EXPORT_HEADER = ["Hostname", "FQDN", "User", "IP", "MAC", "Type", "OS", "Grade", "Score", "Open findings",
+EXPORT_HEADER = ["Hostname", "FQDN", "User", "Assigned to", "Status", "IP", "MAC", "Type", "OS", "Grade", "Score", "Open findings",
                  "KEV findings", "Last seen", "EDR", "EDR vendor", "Firewall", "USB storage blocked", "Internet exposed", "Sources", "Tags"]
 
 
@@ -41,8 +42,11 @@ def _like(q: str) -> str:
     return "%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
 
 
+INVENTORY_STATUSES = ("shipped", "lost", "stolen", "returned")
+
+
 def build_query(scope, q: str | None, grade: str | None, device_type: DeviceType | None,
-                source: str | None, tags: list[str] | None):
+                source: str | None, tags: list[str] | None, status: str | None = None):
     """Return a SELECT of Device (with owner joined) filtered by scope and the request filters."""
     stmt = select(Device).outerjoin(Owner, Owner.id == Device.owner_user_id)
     if scope is not None:
@@ -55,6 +59,10 @@ def build_query(scope, q: str | None, grade: str | None, device_type: DeviceType
             stmt = stmt.where(Device.risk_grade.is_(None))
         elif g in RiskGrade.__members__:
             stmt = stmt.where(Device.risk_grade == RiskGrade[g])
+    if status in INVENTORY_STATUSES:
+        stmt = stmt.where(Device.id.in_(select(DeviceAssignment.device_id).where(DeviceAssignment.status == status)))
+    elif status == "assigned":
+        stmt = stmt.where(Device.id.in_(select(DeviceAssignment.device_id).where(DeviceAssignment.user_id.is_not(None))))
     if source in SOURCE_CODES:  # allow-listed, so it's safe inside LIKE
         stmt = stmt.where(Device.sources.like(f"%,{source},%"))
     elif source:
@@ -86,7 +94,39 @@ def sorted_query(stmt, sort: str | None, order: str | None):
 
 
 def with_relations(stmt):
-    return stmt.options(selectinload(Device.tags).selectinload(DeviceTag.tag), selectinload(Device.owner))
+    return stmt.options(selectinload(Device.tags).selectinload(DeviceTag.tag), selectinload(Device.owner),
+                        *ASSIGNMENT_LOAD)
+
+
+# Load these wherever a device's user is shown; assignment() returns None if a query forgot to
+ASSIGNMENT_LOAD = (selectinload(Device.assignment).selectinload(DeviceAssignment.user),)
+
+
+def assignment(d: Device):
+    if "assignment" in sa_inspect(d).unloaded:
+        return None
+    return d.assignment
+
+
+def _person(u) -> str | None:
+    return (getattr(u, "display_name", None) or u.username) if u is not None else None
+
+
+def inventory_status(d: Device) -> dict | None:
+    a = assignment(d)
+    if a is None or not a.status:
+        return None
+    return {"status": a.status, "by": a.status_by, "at": a.status_at.isoformat() if a.status_at else None,
+            "note": a.status_note, "carrier": a.carrier, "tracking_number": a.tracking_number}
+
+
+def assigned_user(d: Device) -> dict | None:
+    a = assignment(d)
+    if a is None or a.user is None:
+        return None
+    return {"id": str(a.user_id), "username": a.user.username, "name": _person(a.user),
+            "assigned_by": a.assigned_by, "assigned_at": a.created_at.isoformat() if a.created_at else None,
+            "note": a.note}
 
 
 def count_query(stmt):
@@ -112,10 +152,11 @@ def env_breakdown_query(filtered):
 
 
 def user_label(d: Device) -> str | None:
-    owner = d.owner
-    if owner is not None:
-        return getattr(owner, "display_name", None) or owner.username
-    return d.last_login_user
+    """Who should be on it: the assignment, then the directory user seen signing in, then the raw sign-in."""
+    a = assigned_user(d)
+    if a:
+        return a["name"]
+    return _person(d.owner) or d.last_login_user
 
 
 def short_name(name: str | None) -> str | None:
@@ -172,10 +213,10 @@ def tag_value(d: Device, prefix: str) -> str | None:
 
 def owner_label(d: Device) -> str | None:
     """Explicit owner, then the scanner's owner tag, then whoever signed in last."""
-    owner = d.owner
-    if owner is not None:
-        return getattr(owner, "display_name", None) or owner.username
-    return tag_value(d, "owner") or d.last_login_user
+    a = assigned_user(d)
+    if a:
+        return a["name"]
+    return tag_value(d, "owner") or _person(d.owner) or d.last_login_user
 
 
 def source_codes(d: Device) -> list[str]:
@@ -197,6 +238,11 @@ def summary(d: Device) -> dict:
         "hostname": short_name(d.hostname),
         "fqdn": full_name(d),
         "user": user_label(d),
+        "assigned_user": assigned_user(d),
+        "inventory_status": inventory_status(d),
+        "detected_user": _person(d.owner),
+        "detected_user_id": str(d.owner_user_id) if d.owner_user_id else None,
+        "last_login_user": d.last_login_user,
         "ip": d.ip,
         "os": d.os,
         "device_type": d.device_type.value,
@@ -223,7 +269,8 @@ def summary(d: Device) -> dict:
 
 def export_row(d: Device) -> list:
     s = summary(d)
-    return [s["hostname"], s["fqdn"], s["user"], s["ip"], d.mac_address, s["device_type"], s["os"], s["risk_grade"],
+    a, st = s["assigned_user"], s["inventory_status"]
+    return [s["hostname"], s["fqdn"], s["user"], a["username"] if a else None, st["status"] if st else None, s["ip"], d.mac_address, s["device_type"], s["os"], s["risk_grade"],
             s["risk_score"], s["open_findings"], s["kev_findings"], s["last_seen"], s["edr_active"],
             s["edr_vendor"], s["firewall_enabled"], s["usb_storage_blocked"], s["is_internet_exposed"], " ".join(s["sources"]), "; ".join(s["tags"])]
 

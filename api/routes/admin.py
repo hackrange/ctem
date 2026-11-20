@@ -19,6 +19,8 @@ from api.auth import local as local_auth
 from api.core.db import get_session
 from api.core.encryption import search_hash
 from api.models.user import ApiToken, Permission, Role, RolePermission, User, UserRole
+from api.core.user_devices import NO_DEVICES as _NO_DEVICES
+from api.core.user_devices import device_counts
 from api.routes.user_view import user_summary as _user_summary
 from api.models.settings import AuditLog
 
@@ -55,9 +57,11 @@ async def list_users(
         select(RiskScore).where(RiskScore.entity_type == "user", RiskScore.entity_id.in_(user_ids))
     )
     scores_by_id = {s.entity_id: s for s in scores_result.scalars()}
+    devices_by_id = await device_counts(db, user_ids)
 
     return {
-        "users": [_user_summary(u, scores_by_id.get(u.id)) for u in users[:limit]],
+        "users": [{**_user_summary(u, scores_by_id.get(u.id)), **devices_by_id.get(u.id, _NO_DEVICES)}
+                  for u in users[:limit]],
         "next_cursor": next_cursor,
         "total": total,
     }

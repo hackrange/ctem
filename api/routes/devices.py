@@ -35,8 +35,11 @@ _FINDING_SORTS = {
 }
 
 
-async def _filtered(user, db, q, grade, device_type, source, tag):
-    return dq.build_query(await device_scope(user, db), q, grade, device_type, source, tag)
+async def _filtered(user, db, q, grade, device_type, source, tag, status=None):
+    return dq.build_query(await device_scope(user, db), q, grade, device_type, source, tag, status)
+
+
+_STATUS_FILTER = Query(None, pattern="^(assigned|shipped|lost|stolen|returned)$")
 
 
 _TAGS = Query(None, max_length=128, description="Tag name; repeat to require several")
@@ -50,13 +53,14 @@ async def list_devices(
     device_type: DeviceType | None = None,
     grade: str | None = Query(None, max_length=8),
     source: str | None = Query(None, max_length=64),
+    status: str | None = _STATUS_FILTER,
     tag: list[str] | None = _TAGS,
     sort: str | None = Query(None, max_length=32),
     order: str | None = Query(None, pattern="^(asc|desc)$"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0, le=1_000_000),
 ):
-    stmt = await _filtered(current_user, db, q, grade, device_type, source, tag)
+    stmt = await _filtered(current_user, db, q, grade, device_type, source, tag, status)
     total = (await db.execute(dq.count_query(stmt))).scalar_one()
     page = dq.with_relations(dq.sorted_query(stmt, sort, order)).limit(limit).offset(offset)
     devices = (await db.execute(page)).scalars().unique().all()
@@ -71,10 +75,11 @@ async def device_summary(
     device_type: DeviceType | None = None,
     grade: str | None = Query(None, max_length=8),
     source: str | None = Query(None, max_length=64),
+    status: str | None = _STATUS_FILTER,
     tag: list[str] | None = _TAGS,
 ):
     """Dashboard counts across every device the user can see (not one page of them)."""
-    stmt = await _filtered(current_user, db, q, grade, device_type, source, tag)
+    stmt = await _filtered(current_user, db, q, grade, device_type, source, tag, status)
     grades = {g: 0 for g in ("A", "B", "C", "D", "F")}
     ungraded = kev_devices = 0
     for g, n, kev in (await db.execute(dq.grade_counts_query(stmt))).all():
@@ -99,11 +104,12 @@ async def export_devices(
     device_type: DeviceType | None = None,
     grade: str | None = Query(None, max_length=8),
     source: str | None = Query(None, max_length=64),
+    status: str | None = _STATUS_FILTER,
     tag: list[str] | None = _TAGS,
     sort: str | None = Query(None, max_length=32),
     order: str | None = Query(None, pattern="^(asc|desc)$"),
 ):
-    stmt = dq.with_relations(dq.sorted_query(await _filtered(current_user, db, q, grade, device_type, source, tag),
+    stmt = dq.with_relations(dq.sorted_query(await _filtered(current_user, db, q, grade, device_type, source, tag, status),
                                              sort, order))
 
     async def fetch(offset: int, limit: int) -> list[list]:
@@ -118,7 +124,8 @@ async def export_devices(
 
 async def _visible_device(device_id: uuid.UUID, user, db) -> Device:
     result = await db.execute(
-        select(Device).options(selectinload(Device.tags).selectinload(DeviceTag.tag), selectinload(Device.owner))
+        select(Device).options(selectinload(Device.tags).selectinload(DeviceTag.tag), selectinload(Device.owner),
+                               *dq.ASSIGNMENT_LOAD)
         .where(Device.id == str(device_id))
     )
     device = result.scalar_one_or_none()
@@ -172,6 +179,7 @@ _STATUS_PATTERN = "^(active|all|" + "|".join(s.value for s in FindingStatus) + "
 async def get_device_findings(
     device_id: uuid.UUID,
     current_user: User = Depends(require_permission("devices", "read")),
+    _findings: User = Depends(require_permission("findings", "read")),  # inventory sees devices, not vulns
     db: AsyncSession = Depends(get_session),
     status: str | None = Query(None, pattern=_STATUS_PATTERN),
     q: str | None = Query(None, max_length=200),
@@ -193,6 +201,7 @@ async def get_device_findings(
 async def export_device_findings(
     device_id: uuid.UUID,
     current_user: User = Depends(require_permission("devices", "read")),
+    _findings: User = Depends(require_permission("findings", "read")),  # inventory sees devices, not vulns
     db: AsyncSession = Depends(get_session),
     status: str | None = Query(None, pattern=_STATUS_PATTERN),
     q: str | None = Query(None, max_length=200),

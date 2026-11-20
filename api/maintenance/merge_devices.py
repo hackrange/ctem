@@ -99,6 +99,11 @@ async def _merge_one(db: AsyncSession, keep, dup) -> None:
     from api.models.vuln import CVEChain, Finding
 
     _absorb(keep, dup)
+    # Keep a person's assignment: the survivor takes the duplicate's if it has none of its own
+    from api.models.device import DeviceAssignment
+    if not (await db.execute(select(DeviceAssignment.id).where(DeviceAssignment.device_id == keep.id))).first():
+        await db.execute(update(DeviceAssignment).where(DeviceAssignment.device_id == dup.id)
+                         .values(device_id=keep.id).execution_options(synchronize_session=False))
     for model, col in ((Finding, Finding.device_id), (CVEChain, CVEChain.device_id),
                        (AttackPath, AttackPath.source_device_id), (AttackPath, AttackPath.target_device_id)):
         await db.execute(update(model).where(col == dup.id).values({col.key: keep.id})

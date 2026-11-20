@@ -44,7 +44,7 @@ Multipliers applied for: NodeZero-confirmed exploitability, internet exposure, n
 | Hunt module | Natural language AI queries across all telemetry sources |
 | GRC / FairTPRM | Risk export and compliance evidence ingestion |
 | CMDB | Every device, server-side paged with search, type filter and sorting; full ServiceNow import set JSON export |
-| Full REST API | OpenAPI docs at `/api/docs` (served only when `DEBUG=true`) |
+| Full REST API | Interactive OpenAPI docs at `/api/docs` for signed-in admins and cyber analysts (hidden from everyone else) |
 | Customizable branding | Logo, accent color, app title all configurable |
 
 ---
@@ -194,8 +194,21 @@ python3 -m venv /tmp/sbom-env && /tmp/sbom-env/bin/pip install -r requirements.t
 | `it_user` | Devices and findings scoped to their assigned tags |
 | `business_stakeholder` | Dashboard and risk summary scoped to their tags |
 | `read_only` | Dashboard only |
+| `inventory` | Every device (no findings); sets who a device is assigned to and whether it's shipped, lost, stolen or returned |
 
 Roles are fully customizable -- create new ones, duplicate existing ones, assign granular permissions.
+
+**Device assignment and status.** CTEM links each device to the directory user CrowdStrike last saw signing in (`ACME\jdoe`, `jdoe@acme.example`, and admin-style accounts listed in `ACCOUNT_ALIAS_PATTERNS`... see `ACCOUNT_ALIAS_PREFIXES`, default `sulocal_`). That detected user is only a hint and never grants access. Who a device is *supposed* to belong to is set by a person with the `admin` or `inventory` role and kept in its own table that syncs never touch: **Assign** (or confirm the detected user with one click), plus a status of **Shipped** (UPS, FedEx, USPS or DHL with a tracking number), **Lost**, **Stolen** or **Returned**. The inventory shows the assigned user with a check mark, flags when someone else signed in last, and filters by status. Every change is audited.
+
+| REST endpoint | What it does |
+|---|---|
+| `GET /api/v1/devices?status=assigned\|shipped\|lost\|stolen\|returned` | List devices (each has `assigned_user`, `detected_user`, `last_login_user`, `inventory_status`) |
+| `PUT /api/v1/devices/{id}/assignment` `{"user_id", "note"}` | Assign (admin / inventory) |
+| `DELETE /api/v1/devices/{id}/assignment` | Unassign; any status stays |
+| `PUT /api/v1/devices/{id}/status` `{"status", "carrier", "tracking_number", "note"}` | Set status; `shipped` needs a carrier and tracking number, `null` puts it back in use |
+| `GET /api/v1/devices/assignable-users?q=` | Directory users for a picker |
+
+Use an API token (`Authorization: Bearer ...`) owned by an admin or inventory user. Interactive docs for every endpoint are at `/api/docs` for signed-in admins and cyber analysts.
 
 ---
 
