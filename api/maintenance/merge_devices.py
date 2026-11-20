@@ -19,7 +19,7 @@ log = logging.getLogger("open-ctem.merge_devices")
 _BATCH = 500
 # Fields a duplicate may know that the survivor doesn't (pairs travel together)
 _FILL = [("fqdn",), ("ip", "ip_hash"), ("mac_address",), ("os",), ("os_version",), ("ad_dn",),
-         ("last_login_user", "last_login_user_hash"), ("owner_user_id",), ("source_id",)]
+         ("last_login_user", "last_login_user_hash"), ("recent_logins",), ("owner_user_id",), ("source_id",)]
 _NEWEST = ["last_seen", "ad_last_logon"]
 
 

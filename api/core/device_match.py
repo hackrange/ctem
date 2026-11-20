@@ -97,7 +97,8 @@ def remember_fqdn(dev, name: str | None) -> None:
 
 
 # Short codes for the inventory's Sources column
-SOURCE_CODES = {"crowdstrike": "CS", "rapid7_insightvm": "R7", "ldap": "AD", "qualys": "QL",
+# Display order too: directory, then scanners, then EDR
+SOURCE_CODES = {"ldap": "AD", "rapid7_insightvm": "R7", "crowdstrike": "CS", "qualys": "QL",
                 "msdefender": "MDE", "sentinelone": "S1", "cortex_xdr": "XDR", "tanium": "TAN",
                 "guardicore": "GC", "rapid7_appsec": "R7-APP", "rapid7_cloudsec": "R7-CLOUD"}
 

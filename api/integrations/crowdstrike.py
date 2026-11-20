@@ -18,6 +18,17 @@ _SENSOR_RUNNING = {"normal", "containment_pending", "contained", "lift_containme
 _CONTAINED = {"contained", "lift_containment_pending"}
 
 
+def detected_owner(people, last: str | None, history: list[str]) -> str | None:
+    """Last sign-in if it's a person; else the newest real account in the login history; aliases last."""
+    alias = None
+    for name in [last, *history]:
+        uid, via_alias = people.resolve(name)
+        if uid and not via_alias:
+            return uid
+        alias = alias or uid
+    return alias
+
+
 @register(Vendor.crowdstrike)
 class CrowdStrikeConnector(BaseConnector):
 
@@ -119,11 +130,18 @@ class CrowdStrikeConnector(BaseConnector):
                 if isinstance(d.get(f), bool):
                     setattr(dev, f, d[f])
             user = (d.get("last_login_user") or "").strip()
-            if user and not any(ord(ch) < 32 for ch in user):
+            if any(ord(ch) < 32 for ch in user):
+                user = ""
+            if user:
                 dev.last_login_user = user[:256]
                 dev.last_login_user_hash = search_hash(bare(user))
+            history = [n for n in (d.get("recent_logins") or []) if isinstance(n, str)][:20]
+            if history:
+                dev.recent_logins = history
+            history = history or dev.recent_logins or []
+            if user or history:
                 # Detected user; a person's assignment lives in device_assignments and wins over this
-                owner = people.resolve(user)[0]
+                owner = detected_owner(people, user, history)
                 if owner != dev.owner_user_id:
                     dev.owner_user_id = owner
                     if dev.id and "owner" not in sa_inspect(dev).unloaded:

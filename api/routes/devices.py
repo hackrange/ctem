@@ -150,6 +150,7 @@ async def get_device(
         "ad_last_logon": device.ad_last_logon.isoformat() if device.ad_last_logon else None,
         "edr_last_seen": device.edr_last_seen.isoformat() if device.edr_last_seen else None,
         "last_login_user": device.last_login_user,
+        "recent_logins": device.recent_logins or [],
         "detected_user_upn": device.owner.upn if device.owner is not None else None,
         "detected_user_title": device.owner.title if device.owner is not None else None,
     })
