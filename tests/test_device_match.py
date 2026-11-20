@@ -184,3 +184,32 @@ async def test_crowdstrike_policy_flags_and_server_type_are_stored(db):
     dev = (await db.execute(select(Device).where(Device.host_key == n))).scalar_one()
     assert dev.device_type == DeviceType.server and dev.firewall_enabled is True and dev.usb_storage_blocked is False
     assert dev.sources == ",crowdstrike,"
+
+
+@pytest.mark.asyncio
+async def test_ad_account_health_is_stored_and_not_blanked_by_older_shippers(db):
+    import datetime as dt
+
+    from api.integrations.ldap_ingest import upsert_directory
+    from api.models.user import User
+
+    name = _tag()
+    when = dt.datetime(2026, 1, 2, tzinfo=dt.timezone.utc)
+    await upsert_directory([{"username": name, "disabled": False, "last_logon": when, "pwd_last_set": when,
+                             "pwd_expired": True, "pwd_never_expires": False, "locked_out": True}], [], db)
+    await upsert_directory([{"username": name, "disabled": True}], [], db)  # an old shipper's payload
+    u = (await db.execute(select(User).where(User.username == name))).scalar_one()
+    assert u.ad_disabled is True and u.ad_pwd_expired is True and u.ad_locked_out is True
+    assert u.ad_last_logon.year == 2026
+
+
+def test_ad_hygiene_raises_user_risk():
+    from api.scoring.user_score import compute_user_score
+
+    base = dict(device_scores=[], ad_groups=[], mfa_enabled=True, is_service_account=False, last_login_days_ago=0)
+    clean, _, _ = compute_user_score(**base, ad={"days_since_logon": 2, "pwd_age_days": 30})
+    risky, _, why = compute_user_score(**base, ad={"days_since_logon": 200, "pwd_age_days": 500,
+                                                   "pwd_never_expires": True, "locked_out": True})
+    off, _, _ = compute_user_score(**base, ad={"disabled": True, "days_since_logon": 200, "pwd_never_expires": True})
+    assert risky > clean and off <= clean
+    assert {"ad_dormant_account_penalty", "ad_old_password_penalty", "ad_pwd_never_expires_penalty"} <= set(why)

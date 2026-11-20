@@ -9,6 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 _IN_CHUNK = 500  # keeps IN (...) lists well under every driver's bind limit
 
 
+# shipper field -> User column; only copied when sent, so an older shipper can't blank them
+_AD_STATE = (("last_logon", "ad_last_logon"), ("pwd_last_set", "ad_pwd_last_set"), ("pwd_expires", "ad_pwd_expires"),
+             ("pwd_expired", "ad_pwd_expired"), ("pwd_never_expires", "ad_pwd_never_expires"),
+             ("locked_out", "ad_locked_out"))
+
+
 def _chunks(items: list, size: int = _IN_CHUNK):
     for i in range(0, len(items), size):
         yield items[i:i + size]
@@ -42,6 +48,12 @@ async def upsert_directory(users: list[dict], computers: list[dict], db: AsyncSe
         if u.get("ad_dn"):
             user.ad_dn = u["ad_dn"]
         user.ad_groups = u.get("groups", [])
+        user.ad_disabled = bool(u.get("disabled"))
+        for src, dst in _AD_STATE:
+            if src in u and u[src] is not None:
+                setattr(user, dst, u[src])
+        if u.get("pwd_never_expires"):
+            user.ad_pwd_expires = None
         count += 1
 
     computers = [c for c in computers if c.get("hostname")]

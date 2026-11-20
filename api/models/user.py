@@ -73,6 +73,14 @@ class User(Base, UUIDPrimaryKey, TimestampMixin):
 
     # AD / LDAP enrichment -- written by LDAP connector, used in user risk scoring
     ad_groups: Mapped[list | None] = mapped_column(EncryptedJSON)         # group names, encrypted at rest
+    # AD account health, from the directory feed (risk signals, not CTEM sign-in state)
+    ad_disabled: Mapped[bool | None] = mapped_column(Boolean)
+    ad_last_logon: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    ad_pwd_last_set: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    ad_pwd_expires: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    ad_pwd_expired: Mapped[bool | None] = mapped_column(Boolean)
+    ad_pwd_never_expires: Mapped[bool | None] = mapped_column(Boolean)
+    ad_locked_out: Mapped[bool | None] = mapped_column(Boolean)
     is_service_account: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # Tag-based page access -- admins assign tags like ["identity","grc"] to let

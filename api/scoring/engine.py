@@ -97,6 +97,17 @@ async def recalculate_device(device: Device, db: AsyncSession) -> RiskScore:
     return risk
 
 
+def _ad_state(u) -> dict | None:
+    if getattr(u, "ad_disabled", None) is None and getattr(u, "ad_last_logon", None) is None:
+        return None  # no directory data for this user
+    pwd = getattr(u, "ad_pwd_last_set", None)
+    logon = getattr(u, "ad_last_logon", None)
+    return {"disabled": bool(u.ad_disabled), "pwd_never_expires": bool(u.ad_pwd_never_expires),
+            "pwd_expired": bool(u.ad_pwd_expired), "locked_out": bool(u.ad_locked_out),
+            "pwd_age_days": _days_since(pwd) if pwd else None,
+            "days_since_logon": _days_since(logon) if logon else None}
+
+
 async def recalculate_user(user_model, db: AsyncSession) -> RiskScore | None:
     """
     Recalculate risk score for a single user, pulling composite_identity_score
@@ -136,6 +147,7 @@ async def recalculate_user(user_model, db: AsyncSession) -> RiskScore | None:
         is_service_account=getattr(user_model, "is_service_account", False),
         last_login_days_ago=_days_since(getattr(user_model, "last_login", None)),
         saas_risk_score=identity_score,
+        ad=_ad_state(user_model),
     )
 
     result = await db.execute(

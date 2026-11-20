@@ -55,7 +55,7 @@ Every source is matched to the same device row by host name, however it spells i
 
 | Vendor | Type | Data pulled |
 |---|---|---|
-| LDAP / Active Directory | Identity | Users, computers, groups, GPOs |
+| LDAP / Active Directory | Identity | Users (incl. last logon, password age/expiry, lockout, disabled), computers, groups, GPOs |
 | Qualys | Vulnerability | Findings, CVSS, asset data |
 | Rapid7 InsightVM | Vulnerability | Assets and per-asset findings (cloud v4 API or on-prem console) |
 | Rapid7 InsightAppSec | Vulnerability | Web app findings with triage status |

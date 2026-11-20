@@ -26,6 +26,13 @@ class LdapUser(_Lax):
     ad_dn: DN | None = None
     groups: list[DN] = Field(default_factory=list, max_length=5000)
     disabled: bool = False
+    # AD account health; None means an older shipper didn't send it, so CTEM keeps what it had
+    last_logon: datetime | None = None
+    pwd_last_set: datetime | None = None
+    pwd_expires: datetime | None = None
+    pwd_expired: bool | None = None
+    pwd_never_expires: bool | None = None
+    locked_out: bool | None = None
 
 
 class LdapComputer(_Lax):
