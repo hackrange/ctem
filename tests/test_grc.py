@@ -101,10 +101,10 @@ async def test_compliance_returns_frameworks(client_cyber):
     r = await client_cyber.get("/api/v1/grc/compliance")
     assert r.status_code == 200
     d = r.json()
-    assert "frameworks" in d
-    names = [f["slug"] for f in d["frameworks"]]
-    assert "nist-csf" in names
-    assert "iso-27001" in names
+    # Real frameworks come from FairTPRM (see test_fairtprm_grc); no more hardcoded placeholders
+    assert isinstance(d["frameworks"], list)
+    for f in d["frameworks"]:
+        assert {"slug", "name", "score", "passed", "total"} <= set(f)
 
 
 # ── Tags ──────────────────────────────────────────────────────────────────────

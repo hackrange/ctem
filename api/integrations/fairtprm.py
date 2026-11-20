@@ -9,6 +9,7 @@ What FairTPRM v2 exposes (and what we pull):
   GET /vendors               -> ThirdPartyRisk rows (name, tier, status)
   GET /vendors/{id}/srs      -> latest security rating -> risk score, grade, open high/critical issues
   GET /fair/analyses         -> FAIR loss estimates, attached by vendor name
+  GET /grc/*                 -> frameworks, controls, risk register, evidence, monitors (fairtprm_grc.py)
 FairTPRM does not expose its Grip ITDR / shadow SaaS / shadow AI data over the API;
 use CTEM's Grip connector for those.
 """
@@ -53,6 +54,7 @@ class FairTPRMConnector(BaseConnector):
             return False
 
     async def sync(self, db: AsyncSession) -> int:
+        problems: list[str] = []
         async with safe_client(timeout=60.0) as client:
             vendors = await self._vendors(client)
             fair = await self._fair_by_vendor(client)
@@ -61,8 +63,15 @@ class FairTPRMConnector(BaseConnector):
                 srs = await self._latest_srs(client, v["id"])
                 await self._upsert(db, v, srs, fair.get(_norm(v.get("vendor_name"))))
                 count += 1
-        await db.commit()
-        log.info("FairTPRM sync complete: %d suppliers", count)
+            await db.commit()
+            if str(self.config.get("pull_grc", True)).lower() not in ("false", "0", "no", "off"):
+                from api.integrations.fairtprm_grc import sync_grc
+                grc_count, problems = await sync_grc(self, client, db)
+                count += grc_count
+        log.info("FairTPRM sync complete: %d records", count)
+        if problems:
+            # Everything that worked is saved; the card should still say something went wrong
+            raise FairTPRMError(f"{count} records synced, but GRC data was incomplete: " + "; ".join(problems)[:400])
         return count
 
     # ── pulls ─────────────────────────────────────────────────────────────────

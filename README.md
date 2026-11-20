@@ -125,6 +125,38 @@ A **generic installer** (no code inside) is also available: the box signs in onc
 
 ---
 
+## GRC with FairTPRM (both directions)
+
+**FairTPRM updates CTEM.** The FairTPRM integration mirrors suppliers and the GRC module: frameworks and their compliance, internal controls, the risk register, evidence status and continuous monitors. The GRC page shows them next to CTEM's telemetry and flags **risk drift**: a risk recorded as mitigated whose controls are ineffective, whose CTEM checks are failing, that has no linked controls, or whose review date has passed.
+
+**CTEM updates FairTPRM.** CTEM answers 16 control checks that FairTPRM continuous monitors call on their schedule; each run becomes FairTPRM evidence and updates control effectiveness in every framework the control maps to.
+
+| Check | Measures |
+|---|---|
+| `ctem_edr_coverage` | Active devices with a healthy EDR agent |
+| `ctem_host_hardening` | Host firewall on, USB mass storage blocked |
+| `ctem_asset_inventory` | Active devices with an owner and criticality; single-source assets |
+| `ctem_stale_ad_computers` | AD computers with no logon in 90 days |
+| `ctem_kev_remediation` | Open CISA KEV findings past their deadline |
+| `ctem_vuln_sla` | Critical/high findings past SLA (optionally reachable only) |
+| `ctem_exposed_criticals` | Internet-facing devices with critical or KEV findings |
+| `ctem_attack_paths` | Open validated attack paths |
+| `ctem_risk_exceptions` | Expired or permanent risk exceptions |
+| `ctem_dormant_accounts` | Enabled people accounts idle 90+ days |
+| `ctem_password_policy` | People accounts whose passwords never expire |
+| `ctem_privileged_accounts` | AD admin group members: count, idle, disabled leftovers |
+| `ctem_itdr_alerts` | Open critical/high ITDR alerts and their age |
+| `ctem_shadow_ai` / `ctem_shadow_saas` | Unsanctioned AI / SaaS apps in use |
+| `ctem_monitoring_health` | Every telemetry source syncing, every shipper checking in |
+
+- `GET /api/v1/grc/checks` lists them with default thresholds and suggested control mappings; `GET /api/v1/grc/checks/{type}` runs one (thresholds can be overridden within their bounds).
+- A check whose source data is missing or older than its window returns `error`, never `pass`.
+- Results sent to FairTPRM carry counts only. The detail behind a check (hosts, CVEs, accounts) comes from `/checks/{type}/report`, signed with Ed25519 (`X-CTEM-Evidence-Signature` over the exact body; public key at `/api/v1/grc/evidence-key`), formula-safe as CSV, and every download is audited.
+- `/checks/{type}/history?from=&to=` rolls up daily results (up to 400 days) for audit-period evidence; every check runs daily so there are no gaps.
+- **Connecting FairTPRM:** GRC page > **FairTPRM access** (admin) creates a read-only, IP-bound token for the `svc-fairtprm-grc` service account. Enter that token and the CTEM URL in FairTPRM's open-ctem integration.
+
+---
+
 ## Authentication modes
 
 Set `AUTH_MODE` in `.env`:

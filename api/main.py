@@ -84,6 +84,9 @@ def create_app() -> FastAPI:
     from api.routes.tags import router as tags_router
     from api.routes.collector_agent import router as collector_agent_router
     from api.routes.collectors_admin import router as collectors_admin_router
+    from api.routes.grc_checks import router as grc_checks_router
+    from api.routes.grc_data import router as grc_data_router
+    from api.routes.grc_service_token import router as grc_service_token_router
 
     app.include_router(auth_router)
     app.include_router(admin_router)
@@ -107,6 +110,9 @@ def create_app() -> FastAPI:
     app.include_router(tags_router)
     app.include_router(collector_agent_router)
     app.include_router(collectors_admin_router)
+    app.include_router(grc_checks_router)
+    app.include_router(grc_data_router)
+    app.include_router(grc_service_token_router)
 
     # ── Web UI (must come after API routes) ───────────────────────────────────
     app.mount("/static", StaticFiles(directory="api/web/static"), name="static")

@@ -41,6 +41,11 @@ celery_app.conf.update(
             "task": "api.core.tasks.hunt_watch",
             "schedule": 3600.0,
         },
+        # Daily run of every control check so GRC evidence history has no gaps
+        "grc-checks": {
+            "task": "api.core.tasks.run_grc_checks",
+            "schedule": 86400.0,
+        },
     },
 )
 
@@ -202,6 +207,18 @@ async def _watch() -> dict:
     async for db in get_session():
         watch = await run_watch(db)
         return {"issues": len(watch["result"]["issues"])}
+
+
+@celery_app.task(name="api.core.tasks.run_grc_checks", time_limit=1800)
+def run_grc_checks() -> dict:
+    return asyncio.run(_grc_checks())
+
+
+async def _grc_checks() -> dict:
+    from api.core.db import get_session
+    from api.grc.evidence import run_all
+    async for db in get_session():
+        return await run_all(db)
 
 
 @celery_app.task(name="api.core.tasks.hunt_profile", time_limit=300)

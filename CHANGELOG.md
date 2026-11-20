@@ -6,6 +6,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 ## [Unreleased]
 
 ### Added
+- FairTPRM GRC in CTEM: the FairTPRM sync now mirrors frameworks with compliance, internal controls, the risk register, evidence status, monitors and the GRC dashboard (read-only; `pull_grc` toggle, default on). The GRC page shows real per-framework compliance, controls, evidence that's expired or expiring in 30 days, and the risk register with **risk drift**: risks treated as mitigated whose controls are ineffective, whose CTEM checks fail, that have no controls, or whose review is overdue. REST: `GET /api/v1/grc/frameworks`, `/controls`, `/risks?drift_only=`, `/evidence-status`, `/overview`
+- CTEM as an evidence source for FairTPRM continuous monitors: 16 control checks (EDR coverage, host hardening, asset inventory, stale AD computers, KEV deadlines, remediation SLA, internet-facing criticals, attack paths, risk exceptions, dormant accounts, password expiry, privileged access, ITDR alerts, shadow AI, shadow SaaS, monitoring health). Each returns pass/warning/fail/error with counts only, and **never passes on stale or missing source data**. REST: `GET /api/v1/grc/checks`, `/checks/{type}` (bounded threshold overrides), `/checks/{type}/report?format=csv|json` (detail rows, Ed25519-signed, formula-safe CSV, audited), `/checks/{type}/history?from=&to=` (daily roll-up up to 400 days), `/evidence-key`
+- Every check runs daily and results are kept 400 days, so audit-period evidence has no gaps
+- Admins issue FairTPRM's token from the GRC page (**FairTPRM access**): a password-less `svc-fairtprm-grc` service account with the new read-only `grc_integration` role, IP-bound (whole-internet ranges refused), rate-limited, one active token at a time. REST: `POST/DELETE /api/v1/grc/fairtprm-token`
 - Device assignment and status, kept in a new `device_assignments` table that syncs never write: assign a device to the person who should use it (or confirm the detected user in one click), and mark it **Shipped** (UPS, FedEx, USPS or DHL plus tracking number, linked to the carrier), **Lost**, **Stolen** or **Returned**. The inventory shows a check mark for the assigned user, flags when someone else signed in last, shows status chips and filters by status; the device page has the editors; the CSV export gains Assigned to and Status; every change is audited. REST: `PUT/DELETE /api/v1/devices/{id}/assignment`, `PUT /api/v1/devices/{id}/status`, `GET /api/v1/devices/assignable-users`, `?status=` on device lists
 - New `inventory` role (and `inventory:write` permission, also held by admin): sees every device but no findings, and is the only role besides admin that can change assignment or status
 - Devices link to the directory user CrowdStrike saw signing in last (`DOMAIN\user`, `user@domain`, and prefixes in `ACCOUNT_ALIAS_PREFIXES`, default `sulocal_`). Discovered Users shows assigned and detected device counts, and user risk now counts assigned devices first, then detected ones nobody assigned. `backfill_sources` links existing devices
@@ -57,6 +61,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 - Dependencies upgraded to clear all known advisories (FastAPI/Starlette, Authlib, cryptography, Pillow, Jinja2, python-multipart); python-jose replaced with PyJWT
 
 ### Fixed
+- API tokens with an expiry date failed with a server error on SQLite (timezone-naive comparison)
 - `install.sh --upgrade` pulled new code but never rebuilt the app, worker and beat images, so a server kept running the old code while reporting success. It now rebuilds them (and does the same on rollback), and honors a local `docker-compose.override.yml`
 - CrowdStrike shipper: a firewall or device-control policy API that returns 404 now leaves that column blank instead of failing the whole CrowdStrike run
 - A slow Rapid7 console (or a proxy in front of it) failed the whole run with "The read operation timed out": the shipper asked for 500 assets per page with a 2-minute limit. It now starts at 200 per page with a 5-minute limit and, on a timeout, retries the same position with 100, 50, then 25 rows instead of giving up
@@ -97,6 +102,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 - Beat container healthcheck always failed
 
 ### Changed
+- GRC compliance cards come from FairTPRM's frameworks instead of three hardcoded frameworks with fixed control totals; `/api/v1/grc/compliance-status` returns FairTPRM control effectiveness (optionally `?framework=`), and `/api/v1/grc/risk-export` returns the latest CTEM check results
+- Removed `POST /api/v1/grc/evidence`, which stored evidence in app settings and had no callers; evidence now lives in FairTPRM and CTEM reports
 - Device inventory's User column is just the name (a check mark when assigned); assigning, status and last sign-in details live on the device page
 - Device page: long FQDNs wrap at the dots instead of spilling into the next column
 - Device page shows every source as a short chip instead of the raw `rapid7_insightvm` name, and chips everywhere read in one order: AD, R7, CS, then the rest

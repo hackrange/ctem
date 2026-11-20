@@ -49,6 +49,7 @@ async def init_db() -> None:
     import api.models.settings      # noqa: F401
     import api.models.identity      # noqa: F401
     import api.models.collector     # noqa: F401
+    import api.models.grc           # noqa: F401
 
     # Enum values must be added outside any transaction (Postgres requirement)
     async with _engine.connect() as conn:

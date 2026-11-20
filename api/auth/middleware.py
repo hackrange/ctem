@@ -113,7 +113,10 @@ async def _authenticate_api_token(raw_token: str, request: Request, db: AsyncSes
     # No oracle for which condition failed.
     if api_token is None:
         raise HTTPException(401, detail="Invalid API token")
-    if api_token.expires_at and api_token.expires_at < datetime.now(timezone.utc):
+    exp = api_token.expires_at
+    if exp is not None and exp.tzinfo is None:
+        exp = exp.replace(tzinfo=timezone.utc)  # sqlite hands back naive timestamps
+    if exp and exp < datetime.now(timezone.utc):
         raise HTTPException(401, detail="Invalid API token")
 
     # IP enforcement -- token only works from its registered addresses

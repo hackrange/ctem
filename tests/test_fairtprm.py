@@ -50,7 +50,8 @@ async def test_sync_maps_vendors_ratings_and_fair(db, monkeypatch):
     from api.models.risk import ThirdPartyRisk
     seen = []
     monkeypatch.setattr(fairtprm, "safe_client", _fake(_handler(seen)))
-    conn = fairtprm.FairTPRMConnector({"base_url": "https://tprm.acme.example/api/v2", "api_key": "tok-example-only"})
+    conn = fairtprm.FairTPRMConnector({"base_url": "https://tprm.acme.example/api/v2", "api_key": "tok-example-only",
+                                       "pull_grc": "false"})
     assert await conn.sync(db) == 2
     assert all(auth == "Bearer tok-example-only" for _, auth in seen)
     rows = {r.external_id: r for r in (await db.execute(select(ThirdPartyRisk).where(ThirdPartyRisk.source == "fairtprm"))).scalars()}
