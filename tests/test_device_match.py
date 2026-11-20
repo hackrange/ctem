@@ -304,7 +304,7 @@ async def test_directory_profile_fields_are_stored(db, client_admin):
     name = _tag()
     await upsert_directory([{"username": name, "first_name": "Jane", "last_name": "Doe", "title": "Analyst",
                              "phone": "(201) 555-0123", "mobile": "ext 4", "country": "US"}], [], db)
-    users = (await client_admin.get("/api/v1/admin/users", params={"q": name})).json()["users"]
+    users = (await client_admin.get("/api/v1/directory/users", params={"q": name})).json()["users"]
     u = next(x for x in users if x["username"] == name)
     assert (u["first_name"], u["last_name"], u["title"], u["phone"]) == ("Jane", "Doe", "Analyst", "+12015550123")
     assert u["mobile"] == "ext 4"  # not a number we can normalize, so it's kept as entered

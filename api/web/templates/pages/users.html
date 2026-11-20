@@ -110,7 +110,7 @@ async function loadUsers(offset = 0) {
   const search = document.getElementById('search').value.trim();
   const grade  = document.getElementById('filter-grade').value;
 
-  let url = `${API}/admin/users?limit=${PAGE}&offset=${offset}`;
+  let url = `${API}/directory/users?limit=${PAGE}&offset=${offset}`;
   if (search) url += `&q=${encodeURIComponent(search)}`;
 
   const tb = document.getElementById('users-tbody');
