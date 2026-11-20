@@ -159,13 +159,27 @@ A **generic installer** (no code inside) is also available: the box signs in onc
 
 ## Authentication modes
 
-Set `AUTH_MODE` in `.env`:
-
 | Mode | Behavior |
 |---|---|
-| `oidc_only` | Immediately redirects to IdP -- no login page shown |
+| `oidc_only` | Immediately redirects to the IdP; no local sign-in form |
 | `local_only` | Username + password + TOTP only |
-| `both` | Login page shows local form + SSO button |
+| `both` | Login page shows the local form and the SSO button |
+
+### Single sign-on (OIDC)
+
+**Settings > Single sign-on** (admin) walks through it:
+
+1. Pick **Okta**, **Auth0**, **Ping Identity (PingOne)** or **Microsoft 365 (Entra ID)**. CTEM shows that provider's current setup steps with its own redirect URI (`https://<PUBLIC_URL>/auth/callback`) and sign-out URL filled in.
+2. Enter what the provider needs (Okta domain and authorization server, Auth0 domain, PingOne region and environment ID, or Entra tenant ID); CTEM builds the issuer.
+3. Paste the client ID and secret. The secret is encrypted at rest and never shown again.
+4. Choose the **default role** for new people (No Access unless you change it; never admin), the **message** people with No Access see, and SSO-and-local or SSO-only.
+5. **Test** checks the provider's live discovery document, issuer, signing keys, PKCE and client-secret support. Save, then sign in from a private window.
+
+Roles are pinned to people in **Admin > Users**; signing in never changes them. Anyone whose only role is **No Access** sees the configured message and gets no session. ID tokens are verified against the provider's signing keys (asymmetric algorithms only) with issuer, audience, expiry and nonce checks, and an SSO sign-in never attaches to an existing local or directory account.
+
+**Break-glass:** environment variables win over the wizard. `AUTH_MODE=local_only` in `.env` brings the local sign-in back if the IdP or the settings break; `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` and `OIDC_REDIRECT_URI` configure SSO without the database. Remove `AUTH_MODE` from `.env` to let the wizard choose the sign-in mode. `PUBLIC_URL` must be set for SSO.
+
+Signed-out visits to a CTEM page (for example a link in an email) return to that page after password, MFA or SSO sign-in; only same-site paths are honored.
 
 TOTP brute force protection: 5 fails = 5 min lockout, 10 = 30 min, 15+ = hard lock with admin unlock required.
 

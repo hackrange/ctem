@@ -40,11 +40,14 @@ async def test_mfa_required_enrolls_on_first_login(client, db, monkeypatch):
     from sqlalchemy import select
     from api.auth.local import hash_password
     from api.core.config import get_settings
-    from api.models.user import User
+    from api.models.user import User, UserRole
 
     monkeypatch.setattr(get_settings(), "mfa_required", True)
     name = f"enroll_{uuid.uuid4().hex[:6]}"
-    db.add(User(username=name, is_local=True, is_active=True, password_hash=hash_password("correct horse battery")))
+    u = User(username=name, is_local=True, is_active=True, password_hash=hash_password("correct horse battery"))
+    db.add(u)
+    await db.flush()
+    db.add(UserRole(user_id=u.id, role_name="cyber"))  # a role-less account stops at the no-access message
     await db.commit()
 
     client.base_url = "https://test"

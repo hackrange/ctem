@@ -88,6 +88,7 @@ def create_app() -> FastAPI:
     from api.routes.grc_data import router as grc_data_router
     from api.routes.grc_service_token import router as grc_service_token_router
     from api.routes.directory_users import router as directory_users_router
+    from api.routes.admin_sso import router as admin_sso_router
 
     app.include_router(auth_router)
     app.include_router(admin_router)
@@ -115,6 +116,7 @@ def create_app() -> FastAPI:
     app.include_router(grc_data_router)
     app.include_router(grc_service_token_router)
     app.include_router(directory_users_router)
+    app.include_router(admin_sso_router)
 
     # ── Web UI (must come after API routes) ───────────────────────────────────
     app.mount("/static", StaticFiles(directory="api/web/static"), name="static")
@@ -132,7 +134,10 @@ def create_app() -> FastAPI:
         if exc.status_code == 401:
             accept = request.headers.get("accept", "")
             if "text/html" in accept:
-                return RedirectResponse(url="/login", status_code=302)
+                # Remember the page (e.g. a link from an email) so sign-in lands there
+                from api.auth.return_to import login_url_for
+                target = login_url_for(request.url.path, request.url.query) if request.method == "GET" else "/login"
+                return RedirectResponse(url=target, status_code=302)
         return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
 
     # ── Generic error handler -- never leak internals ─────────────────────────
@@ -215,6 +220,7 @@ def _register_web_routes(app: FastAPI) -> None:
 
     # ── Settings ──────────────────────────────────────────────────────────────
     app.get("/settings/integrations", response_class=HTMLResponse, include_in_schema=False)(_render("pages/integrations.html", "/settings/integrations"))
+    app.get("/settings/sso", response_class=HTMLResponse, include_in_schema=False)(_render("pages/sso.html", "/settings/sso"))
     app.get("/settings/shippers", response_class=HTMLResponse, include_in_schema=False)(_render("pages/shippers.html", "/settings/shippers"))
     app.get("/settings/tokens", response_class=HTMLResponse, include_in_schema=False)(_render("pages/tokens.html", "/settings/tokens"))
 

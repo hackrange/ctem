@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% set active_nav = 'sso' %}
+
+{% block title %}Single sign-on -- open-ctem{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-header__title">Single sign-on</h1>
+    <p class="page-header__sub">Sign in to CTEM with your identity provider over OpenID Connect</p>
+  </div>
+</div>
+
+<div id="sso-warnings"></div>
+
+<div class="panel sso-step">
+  <h2 class="sso-h">1. Pick your identity provider</h2>
+  <div id="sso-providers" class="sso-providers"></div>
+</div>
+
+<div class="panel sso-step" id="sso-setup" style="display:none">
+  <h2 class="sso-h">2. Set it up in <span id="sso-provider-name"></span></h2>
+  <div class="sso-urls">
+    <div>Redirect URI <code id="sso-redirect"></code> <button class="btn btn--ghost btn--sm" data-copy="sso-redirect">Copy</button></div>
+    <div>Sign-out URL <code id="sso-signout"></code> <button class="btn btn--ghost btn--sm" data-copy="sso-signout">Copy</button></div>
+  </div>
+  <ol id="sso-steps" class="sso-steps"></ol>
+</div>
+
+<div class="panel sso-step" id="sso-connect" style="display:none">
+  <h2 class="sso-h">3. Connect</h2>
+  <div class="sso-grid">
+    <div id="sso-fields" style="display:contents"></div>
+    <label class="sso-label">Client ID <input id="sso-client-id" class="sso-input" autocomplete="off" maxlength="256"></label>
+    <label class="sso-label">Client secret <input id="sso-client-secret" type="password" class="sso-input" autocomplete="new-password" maxlength="1024"></label>
+  </div>
+</div>
+
+<div class="panel sso-step" id="sso-access" style="display:none">
+  <h2 class="sso-h">4. Access</h2>
+  <div class="sso-grid">
+    <label class="sso-label">Default role for new people
+      <select id="sso-default-role" class="sso-input"></select>
+      <span class="sso-help">What someone gets the first time they sign in. Pin their real role in Admin &gt; Users.</span></label>
+    <label class="sso-label">Sign-in options
+      <select id="sso-mode" class="sso-input">
+        <option value="both">SSO and local accounts</option>
+        <option value="oidc_only">SSO only (local sign-in hidden)</option>
+      </select>
+      <span class="sso-help">Locked out? Set AUTH_MODE=local_only on the server to get the local sign-in back.</span></label>
+    <label class="sso-label">Button text <input id="sso-button" class="sso-input" maxlength="60" placeholder="Sign in with ..."></label>
+    <label class="sso-label" style="grid-column:1/-1">Message for people with No Access
+      <textarea id="sso-message" class="sso-input" rows="3" maxlength="1000"></textarea>
+      <span class="sso-help">Shown after a successful sign-in when the person's only role is No Access. Plain text.</span></label>
+    <label class="sso-row"><input type="checkbox" id="sso-enabled"> Turn on single sign-on</label>
+  </div>
+  <div id="sso-test-result" class="sso-test"></div>
+  <div id="sso-error" class="sso-error" style="display:none"></div>
+  <div class="sso-row" style="justify-content:flex-end;margin-top:14px">
+    <button class="btn btn--ghost btn--sm" id="sso-test">Test</button>
+    <button class="btn btn--primary btn--sm" id="sso-save">Save</button>
+  </div>
+</div>
+
+<style>
+  .sso-step{padding:18px 20px;margin-bottom:16px}
+  .sso-h{font-size:1rem;margin:0 0 12px}
+  .sso-providers{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px}
+  .sso-card{border:1px solid var(--border);border-radius:8px;padding:14px;background:var(--surface);cursor:pointer;
+            text-align:left;font:inherit;color:var(--text)}
+  .sso-card.active{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent)}
+  .sso-urls{display:grid;gap:6px;margin-bottom:12px;font-size:.88rem}
+  .sso-urls code,.sso-steps code{word-break:break-all}
+  .sso-steps{margin:0;padding-left:20px;line-height:1.55;font-size:.9rem}
+  .sso-steps li{margin-bottom:6px;white-space:pre-wrap}
+  .sso-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+  .sso-label{font-size:.85rem;font-weight:600;display:flex;flex-direction:column;gap:4px}
+  .sso-input{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text);font-weight:400}
+  .sso-help{font-weight:400;font-size:.78rem;color:var(--text-muted)}
+  .sso-row{display:flex;gap:8px;align-items:center;font-size:.9rem}
+  .sso-error{color:var(--severity-critical);font-size:.85rem;margin-top:8px}
+  .sso-test{margin-top:12px;font-size:.88rem}
+  .sso-warn{border-left:3px solid var(--severity-medium);padding:10px 14px;margin-bottom:12px}
+</style>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ static('js/sso.js') }}"></script>
+{% endblock %}
