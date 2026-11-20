@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, String, Text
+from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from api.core.encryption import EncryptedString
@@ -60,6 +60,9 @@ class Device(Base, UUIDPrimaryKey, TimestampMixin):
     # Risk
     risk_score: Mapped[float | None] = mapped_column(Float)
     risk_grade: Mapped[RiskGrade | None] = mapped_column(Enum(RiskGrade))
+    # Rolled up by the scoring engine so lists can sort on them cheaply
+    open_findings: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    kev_findings: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
 
     # Source tracking
     source: Mapped[str | None] = mapped_column(String(64))  # ldap, qualys, crowdstrike...

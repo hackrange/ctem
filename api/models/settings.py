@@ -1,10 +1,10 @@
-"""Application settings and immutable audit log."""
+"""Application settings, immutable audit log, and AI usage metering."""
 from __future__ import annotations
 
 import uuid as _uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, String, Text
+from sqlalchemy import Boolean, DateTime, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from api.core.encryption import EncryptedString
@@ -36,3 +36,21 @@ class AuditLog(Base):
     resource_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     detail: Mapped[str | None] = mapped_column(Text, nullable=True)
     ip_address: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
+
+
+class AIUsage(Base):
+    """One row per AI call (including failures). Token counts only; never prompt or answer text."""
+    __tablename__ = "ai_usage"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(_uuid.uuid4()))
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    purpose: Mapped[str] = mapped_column(String(32), nullable=False, index=True)   # hunt, threat_analysis, test...
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)              # anthropic, openai, custom_ai
+    model: Mapped[str | None] = mapped_column(String(128), index=True)
+    ok: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    finish: Mapped[str | None] = mapped_column(String(32))                         # end_turn, max_tokens, error...
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    cache_read_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    cache_write_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    duration_ms: Mapped[int | None] = mapped_column(Integer)

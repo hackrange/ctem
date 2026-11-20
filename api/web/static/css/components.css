@@ -228,3 +228,82 @@
   .sidebar.open { transform: translateX(0); }
   .main { margin-left: 0; padding: 16px; }
 }
+
+/* ── Data table: sortable headers + pager (static/js/data_table.js) ───────── */
+.dt-scroll { overflow-x: auto; }
+.dt-pager {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 10px 16px; font-family: inherit; font-size: 13px; font-weight: 500; color: var(--fg-muted);
+}
+.dt-pager--top    { border-bottom: 1px solid var(--border); }
+.dt-pager--bottom { border-top: 1px solid var(--border); }
+.dt-pager__info { display: flex; align-items: center; gap: 12px; }
+.dt-pager__info strong { color: var(--fg); font-weight: 600; }
+.dt-pager__right { display: flex; align-items: center; gap: 16px; margin-left: auto; }
+.dt-pager__size { display: flex; align-items: center; gap: 8px; }
+.dt-pager__size select {
+  font: inherit; color: var(--fg); background: var(--surface); border: 1px solid var(--border2);
+  border-radius: 6px; padding: 4px 26px 4px 10px; cursor: pointer; appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--fg-muted) 50%), linear-gradient(135deg, var(--fg-muted) 50%, transparent 50%);
+  background-position: calc(100% - 13px) 50%, calc(100% - 8px) 50%; background-size: 5px 5px; background-repeat: no-repeat;
+}
+.dt-pager__size select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+.dt-pages { display: flex; align-items: center; gap: 4px; list-style: none; margin: 0; padding: 0; }
+.dt-page {
+  min-width: 32px; height: 32px; padding: 0 8px; border: 1px solid transparent; border-radius: 6px;
+  background: transparent; color: var(--fg); font: inherit; font-weight: 600; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; transition: background 0.12s, border-color 0.12s;
+}
+.dt-page:hover:not([disabled]):not(.is-current) { background: var(--surface2); border-color: var(--border); }
+.dt-page:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-dim); border-color: var(--accent); }
+.dt-page.is-current { background: var(--accent); color: #000; cursor: default; }
+.dt-page[disabled] { color: var(--dim); cursor: default; }
+.dt-page--arrow { font-size: 16px; }
+.dt-gap { min-width: 20px; text-align: center; color: var(--dim); }
+.data-table th.dt-sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+.data-table th.dt-sortable:hover { color: var(--fg); }
+.data-table th.dt-sortable::after { content: " \2195"; opacity: 0.35; }
+.data-table th[aria-sort="ascending"]::after  { content: " \25B2"; opacity: 1; color: var(--accent); }
+.data-table th[aria-sort="descending"]::after { content: " \25BC"; opacity: 1; color: var(--accent); }
+.data-table a.dt-link { color: inherit; font-weight: 600; text-decoration: none; }
+.data-table a.dt-link:hover { text-decoration: underline; color: var(--accent); }
+@media (max-width: 700px) { .dt-pager__right { margin-left: 0; width: 100%; justify-content: space-between; } }
+.stat-card--link { cursor: pointer; text-decoration: none; color: inherit; }
+.stat-card--link:hover { outline: 1px solid var(--accent); }
+
+/* ── Ticket dialog (static/js/ticket_modal.js) ────────────────────────────── */
+.tk-backdrop { display: none; position: fixed; inset: 0; z-index: 1000; background: rgba(0,0,0,0.5);
+  align-items: center; justify-content: center; padding: 16px; }
+.tk-backdrop.is-open { display: flex; }
+.tk-dialog { background: var(--surface); color: var(--fg); border-radius: 10px; padding: 24px; width: 100%;
+  max-width: 560px; max-height: calc(100vh - 32px); overflow: auto; box-shadow: 0 12px 40px rgba(0,0,0,0.3); }
+.tk-title { margin: 0 0 4px; font-size: 18px; font-weight: 700; }
+.tk-sub { margin: 0 0 18px; color: var(--fg-muted); font-size: 13px; }
+.tk-methods { display: flex; gap: 16px; }
+.tk-radio { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px; }
+.tk-note { margin-bottom: 16px; padding: 10px 12px; border-radius: 6px; font-size: 13px;
+  background: var(--accent-dim); border: 1px solid var(--accent); }
+.tk-note a { color: inherit; font-weight: 600; }
+.tk-subject { margin-bottom: 6px; font-weight: 600; }
+.tk-body { font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 12px; resize: vertical; }
+.tk-copy { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.tk-result { margin-top: 4px; padding: 10px 12px; border-radius: 6px; font-size: 13px; }
+.tk-result--ok  { background: rgba(34,197,94,.12); color: var(--severity-low); border: 1px solid var(--severity-low); }
+.tk-result--err { background: rgba(239,68,68,.1); color: var(--severity-critical); border: 1px solid var(--severity-critical); }
+.tk-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+
+/* ── Admin AI usage (static/js/ai_usage.js) ─────────────────────────────── */
+.ai-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+.ai-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.ai-tile { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; }
+.ai-tile__label { margin: 0; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-muted); }
+.ai-tile__value { margin: 6px 0 4px; font-size: 24px; font-weight: 700; color: var(--fg); }
+.ai-tile__sub { margin: 4px 0 0; font-size: 12px; color: var(--fg-muted); }
+.ai-meter { height: 6px; border-radius: 3px; background: var(--surface2); overflow: hidden; }
+.ai-meter > div { height: 100%; border-radius: 3px; }
+.ai-chart { width: 100%; height: auto; display: block; }
+.ai-axis { font-size: 10px; fill: var(--fg-muted); font-family: inherit; }
+.ai-bar:hover path, .ai-bar:focus path { fill: var(--accent2); }
+.ai-bar:focus { outline: none; }
+.ai-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.ai-form-grid .form-group { margin-bottom: 0; }

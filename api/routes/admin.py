@@ -294,12 +294,19 @@ async def get_audit_log(
     cursor: str | None = None,
     limit: int = Query(100, le=500),
 ):
-    stmt = select(AuditLog).order_by(AuditLog.created_at.desc()).limit(limit + 1)
+    # Cursor is "<created_at>|<id>" of the last row shown: page by time, ties broken by id
+    stmt = select(AuditLog).order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).limit(limit + 1)
     if cursor:
-        stmt = stmt.where(AuditLog.id < str(cursor))
+        try:
+            ts, last_id = cursor.split("|", 1)
+            at = datetime.fromisoformat(ts)
+        except ValueError:
+            raise HTTPException(400, detail="Invalid cursor") from None
+        stmt = stmt.where((AuditLog.created_at < at) | ((AuditLog.created_at == at) & (AuditLog.id < last_id[:36])))
     result = await db.execute(stmt)
     rows = result.scalars().all()
-    next_cursor = str(rows[-1].id) if len(rows) > limit else None
+    last = rows[limit - 1] if len(rows) > limit else None
+    next_cursor = f"{last.created_at.isoformat()}|{last.id}" if last else None
     return {
         "entries": [{"id": str(r.id), "actor": r.actor_username, "action": r.action, "resource": r.resource_type, "detail": r.detail, "at": r.created_at.isoformat()} for r in rows[:limit]],
         "next_cursor": next_cursor,

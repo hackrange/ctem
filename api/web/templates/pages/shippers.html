@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% set active_nav = 'shippers' %}
+
+{% block title %}Shippers -- open-ctem{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-header__title">Shippers</h1>
+    <p class="page-header__sub">On-prem boxes that read LDAP, Rapid7, CrowdStrike and Splunk inside your network and ship to CTEM</p>
+  </div>
+  <div style="display:flex;gap:8px">
+    <button class="btn btn--ghost btn--sm" data-action="generic-installer">Generic installer</button>
+    <button class="btn btn--primary btn--sm" data-action="new">+ New shipper</button>
+  </div>
+</div>
+
+<div class="panel sh-intro" style="margin-bottom:16px;font-size:.88rem;line-height:1.5">
+  Passwords you type here are sealed <b>in this browser</b> to the shipper's own public key before they're sent.
+  CTEM stores them but can't read them, and they only open on that box. Host, port, TLS, and SPL changes
+  wait for <code>open-ctem-collector approve</code> on the box, so a changed destination can never receive a password unnoticed.
+</div>
+
+<div id="shippers" style="display:grid;gap:16px">
+  <div class="text-muted text-sm" style="padding:32px;text-align:center">Loading...</div>
+</div>
+
+<!-- create / edit -->
+<div id="sh-modal" class="sh-modal" style="display:none">
+  <div class="sh-modal__box">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <h2 style="margin:0;font-size:1.1rem" id="sh-modal-title">New shipper</h2>
+      <button data-action="close" class="sh-x" aria-label="Close">&times;</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <label class="sh-label">Name <input id="sh-name" class="sh-input" placeholder="server001" maxlength="64" autocomplete="off"></label>
+      <label class="sh-label">Ship every
+        <select id="sh-schedule" class="sh-input">
+          <option value="15">15 minutes</option><option value="30">30 minutes</option><option value="60" selected>hour</option>
+          <option value="120">2 hours</option><option value="240">4 hours</option><option value="360">6 hours</option>
+          <option value="720">12 hours</option><option value="1440">day</option>
+        </select>
+      </label>
+      <div id="sh-sources"></div>
+    </div>
+    <div id="sh-error" class="sh-error" style="display:none"></div>
+    <div style="display:flex;gap:10px;margin-top:18px;justify-content:flex-end">
+      <button class="btn btn--ghost btn--sm" data-action="close">Cancel</button>
+      <button class="btn btn--primary btn--sm" data-action="save">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- seal a secret -->
+<div id="sec-modal" class="sh-modal" style="display:none">
+  <div class="sh-modal__box" style="max-width:460px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <h2 style="margin:0;font-size:1.05rem" id="sec-title">Set password</h2>
+      <button data-action="close" class="sh-x" aria-label="Close">&times;</button>
+    </div>
+    <p class="text-sm text-muted" style="margin:0 0 10px">Sealed to shipper key <code id="sec-fp"></code>. Check it matches what the box printed at install.</p>
+    <input id="sec-value" type="password" class="sh-input" autocomplete="new-password" maxlength="1024">
+    <div id="sec-error" class="sh-error" style="display:none"></div>
+    <div style="display:flex;gap:10px;margin-top:16px;justify-content:flex-end">
+      <button class="btn btn--ghost btn--sm" data-action="close">Cancel</button>
+      <button class="btn btn--primary btn--sm" data-action="seal">Seal &amp; save</button>
+    </div>
+  </div>
+</div>
+
+<!-- installer -->
+<div id="inst-modal" class="sh-modal" style="display:none">
+  <div class="sh-modal__box" style="max-width:460px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <h2 style="margin:0;font-size:1.05rem">Download installer</h2>
+      <button data-action="close" class="sh-x" aria-label="Close">&times;</button>
+    </div>
+    <p class="text-sm" style="margin:0 0 10px">Holds a one-time enrollment code (24 hours) and no passwords. Copy it to the box and run
+      <code>sudo bash open-ctem-shipper-NAME.sh</code>.</p>
+    <label class="sh-label">Only allow enrollment from (optional, comma separated IPs or CIDRs)
+      <input id="inst-cidrs" class="sh-input" placeholder="198.51.100.0/24" autocomplete="off"></label>
+    <div id="inst-error" class="sh-error" style="display:none"></div>
+    <div style="display:flex;gap:10px;margin-top:16px;justify-content:flex-end">
+      <button class="btn btn--ghost btn--sm" data-action="close">Cancel</button>
+      <button class="btn btn--primary btn--sm" data-action="download">Download</button>
+    </div>
+  </div>
+</div>
+
+<style>
+  .sh-modal{position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.5);align-items:center;justify-content:center}
+  .sh-modal__box{background:var(--surface);border-radius:8px;padding:24px;width:100%;max-width:620px;max-height:90vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.3)}
+  .sh-input{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text);margin-top:4px}
+  .sh-label{font-size:.85rem;font-weight:600;display:block}
+  .sh-x{background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:1.3rem;line-height:1}
+  .sh-error{color:var(--severity-critical);font-size:.85rem;margin-top:8px}
+  .sh-src{border:1px solid var(--border);border-radius:6px;padding:12px;margin-top:10px}
+  .sh-src__grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;margin-top:8px}
+  .sh-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .sh-fp{font-family:var(--font-mono, monospace);font-size:.78rem;word-break:break-all}
+  #shippers > .panel, .sh-intro{padding:16px 18px}
+</style>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ static('js/shippers_crypto.js') }}"></script>
+<script src="{{ static('js/shippers.js') }}"></script>
+{% endblock %}

@@ -48,6 +48,7 @@ async def init_db() -> None:
     import api.models.tag           # noqa: F401
     import api.models.settings      # noqa: F401
     import api.models.identity      # noqa: F401
+    import api.models.collector     # noqa: F401
 
     # Enum values must be added outside any transaction (Postgres requirement)
     async with _engine.connect() as conn:
@@ -55,6 +56,9 @@ async def init_db() -> None:
         await ac.run_sync(_evolve_enums, Base.metadata)
 
     async with _engine.begin() as conn:
+        if conn.dialect.name == "postgresql":
+            # app, worker, and beat boot together; let one migrate while the others wait
+            await conn.execute(text("SELECT pg_advisory_xact_lock(7243105)"))
         await conn.run_sync(Base.metadata.create_all)   # new tables only
         await conn.run_sync(_evolve, Base.metadata)      # columns + indexes for existing
 
@@ -123,7 +127,8 @@ def _evolve(conn, metadata) -> None:  # noqa: ANN001
                 )
             ddl = f"ALTER TABLE {table.name} ADD COLUMN {col.name} {col_type} {nullable}{default}"
             try:
-                conn.execute(text(ddl))
+                with conn.begin_nested():  # savepoint: a failure must not abort the boot transaction
+                    conn.execute(text(ddl))
                 log.info("auto-migrate: added column %s.%s", table.name, col.name)
             except Exception as exc:
                 log.warning("auto-migrate: skipped column %s.%s -- %s", table.name, col.name, exc)
@@ -133,14 +138,14 @@ def _evolve(conn, metadata) -> None:  # noqa: ANN001
             if not idx.name or idx.name in existing_idx:
                 continue
             try:
-                # Let SQLAlchemy render the full CREATE INDEX statement
-                create_stmt = str(
-                    idx.create(bind=conn).compile(conn.dialect)  # type: ignore[arg-type]
-                ).strip()
+                # Render (not run) the CREATE INDEX so it can go inside a savepoint
+                from sqlalchemy.schema import CreateIndex
+                create_stmt = str(CreateIndex(idx).compile(dialect=conn.dialect)).strip()
                 # PostgreSQL supports IF NOT EXISTS; wrap for safety
                 if "IF NOT EXISTS" not in create_stmt.upper():
                     create_stmt = create_stmt.replace("CREATE INDEX", "CREATE INDEX IF NOT EXISTS", 1)
-                conn.execute(text(create_stmt))
+                with conn.begin_nested():
+                    conn.execute(text(create_stmt))
                 log.info("auto-migrate: created index %s on %s", idx.name, table.name)
             except Exception as exc:
                 log.warning("auto-migrate: skipped index %s -- %s", idx.name, exc)

@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% set active_nav = 'devices' %}
+
+{% block title %}Device -- open-ctem{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="text-sm"><a href="/devices" class="dt-link" style="color:var(--fg-muted)">&larr; Devices</a></p>
+    <h1 class="page-header__title" id="dev-title">Loading...</h1>
+    <p class="page-header__sub" id="dev-sub"></p>
+  </div>
+  <div id="dev-grade" style="display:flex;align-items:center;gap:12px"></div>
+</div>
+
+<div class="panel" id="dev-info-panel">
+  <div class="panel__header"><span class="panel__title">Details</span></div>
+  <div class="panel__body">
+    <dl id="dev-info" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px 24px;margin:0"></dl>
+  </div>
+</div>
+
+<div class="panel" style="padding:0;margin-top:16px">
+  <div class="panel__header" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+    <span class="panel__title">Findings</span>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <div class="search-bar-wrap">
+        <svg class="search-icon" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+        <input id="f-search" type="search" class="search-bar" placeholder="CVE or title" aria-label="Search findings">
+      </div>
+      <select id="f-status" class="filter-select" aria-label="Status">
+        <option value="active">Open + in progress</option>
+        <option value="all">All statuses</option>
+        <option value="open">Open</option>
+        <option value="in_progress">In progress</option>
+        <option value="remediated">Remediated</option>
+        <option value="risk_accepted">Risk accepted</option>
+        <option value="false_positive">False positive</option>
+      </select>
+    </div>
+  </div>
+  <div id="findings-table"></div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ static('js/data_table.js') }}"></script>
+<script>
+const R = DataTable.R;
+const $ = id => document.getElementById(id);
+const deviceId = location.pathname.split('/').filter(Boolean).pop();
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function info(label, valueHtml) {
+  return `<div><dt class="text-sm text-muted">${esc(label)}</dt><dd style="margin:2px 0 0">${valueHtml}</dd></div>`;
+}
+const txt = v => v == null || v === '' ? '<span class="text-muted">--</span>' : esc(v);
+
+async function loadDevice() {
+  if (!UUID.test(deviceId)) return notFound();
+  const res = await fetch(`/api/v1/devices/${encodeURIComponent(deviceId)}`, { headers: { Accept: 'application/json' } });
+  if (!res.ok) return notFound();
+  const d = await res.json();
+  document.title = `${d.hostname} -- open-ctem`;
+  $('dev-title').textContent = d.hostname;
+  $('dev-sub').textContent = [d.device_type, d.os].filter(Boolean).join(' / ');
+  $('dev-grade').innerHTML = `${R.grade(d.risk_grade)} ${R.score(d.risk_score)}`;
+  $('dev-info').innerHTML = [
+    info('User', txt(d.user)),
+    info('Last login user', txt(d.last_login_user)),
+    info('IP address', `<span class="text-mono">${txt(d.ip)}</span>`),
+    info('MAC address', `<span class="text-mono">${txt(d.mac_address)}</span>`),
+    info('FQDN', txt(d.fqdn)),
+    info('OS version', txt(d.os_version)),
+    info('Source', txt(d.source)),
+    info('Last seen', R.date(d.last_seen)),
+    info('Open findings', R.num(d.open_findings)),
+    info('KEV findings', d.kev_findings ? `<span class="chip chip--critical">${R.num(d.kev_findings)}</span>` : '0'),
+    info('EDR', `${R.bool(d.edr_active)} ${txt(d.edr_vendor)}`),
+    info('Internet exposed', R.bool(d.is_internet_exposed)),
+    info('AD joined', R.bool(d.ad_joined)),
+    info('Tags', (d.tags || []).map(t => `<span class="chip chip--info" style="font-size:.7rem">${esc(t)}</span>`).join(' ') || txt(null)),
+  ].join('');
+  startFindings();
+}
+
+function notFound() {
+  $('dev-title').textContent = 'Device not found';
+  $('dev-sub').textContent = 'It may have been removed, or you may not have access to it.';
+  $('dev-info-panel').style.display = 'none';
+  $('findings-table').closest('.panel').style.display = 'none';
+}
+
+let table;
+function startFindings() {
+  const base = `/api/v1/devices/${encodeURIComponent(deviceId)}/findings`;
+  const vulnLink = (f, text) => R.link(`/vulns/${encodeURIComponent(f.vuln_id)}`, text);
+  table = DataTable.create({
+    mount: $('findings-table'),
+    endpoint: base,
+    exportUrl: `${base}/export`,
+    listKey: 'findings',
+    defaultSort: 'cvss_base',
+    defaultOrder: 'desc',
+    emptyText: 'No findings with this status',
+    rowHref: f => `/vulns/${encodeURIComponent(f.vuln_id)}`,
+    params: () => ({ status: $('f-status').value, q: $('f-search').value.trim() }),
+    columns: [
+      { label: 'CVE', sort: 'cve_id', render: f => f.cve_id ? vulnLink(f, f.cve_id) : '<span class="text-muted">--</span>' },
+      { label: 'Title', sort: 'title', render: f => vulnLink(f, f.title) },
+      { label: 'CVSS', sort: 'cvss_base', firstOrder: 'desc', render: f => txt(f.cvss_base) },
+      { label: 'EPSS', sort: 'epss_score', firstOrder: 'desc', render: f => f.epss_score == null ? txt(null) : esc((f.epss_score * 100).toFixed(1) + '%') },
+      { label: 'KEV', sort: 'is_kev', firstOrder: 'desc', render: f => f.is_kev ? '<span class="chip chip--critical">KEV</span>' : '' },
+      { label: 'Score', sort: 'composite_score', firstOrder: 'desc', render: f => R.score(f.composite_score) },
+      { label: 'Status', sort: 'status', render: f => `<span class="text-sm">${esc(f.status.replace('_', ' '))}</span>` },
+      { label: 'First detected', sort: 'first_detected', firstOrder: 'desc', render: f => R.date(f.first_detected) },
+      { label: 'Last seen', sort: 'last_seen', firstOrder: 'desc', render: f => R.date(f.last_seen) },
+    ],
+  });
+}
+
+let timer;
+$('f-search').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => table && table.reload(), 300); });
+$('f-status').addEventListener('change', () => table && table.reload());
+loadDevice();
+</script>
+{% endblock %}

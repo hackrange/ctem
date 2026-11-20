@@ -7,171 +7,99 @@
 <div class="page-header">
   <div>
     <h1 class="page-header__title">Threat Hunt</h1>
-    <p class="page-header__sub">Natural language investigation across all integrated tools</p>
+    <p class="page-header__sub">Ask in plain words. open-ctem searches every connected tool and tells you what happened.</p>
   </div>
 </div>
 
-<div class="panel" style="margin-bottom:20px">
-  <div style="display:flex;gap:10px;align-items:flex-end">
-    <div style="flex:1">
-      <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:4px">Hunt Query</label>
-      <textarea id="hunt-query" rows="1" placeholder='e.g. "Show me all RCE findings on internet-exposed hosts this week"'
-        style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text);font-size:.9rem;resize:none;overflow:hidden;line-height:1.5;box-sizing:border-box"
-        oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"
-        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();runHunt()}"></textarea>
+<div class="panel hunt-ask">
+  <div id="hunt-sources" class="hunt-sources text-sm text-muted">Checking connected tools...</div>
+  <label class="form-label" for="hunt-query">Your question</label>
+  <textarea id="hunt-query" class="form-control" rows="2" maxlength="2000"
+    placeholder="Did anything bad happen this week?   Is someone guessing passwords?   What happened on server001?"></textarea>
+  <div class="hunt-ask__row">
+    <div class="hunt-examples" id="hunt-examples">
+      <button type="button" class="pref-chip" data-example="Did anything bad happen this week?">Anything bad this week?</button>
+      <button type="button" class="pref-chip" data-example="Is anyone trying to guess passwords?">Password guessing?</button>
+      <button type="button" class="pref-chip" data-example="Did any data leave the network?">Data leaving?</button>
+      <button type="button" class="pref-chip" data-example="Did anyone get new admin rights?">New admins?</button>
     </div>
-    <div>
-      <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:4px">Asset Hint</label>
-      <input id="hunt-asset" type="text" placeholder="optional hostname/IP"
-        style="width:180px;padding:10px 12px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text);font-size:.9rem">
-    </div>
-    <button class="btn btn--primary" onclick="runHunt()" id="hunt-btn">Hunt</button>
+    <select id="hunt-range" class="form-control hunt-range" aria-label="Time range">
+      <option value="24h">Last 24 hours</option>
+      <option value="7d" selected>Last 7 days</option>
+      <option value="30d">Last 30 days</option>
+      <option value="all">All time</option>
+    </select>
+    <button class="btn btn--primary" id="hunt-btn" type="button">Hunt</button>
+    <button class="btn btn--ghost" id="catalog-toggle" type="button" aria-expanded="false" aria-controls="catalog-panel">Helpful searches</button>
   </div>
 </div>
 
-<div id="hunt-status" style="display:none;padding:12px 16px;border-radius:4px;margin-bottom:16px;font-size:.9rem"></div>
+<div id="hunt-status" class="hunt-status" hidden></div>
+<div id="hunt-answer"></div>
 
-<div id="hunt-results" style="display:none">
-  <div class="panel" style="padding:0">
-    <div class="panel__header"><h2 class="panel__title" id="results-title">Results</h2></div>
-    <table class="data-table" id="results-table">
-      <thead><tr id="results-head"></tr></thead>
-      <tbody id="results-tbody"></tbody>
-    </table>
-  </div>
-</div>
-
-<div class="panel" style="margin-top:20px">
+<div class="panel" id="catalog-panel" style="display:none">
   <div class="panel__header">
-    <h2 class="panel__title">SPL Catalog</h2>
-    <button class="btn btn--ghost btn--sm" onclick="loadCatalog()">Refresh</button>
+    <h2 class="panel__title">Helpful searches</h2>
+    <button class="btn btn--ghost btn--sm" id="catalog-refresh" type="button">Refresh</button>
   </div>
-  <div id="spl-catalog" class="text-muted text-sm" style="padding:12px">Loading Splunk catalog...</div>
+  <p class="text-sm text-muted hunt-pad">Ready-made searches. <strong>Run</strong> shows the results here; <strong>Copy</strong> grabs the Splunk search.</p>
+  <div id="spl-catalog" class="hunt-pad text-sm text-muted">Loading...</div>
 </div>
 {% endblock %}
 
 {% block extra_scripts %}
-<script>
-const API = '/api/v1';
-let pollTimer = null;
-
-async function fetchJson(url) {
-  const res = await fetch(url, { headers: { Accept: 'application/json' } });
-  if (!res.ok) throw new Error(res.statusText);
-  return res.json();
-}
-
-function status(msg, type = 'info') {
-  const el = document.getElementById('hunt-status');
-  const colors = { info: 'var(--bg)', success: 'rgba(46,125,50,.15)', error: 'rgba(204,0,0,.1)' };
-  el.style.cssText = `display:block;background:${colors[type]};border:1px solid var(--border)`;
-  el.textContent = msg;
-}
-
-async function runHunt() {
-  const query = document.getElementById('hunt-query').value.trim();
-  if (!query) return;
-  const asset_hint = document.getElementById('hunt-asset').value.trim() || null;
-  const btn = document.getElementById('hunt-btn');
-  btn.disabled = true;
-  btn.textContent = 'Hunting...';
-  document.getElementById('hunt-results').style.display = 'none';
-  status('Running hunt query...');
-
-  try {
-    const res = await fetch(`${API}/hunt/query`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, asset_hint, max_results: 50 }),
-    });
-    if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
-    const result = await res.json();
-
-    if (result.task_id) {
-      status('AI analysis running, polling for results...');
-      pollResult(result.task_id);
-    } else {
-      showResults(result.results || [], query);
-      btn.disabled = false;
-      btn.textContent = 'Hunt';
-    }
-  } catch (e) {
-    status('Hunt failed: ' + e.message, 'error');
-    btn.disabled = false;
-    btn.textContent = 'Hunt';
-  }
-}
-
-function pollResult(taskId) {
-  clearTimeout(pollTimer);
-  pollTimer = setTimeout(async () => {
-    try {
-      const data = await fetchJson(`${API}/hunt/result/${taskId}`);
-      if (data.status === 'pending' || data.status === 'running') {
-        status('AI still analyzing...');
-        pollResult(taskId);
-      } else {
-        const analysis = data.result && data.result.analysis;
-        if (analysis) showAnalysis(analysis);
-        else showResults(data.results || [], '');
-        document.getElementById('hunt-btn').disabled = false;
-        document.getElementById('hunt-btn').textContent = 'Hunt';
-        if (data.status === 'failed' || (data.result && data.result.error)) status('AI analysis failed', 'error');
-        else status('Hunt complete', 'success');
-      }
-    } catch (e) {
-      status('Error polling: ' + e.message, 'error');
-    }
-  }, 2000);
-}
-
-function showAnalysis(text) {
-  document.getElementById('hunt-results').style.display = 'block';
-  document.getElementById('results-title').textContent = 'AI analysis';
-  document.getElementById('results-head').innerHTML = '';
-  const td = document.createElement('td');
-  td.className = 'text-sm';
-  td.style.whiteSpace = 'pre-wrap';
-  td.textContent = text;
-  const tr = document.createElement('tr');
-  tr.appendChild(td);
-  const body = document.getElementById('results-tbody');
-  body.replaceChildren(tr);
-}
-
-function showResults(results, query) {
-  document.getElementById('hunt-results').style.display = 'block';
-  document.getElementById('results-title').textContent = `${results.length} result(s) for: ${query}`;
-  if (!results.length) {
-    document.getElementById('results-tbody').innerHTML = '<tr><td class="text-muted text-sm" style="text-align:center;padding:24px">No matching events</td></tr>';
-    return;
-  }
-  const keys = Object.keys(results[0]);
-  // Log data is attacker-controlled text: escape every key and value
-  const cell = v => esc(v !== null && typeof v === 'object' ? JSON.stringify(v) : (v ?? ''));
-  document.getElementById('results-head').innerHTML = keys.map(k => `<th>${esc(k)}</th>`).join('');
-  document.getElementById('results-tbody').innerHTML = results.map(r =>
-    `<tr>${keys.map(k => `<td class="text-sm">${cell(r[k])}</td>`).join('')}</tr>`
-  ).join('');
-}
-
-async function loadCatalog() {
-  try {
-    const data = await fetchJson(`${API}/hunt/splunk/catalog`);
-    const searches = data.catalog || data.searches || [];
-    document.getElementById('spl-catalog').innerHTML = searches.length
-      ? searches.map(s => `
-        <div style="margin-bottom:12px;padding:10px 12px;background:var(--surface);border-radius:4px;border:1px solid var(--border)">
-          <div style="font-weight:600;font-size:.85rem;margin-bottom:4px">${esc(s.title || s.name || 'Search')}</div>
-          ${s.description ? `<div class="text-muted text-sm" style="margin-bottom:4px">${esc(s.description)}</div>` : ''}
-          <code style="font-size:.78rem;color:var(--text-muted)">${esc(s.spl || s.query || '')}</code>
-        </div>`).join('')
-      : '<span class="text-muted">No SPL catalog available -- configure Splunk integration to enable</span>';
-  } catch (_) {
-    document.getElementById('spl-catalog').textContent = 'SPL catalog unavailable';
-  }
-}
-
-document.addEventListener('DOMContentLoaded', loadCatalog);
-</script>
+<style>
+.hunt-ask { margin-bottom: 20px; }
+.hunt-sources { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.hunt-ask__row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 10px; }
+.hunt-examples { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; }
+.hunt-range { width: auto; }
+.pref-chip { padding: 4px 12px; border: 1px solid var(--border); border-radius: 20px; background: var(--bg);
+  color: var(--text); font-size: .8rem; cursor: pointer; font-family: inherit; }
+.pref-chip:hover { border-color: var(--accent); color: var(--accent); }
+.hunt-status { padding: 12px 16px; border-radius: 6px; margin-bottom: 16px; font-size: .9rem;
+  border: 1px solid var(--border); background: var(--surface); }
+.hunt-status--error { border-color: var(--severity-critical); }
+.hunt-pad { padding: 0 16px 12px; }
+.hunt-summary { font-size: 1.05rem; line-height: 1.6; margin-bottom: 16px; }
+.issue { border-left: 4px solid var(--severity-medium); margin-bottom: 16px; }
+.issue--critical { border-left-color: var(--severity-critical); }
+.issue--high { border-left-color: var(--severity-high); }
+.issue--low { border-left-color: var(--severity-low); }
+.issue__head { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+.issue__title { font-size: 1.05rem; font-weight: 700; margin: 0; }
+.issue h4 { font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); margin: 14px 0 6px; }
+.issue p { line-height: 1.6; margin: 0; }
+.flow { list-style: none; padding: 0; margin: 0; border-left: 2px solid var(--border); }
+.flow li { position: relative; padding: 0 0 12px 16px; }
+.flow li::before { content: ""; position: absolute; left: -6px; top: 5px; width: 10px; height: 10px;
+  border-radius: 50%; background: var(--accent); }
+.flow__time { font-family: monospace; font-size: .8rem; color: var(--text-muted); margin-right: 6px; }
+.who { display: flex; flex-wrap: wrap; gap: 6px; }
+.who button { cursor: pointer; }
+.steps { margin: 0; padding-left: 20px; line-height: 1.6; }
+.hunt-details summary { cursor: pointer; font-weight: 600; font-size: .85rem; margin-top: 12px; }
+.spl { display: flex; gap: 8px; align-items: flex-start; margin-top: 6px; }
+.spl code { flex: 1; min-width: 0; font-size: .78rem; white-space: pre-wrap; word-break: break-word;
+  background: var(--bg); padding: 8px; border-radius: 4px; border: 1px solid var(--border); }
+.table-wrap { overflow-x: auto; margin-top: 6px; }
+.cat-item { margin-bottom: 10px; padding: 10px 12px; background: var(--surface); border-radius: 6px; border: 1px solid var(--border); }
+.entity-link { background: none; border: none; padding: 0; color: var(--accent); cursor: pointer;
+  font: inherit; text-decoration: underline dotted; text-align: left; }
+.profile-box { max-width: 980px; }
+.profile-h { font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); margin: 18px 0 8px; }
+.facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px 16px; }
+.trend { width: 100%; height: 120px; display: block; border-bottom: 1px solid var(--border); }
+.trend-days { display: flex; justify-content: space-between; margin: 4px 0 6px; }
+.legend { display: inline-flex; align-items: center; gap: 4px; margin-right: 12px; font-size: .8rem; }
+.legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.profile-actions { margin-top: 18px; }
+.flow-wrap { overflow-x: auto; margin: 4px 0 8px; color: var(--text); }
+.flow-svg { display: block; max-width: none; }
+.issue-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.cat-item__head { display: flex; gap: 8px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+</style>
+<script src="{{ static('js/hunt_diagram.js') }}"></script>
+<script src="{{ static('js/hunt.js') }}"></script>
+<script src="{{ static('js/hunt_profile.js') }}"></script>
 {% endblock %}

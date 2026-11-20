@@ -202,6 +202,9 @@ async def update_integration(
             for k, v in body.config.items()
             if v not in ("", None)
         }
+        if existing.get("mode") == "collector":
+            # Collector wiring is server-owned; the edit form doesn't know about it
+            merged["mode"], merged["collector"] = "collector", existing.get("collector")
         cfg.config = merged
     if body.sync_schedule is not None:
         cfg.sync_schedule = body.sync_schedule
@@ -234,6 +237,9 @@ async def trigger_sync(
     cfg = result.scalar_one_or_none()
     if cfg is None:
         raise HTTPException(404)
+    from api.integrations.base import is_collector_fed
+    if is_collector_fed(cfg):
+        raise HTTPException(409, detail="This integration is fed by an on-prem collector; run open-ctem-collector run-now on that box")
     from api.core.tasks import sync_integration
     task = sync_integration.delay(str(integration_id))
     return {"task_id": task.id, "status": "queued"}
@@ -255,8 +261,12 @@ async def test_connection(
     if cfg is None:
         raise HTTPException(404)
     try:
-        connector = get_connector(cfg.vendor.value, cfg.config or {})
-        ok = await connector.test_connection()
+        from api.integrations.base import is_collector_fed
+        if is_collector_fed(cfg):
+            ok = await _collector_recent(cfg, db)
+        else:
+            connector = get_connector(cfg.vendor.value, cfg.config or {})
+            ok = await connector.test_connection()
     except Exception as exc:
         log.warning("test_connection failed for %s: %s", cfg.vendor.value, exc)
         ok = False
@@ -281,6 +291,22 @@ async def list_sync_jobs(
     )
     jobs = result.scalars().all()
     return {"jobs": [{"id": str(j.id), "status": j.status.value, "started": j.started_at.isoformat() if j.started_at else None, "records": j.records_imported, "error": j.error_message} for j in jobs]}
+
+
+async def _collector_recent(cfg: IntegrationConfig, db: AsyncSession) -> bool:
+    """Collector-fed means 'connected' is 'a collector owning this checked in within a day'."""
+    from datetime import datetime, timedelta, timezone
+
+    from api.models.collector import CollectorToken
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+    toks = (await db.execute(select(CollectorToken).where(CollectorToken.is_active == True))).scalars()  # noqa: E712
+    for t in toks:
+        seen = t.last_seen
+        if seen is not None and seen.tzinfo is None:
+            seen = seen.replace(tzinfo=timezone.utc)
+        if str(cfg.id) in (t.integration_ids or []) and seen and seen >= cutoff:
+            return True
+    return False
 
 
 _SECRET_RE = re.compile(r"(secret|passw|pass$|token|api_?key|private_?key|credential)", re.I)

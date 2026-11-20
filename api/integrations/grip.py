@@ -1,9 +1,8 @@
 """
 Grip Security connector -- ITDR, posture management, shadow SaaS, shadow AI.
 
-NOTE: If open-fairtprm is also integrated and has Grip configured, Grip telemetry
-already flows through that channel. Set fairtprm_grip_passthrough=true in this
-integration's config to skip the direct sync and avoid double-counting.
+This is the only path for Grip data into CTEM: FairTPRM pulls Grip for its own
+views but does not expose it over its API.
 
 Auth: access-token header (NOT Bearer -- Grip returns 401 on Bearer tokens).
 URL:  Tenant-specific, e.g. https://acme.dep.grip.security/public/saas
@@ -55,8 +54,8 @@ class GripSecurityConnector(BaseConnector):
 
     async def sync(self, db: AsyncSession) -> int:
         if self.config.get("fairtprm_grip_passthrough"):
-            log.info("Grip: passthrough mode -- skipping direct sync (data flows via FairTPRM)")
-            return 0
+            # Old setting from when FairTPRM was expected to relay Grip; it never did, so ignore it
+            log.warning("Grip: ignoring fairtprm_grip_passthrough; FairTPRM doesn't relay Grip data")
 
         counts = [
             await self._sync_itdr_threats(db),

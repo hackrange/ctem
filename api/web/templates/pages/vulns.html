@@ -9,104 +9,79 @@
     <h1 class="page-header__title">Vulnerabilities</h1>
     <p class="page-header__sub">All CVEs and scanner findings across your environment</p>
   </div>
-  <div class="flex items-center gap-2">
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
     <div class="search-bar-wrap">
       <svg class="search-icon" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-      <input id="search-input" type="search" class="search-bar" placeholder="Search CVE, title..." oninput="debounceSearch(this.value)" autocomplete="off">
+      <input id="search-input" type="search" class="search-bar" placeholder="Title, CVE, or scanner ID (partial ok)" autocomplete="off" aria-label="Search vulnerabilities">
     </div>
-    <select id="filter-kev" class="filter-select" onchange="loadVulns()">
-      <option value="">All</option>
+    <select id="filter-kev" class="filter-select" aria-label="KEV">
+      <option value="">KEV: any</option>
       <option value="true">KEV only</option>
+      <option value="false">Not KEV</option>
     </select>
+    <select id="filter-cvss" class="filter-select" aria-label="Minimum CVSS">
+      <option value="">Any CVSS</option>
+      <option value="9">9.0+ critical</option>
+      <option value="7">7.0+ high</option>
+      <option value="4">4.0+ medium</option>
+    </select>
+    <select id="filter-source" class="filter-select" aria-label="Source">
+      <option value="">All sources</option>
+      <option value="rapid7_insightvm">Rapid7 InsightVM</option>
+      <option value="rapid7_appsec">Rapid7 AppSec</option>
+      <option value="rapid7_cloudsec">Rapid7 CloudSec</option>
+    </select>
+    <label class="text-sm" style="display:flex;align-items:center;gap:6px">
+      <input type="checkbox" id="filter-affected" checked> With affected devices
+    </label>
   </div>
 </div>
 
-<div class="panel" style="padding:0">
-  <table class="data-table">
-    <thead>
-      <tr>
-        <th>CVE</th>
-        <th>Title</th>
-        <th>CVSS</th>
-        <th>EPSS %</th>
-        <th>KEV</th>
-        <th>Exploit</th>
-        <th>Affected</th>
-        <th>Source</th>
-      </tr>
-    </thead>
-    <tbody id="vulns-tbody">
-      <tr><td colspan="8" class="text-muted text-sm" style="text-align:center;padding:24px">Loading...</td></tr>
-    </tbody>
-  </table>
-  <div id="pagination" style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-top:1px solid var(--border)">
-    <span id="page-info" class="text-muted text-sm"></span>
-    <div style="display:flex;gap:8px">
-      <button class="btn btn--ghost btn--sm" id="btn-prev" onclick="prevPage()" disabled>Previous</button>
-      <button class="btn btn--ghost btn--sm" id="btn-next" onclick="nextPage()" disabled>Next</button>
-    </div>
-  </div>
-</div>
+<div class="panel" style="padding:0" id="vulns-table"></div>
 {% endblock %}
 
 {% block extra_scripts %}
+<script src="{{ static('js/data_table.js') }}"></script>
 <script>
-const API = '/api/v1';
-let page = 1;
-const PAGE_SIZE = 50;
-let searchTimer = null;
-let totalCount = 0;
+const R = DataTable.R;
+const $ = id => document.getElementById(id);
+const FILTERS = { q: 'search-input', is_kev: 'filter-kev', min_cvss: 'filter-cvss', source: 'filter-source' };
 
-async function fetchJson(url) {
-  const res = await fetch(url, { headers: { Accept: 'application/json' } });
-  if (!res.ok) throw new Error(res.statusText);
-  return res.json();
-}
+const initial = new URLSearchParams(location.search);
+Object.entries(FILTERS).forEach(([k, id]) => { if (initial.get(k)) $(id).value = initial.get(k); });
+if (initial.has('affected_only')) $('filter-affected').checked = initial.get('affected_only') === 'true';
 
-function debounceSearch(v) {
-  clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => { page = 1; loadVulns(); }, 350);
-}
+const href = v => `/vulns/${encodeURIComponent(v.id)}`;
+const muted = '<span class="text-muted">--</span>';
 
-async function loadVulns() {
-  const kev = document.getElementById('filter-kev').value;
-  const q = document.getElementById('search-input').value.trim();
-  const offset = (page - 1) * PAGE_SIZE;
-  const params = new URLSearchParams({ limit: PAGE_SIZE, offset });
-  if (kev) params.set('is_kev', kev);
-  if (q) params.set('q', q);
+const table = DataTable.create({
+  mount: $('vulns-table'),
+  endpoint: '/api/v1/vulns',
+  exportUrl: '/api/v1/vulns/export',
+  listKey: 'vulns',
+  defaultSort: 'cvss_base',
+  defaultOrder: 'desc',
+  syncUrl: true,
+  emptyText: 'No vulnerabilities match these filters',
+  rowHref: href,
+  params: () => ({
+    q: $('search-input').value.trim(), is_kev: $('filter-kev').value, min_cvss: $('filter-cvss').value,
+    source: $('filter-source').value, affected_only: $('filter-affected').checked ? 'true' : 'false',
+  }),
+  columns: [
+    { label: 'CVE', sort: 'cve_id', render: v => v.cve_id ? R.link(href(v), v.cve_id) : muted },
+    { label: 'Title', sort: 'title', render: v => R.link(href(v), v.title) },
+    { label: 'CVSS', sort: 'cvss_base', firstOrder: 'desc', render: v => v.cvss_base == null ? muted : esc(v.cvss_base) },
+    { label: 'EPSS', sort: 'epss_score', firstOrder: 'desc', render: v => v.epss_score == null ? muted : esc((v.epss_score * 100).toFixed(1) + '%') },
+    { label: 'KEV', sort: 'is_kev', firstOrder: 'desc', render: v => v.is_kev ? '<span class="chip chip--critical">KEV</span>' : '' },
+    { label: 'Exploit', sort: 'exploit_available', firstOrder: 'desc', render: v => v.exploit_available ? '<span class="chip chip--high">Yes</span>' : '' },
+    { label: 'Affected', sort: 'affected', firstOrder: 'desc', render: v => R.num(v.affected_devices) },
+    { label: 'Source', sort: 'source', render: v => `<span class="text-sm text-muted">${esc(v.source)}</span>` },
+  ],
+});
 
-  try {
-    const data = await fetchJson(`${API}/vulns?${params}`);
-    const vulns = data.vulns || [];
-    totalCount = data.total || vulns.length;
-
-    document.getElementById('vulns-tbody').innerHTML = vulns.map(v => `
-      <tr>
-        <td class="text-mono text-sm">${v.cve_id ? esc(v.cve_id) : '<span class="text-muted">N/A</span>'}</td>
-        <td style="max-width:320px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(v.title || '')}">${esc(v.title) || '--'}</td>
-        <td>${v.cvss_base ? v.cvss_base.toFixed(1) : '--'}</td>
-        <td>${v.epss_score ? (v.epss_score * 100).toFixed(1) + '%' : '--'}</td>
-        <td>${v.is_kev ? '<span class="chip chip--critical">KEV</span>' : ''}</td>
-        <td>${v.exploit_available ? '<span class="chip chip--high">PoC</span>' : ''}</td>
-        <td>${v.affected_devices ?? '--'}</td>
-        <td class="text-muted text-sm">${esc(v.source) || '--'}</td>
-      </tr>
-    `).join('') || '<tr><td colspan="8" class="text-muted text-sm" style="text-align:center;padding:24px">No vulnerabilities found</td></tr>';
-
-    const start = offset + 1;
-    const end = Math.min(offset + vulns.length, totalCount);
-    document.getElementById('page-info').textContent = vulns.length ? `${start}-${end} of ${totalCount}` : '';
-    document.getElementById('btn-prev').disabled = page <= 1;
-    document.getElementById('btn-next').disabled = end >= totalCount;
-  } catch (e) {
-    document.getElementById('vulns-tbody').innerHTML = `<tr><td colspan="8" class="text-muted text-sm" style="text-align:center;padding:24px">Error loading vulnerabilities</td></tr>`;
-  }
-}
-
-function prevPage() { if (page > 1) { page--; loadVulns(); } }
-function nextPage() { page++; loadVulns(); }
-
-document.addEventListener('DOMContentLoaded', loadVulns);
+let timer;
+$('search-input').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => table.reload(), 300); });
+['filter-kev', 'filter-cvss', 'filter-source', 'filter-affected'].forEach(id => $(id).addEventListener('change', () => table.reload()));
 </script>
 {% endblock %}

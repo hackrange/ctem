@@ -20,6 +20,7 @@ class BaseConnector(ABC):
     def __init__(self, config: dict[str, Any]) -> None:
         # Blank form fields arrive as "", which should mean "use the default"
         self.config = {k: v for k, v in (config or {}).items() if v not in ("", None)}
+        self.integration_id: str | None = None  # set by sync_by_id; enables incremental sync state
 
     @abstractmethod
     async def test_connection(self) -> bool:
@@ -60,9 +61,41 @@ def get_connector(vendor_slug: str, config: dict) -> BaseConnector:
     return cls(config)
 
 
+# ── Incremental sync bookmarks ───────────────────────────────────────────────
+
+async def load_sync_state(db: AsyncSession, integration_id: str | None) -> dict:
+    import json
+
+    from api.models.settings import AppSetting
+    if not integration_id:
+        return {}
+    row = (await db.execute(select(AppSetting).where(AppSetting.key == f"sync_state.{integration_id}"))).scalar_one_or_none()
+    try:
+        return json.loads(row.value) if row and row.value else {}
+    except ValueError:
+        return {}
+
+
+async def save_sync_state(db: AsyncSession, integration_id: str | None, state: dict) -> None:
+    import json
+
+    from api.models.settings import AppSetting
+    if not integration_id:
+        return
+    key = f"sync_state.{integration_id}"
+    row = (await db.execute(select(AppSetting).where(AppSetting.key == key))).scalar_one_or_none()
+    if row is None:
+        db.add(AppSetting(key=key, value=json.dumps(state), is_sensitive=False))
+    else:
+        row.value = json.dumps(state)
+    await db.commit()
+
+
 # ── Sync orchestration ────────────────────────────────────────────────────────
 
-async def sync_by_id(db: AsyncSession, integration_id: str) -> None:
+async def sync_by_id(db: AsyncSession, integration_id: str) -> bool:
+    """Run one integration's sync. Returns True when it succeeded."""
+    ok = False
     result = await db.execute(
         select(IntegrationConfig).where(
             IntegrationConfig.id == str(integration_id),
@@ -70,8 +103,8 @@ async def sync_by_id(db: AsyncSession, integration_id: str) -> None:
         )
     )
     cfg = result.scalar_one_or_none()
-    if cfg is None:
-        return
+    if cfg is None or is_collector_fed(cfg):
+        return False  # collector-fed integrations get pushed to, never pulled
 
     job = SyncJob(
         integration_id=str(cfg.id),
@@ -84,10 +117,13 @@ async def sync_by_id(db: AsyncSession, integration_id: str) -> None:
 
     try:
         connector = get_connector(cfg.vendor.value, cfg.config or {})
+        connector.integration_id = str(cfg.id)
         count = await connector.sync(db)
         job.status = SyncStatus.success
         job.records_imported = count
         cfg.last_sync_status = SyncStatus.success
+        cfg.last_sync_error = None
+        ok = True
     except Exception as e:
         job.status = SyncStatus.failed
         job.error_message = str(e)[:1000]
@@ -97,6 +133,7 @@ async def sync_by_id(db: AsyncSession, integration_id: str) -> None:
         job.finished_at = datetime.now(timezone.utc)
         cfg.last_sync_at = job.finished_at
         await db.commit()
+    return ok
 
 
 async def run_due_syncs(db: AsyncSession) -> None:
@@ -108,9 +145,13 @@ async def run_due_syncs(db: AsyncSession) -> None:
         )
     )
     for cfg in result.scalars():
-        if _is_due(cfg):
+        if not is_collector_fed(cfg) and _is_due(cfg):
             from api.core.tasks import sync_integration
             sync_integration.delay(str(cfg.id))
+
+
+def is_collector_fed(cfg: IntegrationConfig) -> bool:
+    return (cfg.config or {}).get("mode") == "collector"
 
 
 def _is_due(cfg: IntegrationConfig) -> bool:

@@ -9,284 +9,95 @@
     <h1 class="page-header__title">Device Inventory</h1>
     <p class="page-header__sub">All managed assets across your environment</p>
   </div>
-  <div style="display:flex;align-items:center;gap:10px">
-    <!-- Modern typeahead search -->
-    <div id="search-wrap" class="search-bar-wrap">
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <div class="search-bar-wrap">
       <svg class="search-icon" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
         <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
       </svg>
-      <input id="search-input" type="search" class="search-bar" placeholder="Search hostname, IP, MAC..."
-        autocomplete="off" spellcheck="false"
-        oninput="onSearchInput(this.value)"
-        onfocus="onSearchFocus()"
-        onblur="onSearchBlur()"
-        onkeydown="onSearchKey(event)">
-      <button id="search-clear" onclick="clearSearch()"
-        style="display:none;position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:1rem;line-height:1;padding:0"
-        aria-label="Clear search">&times;</button>
-      <div id="search-dropdown" style="display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.18);z-index:200;overflow:hidden;max-height:260px;overflow-y:auto"></div>
+      <input id="search-input" type="search" class="search-bar" placeholder="Hostname, user, IP, or MAC"
+        autocomplete="off" spellcheck="false" aria-label="Search devices">
     </div>
-    <select id="filter-grade" class="filter-select" onchange="loadDevices()">
-      <option value="">All Grades</option>
+    <select id="filter-grade" class="filter-select" aria-label="Grade">
+      <option value="">All grades</option>
       <option value="F">F -- Critical</option>
       <option value="D">D -- High</option>
       <option value="C">C -- Medium</option>
       <option value="B">B -- Low</option>
       <option value="A">A -- Minimal</option>
+      <option value="none">Not scored</option>
+    </select>
+    <select id="filter-type" class="filter-select" aria-label="Device type">
+      <option value="">All types</option>
+      <option value="server">Server</option>
+      <option value="workstation">Workstation</option>
+      <option value="network_device">Network device</option>
+      <option value="cloud_instance">Cloud instance</option>
+      <option value="unknown">Unknown</option>
+    </select>
+    <select id="filter-source" class="filter-select" aria-label="Source">
+      <option value="">All sources</option>
+      <option value="rapid7_insightvm">Rapid7 InsightVM</option>
+      <option value="rapid7_appsec">Rapid7 AppSec</option>
+      <option value="rapid7_cloudsec">Rapid7 CloudSec</option>
+      <option value="ldap">LDAP / AD</option>
     </select>
   </div>
 </div>
 
-<div class="panel" style="padding:0">
-  <table class="data-table">
-    <thead>
-      <tr>
-        <th>Hostname</th>
-        <th>IP</th>
-        <th>Type</th>
-        <th>OS</th>
-        <th>Grade</th>
-        <th>Score</th>
-        <th>EDR</th>
-        <th>Reachable</th>
-        <th>Tags</th>
-      </tr>
-    </thead>
-    <tbody id="devices-tbody">
-      <tr><td colspan="9" class="text-muted text-sm" style="text-align:center;padding:24px">Loading...</td></tr>
-    </tbody>
-  </table>
-  <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-top:1px solid var(--border)">
-    <span id="page-info" class="text-muted text-sm"></span>
-    <div style="display:flex;gap:8px">
-      <button class="btn btn--ghost btn--sm" id="btn-prev" onclick="prevPage()" disabled>Previous</button>
-      <button class="btn btn--ghost btn--sm" id="btn-next" onclick="nextPage()" disabled>Next</button>
-    </div>
-  </div>
-</div>
+<div class="panel" style="padding:0" id="devices-table"></div>
 {% endblock %}
 
 {% block extra_scripts %}
-<style>
-/* search-bar styles are in style.css */
-.suggest-item {
-  display: flex; align-items: center; gap: 10px;
-  padding: 9px 14px; cursor: pointer;
-  transition: background .1s;
-}
-.suggest-item:hover, .suggest-item.selected { background: var(--surface2, var(--bg)); }
-.suggest-item__label { font-size: .9rem; font-weight: 500; color: var(--text); }
-.suggest-item__sub { font-size: .78rem; color: var(--text-muted); font-family: monospace; }
-.suggest-item__type {
-  margin-left: auto; font-size: .7rem; text-transform: uppercase;
-  letter-spacing: .06em; color: var(--text-muted); padding: 2px 6px;
-  border: 1px solid var(--border); border-radius: 4px;
-}
-</style>
+<script src="{{ static('js/data_table.js') }}"></script>
 <script>
-const API = '/api/v1';
-let _page = 1;
-const PAGE_SIZE = 50;
-let _searchTimer = null;
-let _totalCount = 0;
-let _suggestItems = [];
-let _suggestIdx = -1;
-let _suggestVisible = false;
+const R = DataTable.R;
+const $ = id => document.getElementById(id);
+const FILTERS = { q: 'search-input', grade: 'filter-grade', device_type: 'filter-type', source: 'filter-source' };
 
-// ── MAC address normalization ─────────────────────────────────────────────────
+// Prefill from the URL so dashboard cards and shared links land on a filtered view
+const initial = new URLSearchParams(location.search);
+Object.entries(FILTERS).forEach(([k, id]) => { if (initial.get(k)) $(id).value = initial.get(k); });
 
 function normalizeMac(input) {
-  // Strip all separators and spaces
-  const raw = input.replace(/[:\-\. ]/g, '').toUpperCase();
-  if (/^[0-9A-F]{12}$/.test(raw)) {
-    // Return as colon-separated
-    return raw.match(/.{2}/g).join(':');
-  }
-  return null;
+  const raw = input.replace(/[:\-. ]/g, '').toUpperCase();
+  return /^[0-9A-F]{12}$/.test(raw) ? raw.match(/.{2}/g).join(':') : null;
 }
 
-function looksLikeMac(input) {
-  return /^([0-9a-fA-F]{2}[:\-\. ]?){5}[0-9a-fA-F]{2}$/.test(input.trim());
-}
+const table = DataTable.create({
+  mount: $('devices-table'),
+  endpoint: '/api/v1/devices',
+  exportUrl: '/api/v1/devices/export',
+  listKey: 'devices',
+  defaultSort: 'risk_score',
+  defaultOrder: 'desc',
+  syncUrl: true,
+  emptyText: 'No devices match these filters',
+  rowHref: d => `/devices/${encodeURIComponent(d.id)}`,
+  params: () => {
+    const q = $('search-input').value.trim();
+    return { q: normalizeMac(q) || q, grade: $('filter-grade').value,
+             device_type: $('filter-type').value, source: $('filter-source').value };
+  },
+  columns: [
+    { label: 'Hostname', sort: 'hostname', render: d => R.link(`/devices/${encodeURIComponent(d.id)}`, d.hostname) },
+    { label: 'User', sort: 'user', render: d => d.user ? esc(d.user) : '<span class="text-muted">--</span>' },
+    { label: 'IP', render: d => `<span class="text-mono text-sm">${esc(d.ip || '--')}</span>` },
+    { label: 'Type', sort: 'device_type', render: d => `<span class="text-sm text-muted">${esc(d.device_type)}</span>` },
+    { label: 'OS', sort: 'os', render: d => `<span class="text-sm" title="${esc(d.os || '')}">${esc((d.os || '--').slice(0, 28))}</span>` },
+    { label: 'Grade', sort: 'risk_grade', firstOrder: 'desc', render: d => R.grade(d.risk_grade) },
+    { label: 'Score', sort: 'risk_score', firstOrder: 'desc', render: d => R.score(d.risk_score) },
+    { label: 'Open', sort: 'open_findings', firstOrder: 'desc', render: d => R.num(d.open_findings) },
+    { label: 'KEV', sort: 'kev_findings', firstOrder: 'desc', render: d => d.kev_findings ? `<span class="chip chip--critical">${R.num(d.kev_findings)}</span>` : '0' },
+    { label: 'Last seen', sort: 'last_seen', firstOrder: 'desc', render: d => R.date(d.last_seen) },
+    { label: 'EDR', sort: 'edr_active', render: d => R.bool(d.edr_active) },
+    { label: 'Source', sort: 'source', render: d => `<span class="text-sm text-muted">${esc(d.source || '--')}</span>` },
+    { label: 'Tags', render: d => (d.tags || []).slice(0, 3).map(t => `<span class="chip chip--info" style="font-size:.7rem">${esc(t.split(':').pop())}</span>`).join(' ')
+        + ((d.tags || []).length > 3 ? ` <span class="text-muted text-sm">+${d.tags.length - 3}</span>` : '') },
+  ],
+});
 
-// ── Typeahead ─────────────────────────────────────────────────────────────────
-
-async function fetchSuggestions(q) {
-  if (!q || q.length < 2) return [];
-  const params = new URLSearchParams({ limit: 8, offset: 0 });
-  if (looksLikeMac(q)) {
-    const mac = normalizeMac(q);
-    if (mac) params.set('q', mac);
-    else params.set('q', q);
-  } else {
-    params.set('q', q);
-  }
-  try {
-    const data = await fetch(`${API}/devices?${params}`, { headers: { Accept: 'application/json' } });
-    if (!data.ok) return [];
-    const json = await data.json();
-    return (json.devices || []).map(d => ({
-      label: d.hostname || d.ip_address,
-      sub: d.ip_address || '',
-      type: d.device_type || 'device',
-      id: d.id,
-    }));
-  } catch { return []; }
-}
-
-function renderSuggestions(items) {
-  const dd = document.getElementById('search-dropdown');
-  if (!items.length) { dd.style.display = 'none'; _suggestVisible = false; return; }
-  dd.innerHTML = items.map((item, i) => `
-    <div class="suggest-item" data-idx="${i}" onmousedown="selectSuggestion(${i})">
-      <div>
-        <div class="suggest-item__label">${esc(item.label)}</div>
-        <div class="suggest-item__sub">${esc(item.sub)}</div>
-      </div>
-      <span class="suggest-item__type">${esc(item.type)}</span>
-    </div>
-  `).join('');
-  dd.style.display = '';
-  _suggestVisible = true;
-  _suggestIdx = -1;
-}
-
-function selectSuggestion(idx) {
-  const item = _suggestItems[idx];
-  if (!item) return;
-  document.getElementById('search-input').value = item.label;
-  hideSuggestions();
-  _page = 1;
-  loadDevices();
-}
-
-function hideSuggestions() {
-  document.getElementById('search-dropdown').style.display = 'none';
-  _suggestVisible = false;
-}
-
-function onSearchInput(val) {
-  document.getElementById('search-clear').style.display = val ? '' : 'none';
-  clearTimeout(_searchTimer);
-  _searchTimer = setTimeout(async () => {
-    _page = 1;
-    loadDevices();
-    if (val.length >= 2) {
-      _suggestItems = await fetchSuggestions(val);
-      renderSuggestions(_suggestItems);
-    } else {
-      hideSuggestions();
-    }
-  }, 220);
-}
-
-function onSearchFocus() {
-  const val = document.getElementById('search-input').value;
-  if (val.length >= 2 && _suggestItems.length) renderSuggestions(_suggestItems);
-}
-
-function onSearchBlur() {
-  setTimeout(hideSuggestions, 180);
-}
-
-function onSearchKey(e) {
-  if (!_suggestVisible) return;
-  const items = document.querySelectorAll('.suggest-item');
-  if (e.key === 'ArrowDown') {
-    e.preventDefault();
-    _suggestIdx = Math.min(_suggestIdx + 1, items.length - 1);
-  } else if (e.key === 'ArrowUp') {
-    e.preventDefault();
-    _suggestIdx = Math.max(_suggestIdx - 1, -1);
-  } else if (e.key === 'Enter' && _suggestIdx >= 0) {
-    e.preventDefault();
-    selectSuggestion(_suggestIdx);
-    return;
-  } else if (e.key === 'Escape') {
-    hideSuggestions();
-    return;
-  }
-  items.forEach((el, i) => el.classList.toggle('selected', i === _suggestIdx));
-}
-
-function clearSearch() {
-  document.getElementById('search-input').value = '';
-  document.getElementById('search-clear').style.display = 'none';
-  hideSuggestions();
-  _page = 1;
-  loadDevices();
-}
-
-// ── Table helpers ─────────────────────────────────────────────────────────────
-
-function gradeChip(g) {
-  const m = { F: 'critical', D: 'high', C: 'medium', B: 'low', A: 'info' };
-  return g ? `<span class="chip chip--${m[g] || 'info'}">${g}</span>` : '--';
-}
-function boolIcon(v) {
-  return v ? '<span style="color:var(--severity-low)">&#10003;</span>'
-           : '<span style="color:var(--severity-critical)">&#10007;</span>';
-}
-function scoreColor(s) {
-  if (s >= 80) return 'var(--severity-critical)';
-  if (s >= 60) return 'var(--severity-high)';
-  if (s >= 40) return 'var(--severity-medium)';
-  return 'var(--severity-low)';
-}
-
-async function loadDevices() {
-  const grade = document.getElementById('filter-grade').value;
-  let q = document.getElementById('search-input').value.trim();
-  if (looksLikeMac(q)) {
-    const mac = normalizeMac(q);
-    if (mac) q = mac;
-  }
-  const offset = (_page - 1) * PAGE_SIZE;
-  const params = new URLSearchParams({ limit: PAGE_SIZE, offset });
-  if (grade) params.set('grade', grade);
-  if (q) params.set('q', q);
-
-  try {
-    const res = await fetch(`${API}/devices?${params}`, { headers: { Accept: 'application/json' } });
-    const data = await res.json();
-    const devices = data.devices || [];
-    _totalCount = data.total || devices.length;
-
-    document.getElementById('devices-tbody').innerHTML = devices.map(d => `
-      <tr onclick="location.href='/devices/${esc(d.id)}'" style="cursor:pointer">
-        <td style="font-weight:600">${esc(d.hostname)}</td>
-        <td class="text-mono text-sm">${esc(d.ip_address) || '--'}</td>
-        <td class="text-sm text-muted">${esc(d.device_type) || '--'}</td>
-        <td class="text-sm">${d.os_name ? esc(d.os_name.substring(0,20)) : '--'}</td>
-        <td>${gradeChip(d.risk_grade)}</td>
-        <td>
-          <div style="display:flex;align-items:center;gap:6px">
-            <div class="score-bar" style="width:50px"><div class="score-bar__fill" style="width:${d.risk_score||0}%;background:${scoreColor(d.risk_score)}"></div></div>
-            <span class="text-sm">${d.risk_score||0}</span>
-          </div>
-        </td>
-        <td>${boolIcon(d.edr_active)}</td>
-        <td>${d.is_reachable != null ? boolIcon(d.is_reachable) : '<span class="text-muted">?</span>'}</td>
-        <td style="max-width:160px">
-          ${(d.tags||[]).slice(0,3).map(t=>`<span class="chip chip--info" style="font-size:.7rem">${esc(t.split(':').pop())}</span>`).join(' ')}
-          ${(d.tags||[]).length > 3 ? `<span class="text-muted text-sm">+${d.tags.length-3}</span>` : ''}
-        </td>
-      </tr>
-    `).join('') || '<tr><td colspan="9" class="text-muted text-sm" style="text-align:center;padding:24px">No devices found</td></tr>';
-
-    const start = offset + 1;
-    const end = Math.min(offset + devices.length, _totalCount);
-    document.getElementById('page-info').textContent = devices.length ? `${start}-${end} of ${_totalCount}` : '';
-    document.getElementById('btn-prev').disabled = _page <= 1;
-    document.getElementById('btn-next').disabled = end >= _totalCount;
-  } catch {
-    document.getElementById('devices-tbody').innerHTML = `<tr><td colspan="9" class="text-muted" style="text-align:center;padding:24px">Error loading devices</td></tr>`;
-  }
-}
-
-function prevPage() { if (_page > 1) { _page--; loadDevices(); } }
-function nextPage() { _page++; loadDevices(); }
-
-document.addEventListener('DOMContentLoaded', loadDevices);
+let timer;
+$('search-input').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => table.reload(), 300); });
+['filter-grade', 'filter-type', 'filter-source'].forEach(id => $(id).addEventListener('change', () => table.reload()));
 </script>
 {% endblock %}

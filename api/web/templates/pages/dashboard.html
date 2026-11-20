@@ -80,6 +80,14 @@
   </div>
 </div>
 
+<div class="panel" id="watch-panel" style="display:none;margin-bottom:20px">
+  <div class="panel__header">
+    <h2 class="panel__title">Suspicious activity</h2>
+    <a href="/hunt#watch" class="btn btn--ghost btn--sm">Open in Threat Hunt</a>
+  </div>
+  <div class="panel__body" id="watch-body"></div>
+</div>
+
 <!-- Two-column layout -->
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
 
@@ -156,49 +164,18 @@
   </div>
 </div>
 
-<!-- Ticket creation modal -->
-<div id="ticket-modal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,0.5);align-items:center;justify-content:center">
-  <div style="background:var(--surface);border-radius:8px;padding:28px;width:100%;max-width:480px;box-shadow:0 8px 32px rgba(0,0,0,0.3)">
-    <h2 style="margin:0 0 4px;font-size:1.1rem">Create ServiceNow Ticket</h2>
-    <p id="ticket-modal-cve" style="color:var(--text-muted);font-size:.85rem;margin:0 0 20px;font-family:monospace"></p>
-
-    <div style="display:flex;flex-direction:column;gap:14px">
-      <div>
-        <label style="font-size:.8rem;font-weight:600;display:block;margin-bottom:4px">Create via</label>
-        <div style="display:flex;gap:12px">
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-            <input type="radio" name="ticket-method" value="api" checked> ServiceNow API
-          </label>
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-            <input type="radio" name="ticket-method" value="email"> Inbound Email
-          </label>
-        </div>
-      </div>
-
-      <div>
-        <label for="ticket-assignment" style="font-size:.8rem;font-weight:600;display:block;margin-bottom:4px">Assignment Group <span style="color:var(--text-muted)">(optional)</span></label>
-        <input id="ticket-assignment" type="text" placeholder="e.g. Security Operations"
-          style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:.9rem">
-      </div>
-
-      <div>
-        <label for="ticket-notes" style="font-size:.8rem;font-weight:600;display:block;margin-bottom:4px">Additional Notes <span style="color:var(--text-muted)">(optional)</span></label>
-        <textarea id="ticket-notes" rows="3" placeholder="Any context for the responder..."
-          style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text);font-size:.9rem;resize:vertical"></textarea>
-      </div>
-    </div>
-
-    <div id="ticket-result" style="display:none;margin-top:14px;padding:10px 14px;border-radius:4px;font-size:.85rem"></div>
-
-    <div style="display:flex;gap:10px;margin-top:20px;justify-content:flex-end">
-      <button class="btn btn--ghost btn--sm" onclick="closeTicketModal()">Cancel</button>
-      <button id="ticket-submit-btn" class="btn btn--primary btn--sm" onclick="submitTicket()">Create Ticket</button>
-    </div>
-  </div>
-</div>
 {% endblock %}
 
 {% block extra_scripts %}
+<style>
+.watch-item { display: flex; gap: 12px; align-items: flex-start; padding: 12px 16px; border-bottom: 1px solid var(--border);
+  color: inherit; text-decoration: none; }
+.watch-item:hover { background: var(--surface); }
+.watch-item__text { display: flex; flex-direction: column; gap: 2px; }
+.watch-foot { padding: 10px 16px; margin: 0; }
+</style>
+<script src="{{ static('js/dashboard_watch.js') }}" defer></script>
+<script src="{{ static('js/ticket_modal.js') }}"></script>
 <script>
 const API = '/api/v1';
 let activeFilters = {};
@@ -220,48 +197,58 @@ function boolIcon(v) {
     : '<span style="color:var(--severity-critical)">&#10007;</span>';
 }
 
+function filterParams() {
+  // Owner/app/env filters are tag names; grade is its own filter
+  const p = new URLSearchParams();
+  Object.entries(activeFilters).forEach(([k, v]) => p.append(k === 'grade' ? 'grade' : 'tag', v));
+  return p;
+}
+
+function setCard(id, value, href) {
+  const el = document.getElementById(id);
+  el.textContent = Number(value || 0).toLocaleString();
+  const card = el.closest('.summary-card');
+  card.classList.add('stat-card--link');
+  card.dataset.href = href;
+  card.setAttribute('role', 'link');
+  card.tabIndex = 0;
+}
+
 async function loadSummary() {
   try {
-    const params = new URLSearchParams(activeFilters);
-    const data = await fetchJson(`${API}/devices?limit=200&${params}`);
-    const devices = data.devices || [];
+    const params = filterParams();
+    const [sum, top] = await Promise.all([
+      fetchJson(`${API}/devices/summary?${params}`),
+      fetchJson(`${API}/devices?limit=10&sort=risk_score&order=desc&${params}`),
+    ]);
+    const link = extra => { const p = filterParams(); Object.entries(extra).forEach(([k, v]) => p.set(k, v)); return `/devices?${p}`; };
+    setCard('count-f', sum.grades.F, link({ grade: 'F' }));
+    setCard('count-d', sum.grades.D, link({ grade: 'D' }));
+    setCard('count-c', sum.grades.C, link({ grade: 'C' }));
+    setCard('count-kev', sum.kev_devices, link({ sort: 'kev_findings', order: 'desc' }));
+    setCard('count-total', sum.total, link({}));
 
-    document.getElementById('count-total').textContent = devices.length;
-    document.getElementById('count-f').textContent = devices.filter(d => d.risk_grade === 'F').length;
-    document.getElementById('count-d').textContent = devices.filter(d => d.risk_grade === 'D').length;
-    document.getElementById('count-c').textContent = devices.filter(d => d.risk_grade === 'C').length;
-
-    // Top 10 by score
-    const top = devices.slice(0, 10);
-    document.getElementById('top-devices-tbody').innerHTML = top.map(d => `
+    const devices = top.devices || [];
+    document.getElementById('top-devices-tbody').innerHTML = devices.map(d => `
       <tr onclick="location.href='/devices/${encodeURIComponent(d.id)}'">
         <td><a href="/devices/${encodeURIComponent(d.id)}" style="color:inherit;text-decoration:none;font-weight:600">${esc(d.hostname)}</a></td>
         <td>${gradeChip(d.risk_grade)}</td>
         <td>
           <div style="display:flex;align-items:center;gap:8px">
-            <div class="score-bar" style="width:60px"><div class="score-bar__fill" style="width:${d.risk_score || 0}%;background:${scoreColor(d.risk_score)}"></div></div>
-            <span class="text-sm">${d.risk_score || 0}</span>
+            <div class="score-bar" style="width:60px"><div class="score-bar__fill" style="width:${Number(d.risk_score) || 0}%;background:${scoreColor(d.risk_score)}"></div></div>
+            <span class="text-sm">${esc(d.risk_score ?? 0)}</span>
           </div>
         </td>
         <td>${boolIcon(d.edr_active)}</td>
       </tr>
     `).join('') || '<tr><td colspan="4" class="text-muted text-sm" style="text-align:center;padding:16px">No devices found</td></tr>';
 
-    // Environment breakdown from tags
-    const envMap = {};
-    devices.forEach(d => {
-      const env = (d.tags || []).find(t => t.startsWith('env:')) || 'Unknown';
-      if (!envMap[env]) envMap[env] = { count: 0, scores: [], crit: 0 };
-      envMap[env].count++;
-      envMap[env].scores.push(d.risk_score || 0);
-      if (d.risk_grade === 'F') envMap[env].crit++;
-    });
-    document.getElementById('env-breakdown-tbody').innerHTML = Object.entries(envMap).map(([env, v]) => `
+    document.getElementById('env-breakdown-tbody').innerHTML = (sum.environments || []).map(e => `
       <tr>
-        <td>${esc(env.replace('env:', ''))}</td>
-        <td>${v.count}</td>
-        <td>${(v.scores.reduce((a, b) => a + b, 0) / v.scores.length).toFixed(1)}</td>
-        <td>${v.crit > 0 ? `<span class="chip chip--critical">${v.crit}</span>` : '<span class="text-muted">0</span>'}</td>
+        <td>${esc(e.env)}</td>
+        <td>${Number(e.devices).toLocaleString()}</td>
+        <td>${e.avg_score == null ? '--' : esc(e.avg_score)}</td>
+        <td>${e.critical > 0 ? `<span class="chip chip--critical">${Number(e.critical).toLocaleString()}</span>` : '<span class="text-muted">0</span>'}</td>
       </tr>
     `).join('') || '<tr><td colspan="4" class="text-muted text-sm" style="text-align:center;padding:16px">No data</td></tr>';
 
@@ -284,11 +271,11 @@ async function loadSummary() {
 
 async function loadKEV() {
   try {
-    const data = await fetchJson(`${API}/vulns?is_kev=true&limit=20`);
+    const data = await fetchJson(`${API}/vulns?is_kev=true&affected_only=true&sort=affected&order=desc&limit=20`);
     const vulns = data.vulns || [];
     document.getElementById('kev-tbody').innerHTML = vulns.map(v => `
       <tr>
-        <td class="text-mono text-sm">${esc(v.cve_id || 'N/A')}</td>
+        <td class="text-mono text-sm"><a class="dt-link" href="/vulns/${encodeURIComponent(v.id)}">${esc(v.cve_id || 'N/A')}</a></td>
         <td>${v.cvss_base ? v.cvss_base.toFixed(1) : '--'}</td>
         <td>${v.epss_score ? (v.epss_score * 100).toFixed(1) + '%' : '--'}</td>
         <td>${v.is_kev ? '<span class="chip chip--critical">KEV</span>' : ''}</td>
@@ -307,70 +294,7 @@ async function loadKEV() {
   } catch (e) { /* silent */ }
 }
 
-// ── Ticket modal ──────────────────────────────────────────────────────────────
-let _ticketVulnId = null;
 
-function openTicketModal(vulnId, cveLabel) {
-  _ticketVulnId = vulnId;
-  document.getElementById('ticket-modal-cve').textContent = cveLabel;
-  document.getElementById('ticket-assignment').value = '';
-  document.getElementById('ticket-notes').value = '';
-  document.getElementById('ticket-result').style.display = 'none';
-  document.getElementById('ticket-submit-btn').disabled = false;
-  document.getElementById('ticket-submit-btn').textContent = 'Create Ticket';
-  document.getElementById('ticket-modal').style.display = 'flex';
-}
-
-function closeTicketModal() {
-  document.getElementById('ticket-modal').style.display = 'none';
-  _ticketVulnId = null;
-}
-
-async function submitTicket() {
-  if (!_ticketVulnId) return;
-  const method = document.querySelector('input[name="ticket-method"]:checked')?.value || 'api';
-  const assignmentGroup = document.getElementById('ticket-assignment').value.trim() || null;
-  const notes = document.getElementById('ticket-notes').value.trim() || null;
-  const btn = document.getElementById('ticket-submit-btn');
-  const resultEl = document.getElementById('ticket-result');
-
-  btn.disabled = true;
-  btn.textContent = 'Creating...';
-  resultEl.style.display = 'none';
-
-  try {
-    // Find a finding ID for this vuln -- use first open finding
-    const findingsData = await fetchJson(`${API}/vulns/${_ticketVulnId}/findings?limit=1`).catch(() => null);
-    const findingId = findingsData?.findings?.[0]?.id;
-    if (!findingId) throw new Error('No open finding found for this vulnerability');
-
-    const res = await fetch(`${API}/vulns/findings/${findingId}/ticket`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ method, assignment_group: assignmentGroup, notes }),
-    });
-    const data = await res.json();
-
-    if (!res.ok) throw new Error(data.detail || 'Ticket creation failed');
-
-    const ticketNum = esc(data.number || 'pending');
-    const safeUrl = /^https?:\/\//i.test(data.url || '') ? esc(data.url) : '';
-    const ticketUrl = safeUrl ? `<a href="${safeUrl}" target="_blank" rel="noopener" style="color:var(--accent)">${ticketNum}</a>` : ticketNum;
-    resultEl.style.cssText = 'display:block;background:rgba(46,125,50,.15);color:var(--severity-low);border:1px solid var(--severity-low)';
-    resultEl.innerHTML = `&#10003; Ticket created: <strong>${ticketUrl}</strong>${data.sent_to ? `<br><small>Sent to ${esc(data.sent_to)}</small>` : ''}`;
-    btn.textContent = 'Done';
-  } catch (err) {
-    resultEl.style.cssText = 'display:block;background:rgba(204,0,0,.1);color:var(--severity-critical);border:1px solid var(--severity-critical)';
-    resultEl.textContent = err.message;
-    btn.disabled = false;
-    btn.textContent = 'Retry';
-  }
-}
-
-// Close modal on backdrop click
-document.addEventListener('click', e => {
-  if (e.target.id === 'ticket-modal') closeTicketModal();
-});
 
 async function loadTagFilters() {
   try {
@@ -410,6 +334,15 @@ function clearFilters() {
 }
 
 function refreshDashboard() { loadSummary(); loadKEV(); }
+
+document.getElementById('summary-cards').addEventListener('click', e => {
+  const card = e.target.closest('.summary-card[data-href]');
+  if (card && !e.target.closest('a')) location.href = card.dataset.href;
+});
+document.getElementById('summary-cards').addEventListener('keydown', e => {
+  const card = e.target.closest('.summary-card[data-href]');
+  if (card && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); location.href = card.dataset.href; }
+});
 
 function scoreColor(s) {
   if (s >= 80) return 'var(--severity-critical)';

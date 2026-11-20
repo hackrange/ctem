@@ -29,6 +29,9 @@ _CSP = (
 )
 
 
+_ROBOTS = "noindex, nofollow, noarchive, nosnippet, noimageindex, noai, noimageai"
+
+
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         response = await call_next(request)
@@ -39,6 +42,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=()"
         response.headers["Content-Security-Policy"] = _CSP
+        # Private app: keep it out of search engines and AI crawlers/training
+        response.headers["X-Robots-Tag"] = _ROBOTS
         # Remove fingerprinting headers (MutableHeaders uses __delitem__, not pop)
         for _hdr in ("server", "x-powered-by"):
             try:
@@ -53,6 +58,9 @@ class OriginCheckMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         if request.method in _SAFE_METHODS or request.headers.get("authorization", "").lower().startswith("bearer "):
+            return await call_next(request)
+        # Collector agent API never reads cookies, so there is no session for a cross-site request to ride
+        if request.url.path.startswith("/api/v1/collector/"):
             return await call_next(request)
         if request.headers.get("sec-fetch-site") == "same-origin":
             return await call_next(request)
@@ -74,7 +82,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
     # Only count actual credential submissions, not page loads
     _AUTH_PATHS = {"/api/v1/auth/token", "/api/v1/auth/login", "/auth/login", "/auth/totp",
-                   "/api/v1/profile/password", "/api/v1/auth/totp/verify"}
+                   "/api/v1/profile/password", "/api/v1/auth/totp/verify",
+                   "/api/v1/collector/enroll", "/api/v1/collector/enroll-login",
+                   "/api/v1/collector/login-check"}
 
     def __init__(self, app: ASGIApp, redis_url: str) -> None:
         super().__init__(app)
