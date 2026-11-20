@@ -41,9 +41,10 @@ def create_app() -> FastAPI:
         title="open-ctem",
         version=settings.app_version,
         # No public API map in production
-        docs_url="/api/docs" if settings.debug else None,
-        redoc_url="/api/redoc" if settings.debug else None,
-        openapi_url="/api/openapi.json" if settings.debug else None,
+        # Docs are served by api.routes.api_docs to signed-in admins and cyber analysts only
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
         lifespan=lifespan,
     )
 
@@ -63,6 +64,8 @@ def create_app() -> FastAPI:
     # ── Routers ───────────────────────────────────────────────────────────────
     from api.routes.auth import router as auth_router
     from api.routes.admin import router as admin_router
+    from api.routes.api_docs import router as api_docs_router
+    from api.routes.device_assign import router as device_assign_router
     from api.routes.devices import router as devices_router
     from api.routes.integrations import router as integrations_router
     from api.routes.cmdb import router as cmdb_router
@@ -84,6 +87,8 @@ def create_app() -> FastAPI:
 
     app.include_router(auth_router)
     app.include_router(admin_router)
+    app.include_router(api_docs_router)
+    app.include_router(device_assign_router)  # before devices so /assignable-users never hits /{device_id}
     app.include_router(devices_router)
     app.include_router(integrations_router)
     app.include_router(cmdb_router)

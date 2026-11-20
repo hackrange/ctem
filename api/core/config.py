@@ -57,6 +57,8 @@ class Settings(BaseSettings):
     app_version: str = "1.0.1"
     # Country assumed for directory phone numbers with no country of their own (ISO 3166 alpha-2)
     phone_default_region: str = Field("US", pattern=r"^[A-Za-z]{2}$")
+    # Comma-separated prefixes of admin/alt accounts that belong to a person (sulocal_jdoe -> jdoe)
+    account_alias_prefixes: str = Field("sulocal_", max_length=512, pattern=r"^[A-Za-z0-9_.,-]*$")
 
     # ── Email ─────────────────────────────────────────────────────────────────
     # EMAIL_MODE: smtp | ms365 | disabled

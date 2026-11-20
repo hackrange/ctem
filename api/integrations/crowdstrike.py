@@ -88,8 +88,12 @@ class CrowdStrikeConnector(BaseConnector):
     async def _upsert(self, devices: list[dict], detections: list[dict], db: AsyncSession) -> int:
         from api.core.device_match import add_source, find_device, type_from_os
         from api.core.encryption import search_hash
+        from sqlalchemy import inspect as sa_inspect
+
+        from api.core.user_match import UserIndex, bare
         from api.models.device import Device, DeviceType
 
+        people = await UserIndex.load(db)
         count = 0
         for d in devices:
             hostname = d.get("hostname") or d.get("device_id")
@@ -117,7 +121,13 @@ class CrowdStrikeConnector(BaseConnector):
             user = (d.get("last_login_user") or "").strip()
             if user and not any(ord(ch) < 32 for ch in user):
                 dev.last_login_user = user[:256]
-                dev.last_login_user_hash = search_hash(user.split("\\")[-1])
+                dev.last_login_user_hash = search_hash(bare(user))
+                # Detected user; a person's assignment lives in device_assignments and wins over this
+                owner = people.resolve(user)[0]
+                if owner != dev.owner_user_id:
+                    dev.owner_user_id = owner
+                    if dev.id and "owner" not in sa_inspect(dev).unloaded:
+                        db.expire(dev, ["owner"])  # don't serve the previous person from the session cache
             dev.edr_last_seen = __import__("datetime").datetime.utcnow()
             count += 1
 

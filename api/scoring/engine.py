@@ -139,10 +139,17 @@ async def recalculate_user(user_model, db: AsyncSession) -> RiskScore | None:
             log.warning("identity score lookup failed; scoring without it", exc_info=True)
 
     # Gather devices this user owns for blast radius calculation
+    from sqlalchemy import or_
+
     from api.models.device import Device as DeviceModel
-    dev_result = await db.execute(
-        select(DeviceModel).where(DeviceModel.owner_user_id == user_model.id)
-    )
+    from api.models.device import DeviceAssignment
+    # Assigned machines count for the person they're assigned to; detected ones only when nobody assigned them
+    assigned = select(DeviceAssignment.device_id).where(DeviceAssignment.user_id == user_model.id)
+    taken = select(DeviceAssignment.device_id).where(DeviceAssignment.user_id.is_not(None))
+    dev_result = await db.execute(select(DeviceModel).where(or_(
+        DeviceModel.id.in_(assigned),
+        (DeviceModel.owner_user_id == user_model.id) & DeviceModel.id.not_in(taken),
+    )))
     devices = dev_result.scalars().all()
     device_scores = [d.risk_score for d in devices if d.risk_score is not None]
 

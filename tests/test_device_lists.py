@@ -109,10 +109,13 @@ async def test_tag_scoped_user_sees_only_their_devices(client_it_user, it_user, 
     await db.flush()
     db.add(GroupTagAccess(role_name="it_user", tag_id=tag.id))
     mine = Device(hostname="visible.acme.example", device_type=DeviceType.server, source=src)
-    owned = Device(hostname="owned.acme.example", device_type=DeviceType.server, source=src, owner_user_id=it_user.id)
-    db.add_all([mine, owned])
+    owned = Device(hostname="owned.acme.example", device_type=DeviceType.server, source=src)
+    seen = Device(hostname="seen.acme.example", device_type=DeviceType.server, source=src, owner_user_id=it_user.id)
+    db.add_all([mine, owned, seen])
     await db.flush()
     db.add(DeviceTag(device_id=mine.id, tag_id=tag.id))
+    from api.models.device import DeviceAssignment
+    db.add(DeviceAssignment(device_id=owned.id, user_id=it_user.id))  # assigned: visible; only seen signing in: not
     await db.commit()
 
     data = (await client_it_user.get("/api/v1/devices", params={"source": src})).json()
