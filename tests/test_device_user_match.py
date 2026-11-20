@@ -88,3 +88,34 @@ async def test_upn_links_sign_ins_finds_devices_and_shows_on_the_device(db, clie
     assert (d["detected_user_upn"], d["detected_user_title"]) == (upn, "Field Tech")
     users = (await client_admin.get("/api/v1/admin/users", params={"q": upn})).json()["users"]
     assert [u["username"] for u in users] == [name] and users[0]["upn"] == upn
+
+
+@pytest.mark.asyncio
+async def test_login_history_finds_the_owner_behind_kiosk_sign_ins(db, client_admin):
+    from api.integrations.crowdstrike import CrowdStrikeConnector
+    from api.maintenance.backfill_sources import run as backfill
+    from api.models.device import Device
+
+    name, host = _n(), _n()
+    person = await _dir_user(db, name)
+    await CrowdStrikeConnector({})._upsert([{"hostname": host.upper(), "status": "normal", "last_login_user": "SpecopsClient_150209",
+                                             "recent_logins": ["SpecopsClient_150209", f"sulocal_{name}", f"ACME\\{name}"]}], [], db)
+    dev = (await db.execute(select(Device).where(Device.host_key == host))).scalar_one()
+    assert dev.owner_user_id == person.id and dev.last_login_user == "SpecopsClient_150209"
+
+    # A run without history (older shipper) keeps what we learned; so does the backfill
+    await CrowdStrikeConnector({})._upsert([{"hostname": host.upper(), "status": "normal", "last_login_user": "kioskUser0"}], [], db)
+    await backfill(db)
+    await db.refresh(dev)
+    assert dev.owner_user_id == person.id
+    d = (await client_admin.get(f"/api/v1/devices/{dev.id}")).json()
+    assert d["recent_logins"][1] == f"sulocal_{name}" and d["detected_user"] == name
+
+
+def test_source_chips_read_ad_r7_cs():
+    from types import SimpleNamespace as NS
+
+    from api.routes.device_query import source_codes
+
+    assert source_codes(NS(sources=",crowdstrike,ldap,rapid7_insightvm,", source="rapid7_insightvm")) == ["AD", "R7", "CS"]
+    assert source_codes(NS(sources=",newthing,crowdstrike,", source=None)) == ["CS", "NEWTHING"]

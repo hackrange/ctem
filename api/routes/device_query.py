@@ -237,6 +237,8 @@ def owner_label(d: Device) -> str | None:
 
 def source_codes(d: Device) -> list[str]:
     names = source_list(d) or ([d.source] if d.source else [])
+    order = list(SOURCE_CODES)
+    names = sorted(names, key=lambda n: order.index(n) if n in order else len(order))
     return [SOURCE_CODES.get(n, n.upper()) for n in names]
 
 

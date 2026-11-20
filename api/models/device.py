@@ -8,7 +8,7 @@ from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Integer, Stri
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from api.core.device_match import NOT_HOSTS, add_source, host_key
-from api.core.encryption import EncryptedString
+from api.core.encryption import EncryptedJSON, EncryptedString
 from api.models.base import Base, TimestampMixin, UUIDPrimaryKey
 
 
@@ -50,6 +50,7 @@ class Device(Base, UUIDPrimaryKey, TimestampMixin):
     last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     last_login_user: Mapped[str | None] = mapped_column(EncryptedString)
     last_login_user_hash: Mapped[str | None] = mapped_column(String(64), index=True)
+    recent_logins: Mapped[list | None] = mapped_column(EncryptedJSON)   # newest first, from the EDR's login history
 
     # Endpoint protection
     edr_vendor: Mapped[str | None] = mapped_column(String(64))  # crowdstrike, sentinelone, defender, none

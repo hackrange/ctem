@@ -105,6 +105,7 @@ class CsDevice(_Lax):
     product_type: Annotated[str, StringConstraints(strip_whitespace=True, max_length=64, pattern=r"^[^\x00-\x1f]+$")] | None = None
     firewall_enabled: bool | None = None
     usb_storage_blocked: bool | None = None
+    recent_logins: list[Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=256, pattern=r"^[^\x00-\x1f]+$")]] | None = Field(None, max_length=20)
 
 
 class CsHost(_Lax):

@@ -93,9 +93,10 @@ class _Policies:
             try:
                 rows = self.api.call("GET", f"{path}?{q}").get("resources") or []
             except cc.HttpError as e:
-                if e.status in (401, 403):
+                if e.status in (401, 403, 404):
                     if kind not in self.denied:
-                        cc.say(f"  CrowdStrike: no read access to {kind} policies; that column stays blank")
+                        why = "isn't available on this cloud" if e.status == 404 else "needs read access"
+                        cc.say(f"  CrowdStrike: {kind} policy API {why}; that column stays blank")
                     self.denied.add(kind)
                     for x in todo:
                         into[x] = None
@@ -147,13 +148,64 @@ class _Policies:
         return mass.get("action") == "BLOCK_ALL"
 
 
+class _Logins:
+    """Recent sign-ins per host, so a kiosk or password-reset account signing in last doesn't hide the owner."""
+    PATHS = ("/devices/combined/devices/login-history/v2", "/devices/combined/devices/login-history/v1")
+    KEEP = 10
+
+    def __init__(self, api):
+        self.api, self.off, self.paths = api, False, list(self.PATHS)
+
+    def _call(self, ids):
+        while self.paths:
+            try:
+                return self.api.call("POST", self.paths[0], {"ids": ids}).get("resources") or []
+            except cc.HttpError as e:
+                if e.status == 404:  # older clouds only have v1
+                    self.paths.pop(0)
+                    continue
+                if e.status in (401, 403):
+                    cc.say("  CrowdStrike: no access to login history; using the last sign-in only")
+                    self.off = True
+                    return []
+                raise
+        self.off = True
+        return []
+
+    def load(self, rows):
+        out = {}
+        ids = [d["device_id"] for d in rows if isinstance(d.get("device_id"), str) and _ID.match(d["device_id"])]
+        for i in range(0, len(ids), 100):
+            if self.off:
+                break
+            for r in self._call(ids[i:i + 100]):
+                if isinstance(r, dict) and isinstance(r.get("device_id"), str):
+                    out[r["device_id"]] = _recent(r.get("recent_logins"), self.KEEP)
+        return out
+
+
+def _recent(logins, keep):
+    """Newest first, one entry per name."""
+    rows = [x for x in (logins or []) if isinstance(x, dict)]
+    rows.sort(key=lambda x: str(x.get("login_time") or ""), reverse=True)
+    names, seen = [], set()
+    for x in rows:
+        n = _user(x.get("user_name"))
+        if n and n.lower() not in seen:
+            seen.add(n.lower())
+            names.append(n)
+        if len(names) == keep:
+            break
+    return names
+
+
 def _policy_id(d, name):
     p = ((d.get("device_policies") or {}).get(name) or {})
     pid = p.get("policy_id")
     return pid if p.get("applied") and isinstance(pid, str) and _ID.match(pid) else None
 
 
-def _device(d, policies=None):
+def _device(d, policies=None, logins=None):
     did = d.get("device_id")
     return {"device_id": did if isinstance(did, str) and _ID.match(did) else None,
             "hostname": (d.get("hostname") or "")[:253] or None,
@@ -162,7 +214,8 @@ def _device(d, policies=None):
             "last_login_user": _user(d.get("last_login_user")),
             "product_type": (d.get("product_type_desc") or "")[:64] or None,
             "firewall_enabled": policies.firewall_on(d) if policies else None,
-            "usb_storage_blocked": policies.usb_blocked(d) if policies else None}
+            "usb_storage_blocked": policies.usb_blocked(d) if policies else None,
+            "recent_logins": (logins or {}).get(d.get("device_id")) or None}
 
 
 def _user(v):
@@ -183,12 +236,13 @@ def _alert(a):
 
 def collect(s, secret, state):
     api = _Falcon(s, secret)
-    policies = _Policies(api)
+    policies, history = _Policies(api), _Logins(api)
     ids = _device_ids(api)  # scroll cursors expire fast, so grab every id before shipping
     for i in range(0, len(ids), 500):
         rows = api.call("POST", "/devices/entities/devices/v2", {"ids": ids[i:i + 500]}).get("resources") or []
         policies.load(rows)
-        yield {"devices": [_device(d, policies) for d in rows]}
+        logins = history.load(rows)
+        yield {"devices": [_device(d, policies, logins) for d in rows]}
     for offset in range(0, 10000, 1000):  # the alerts query endpoint stops at 10k
         q = f"/alerts/queries/alerts/v2?limit=1000&offset={offset}&filter=status:'new'"
         found = api.call("GET", q.replace("'", "%27")).get("resources") or []

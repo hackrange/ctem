@@ -273,3 +273,33 @@ def test_ldap_user_upn():
     assert u["upn"] == "jane.doe@ad.acme.example"
     bad = ldapmod._user({"dn": "", "attributes": {"sAMAccountName": "x", "userPrincipalName": "no at sign"}}, True)
     assert bad["upn"] is None
+
+
+def test_crowdstrike_login_history_newest_real_names_first():
+    did = "f" * 32
+
+    class FakeApi:
+        def __init__(self, status=None):
+            self.status, self.paths = status, []
+
+        def call(self, method, path, body=None):
+            self.paths.append(path)
+            if self.status and (self.status != 404 or path.endswith("/v2")):
+                raise cc.HttpError(self.status, "nope")
+            assert method == "POST" and body == {"ids": [did]}
+            return {"resources": [{"device_id": did, "recent_logins": [
+                {"user_name": "SpecopsClient_150209", "login_time": "2026-11-20T10:00:00Z"},
+                {"user_name": "ACME\\jdoe", "login_time": "2026-11-19T08:00:00Z"},
+                {"user_name": "acme\\JDOE", "login_time": "2026-11-18T08:00:00Z"},
+                {"user_name": "bad\nname", "login_time": "2026-11-20T11:00:00Z"}]}]}
+
+    rows = [{"device_id": did, "hostname": "DESKTOP001"}, {"device_id": "nothex"}]
+    logins = cs._Logins(FakeApi()).load(rows)
+    assert logins == {did: ["SpecopsClient_150209", "ACME\\jdoe"]}
+    assert cs._device(rows[0], None, logins)["recent_logins"] == ["SpecopsClient_150209", "ACME\\jdoe"]
+    assert cs._device(rows[0])["recent_logins"] is None
+
+    old = FakeApi(status=404)  # v2 missing falls back to v1
+    assert cs._Logins(old).load(rows) == logins and old.paths[-1].endswith("/v1")
+    denied = cs._Logins(FakeApi(status=403))
+    assert denied.load(rows) == {} and denied.off

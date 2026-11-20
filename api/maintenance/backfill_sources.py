@@ -21,6 +21,7 @@ async def run(db: AsyncSession) -> dict:
     for device_id, src in (await db.execute(select(Finding.device_id, Finding.source).distinct())).all():
         seen[device_id].add(src)
     from api.core.user_match import UserIndex
+    from api.integrations.crowdstrike import detected_owner
 
     people = await UserIndex.load(db)
     changed = servers = linked = 0
@@ -31,8 +32,8 @@ async def run(db: AsyncSession) -> dict:
             add_source(d, name)
         d.device_type = type_from_os(d.os, d.device_type)
         remember_fqdn(d, d.hostname)  # Rapid7 names like desktop001.ad.acme.example are the FQDN
-        if d.last_login_user:
-            d.owner_user_id = people.resolve(d.last_login_user)[0]
+        if d.last_login_user or d.recent_logins:
+            d.owner_user_id = detected_owner(people, d.last_login_user, d.recent_logins or [])
             linked += d.owner_user_id is not None
         changed += d.sources != before
         servers += kind != d.device_type and d.device_type == DeviceType.server

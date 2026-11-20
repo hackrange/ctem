@@ -11,6 +11,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 - Devices link to the directory user CrowdStrike saw signing in last (`DOMAIN\user`, `user@domain`, and prefixes in `ACCOUNT_ALIAS_PREFIXES`, default `sulocal_`). Discovered Users shows assigned and detected device counts, and user risk now counts assigned devices first, then detected ones nobody assigned. `backfill_sources` links existing devices
 - REST API docs at `/api/docs` for signed-in admins and cyber analysts (Swagger UI pinned on cdnjs with Subresource Integrity); still hidden from anonymous visitors
 - Inventory search matches people by partial username, whether the device is assigned to them or they were seen signing in, and finds admin-alias sign-ins by the bare name (`jdoe` finds `sulocal_jdoe`)
+- CrowdStrike login history (shipper 1.0.4, *Hosts: Read*): each host's last 10 distinct sign-ins, newest first, stored encrypted and listed on the device page. The detected user is the last sign-in if it's a directory user, else the newest real account in the history, with admin aliases only as a last resort, so `SpecopsClient_…` and `kioskUser0` sign-ins no longer hide the owner. Runs from an older shipper and `backfill_sources` keep what the history found
 - User principal name (UPN) from AD (`userPrincipalName`, encrypted at rest with a search hash). Sign-ins in UPN form (`mark.langston@ad.acme.example`) link to that person even when the name part isn't their username; device inventory and Discovered Users search accept a full UPN (any case); the device page shows the assigned and detected user's UPN and job title, and Discovered Users shows the UPN under the username. Needs the shipper upgrade below (re-run its installer); the in-app LDAP connector reads it too
 - Shipper 1.0.3: reads `userPrincipalName`. The version was still 1.0.2 after the name/title/phone fields were added, so 1.0.3 is also the first that reports it sends them
 - Admin-alias sign-ins that use a first name (`sulocal_akash`) link to the one active directory user with that first name; if two people share it, nobody gets linked
@@ -56,6 +57,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 - Dependencies upgraded to clear all known advisories (FastAPI/Starlette, Authlib, cryptography, Pillow, Jinja2, python-multipart); python-jose replaced with PyJWT
 
 ### Fixed
+- CrowdStrike shipper: a firewall or device-control policy API that returns 404 now leaves that column blank instead of failing the whole CrowdStrike run
 - A slow Rapid7 console (or a proxy in front of it) failed the whole run with "The read operation timed out": the shipper asked for 500 assets per page with a 2-minute limit. It now starts at 200 per page with a 5-minute limit and, on a timeout, retries the same position with 100, 50, then 25 rows instead of giving up
 - CMDB looked empty: the hostname sort put bare-IP scanner assets (no FQDN, no OS) first, Owner only used an explicit owner (never set), and Environment only read `env:` tags. Named hosts now sort before bare IPs, Owner falls back to the last signed-in user, Environment comes from an `env:` tag or the AD OU path (Prod, Dev, QA, Stg, UAT, Test), and the FQDN is filled from Rapid7's full host name where it was missing (`backfill_sources` repairs existing rows)
 - CMDB showed only the first 200 devices and reported that as the total. The page now pages server-side (25 to 200 per page) with the real total, search (hostname, FQDN, OS), type filter and sorting; tag-scoped users no longer see devices counted twice; the ServiceNow JSON export is no longer cut off at 10,000 CIs and carries the normalized name, FQDN, sources, firewall and USB fields
@@ -96,6 +98,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 ### Changed
 - Device inventory's User column is just the name (a check mark when assigned); assigning, status and last sign-in details live on the device page
 - Device page: long FQDNs wrap at the dots instead of spilling into the next column
+- Device page shows every source as a short chip instead of the raw `rapid7_insightvm` name, and chips everywhere read in one order: AD, R7, CS, then the rest
 - Test and SBOM tooling moved to `requirements-dev.txt` so they no longer ship in the image
 - CycloneDX SBOM added at `sbom.cdx.json`
 - Example credentials declared in `.github/secret_scanning.yml` and `.gitleaks.toml`
