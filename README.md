@@ -152,10 +152,18 @@ cp .env.example .env
 docker compose -f docker/docker-compose.yml --env-file .env up -d
 
 # App:   https://localhost
-# Docs:  https://localhost/api/docs  (DEBUG=true only)
+# Docs:  https://localhost/api/docs  (signed-in admin or cyber analyst)
 ```
 
 Requirements: Docker 24+, Docker Compose v2.
+
+### Upgrading a server
+
+```bash
+sudo bash /data/docker/ctem/install.sh --upgrade
+```
+
+It refuses to run over uncommitted local changes, backs up the database to `.backups/`, fast-forwards the checkout from `origin`, pulls the base images, rebuilds the app, worker and beat images, restarts the stack and waits for `/health`. If the app doesn't come up healthy it rolls the code back and rebuilds the previous version. A local `docker/docker-compose.override.yml` is honored. Schema changes apply on startup, so there's no separate migration step. Shippers on other boxes are upgraded separately (see On-prem shippers).
 
 ### Behind an upstream load balancer
 
