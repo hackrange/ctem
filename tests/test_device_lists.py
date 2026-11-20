@@ -60,7 +60,7 @@ async def test_search_hostname_ip_mac_and_like_wildcards(client_admin, db):
     by_name = (await client_admin.get("/api/v1/devices", params={"source": src, "q": "host-001"})).json()
     assert by_name["total"] == 10  # host-0010..0019
     by_ip = (await client_admin.get("/api/v1/devices", params={"source": src, "q": "192.0.2.7"})).json()
-    assert [(d["hostname"], d["fqdn"]) for d in by_ip["devices"]] == [("host-0007", "host-0007.acme.example")]
+    assert [(d["hostname"], d["fqdn"]) for d in by_ip["devices"]] == [("HOST-0007", "HOST-0007.ACME.EXAMPLE")]
     assert by_ip["devices"][0]["ip"] == "192.0.2.7"
     by_mac = (await client_admin.get("/api/v1/devices", params={"source": src, "q": "00:00:5e:00:53:0a"})).json()
     assert by_mac["total"] == 1
@@ -116,7 +116,7 @@ async def test_tag_scoped_user_sees_only_their_devices(client_it_user, it_user, 
     await db.commit()
 
     data = (await client_it_user.get("/api/v1/devices", params={"source": src})).json()
-    assert sorted(d["fqdn"] for d in data["devices"]) == ["owned.acme.example", "visible.acme.example"]
+    assert sorted(d["fqdn"] for d in data["devices"]) == ["OWNED.ACME.EXAMPLE", "VISIBLE.ACME.EXAMPLE"]
     assert data["total"] == 2
     s = (await client_it_user.get("/api/v1/devices/summary", params={"source": src})).json()
     assert s["total"] == 2

@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.core.ssrf import safe_client
 from api.integrations.base import BaseConnector, register
 from api.models.integration import Vendor
-from api.core.device_match import find_device
+from api.core.device_match import add_source, find_device
 
 log = logging.getLogger("open-ctem.sentinelone")
 
@@ -90,6 +90,7 @@ class SentinelOneConnector(BaseConnector):
                 dev = Device(hostname=hostname, device_type=DeviceType.workstation, source="sentinelone")
                 db.add(dev)
                 await db.flush()
+            add_source(dev, "sentinelone")
 
             dev.os = a.get("osName")
             dev.edr_vendor = "sentinelone"

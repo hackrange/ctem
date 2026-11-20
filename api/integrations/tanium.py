@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.core.ssrf import safe_client
 from api.integrations.base import BaseConnector, register
 from api.models.integration import Vendor
-from api.core.device_match import find_device
+from api.core.device_match import add_source, find_device
 
 log = logging.getLogger("open-ctem.tanium")
 
@@ -75,6 +75,7 @@ class TaniumConnector(BaseConnector):
             if dev is None:
                 dev = Device(hostname=name, device_type=DeviceType.workstation, source="tanium")
                 db.add(dev)
+            add_source(dev, "tanium")
             dev.os = ep.get("os", {}).get("name")
             dev.os_version = ep.get("os", {}).get("version")
             dev.last_seen = __import__("datetime").datetime.utcnow()

@@ -11,7 +11,8 @@ from collections import Counter, defaultdict
 from sqlalchemy import delete, func, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.core.device_match import NOT_HOSTS, device_domain, host_key, same_domain
+from api.core.device_match import NOT_HOSTS, add_source, device_domain, host_key, same_domain, source_list
+from api.models.device import DeviceType
 
 log = logging.getLogger("open-ctem.merge_devices")
 
@@ -79,6 +80,11 @@ def _absorb(keep, dup) -> None:
                 setattr(keep, f, getattr(dup, f))
     if dup.edr_vendor and (not keep.edr_vendor or (dup.edr_active and not keep.edr_active)):
         keep.edr_vendor, keep.edr_active, keep.edr_last_seen = dup.edr_vendor, dup.edr_active, dup.edr_last_seen
+    for name in source_list(dup):
+        add_source(keep, name)
+    add_source(keep, dup.source)
+    if dup.device_type == DeviceType.server:
+        keep.device_type = DeviceType.server
     keep.ad_joined = keep.ad_joined or dup.ad_joined
     keep.is_internet_exposed = keep.is_internet_exposed or dup.is_internet_exposed
     for f in _NEWEST:

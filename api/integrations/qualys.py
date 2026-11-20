@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.core.ssrf import safe_client
 from api.integrations.base import BaseConnector, register
 from api.models.integration import Vendor
-from api.core.device_match import find_device
+from api.core.device_match import add_source, find_device
 
 log = logging.getLogger("open-ctem.qualys")
 
@@ -79,6 +79,7 @@ class QualysConnector(BaseConnector):
             if dev is None:
                 dev = Device(hostname=hostname, device_type=DeviceType.workstation, source="qualys")
                 db.add(dev)
+            add_source(dev, "qualys")
             dev.os = h.get("os")
             dev.fqdn = h.get("fqdn")
             count += 1

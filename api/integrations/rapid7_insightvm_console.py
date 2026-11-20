@@ -53,7 +53,7 @@ class ConsoleMixin:
         return out
 
     async def _console_upsert_assets(self, assets: list[dict], db: AsyncSession) -> int:
-        from api.core.device_match import find_device, remember_fqdn
+        from api.core.device_match import add_source, find_device, remember_fqdn
         from api.models.device import Device, DeviceType
 
         count = 0
@@ -65,6 +65,7 @@ class ConsoleMixin:
             if dev is None:
                 dev = Device(hostname=hostname[:253], device_type=DeviceType.workstation, source="rapid7_insightvm")
                 db.add(dev)
+            add_source(dev, "rapid7_insightvm")
             remember_fqdn(dev, a.get("hostName"))
             dev.os = ((a.get("os") or "") if isinstance(a.get("os"), str) else (a.get("os") or {}).get("name") or "")[:128] or None
             count += 1

@@ -8,7 +8,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 ### Added
 - Per-source shipper schedules: each source (LDAP, Rapid7 console, CrowdStrike, Splunk) has its own **Run every** (5 minutes to 1 day, validated server-side; blank uses the shipper default). The box checks in every 5 minutes and ships only the sources that are due; Splunk's look-back follows its own schedule. Schedule changes need no approval on the box
 - Running a shipper installer on a box that already has one now upgrades in place instead of re-enrolling, so the key, sealed passwords, approvals and source settings all survive; `--reinstall` forces a fresh enrollment. Upgrades also move the box's cron check-in to every 5 minutes
-- Device inventory shows the short host name (desktop001); the full name stays on the device page and the CSV export has separate Hostname and FQDN columns
+- Device inventory shows one normalized, uppercase short host name per device (DESKTOP001); the FQDN (also uppercase) is on the device page, in a tooltip, and in its own CSV column
+- Sources column lists every feed that reported a device (CS, R7, AD, QL, MDE, ...), and the source filter matches any of them. `python -m api.maintenance.backfill_sources` fills it for existing devices
+- Type column shows a server / workstation / network / cloud icon. CrowdStrike's product type (Server, Domain Controller, Workstation) and server operating systems now set the device type; before, every CrowdStrike and AD host was a workstation
 - `--upgrade` for the shipper installer: replaces the shipper code (local or Docker mode) and keeps the box key, sealed passwords and approved destinations, so no re-enrollment
 - CrowdStrike now records each host's last signed-in user (direct connector and shipper), so the device inventory's User column fills in and Hunt can find a user's computers
 - On-prem shippers: an agent for an internal box that reads LDAP / AD, the Rapid7 InsightVM Security Console, CrowdStrike Falcon, and a local Splunk, then pushes to CTEM over outbound HTTPS. Managed under **Settings > Shippers**

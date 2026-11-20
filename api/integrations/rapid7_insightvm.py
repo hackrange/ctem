@@ -182,7 +182,7 @@ class InsightVMConnector(ConsoleMixin, BaseConnector):
     async def _upsert_cloud(self, assets: list[dict], vuln_ids: dict, db: AsyncSession) -> int:
         from sqlalchemy import select
 
-        from api.core.device_match import find_device, remember_fqdn
+        from api.core.device_match import add_source, find_device, remember_fqdn
         from api.core.encryption import search_hash
         from api.models.device import Device, DeviceType
         from api.models.vuln import Finding, FindingStatus
@@ -203,6 +203,7 @@ class InsightVMConnector(ConsoleMixin, BaseConnector):
                              source="rapid7_insightvm")
                 db.add(dev)
             remember_fqdn(dev, a.get("host_name"))
+            add_source(dev, "rapid7_insightvm")
             dev.source_id = dev.source_id or a["id"]
             dev.os = (a.get("os_description") or a.get("os_name") or "")[:128] or dev.os
             dev.os_version = (a.get("os_version") or "")[:128] or dev.os_version
