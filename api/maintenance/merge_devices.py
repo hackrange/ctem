@@ -80,6 +80,7 @@ def _absorb(keep, dup) -> None:
                 setattr(keep, f, getattr(dup, f))
     if dup.edr_vendor and (not keep.edr_vendor or (dup.edr_active and not keep.edr_active)):
         keep.edr_vendor, keep.edr_active, keep.edr_last_seen = dup.edr_vendor, dup.edr_active, dup.edr_last_seen
+        keep.edr_contained = dup.edr_contained
     for name in source_list(dup):
         add_source(keep, name)
     add_source(keep, dup.source)

@@ -184,7 +184,9 @@ async def get_device_findings(
     stmt = _findings_query(device.id, status, q)
     total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
     rows = (await db.execute(_sorted_findings(stmt, sort, order).limit(limit).offset(offset))).scalars().all()
-    return {"findings": [_finding_summary(f) for f in rows], "total": total, "limit": limit, "offset": offset}
+    contained = bool(device.edr_contained)
+    return {"findings": [_finding_summary(f, contained) for f in rows], "total": total, "limit": limit,
+            "offset": offset, "contained": contained}
 
 
 @router.get("/{device_id}/findings/export")
@@ -198,13 +200,14 @@ async def export_device_findings(
     order: str | None = Query(None, pattern="^(asc|desc)$"),
 ):
     device = await _visible_device(device_id, current_user, db)
-    hostname = device.hostname
+    hostname, contained = dq.short_name(device.hostname), bool(device.edr_contained)
     stmt = _sorted_findings(_findings_query(device.id, status, q), sort, order)
-    header = ["Hostname", "CVE", "Title", "CVSS", "EPSS", "KEV", "Score", "Status", "First detected", "Last seen", "Source"]
+    header = ["Hostname", "Severity", "CVE", "Title", "CVSS", "EPSS", "KEV", "Score", "Status", "First detected",
+              "Last seen", "Source"]
 
     async def fetch(offset: int, limit: int) -> list[list]:
         rows = (await db.execute(stmt.limit(limit).offset(offset))).scalars().all()
-        out = [[hostname, f.vuln.cve_id, f.vuln.title, f.vuln.cvss_base, f.vuln.epss_score, f.vuln.is_kev,
+        out = [[hostname, dq.severity(f.vuln.cvss_base, contained), f.vuln.cve_id, f.vuln.title, f.vuln.cvss_base, f.vuln.epss_score, f.vuln.is_kev,
                 f.composite_score, f.status.value, _iso(f.first_detected), _iso(f.last_seen), f.source] for f in rows]
         db.expunge_all()
         return out
@@ -216,10 +219,12 @@ def _iso(dt):
     return dt.isoformat() if dt else None
 
 
-def _finding_summary(f: Finding) -> dict:
+def _finding_summary(f: Finding, contained: bool = False) -> dict:
     v = f.vuln
     return {
         "id": str(f.id),
+        "severity": dq.severity(v.cvss_base if v else None, contained),
+        "contained": contained,
         "vuln_id": str(f.vuln_id),
         "cve_id": v.cve_id if v else None,
         "title": v.title if v else None,
@@ -228,6 +233,8 @@ def _finding_summary(f: Finding) -> dict:
         "is_kev": v.is_kev if v else False,
         "composite_score": f.composite_score,
         "risk_grade": f.risk_grade,
+        "raw_score": f.raw_score,
+        "raw_grade": f.raw_grade,
         "status": f.status.value,
         "source": f.source,
         "is_reachable": f.is_reachable,

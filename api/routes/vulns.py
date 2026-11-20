@@ -186,11 +186,11 @@ async def list_vuln_findings(
     offset: int = Query(0, ge=0, le=1_000_000),
 ):
     """Devices affected by a vulnerability, limited in SQL to devices this user can access."""
-    await _vuln_or_404(vuln_id, db)
+    vuln = await _vuln_or_404(vuln_id, db)
     stmt = _affected_query(str(vuln_id), await device_scope(current_user, db), status, q)
     total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
     rows = (await db.execute(_sorted_affected(stmt, sort, order).limit(limit).offset(offset))).scalars().all()
-    return {"findings": [_affected_row(f) for f in rows], "total": total, "limit": limit, "offset": offset}
+    return {"findings": [_affected_row(f, vuln.cvss_base) for f in rows], "total": total, "limit": limit, "offset": offset}
 
 
 @router.get("/{vuln_id}/findings/export")
@@ -212,7 +212,7 @@ async def export_vuln_findings(
     async def fetch(offset: int, limit: int) -> list[list]:
         out = []
         for f in (await db.execute(stmt.limit(limit).offset(offset))).scalars().all():
-            r = _affected_row(f)
+            r = _affected_row(f, vuln.cvss_base)
             out.append([cve, title, r["hostname"], r["user"], r["ip"], r["os"], r["device_grade"],
                         r["device_score"], r["status"], r["first_detected"], r["last_seen"]])
         db.expunge_all()
@@ -272,17 +272,21 @@ def _iso(dt):
     return dt.isoformat() if dt else None
 
 
-def _affected_row(f: Finding) -> dict:
+def _affected_row(f: Finding, cvss: float | None = None) -> dict:
     d = f.device
     return {
         "id": str(f.id),
         "device_id": str(f.device_id),
-        "hostname": d.hostname if d else None,
+        "hostname": dq.short_name(d.hostname) if d else None,
+        "contained": bool(d.edr_contained) if d else False,
+        "severity": dq.severity(cvss, bool(d and d.edr_contained)),
         "user": dq.user_label(d) if d else None,
         "ip": d.ip if d else None,
         "os": d.os if d else None,
         "device_grade": d.risk_grade.value if d and d.risk_grade else None,
         "device_score": d.risk_score if d else None,
+        "raw_device_grade": d.raw_risk_grade if d else None,
+        "raw_device_score": d.raw_risk_score if d else None,
         "status": f.status.value,
         "composite_score": f.composite_score,
         "risk_grade": f.risk_grade,

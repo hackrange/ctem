@@ -53,6 +53,10 @@ async def recalculate_device(device: Device, db: AsyncSession) -> RiskScore:
         })
 
     score, grade = compute_device_score(findings_data)
+    contained = bool(getattr(device, "edr_contained", False))
+    device.raw_risk_score, device.raw_risk_grade = score, grade
+    if contained:
+        score, grade = 0.0, "A"  # isolated by the EDR: nothing on it is reachable right now
 
     # Per-finding scores feed the sortable finding lists on the device and vuln pages
     for f, data in zip(findings, findings_data):
@@ -61,8 +65,9 @@ async def recalculate_device(device: Device, db: AsyncSession) -> RiskScore:
             asset_criticality=data["asset_criticality"], is_reachable=data["is_reachable"],
             ctx=data["control_context"],
         )
-        f.composite_score = round(fs, 1)
-        f.risk_grade = device_grade(fs)
+        f.raw_score, f.raw_grade = round(fs, 1), device_grade(fs)
+        f.composite_score = 0.0 if contained else f.raw_score
+        f.risk_grade = "A" if contained else f.raw_grade
     device.open_findings = len(findings)
     device.kev_findings = sum(1 for f in findings if f.vuln and f.vuln.is_kev)
 

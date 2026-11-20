@@ -58,6 +58,9 @@ class Finding(Base, UUIDPrimaryKey, TimestampMixin):
     # Composite risk (recalculated by scoring engine)
     composite_score: Mapped[float | None] = mapped_column(Float)
     risk_grade: Mapped[str | None] = mapped_column(String(1))
+    # What it would score with no containment discount, so the UI can show both
+    raw_score: Mapped[float | None] = mapped_column(Float)
+    raw_grade: Mapped[str | None] = mapped_column(String(1))
 
     # Reachability (populated by NodeZero or manual review)
     is_reachable: Mapped[bool | None] = mapped_column(Boolean)                  # None = not yet validated

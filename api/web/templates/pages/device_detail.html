@@ -13,6 +13,10 @@
   <div id="dev-grade" style="display:flex;align-items:center;gap:12px"></div>
 </div>
 
+<div id="dev-contained" class="panel" style="display:none;border-left:4px solid var(--severity-info);margin-bottom:16px">
+  <div class="panel__body"><strong>Contained by CrowdStrike.</strong> This host is isolated from the network, so its vulnerabilities can't be exploited right now: they're shown as info and its risk is 0. Normal scoring returns as soon as containment is lifted.</div>
+</div>
+
 <div class="panel" id="dev-info-panel">
   <div class="panel__header"><span class="panel__title">Details</span></div>
   <div class="panel__body">
@@ -63,8 +67,10 @@ async function loadDevice() {
   const d = await res.json();
   document.title = `${d.hostname} -- open-ctem`;
   $('dev-title').textContent = d.hostname;
+  if (d.edr_contained) $('dev-contained').style.display = 'block';
   $('dev-sub').textContent = [d.device_type, d.os].filter(Boolean).join(' / ');
-  $('dev-grade').innerHTML = `${R.grade(d.risk_grade)} ${R.score(d.risk_score)}`;
+  $('dev-grade').innerHTML = `${R.grade(d.risk_grade)} ${R.score(d.risk_score)}`
+    + (d.edr_contained ? ' ' + R.adjusted(d.raw_risk_grade, d.raw_risk_score, d.risk_grade, d.risk_score) : '');
   $('dev-info').innerHTML = [
     info('User', txt(d.user)),
     info('Last login user', txt(d.last_login_user)),
@@ -76,7 +82,7 @@ async function loadDevice() {
     info('Last seen', R.date(d.last_seen)),
     info('Open findings', R.num(d.open_findings)),
     info('KEV findings', d.kev_findings ? `<span class="chip chip--critical">${R.num(d.kev_findings)}</span>` : '0'),
-    info('EDR', `${R.bool(d.edr_active)} ${txt(d.edr_vendor)}`),
+    info('EDR', `${R.bool(d.edr_active)} ${txt(d.edr_vendor)}${d.edr_contained ? ' <span class="chip chip--info">Contained</span>' : ''}`),
     info('Firewall (EDR policy)', d.firewall_enabled == null ? txt(null) : R.bool(d.firewall_enabled)),
     info('USB storage blocked', d.usb_storage_blocked == null ? txt(null) : R.bool(d.usb_storage_blocked)),
     info('Internet exposed', R.bool(d.is_internet_exposed)),
@@ -93,6 +99,11 @@ function notFound() {
   $('findings-table').closest('.panel').style.display = 'none';
 }
 
+// A contained host is cut off from the network, so its findings are shown but can't be acted on yet
+const dim = (f, html) => f.contained ? `<span style="opacity:.45">${html}</span>` : html;
+const sevChip = f => `<span class="chip chip--${esc(f.severity)}" style="font-size:.7rem">${esc(f.severity === 'info' ? 'Info' : f.severity)}</span>`
+  + (f.contained ? ' ' + R.adjusted(f.raw_grade, f.raw_score, f.risk_grade, f.composite_score) : '');
+
 let table;
 function startFindings() {
   const base = `/api/v1/devices/${encodeURIComponent(deviceId)}/findings`;
@@ -108,15 +119,16 @@ function startFindings() {
     rowHref: f => `/vulns/${encodeURIComponent(f.vuln_id)}`,
     params: () => ({ status: $('f-status').value, q: $('f-search').value.trim() }),
     columns: [
-      { label: 'CVE', sort: 'cve_id', render: f => f.cve_id ? vulnLink(f, f.cve_id) : '<span class="text-muted">--</span>' },
-      { label: 'Title', sort: 'title', render: f => vulnLink(f, f.title) },
-      { label: 'CVSS', sort: 'cvss_base', firstOrder: 'desc', render: f => txt(f.cvss_base) },
-      { label: 'EPSS', sort: 'epss_score', firstOrder: 'desc', render: f => f.epss_score == null ? txt(null) : esc((f.epss_score * 100).toFixed(1) + '%') },
-      { label: 'KEV', sort: 'is_kev', firstOrder: 'desc', render: f => f.is_kev ? '<span class="chip chip--critical">KEV</span>' : '' },
-      { label: 'Score', sort: 'composite_score', firstOrder: 'desc', render: f => R.score(f.composite_score) },
-      { label: 'Status', sort: 'status', render: f => `<span class="text-sm">${esc(f.status.replace('_', ' '))}</span>` },
-      { label: 'First detected', sort: 'first_detected', firstOrder: 'desc', render: f => R.date(f.first_detected) },
-      { label: 'Last seen', sort: 'last_seen', firstOrder: 'desc', render: f => R.date(f.last_seen) },
+      { label: 'Severity', sort: 'cvss_base', firstOrder: 'desc', render: f => sevChip(f) },
+      { label: 'CVE', sort: 'cve_id', render: f => dim(f, f.cve_id ? vulnLink(f, f.cve_id) : '<span class="text-muted">--</span>') },
+      { label: 'Title', sort: 'title', render: f => dim(f, vulnLink(f, f.title)) },
+      { label: 'CVSS', sort: 'cvss_base', firstOrder: 'desc', render: f => dim(f, txt(f.cvss_base)) },
+      { label: 'EPSS', sort: 'epss_score', firstOrder: 'desc', render: f => dim(f, f.epss_score == null ? txt(null) : esc((f.epss_score * 100).toFixed(1) + '%')) },
+      { label: 'KEV', sort: 'is_kev', firstOrder: 'desc', render: f => dim(f, f.is_kev ? '<span class="chip chip--critical">KEV</span>' : '') },
+      { label: 'Score', sort: 'composite_score', firstOrder: 'desc', render: f => dim(f, R.score(f.composite_score)) },
+      { label: 'Status', sort: 'status', render: f => dim(f, `<span class="text-sm">${esc(f.status.replace('_', ' '))}</span>`) },
+      { label: 'First detected', sort: 'first_detected', firstOrder: 'desc', render: f => dim(f, R.date(f.first_detected)) },
+      { label: 'Last seen', sort: 'last_seen', firstOrder: 'desc', render: f => dim(f, R.date(f.last_seen)) },
     ],
   });
 }
