@@ -6,12 +6,12 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 from sqlalchemy import delete, func, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.core.device_match import NOT_HOSTS, device_domain, host_key
+from api.core.device_match import NOT_HOSTS, device_domain, host_key, same_domain
 
 log = logging.getLogger("open-ctem.merge_devices")
 
@@ -22,22 +22,53 @@ _FILL = [("fqdn",), ("ip", "ip_hash"), ("mac_address",), ("os",), ("os_version",
 _NEWEST = ["last_seen", "ad_last_logon"]
 
 
+def _clusters(rows: list) -> list[list]:
+    """Rows in related domains (ad.acme.example ~ acme.example) end up together."""
+    out: list[list] = []
+    for d in rows:
+        home = [c for c in out if any(same_domain(device_domain(d), device_domain(x)) for x in c)]
+        merged = [d] + [x for c in home for x in c]
+        out = [c for c in out if c not in home] + [merged]
+    return out
+
+
+def _home_for_short(clusters: list[list], primary: str | None) -> list | None:
+    """A bare name joins the AD-joined cluster, else the fleet's main domain, else nothing."""
+    ad = [c for c in clusters if any(d.ad_joined for d in c)]
+    if len(ad) == 1:
+        return ad[0]
+    main = [c for c in clusters if any(same_domain(device_domain(d), primary) for d in c)]
+    return main[0] if primary and len(main) == 1 else None
+
+
 def plan(devices: list, finding_counts: dict) -> tuple[list[tuple], list[tuple]]:
     """Return ([(survivor, [losers])], [(key, reason)]) without touching anything."""
     groups: dict[str, list] = defaultdict(list)
     for d in devices:
         if d.source not in NOT_HOSTS and host_key(d.hostname):
             groups[host_key(d.hostname)].append(d)
+    tally = Counter(device_domain(d) for d in devices if device_domain(d))
+    primary = tally.most_common(1)[0][0] if tally else None
     merges, skipped = [], []
     for key, rows in groups.items():
         if len(rows) < 2:
             continue
-        domains = {device_domain(d) for d in rows} - {None}
-        if len(domains) > 1:
-            skipped.append((key, f"{len(rows)} rows across {len(domains)} domains"))
-            continue
-        rows.sort(key=lambda d: (-finding_counts.get(d.id, 0), d.created_at))
-        merges.append((rows[0], rows[1:]))
+        clusters = _clusters([d for d in rows if device_domain(d)])
+        bare = [d for d in rows if not device_domain(d)]
+        if bare:
+            home = clusters[0] if len(clusters) == 1 else _home_for_short(clusters, primary) if clusters else None
+            if home is not None:
+                home.extend(bare)
+            elif not clusters:
+                clusters = [bare]
+            else:
+                skipped.append((key, f"short name could be any of {len(clusters)} domains"))
+        if len(clusters) > 1:
+            skipped.append((key, f"{len(clusters)} different domains kept apart"))
+        for c in clusters:
+            if len(c) > 1:
+                c.sort(key=lambda d: (-finding_counts.get(d.id, 0), d.created_at))
+                merges.append((c[0], c[1:]))
     return merges, skipped
 
 

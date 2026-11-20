@@ -120,3 +120,54 @@ async def test_merge_moves_findings_tags_and_paths_and_skips_cross_domain(db):
     path = (await db.execute(select(AttackPath).where(AttackPath.target_device_id == a.id))).scalar_one()
     assert path.source_device_id == r7.id
     assert (await db.execute(select(Finding).where(Finding.device_id == r7.id))).scalar_one()
+
+
+def _dev(name, fqdn=None, ad=False, source="rapid7_insightvm", age=0):
+    import datetime as dt
+    from types import SimpleNamespace
+    return SimpleNamespace(id=uuid.uuid4().hex, hostname=name, fqdn=fqdn, ad_joined=ad, source=source,
+                           created_at=dt.datetime(2026, 1, 1) + dt.timedelta(minutes=age))
+
+
+def test_parent_and_child_domains_are_one_host():
+    from api.core.device_match import same_domain
+    from api.maintenance.merge_devices import plan
+
+    assert same_domain("ad.acme.example", "acme.example") and same_domain(None, "acme.example")
+    assert not same_domain("ec2.internal", "us-west-2.compute.internal")
+    cs = _dev("server001", source="crowdstrike")
+    ad = _dev("SERVER001", fqdn="server001.acme.example", ad=True, source="ldap", age=1)
+    r7 = _dev("server001.ad.acme.example", age=2)
+    merges, skipped = plan([cs, ad, r7], {r7.id: 3})
+    assert len(merges) == 1 and merges[0][0] is r7 and {d.id for d in merges[0][1]} == {cs.id, ad.id}
+    assert not skipped
+
+
+def test_short_name_joins_the_main_domain_and_other_domains_stay_apart():
+    from api.maintenance.merge_devices import plan
+
+    fleet = [_dev(f"desktop{i:03d}.ad.acme.example") for i in range(3)]  # makes ad.acme.example the main domain
+    cs = _dev("evodevdb", source="crowdstrike")
+    corp = _dev("evodevdb.ad.acme.example", age=1)
+    cloud = _dev("evodevdb.db.acme.oraclevcn.example", age=2)
+    a = _dev("ip-192-0-2-13.ec2.internal")
+    b = _dev("ip-192-0-2-13.us-west-2.compute.internal")
+    merges, skipped = plan(fleet + [cs, corp, cloud, a, b], {})
+    assert [{k.id, *(d.id for d in l)} for k, l in merges] == [{corp.id, cs.id}]
+    assert {k for k, _ in skipped} == {"evodevdb", "ip-192-0-2-13"}
+
+
+@pytest.mark.asyncio
+async def test_lookup_accepts_parent_domain_and_prefers_ad_joined(db):
+    from api.models.device import Device, DeviceType
+
+    n = _tag()
+    old = Device(hostname=f"{n}.cloud.acme.example", device_type=DeviceType.server, source="rapid7_insightvm")
+    db.add(old)
+    await db.flush()
+    joined = Device(hostname=n.upper(), fqdn=f"{n}.acme.example", device_type=DeviceType.server,
+                    source="ldap", ad_joined=True)
+    db.add(joined)
+    await db.flush()
+    assert (await find_device(db, f"{n}.ad.acme.example")).id == joined.id
+    assert (await find_device(db, n)).id == joined.id

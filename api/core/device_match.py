@@ -41,15 +41,22 @@ def device_domain(dev) -> str | None:
     return _domain(dev.fqdn) or _domain(dev.hostname)
 
 
+def same_domain(a: str | None, b: str | None) -> bool:
+    """ad.acme.example and acme.example are one namespace; acme.example and acme.cloud aren't."""
+    if a is None or b is None:
+        return True
+    return a == b or a.endswith("." + b) or b.endswith("." + a)
+
+
 def _pick(candidates: list, name: str, fqdn: str | None = None):
-    """Exact name wins; otherwise the oldest row whose domain doesn't contradict ours."""
+    """Exact name wins; then a row whose domain fits ours, AD-joined first, oldest first."""
     wanted = {n.strip().lower() for n in (name, fqdn) if n}
     for dev in candidates:
         if (dev.hostname or "").lower() in wanted or (dev.fqdn or "").lower() in wanted:
             return dev
     ours = _domain(fqdn) or _domain(name)
-    fits = [d for d in candidates if ours is None or device_domain(d) in (None, ours)]
-    return min(fits, key=lambda d: (d.created_at is None, d.created_at), default=None)
+    fits = [d for d in candidates if same_domain(ours, device_domain(d))]
+    return min(fits, key=lambda d: (not d.ad_joined, d.created_at is None, d.created_at), default=None)
 
 
 async def find_device(db: AsyncSession, hostname: str | None, fqdn: str | None = None):
