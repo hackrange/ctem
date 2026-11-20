@@ -17,6 +17,7 @@ from api.auth.middleware import get_current_user
 from api.auth.rbac import require_admin
 from api.auth import local as local_auth
 from api.core.db import get_session
+from api.core.accounts import ctem_account
 from api.core.encryption import search_hash
 from api.models.user import ApiToken, Permission, Role, RolePermission, User, UserRole
 from api.core.user_devices import NO_DEVICES as _NO_DEVICES
@@ -38,13 +39,15 @@ async def list_users(
     limit: int = Query(50, le=200),
     offset: int = 0,
 ):
-    stmt = select(User).options(selectinload(User.roles)).order_by(User.created_at.desc())
+    # Only accounts that sign in to CTEM; people discovered in AD/LDAP are at /api/v1/directory/users
+    stmt = (select(User).options(selectinload(User.roles)).where(ctem_account())
+            .order_by(User.created_at.desc()))
     if q:
         from api.core.encryption import search_hash
         stmt = stmt.where(or_(User.username.ilike(f"%{q}%"), User.upn_hash == search_hash(q.strip().lower())))
     if cursor:
         stmt = stmt.where(User.id < str(cursor))
-    total_result = await db.execute(select(func.count(User.id)))
+    total_result = await db.execute(select(func.count(User.id)).where(ctem_account()))
     total = total_result.scalar_one()
     stmt = stmt.offset(offset).limit(limit + 1)
     result = await db.execute(stmt)

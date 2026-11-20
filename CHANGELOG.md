@@ -61,6 +61,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 - Dependencies upgraded to clear all known advisories (FastAPI/Starlette, Authlib, cryptography, Pillow, Jinja2, python-multipart); python-jose replaced with PyJWT
 
 ### Fixed
+- Admin > Users listed every person discovered in AD/LDAP (the Discovered Users page read from the admin endpoint). Admin > Users now shows only accounts that sign in to CTEM: local accounts, token-only service accounts, and SSO sign-ins
+- Discovered Users reads from a new `GET /api/v1/directory/users` (admin and cyber), which lists only directory people, with search applied to the total
 - API tokens with an expiry date failed with a server error on SQLite (timezone-naive comparison)
 - `install.sh --upgrade` pulled new code but never rebuilt the app, worker and beat images, so a server kept running the old code while reporting success. It now rebuilds them (and does the same on rollback), and honors a local `docker-compose.override.yml`
 - CrowdStrike shipper: a firewall or device-control policy API that returns 404 now leaves that column blank instead of failing the whole CrowdStrike run

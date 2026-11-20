@@ -151,7 +151,7 @@ async def test_user_counts_and_risk_use_assignments(db, client_admin):
     db.add_all([DeviceAssignment(device_id=a.id, user_id=person.id),
                 DeviceAssignment(device_id=c.id, user_id=other.id)])  # c is someone else's, even if person signs in
     await db.commit()
-    u = next(x for x in (await client_admin.get("/api/v1/admin/users", params={"q": name})).json()["users"]
+    u = next(x for x in (await client_admin.get("/api/v1/directory/users", params={"q": name})).json()["users"]
              if x["username"] == name)
     assert (u["devices_assigned"], u["devices_detected"]) == (1, 1)
     risk = await recalculate_user(person, db)

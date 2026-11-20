@@ -86,7 +86,7 @@ async def test_upn_links_sign_ins_finds_devices_and_shows_on_the_device(db, clie
         assert [d["id"] for d in hits] == [dev.id], q
     d = (await client_admin.get(f"/api/v1/devices/{dev.id}")).json()
     assert (d["detected_user_upn"], d["detected_user_title"]) == (upn, "Field Tech")
-    users = (await client_admin.get("/api/v1/admin/users", params={"q": upn})).json()["users"]
+    users = (await client_admin.get("/api/v1/directory/users", params={"q": upn})).json()["users"]
     assert [u["username"] for u in users] == [name] and users[0]["upn"] == upn
 
 

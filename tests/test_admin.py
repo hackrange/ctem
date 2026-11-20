@@ -65,3 +65,24 @@ async def test_assign_roles_requires_admin(client_cyber, db):
     await db.commit()
     r = await client_cyber.patch(f"/api/v1/admin/users/{target.id}/roles", json={"roles": ["read_only"]})
     assert r.status_code in (401, 403)
+
+
+@pytest.mark.asyncio
+async def test_admin_users_lists_only_accounts_that_sign_in(client_admin, client_cyber, client_it_user, db):
+    import uuid as _uuid
+
+    from api.models.user import User, UserRole
+    tag = _uuid.uuid4().hex[:6]
+    discovered = User(username=f"ad-only-{tag}", is_local=False)              # found in LDAP, never signs in
+    oidc = User(username=f"sso-{tag}", is_local=False, oidc_sub=f"sub-{tag}")  # signs in through SSO
+    local = User(username=f"local-{tag}", is_local=True)                       # local login / service account
+    granted = User(username=f"granted-{tag}", is_local=False)                  # a role doesn't make it a login
+    db.add_all([discovered, oidc, local, granted])
+    await db.flush()
+    db.add(UserRole(user_id=granted.id, role_name="read_only"))
+    await db.commit()
+    admin_names = {u["username"] for u in (await client_admin.get(f"/api/v1/admin/users?q={tag}")).json()["users"]}
+    assert admin_names == {f"sso-{tag}", f"local-{tag}"}
+    found = (await client_cyber.get(f"/api/v1/directory/users?q={tag}")).json()
+    assert {u["username"] for u in found["users"]} == {f"ad-only-{tag}", f"granted-{tag}"} and found["total"] == 2
+    assert (await client_it_user.get("/api/v1/directory/users")).status_code == 403
