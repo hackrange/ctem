@@ -13,7 +13,7 @@ from api.models.device import Device
 from api.models.risk import RiskScore, RiskScoreHistory
 from api.models.vuln import Finding, FindingStatus
 from api.scoring.compensating import ControlContext
-from api.scoring.device_score import compute_device_score, score_finding
+from api.scoring.device_score import compute_device_score, device_grade, score_finding
 from api.scoring.user_score import compute_user_score
 
 log = logging.getLogger("open-ctem.scoring")
@@ -54,6 +54,18 @@ async def recalculate_device(device: Device, db: AsyncSession) -> RiskScore:
 
     score, grade = compute_device_score(findings_data)
 
+    # Per-finding scores feed the sortable finding lists on the device and vuln pages
+    for f, data in zip(findings, findings_data):
+        fs, _ = score_finding(
+            cvss_base=data["cvss_base"], epss_score=data["epss_score"], is_kev=data["is_kev"],
+            asset_criticality=data["asset_criticality"], is_reachable=data["is_reachable"],
+            ctx=data["control_context"],
+        )
+        f.composite_score = round(fs, 1)
+        f.risk_grade = device_grade(fs)
+    device.open_findings = len(findings)
+    device.kev_findings = sum(1 for f in findings if f.vuln and f.vuln.is_kev)
+
     # Upsert the current score
     result = await db.execute(
         select(RiskScore).where(
@@ -62,6 +74,7 @@ async def recalculate_device(device: Device, db: AsyncSession) -> RiskScore:
         )
     )
     risk = result.scalar_one_or_none() or RiskScore(entity_type="device", entity_id=device.id)
+    changed = risk.score != score or risk.grade != grade
     risk.score = score
     risk.grade = grade
     risk.calculated_at = datetime.now(timezone.utc)
@@ -71,14 +84,15 @@ async def recalculate_device(device: Device, db: AsyncSession) -> RiskScore:
     device.risk_grade = grade
 
     db.add(risk)
-    # Append to history (TimescaleDB hypertable)
-    db.add(RiskScoreHistory(
-        entity_type="device",
-        entity_id=device.id,
-        score=score,
-        grade=grade,
-        recorded_at=risk.calculated_at,
-    ))
+    # History only on change, so frequent post-sync runs don't flood the hypertable
+    if changed:
+        db.add(RiskScoreHistory(
+            entity_type="device",
+            entity_id=device.id,
+            score=score,
+            grade=grade,
+            recorded_at=risk.calculated_at,
+        ))
     await db.commit()
     return risk
 
@@ -152,12 +166,49 @@ async def recalculate_all(db: AsyncSession) -> None:
         except Exception:
             log.exception("risk recalc failed for device %s", device.id)
 
+    await refresh_affected_counts(db)
+
     users_result = await db.execute(select(UserModel).where(UserModel.is_active == True))  # noqa: E712
     for user in users_result.scalars():
         try:
             await recalculate_user(user, db)
         except Exception:
             log.exception("risk recalc failed for user %s", user.id)
+
+
+async def recalculate_changed(db: AsyncSession, since: datetime) -> int:
+    """Rescore only devices created, updated, or with findings touched since `since` (a sync's start)."""
+    from sqlalchemy import or_, union
+
+    naive = since.astimezone(timezone.utc).replace(tzinfo=None)  # TimestampMixin columns are naive UTC
+    ids_q = union(
+        select(Finding.device_id).where(or_(Finding.created_at >= naive, Finding.updated_at >= naive)),
+        select(Device.id).where(or_(Device.created_at >= naive, Device.updated_at >= naive)),
+    )
+    ids = [r[0] for r in (await db.execute(ids_q)).all()]
+    for i in range(0, len(ids), 500):
+        for device in (await db.execute(select(Device).where(Device.id.in_(ids[i:i + 500])))).scalars():
+            try:
+                await recalculate_device(device, db)
+            except Exception:
+                log.exception("risk recalc failed for device %s", device.id)
+        db.expunge_all()
+    await refresh_affected_counts(db)
+    log.info("rescored %d changed devices", len(ids))
+    return len(ids)
+
+
+async def refresh_affected_counts(db: AsyncSession) -> None:
+    """One set-based UPDATE so vuln lists can sort by affected count without counting millions of findings."""
+    from sqlalchemy import distinct, func, update
+
+    from api.models.vuln import Vulnerability
+    count = (select(func.count(distinct(Finding.device_id)))
+             .where(Finding.vuln_id == Vulnerability.id,
+                    Finding.status.in_([FindingStatus.open, FindingStatus.in_progress]))
+             .correlate(Vulnerability).scalar_subquery())
+    await db.execute(update(Vulnerability).values(affected_devices=count).execution_options(synchronize_session=False))
+    await db.commit()
 
 
 def _days_since(dt: datetime | None) -> int:

@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% set active_nav = 'vulns' %}
+
+{% block title %}Vulnerability -- open-ctem{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="text-sm"><a href="/vulns" class="dt-link" style="color:var(--fg-muted)">&larr; Vulnerabilities</a></p>
+    <h1 class="page-header__title" id="v-title">Loading...</h1>
+    <p class="page-header__sub" id="v-sub"></p>
+  </div>
+  <div id="v-badges" style="display:flex;align-items:center;gap:8px"></div>
+</div>
+
+<div class="panel" id="v-info-panel">
+  <div class="panel__header"><span class="panel__title">Details</span></div>
+  <div class="panel__body">
+    <dl id="v-info" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px 24px;margin:0 0 12px"></dl>
+    <div id="v-desc" class="text-sm" style="white-space:pre-wrap;max-height:240px;overflow:auto"></div>
+  </div>
+</div>
+
+<div class="panel" style="padding:0;margin-top:16px" id="v-affected-panel">
+  <div class="panel__header" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+    <span class="panel__title">Affected devices</span>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <div class="search-bar-wrap">
+        <svg class="search-icon" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+        <input id="a-search" type="search" class="search-bar" placeholder="Hostname or user" aria-label="Search affected devices">
+      </div>
+      <select id="a-status" class="filter-select" aria-label="Status">
+        <option value="active">Open + in progress</option>
+        <option value="all">All statuses</option>
+        <option value="remediated">Remediated</option>
+        <option value="risk_accepted">Risk accepted</option>
+        <option value="false_positive">False positive</option>
+      </select>
+    </div>
+  </div>
+  <div id="affected-table"></div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ static('js/data_table.js') }}"></script>
+<script src="{{ static('js/ticket_modal.js') }}"></script>
+<script>
+const R = DataTable.R;
+const $ = id => document.getElementById(id);
+const vulnId = location.pathname.split('/').filter(Boolean).pop();
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const txt = v => v == null || v === '' ? '<span class="text-muted">--</span>' : esc(v);
+const info = (label, html) => `<div><dt class="text-sm text-muted">${esc(label)}</dt><dd style="margin:2px 0 0">${html}</dd></div>`;
+
+async function loadVuln() {
+  if (!UUID.test(vulnId)) return notFound();
+  const res = await fetch(`/api/v1/vulns/${encodeURIComponent(vulnId)}`, { headers: { Accept: 'application/json' } });
+  if (!res.ok) return notFound();
+  const v = await res.json();
+  document.title = `${v.cve_id || v.title} -- open-ctem`;
+  $('v-title').textContent = v.cve_id || v.title;
+  $('v-sub').textContent = v.cve_id ? v.title : (v.source_vuln_id || '');
+  $('v-badges').innerHTML = (v.is_kev ? '<span class="chip chip--critical">CISA KEV</span>' : '')
+    + (v.exploit_available ? '<span class="chip chip--high">Exploit available</span>' : '');
+  $('v-info').innerHTML = [
+    info('CVSS', txt(v.cvss_base)),
+    info('CVSS vector', `<span class="text-mono text-sm">${txt(v.cvss_vector)}</span>`),
+    info('EPSS', v.epss_score == null ? txt(null) : esc((v.epss_score * 100).toFixed(2) + '%')),
+    info('KEV added', txt(v.kev_added_date)),
+    info('Attack vector', txt(v.attack_vector)),
+    info('Affected devices', R.num(v.affected_devices)),
+    info('Source', txt(v.source)),
+    info('Scanner ID', `<span class="text-mono text-sm">${txt(v.source_vuln_id)}</span>`),
+  ].join('');
+  // Scanner descriptions can carry markup; show it as plain text
+  $('v-desc').textContent = (v.description || '').replace(/<[^>]*>/g, ' ').replace(/\s+\n/g, '\n').trim();
+  startAffected();
+}
+
+function notFound() {
+  $('v-title').textContent = 'Vulnerability not found';
+  $('v-info-panel').style.display = 'none';
+  $('v-affected-panel').style.display = 'none';
+}
+
+let table;
+function startAffected() {
+  const base = `/api/v1/vulns/${encodeURIComponent(vulnId)}/findings`;
+  const dev = f => `/devices/${encodeURIComponent(f.device_id)}`;
+  table = DataTable.create({
+    mount: $('affected-table'),
+    endpoint: base,
+    exportUrl: `${base}/export`,
+    listKey: 'findings',
+    defaultSort: 'risk_score',
+    defaultOrder: 'desc',
+    emptyText: 'No affected devices with this status',
+    rowHref: dev,
+    params: () => ({ status: $('a-status').value, q: $('a-search').value.trim() }),
+    columns: [
+      { label: 'Hostname', sort: 'hostname', render: f => R.link(dev(f), f.hostname) },
+      { label: 'User', sort: 'user', render: f => txt(f.user) },
+      { label: 'IP', render: f => `<span class="text-mono text-sm">${txt(f.ip)}</span>` },
+      { label: 'OS', sort: 'os', render: f => `<span class="text-sm">${txt((f.os || '').slice(0, 28) || null)}</span>` },
+      { label: 'Grade', sort: 'risk_grade', firstOrder: 'desc', render: f => R.grade(f.device_grade) },
+      { label: 'Device score', sort: 'risk_score', firstOrder: 'desc', render: f => R.score(f.device_score) },
+      { label: 'Status', sort: 'status', render: f => `<span class="text-sm">${esc(f.status.replace('_', ' '))}</span>` },
+      { label: 'First detected', sort: 'first_detected', firstOrder: 'desc', render: f => R.date(f.first_detected) },
+      { label: 'Last seen', sort: 'last_seen', firstOrder: 'desc', render: f => R.date(f.last_seen) },
+      { label: '', render: f => `<button type="button" class="btn btn--ghost btn--sm" data-ticket="${esc(f.id)}" data-host="${esc(f.hostname)}">Ticket</button>` },
+    ],
+  });
+}
+
+$('affected-table').addEventListener('click', e => {
+  const b = e.target.closest('button[data-ticket]');
+  if (b) openTicketModal(vulnId, `${$('v-title').textContent} on ${b.dataset.host}`, b.dataset.ticket);
+});
+
+let timer;
+$('a-search').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => table && table.reload(), 300); });
+$('a-status').addEventListener('change', () => table && table.reload());
+loadVuln();
+</script>
+{% endblock %}

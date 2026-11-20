@@ -1,0 +1,191 @@
+"""Endpoints the on-prem shipper calls: enroll once, check in for config, upload sealed secrets, push batches."""
+from __future__ import annotations
+
+import json
+import logging
+import secrets
+from datetime import datetime, timezone
+from typing import Annotated, Union
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import Field, TypeAdapter, ValidationError
+from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from api.collector import ingest, service
+from api.collector.profile import key_fingerprint
+from api.collector.schemas import (
+    CheckinRequest, CrowdStrikeBatch, EnrollRequest, LdapBatch, LoginCheckRequest, LoginEnrollRequest, Rapid7Batch,
+    SecretsUpload, SplunkBatch,
+)
+from api.core.db import get_session
+from api.models.collector import CollectorEnrollment, CollectorProfile, CollectorToken
+
+log = logging.getLogger("open-ctem.collector")
+router = APIRouter(prefix="/api/v1/collector", tags=["collector"])
+
+_MAX_BODY = 8 * 1024 * 1024
+_Batch = TypeAdapter(Annotated[Union[LdapBatch, Rapid7Batch, CrowdStrikeBatch, SplunkBatch], Field(discriminator="kind")])
+
+
+async def _json_body(request: Request, model):
+    # Parse by hand so unauthenticated callers never get schema hints back
+    if int(request.headers.get("content-length") or 0) > _MAX_BODY:
+        raise HTTPException(413, detail="Payload too large")
+    raw = await request.body()
+    if len(raw) > _MAX_BODY:
+        raise HTTPException(413, detail="Payload too large")
+    try:
+        data = json.loads(raw)
+        return model.validate_python(data) if isinstance(model, TypeAdapter) else model.model_validate(data)
+    except ValidationError as exc:
+        # Locations and error types only; pydantic's message would echo input, passwords included
+        log.info("collector payload rejected: %s", [(e["loc"], e["type"]) for e in exc.errors(include_input=False)][:10])
+        raise HTTPException(400, detail="Invalid payload") from None
+    except ValueError:
+        log.info("collector payload rejected: not JSON")
+        raise HTTPException(400, detail="Invalid payload") from None
+
+
+def _fingerprint(pem: str) -> str:
+    try:
+        return key_fingerprint(pem)
+    except (ValueError, TypeError):
+        raise HTTPException(400, detail="Invalid payload") from None
+
+
+async def _mint(db: AsyncSession, prof: CollectorProfile, pem: str, host: str, version: str, ip: str, pinned: list[str]) -> dict:
+    fp = _fingerprint(pem)
+    now = datetime.now(timezone.utc)
+    # One box per profile; re-installing replaces the old box's credential and key
+    old = await db.execute(select(CollectorToken).where(
+        CollectorToken.profile_id == prof.id, CollectorToken.is_active == True))  # noqa: E712
+    for t in old.scalars():
+        t.is_active = False
+    await ingest.ensure_integrations(db, prof)
+    plain = ingest.TOKEN_PREFIX + secrets.token_hex(32)
+    tok = CollectorToken(
+        profile_id=prof.id, token_hash=ingest.hash_secret(plain), public_key=pem.strip(), key_fp=fp,
+        allowed_ips=pinned or [ip], is_active=True, collector_host=host, agent_version=version,
+        last_seen=now, last_seen_ip=ip, approved={},
+    )
+    db.add(tok)
+    await db.commit()
+    log.info("shipper for profile %s enrolled from %s key %s", prof.name, ip, fp[:16])
+    return {"token": plain, "collector_id": str(tok.id), "key_fp": fp,
+            "config": service.agent_config(prof, [], tok)}
+
+
+@router.post("/enroll")
+async def enroll(request: Request, db: AsyncSession = Depends(get_session)):
+    from api.auth.middleware import _ip_allowed
+    from api.core.security import _client_ip
+
+    body: EnrollRequest = await _json_body(request, EnrollRequest)
+    digest = ingest.hash_secret(body.code)
+    enr = (await db.execute(select(CollectorEnrollment).where(
+        CollectorEnrollment.code_hash == digest, CollectorEnrollment.used_at.is_(None)))).scalar_one_or_none()
+    now = datetime.now(timezone.utc)
+    exp = enr.expires_at if enr else None
+    if exp is not None and exp.tzinfo is None:
+        exp = exp.replace(tzinfo=timezone.utc)  # sqlite drops tz
+    if enr is None or exp is None or exp < now:
+        raise HTTPException(401, detail="Invalid enrollment code")
+    ip = _client_ip(request)
+    pinned = list(enr.allowed_ips or [])
+    if pinned and not _ip_allowed(ip, pinned):
+        log.warning("shipper enrollment from %s outside its allowed ranges", ip)
+        raise HTTPException(401, detail="Invalid enrollment code")
+    prof = (await db.execute(select(CollectorProfile).where(CollectorProfile.id == enr.profile_id))).scalar_one_or_none()
+    if prof is None:
+        raise HTTPException(401, detail="Invalid enrollment code")
+    _fingerprint(body.public_key)  # reject a junk key before burning the code
+    # Atomic claim so two racing installers can't both mint a token from one code
+    claimed = await db.execute(update(CollectorEnrollment).where(
+        CollectorEnrollment.id == enr.id, CollectorEnrollment.used_at.is_(None)).values(used_at=now))
+    if claimed.rowcount != 1:
+        raise HTTPException(401, detail="Invalid enrollment code")
+    return await _mint(db, prof, body.public_key, body.hostname, body.agent_version, ip, pinned)
+
+
+@router.get("/info")
+async def info():
+    # Lets the installer's "test CTEM" step confirm it hit the right service before sending a password
+    from api.core.config import get_settings
+    s = get_settings()
+    return {"service": "open-ctem", "version": s.app_version,
+            "password_login": s.auth_mode != "oidc_only", "mfa_required": s.mfa_required}
+
+
+@router.post("/login-check")
+async def login_check(request: Request, db: AsyncSession = Depends(get_session)):
+    from api.collector.login import check_admin_password, mfa_needed
+    body: LoginCheckRequest = await _json_body(request, LoginCheckRequest)
+    user = await check_admin_password(db, body.username, body.password)
+    return {"ok": True, "mfa": mfa_needed(user)}
+
+
+@router.post("/enroll-login")
+async def enroll_login(request: Request, db: AsyncSession = Depends(get_session)):
+    from api.collector.login import check_admin_password, check_mfa
+    from api.core.security import _client_ip
+    body: LoginEnrollRequest = await _json_body(request, LoginEnrollRequest)
+    user = await check_admin_password(db, body.username, body.password)
+    await check_mfa(user, body.totp)
+    _fingerprint(body.public_key)
+    prof = (await db.execute(select(CollectorProfile).where(CollectorProfile.name == body.name))).scalars().first()
+    modules = service.clean_modules(body.modules, prof.modules if prof else None)
+    if prof is None:
+        prof = CollectorProfile(name=body.name, created_by=str(user.id), config_version=1)
+        db.add(prof)
+    prof.schedule_minutes = service.check_schedule(body.schedule_minutes)
+    await service.save_profile_modules(db, prof, modules)
+    log.info("shipper profile %s set up by admin %s from the box", body.name, user.id)
+    return await _mint(db, prof, body.public_key, body.hostname, body.agent_version, _client_ip(request), [])
+
+
+@router.post("/checkin")
+async def checkin(request: Request, db: AsyncSession = Depends(get_session)):
+    """Heartbeat + config pull in one: the box reports what it approved, CTEM answers with its profile."""
+    tok = await ingest.authenticate(request, db)
+    body: CheckinRequest = await _json_body(request, CheckinRequest)
+    prof = await ingest.profile_of(tok, db)
+    tok.collector_host, tok.agent_version = body.hostname, body.agent_version
+    tok.approved = dict(body.approved)
+    if body.errors:
+        await ingest.record_error(db, tok, prof, dict(body.errors))
+    elif body.ran:
+        tok.last_error = None
+    config = service.agent_config(prof, await service.secrets_of(db, prof.id), tok)
+    await db.commit()
+    return config
+
+
+@router.put("/secrets")
+async def upload_secrets(request: Request, db: AsyncSession = Depends(get_session)):
+    """Secrets typed on the box during install, already sealed to the box's own key."""
+    tok = await ingest.authenticate(request, db)
+    body: SecretsUpload = await _json_body(request, SecretsUpload)
+    prof = await ingest.profile_of(tok, db)
+    n = await service.store_secrets(db, prof, tok, body.secrets, f"shipper:{tok.collector_host or 'box'}")
+    await db.commit()
+    return {"stored": n}
+
+
+@router.post("/ingest/{integration_id}")
+async def ingest_batch(integration_id: str, request: Request, db: AsyncSession = Depends(get_session)):
+    tok = await ingest.authenticate(request, db)
+    batch = await _json_body(request, _Batch)
+    cfg = await ingest.scoped_integration(tok, integration_id, batch.kind, db)
+    try:
+        count = await ingest.apply_batch(db, batch)
+        job = await ingest.track_run(db, cfg, str(batch.run_id), count, batch.final)
+        await db.commit()
+    except HTTPException:
+        await db.rollback()
+        raise
+    except Exception:
+        await db.rollback()
+        log.exception("collector ingest failed for integration %s", integration_id)
+        raise HTTPException(500, detail="Ingest failed") from None
+    return {"accepted": count, "run_id": str(batch.run_id), "records": job.records_imported, "final": batch.final}

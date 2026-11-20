@@ -128,46 +128,5 @@ class LDAPConnector(BaseConnector):
         return computers
 
     async def _upsert_all(self, users: list[dict], computers: list[dict], db: AsyncSession) -> int:
-        from api.core.encryption import encrypt, search_hash
-        from api.models.user import User
-        from api.models.device import Device
-        from sqlalchemy import select
-
-        count = 0
-        for u in users:
-            if not u["username"]:
-                continue
-            result = await db.execute(select(User).where(User.username == u["username"]))
-            user = result.scalar_one_or_none()
-            if user is None:
-                user = User(username=u["username"], is_local=False)
-                db.add(user)
-            if u.get("email"):
-                user.email = u["email"]
-                user.email_hash = search_hash(u["email"])
-            if u.get("display_name"):
-                user.display_name = u["display_name"]
-            if u.get("ad_dn"):
-                user.ad_dn = u["ad_dn"]
-            user.ad_groups = u.get("groups", [])
-            count += 1
-
-        for c in computers:
-            if not c["hostname"]:
-                continue
-            result = await db.execute(
-                select(Device).where(Device.hostname == c["hostname"])
-            )
-            device = result.scalar_one_or_none()
-            if device is None:
-                from api.models.device import DeviceType
-                device = Device(hostname=c["hostname"], device_type=DeviceType.workstation, source="ldap")
-                db.add(device)
-            device.fqdn = c.get("fqdn")
-            device.ad_dn = c.get("ad_dn")
-            device.os = c.get("os")
-            device.ad_joined = True
-            count += 1
-
-        await db.commit()
-        return count
+        from api.integrations.ldap_ingest import upsert_directory
+        return await upsert_directory(users, computers, db)

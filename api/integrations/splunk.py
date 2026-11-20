@@ -31,7 +31,9 @@ class SplunkConnector(BaseConnector):
     async def sync(self, db: AsyncSession) -> int:
         alerts = await self._fetch_notable_events()
         await self._cache_threats(alerts, db)
-        # Rebuild SPL catalog from index introspection on each sync
+        # Map what lives where first: the catalog is built from that map
+        from api.hunt.schema import refresh_schema
+        await refresh_schema(self, db)
         await self._refresh_spl_catalog(db)
         return len(alerts)
 
@@ -48,6 +50,24 @@ class SplunkConnector(BaseConnector):
                 headers={"Authorization": f"Splunk {hec_token}"},
                 json={"sourcetype": "open-ctem:risk", "event": payload},
             )
+
+    async def run_search(self, spl: str, earliest: str = "-7d", latest: str = "now",
+                         max_rows: int = 200) -> list[dict]:
+        """Run one already-vetted SPL search and hand back its result rows."""
+        params = {
+            "search": spl, "output_mode": "json", "exec_mode": "oneshot",
+            "count": max_rows, "earliest_time": earliest, "latest_time": latest,
+        }
+        async with safe_client(verify=self._verify) as client:
+            resp = await client.post(
+                f"{self._base}/services/search/jobs",
+                auth=(self._username, self._password), data=params, timeout=90.0,
+            )
+            resp.raise_for_status()
+        return resp.json().get("results", [])[:max_rows]
+
+    async def list_indexes(self) -> list[dict]:
+        return await self._list_indexes()
 
     async def _fetch_notable_events(self) -> list[dict]:
         """Run the configured SPL query with a rolling lookback window."""
@@ -90,6 +110,8 @@ class SplunkConnector(BaseConnector):
         import json
 
         import hashlib
+        # Only real notables become alerts; raw events are searched live by the hunt
+        events = [e for e in events if e.get("search_name") or e.get("urgency") or e.get("description")]
         for ev in events[:200]:
             # _serial is just the row number in this search, so hash the event itself
             ident = ev.get("event_id") or hashlib.sha256(
@@ -110,14 +132,17 @@ class SplunkConnector(BaseConnector):
             db.add(setting)
         await db.commit()
 
-    async def _refresh_spl_catalog(self, db: AsyncSession) -> None:
+    async def _refresh_spl_catalog(self, db: AsyncSession, indexes: list[dict] | None = None) -> None:
         """
         Introspect Splunk indexes and auto-generate a SOC-ready SPL search catalog.
         Stores the result as 'splunk_spl_catalog' AppSetting (consumed by /hunt/splunk/catalog).
         """
         import json
-        indexes = await self._list_indexes()
-        catalog = _build_spl_catalog(indexes)
+        if indexes is None:
+            indexes = await self._list_indexes()
+        from api.hunt.catalog import build_spl_catalog
+        from api.hunt.schema import load_schema
+        catalog = build_spl_catalog(indexes, await load_schema(db))
         from api.models.settings import AppSetting
         from sqlalchemy import select
         result = await db.execute(select(AppSetting).where(AppSetting.key == "splunk_spl_catalog"))
@@ -195,108 +220,3 @@ class SplunkConnector(BaseConnector):
     @property
     def _password(self) -> str:
         return self.config.get("password") or self.config.get("api_key", "")
-
-
-def _build_spl_catalog(indexes: list[dict]) -> list[dict]:
-    """
-    Generate pre-built SPL searches tailored to what actually exists in Splunk.
-    SOC team gets copy-paste-ready searches based on real index names.
-    """
-    catalog = []
-    index_names = [i["name"] for i in indexes if i.get("name")]
-
-    # Add universal searches first
-    catalog.extend(_UNIVERSAL_SEARCHES)
-
-    # Generate per-index searches for known security-relevant indexes
-    security_patterns = {
-        "notable": "Notable events (ESCU) -- highest priority SOC queue",
-        "main": "Default index -- miscellaneous events",
-        "windows": "Windows event logs -- auth, process, network",
-        "linux_secure": "Linux auth and sudo events",
-        "syslog": "Network device syslogs",
-        "firewall": "Firewall allow/deny events",
-        "web": "Web access logs",
-        "endpoint": "Endpoint telemetry",
-        "network": "Network flow data",
-        "dns": "DNS query logs",
-        "email": "Email security events",
-    }
-
-    for idx in index_names:
-        for pattern, label in security_patterns.items():
-            if pattern in idx.lower():
-                catalog.append({
-                    "category": "index-specific",
-                    "index": idx,
-                    "title": f"{label} [{idx}]",
-                    "spl": f'index={idx} earliest=-24h | stats count by sourcetype | sort -count',
-                    "description": f"Overview of event types in index={idx} over last 24h",
-                })
-                break
-
-    return catalog
-
-
-_UNIVERSAL_SEARCHES = [
-    {
-        "category": "threat-hunting",
-        "title": "Failed logins -- brute force candidates",
-        "spl": 'index=* (EventCode=4625 OR "Failed password" OR "authentication failure") earliest=-1h | stats count by src_ip, user | where count > 10 | sort -count',
-        "description": "Sources with 10+ failed logins in the last hour",
-    },
-    {
-        "category": "threat-hunting",
-        "title": "Lateral movement -- unusual RDP/SMB",
-        "spl": 'index=* (EventCode=4624 OR EventCode=4648) LogonType IN (3, 10) earliest=-4h | stats count by src_ip, dest_host, user | where count > 3 | sort -count',
-        "description": "Network logons (type 3/10) from unusual sources",
-    },
-    {
-        "category": "threat-hunting",
-        "title": "New scheduled tasks or services",
-        "spl": 'index=* (EventCode=4698 OR EventCode=7045) earliest=-24h | table _time, host, TaskName, ServiceName, CommandLine',
-        "description": "Persistence: scheduled task or service creation",
-    },
-    {
-        "category": "threat-hunting",
-        "title": "Process injection indicators",
-        "spl": 'index=* (EventCode=8 OR "CreateRemoteThread" OR "WriteProcessMemory") earliest=-4h | table _time, host, SourceImage, TargetImage, StartAddress',
-        "description": "Sysmon event 8: remote thread injection attempts",
-    },
-    {
-        "category": "threat-hunting",
-        "title": "DNS exfiltration -- high subdomain entropy",
-        "spl": 'index=* sourcetype=stream:dns query_type=A earliest=-1h | eval subdomain_len=len(query) | where subdomain_len > 50 | stats count, values(query) by src_ip | sort -count',
-        "description": "Long DNS queries that may indicate DNS tunneling",
-    },
-    {
-        "category": "vulnerability",
-        "title": "Exploitation attempts from CISA KEV IPs",
-        "spl": 'index=* [inputlookup kev_cves.csv | rename ip_address as src_ip | table src_ip] earliest=-24h | stats count by src_ip, dest, uri_path | sort -count',
-        "description": "Traffic from IPs associated with KEV exploitation",
-    },
-    {
-        "category": "vulnerability",
-        "title": "High-risk CVE exploitation keywords",
-        "spl": 'index=* ("log4j" OR "spring4shell" OR "proxyshell" OR "zerologon" OR "printnightmare") earliest=-24h | table _time, host, source, _raw',
-        "description": "Known exploit technique keywords in raw events",
-    },
-    {
-        "category": "compliance",
-        "title": "Admin account activity summary",
-        "spl": 'index=* (EventCode=4672 OR "sudo" OR "su -") earliest=-24h | stats count by user, host | sort -count',
-        "description": "Privileged account usage over last 24 hours",
-    },
-    {
-        "category": "compliance",
-        "title": "Outbound connections to unusual ports",
-        "spl": 'index=* sourcetype=firewall action=allowed dest_port NOT IN (80, 443, 22, 25, 53, 8080, 8443) earliest=-4h | stats count by src_ip, dest_ip, dest_port | sort -count',
-        "description": "Egress to non-standard ports that may indicate C2",
-    },
-    {
-        "category": "incident-response",
-        "title": "All events for a specific host (last 2h)",
-        "spl": 'index=* (host="REPLACE_ME" OR dest_host="REPLACE_ME" OR src_ip="REPLACE_ME") earliest=-2h | sort _time | table _time, sourcetype, source, _raw',
-        "description": "Replace REPLACE_ME with the hostname or IP under investigation",
-    },
-]

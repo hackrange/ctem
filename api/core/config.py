@@ -52,6 +52,8 @@ class Settings(BaseSettings):
     app_env: Literal["development", "production"] = "production"
     debug: bool = False
     allowed_hosts: str = "localhost"
+    # Public https URL baked into collector installers; falls back to the first allowed host
+    public_url: str | None = None
     app_version: str = "1.0.1"
 
     # ── Email ─────────────────────────────────────────────────────────────────
@@ -78,6 +80,9 @@ class Settings(BaseSettings):
     # ── AI ────────────────────────────────────────────────────────────────────
     ai_api_key: str | None = None
     ai_model: str = "claude-haiku-5-5"
+
+    # ── Threat intel enrichment (CISA KEV + FIRST EPSS); off for air-gapped installs
+    threat_feeds_enabled: bool = True
 
     # ── Default branding (overridden per-deployment via DB settings) ──────────
     default_app_name: str = "open-ctem"

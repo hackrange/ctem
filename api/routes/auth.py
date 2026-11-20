@@ -24,6 +24,8 @@ from api.models.user import User, UserRole
 
 router = APIRouter()
 _templates = Jinja2Templates(directory="api/web/templates")
+from api.web.assets import install as _install_assets
+_install_assets(_templates)
 log = logging.getLogger("open-ctem.auth")
 
 _LOGIN_FAILED = "Sign-in failed. Check your credentials or contact your administrator."

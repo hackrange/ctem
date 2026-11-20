@@ -8,6 +8,7 @@ from typing import ClassVar
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.core.ai_usage import usage_from_response
 from api.core.ssrf import safe_client
 from api.integrations.base import BaseConnector, register
 from api.models.integration import Vendor
@@ -90,6 +91,10 @@ class AIConnector(BaseConnector):
                         },
                         timeout=20.0,
                     )
+                    if resp.status_code == 200:
+                        from api.core.ai_usage import record
+                        await record("test", vendor, usage_from_response(resp.json(), openai_style=False), True, None,
+                                     self.config.get("model"))
                 else:
                     # Custom AI: probe base_url root or /v1/models
                     resp = await client.get(
@@ -113,18 +118,26 @@ class AIConnector(BaseConnector):
         max_tokens: int = 1024,
         model: str | None = None,
         retries: int = 3,
+        timeout: float = 60.0,
+        purpose: str = "general",
     ) -> str:
-        """Single completion with rate limiting and exponential backoff retries."""
+        """Single completion with rate limiting, the monthly budget, usage metering, and retries."""
+        from api.core import ai_usage
         vendor = self.vendor.value
         limiter = _limiter_for(vendor, self.config)
         used_model = model or self.config.get("model") or _default_model(vendor)
+        await ai_usage.guard()  # raises AIBudgetExceeded when this month's limit is used up
 
         for attempt in range(retries):
             await limiter.acquire()
+            started = time.monotonic()
             try:
-                result = await self._do_complete(prompt, system, max_tokens, used_model)
+                result, usage = await self._do_complete(prompt, system, max_tokens, used_model, timeout)
+                await ai_usage.record(purpose, vendor, usage, True, int((time.monotonic() - started) * 1000), used_model)
                 return result
             except Exception as e:
+                await ai_usage.record(purpose, vendor, getattr(e, "usage", None), False,
+                                      int((time.monotonic() - started) * 1000), used_model)
                 if attempt < retries - 1:
                     wait = 2 ** attempt  # 1s, 2s, 4s
                     log.warning("AI complete attempt %d/%d failed: %s -- retrying in %ds",
@@ -135,7 +148,7 @@ class AIConnector(BaseConnector):
         return ""  # unreachable
 
     async def _do_complete(self, prompt: str, system: str | None,
-                           max_tokens: int, model: str) -> str:
+                           max_tokens: int, model: str, timeout: float = 60.0) -> tuple[str, dict]:
         vendor = self.vendor.value
         async with safe_client() as client:
             if vendor == "openai" or (vendor == "custom_ai" and self._is_openai_compat):
@@ -147,11 +160,13 @@ class AIConnector(BaseConnector):
                     f"{self._base}/v1/chat/completions",
                     headers=self._headers(),
                     json={"model": model, "max_tokens": max_tokens, "messages": messages},
-                    timeout=60.0,
+                    timeout=timeout,
                 )
                 resp.raise_for_status()
-                choices = resp.json().get("choices", [{}])
-                return choices[0].get("message", {}).get("content", "") if choices else ""
+                data = resp.json()
+                choices = data.get("choices", [{}])
+                text = choices[0].get("message", {}).get("content", "") if choices else ""
+                return text, usage_from_response(data, openai_style=True)
             else:
                 # Anthropic (and anthropic-compat custom)
                 body: dict = {
@@ -165,11 +180,14 @@ class AIConnector(BaseConnector):
                     f"{self._base}/v1/messages",
                     headers=self._headers(),
                     json=body,
-                    timeout=60.0,
+                    timeout=timeout,
                 )
                 resp.raise_for_status()
-                content = resp.json().get("content", [{}])
-                return content[0].get("text", "") if content else ""
+                data = resp.json()
+                # Newer models lead with a thinking block; the answer is in the text blocks
+                text = "".join(b.get("text", "") for b in data.get("content", [])
+                               if isinstance(b, dict) and b.get("type") == "text")
+                return text, usage_from_response(data, openai_style=False)
 
     @property
     def _base(self) -> str:

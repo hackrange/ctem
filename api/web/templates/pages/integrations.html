@@ -109,6 +109,7 @@ const VENDOR_FIELDS = {
     {key:'username',   label:'Username',        type:'text',     placeholder:'svc-ctem', required:true},
     {key:'password',   label:'Password',        type:'password', placeholder:'', required:true},
     {key:'cmdb_table', label:'CMDB Table',      type:'text',     placeholder:'cmdb_ci_server', required:false},
+    {key:'inbound_email', label:'Inbound email (tickets by email)', type:'text', placeholder:'servicedesk@acme.example.com', required:false},
   ],
   // ── SIEM / Logging ────────────────────────────────────────────────────────
   splunk: [
@@ -490,4 +491,5 @@ async function deleteIntegration(id) {
 document.addEventListener('DOMContentLoaded', loadIntegrations);
 // No backdrop dismiss -- clicking off a form loses data
 </script>
+<script src="{{ static('js/integrations_rapid7.js') }}"></script>
 {% endblock %}

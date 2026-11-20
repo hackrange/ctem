@@ -123,7 +123,7 @@ async def _create_via_api(
     if cfg is None:
         raise HTTPException(422, detail="No active ServiceNow integration configured")
 
-    connector = ServiceNowConnector(cfg.id, cfg.config or {})
+    connector = ServiceNowConnector(cfg.config or {})
     return await connector.create_ticket(
         title=title,
         description=description,

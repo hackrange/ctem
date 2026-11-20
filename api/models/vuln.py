@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, DateTime, Enum, Float, ForeignKey, String, Text
+from sqlalchemy import Boolean, Date, DateTime, Enum, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from api.models.base import Base, TimestampMixin, UUIDPrimaryKey
@@ -36,6 +36,8 @@ class Vulnerability(Base, UUIDPrimaryKey, TimestampMixin):
     exploit_maturity: Mapped[str | None] = mapped_column(String(32))            # poc, functional, weaponized
     source: Mapped[str] = mapped_column(String(64), nullable=False)             # qualys, rapid7, defender...
     source_vuln_id: Mapped[str | None] = mapped_column(String(256))
+    # Devices with an open finding, refreshed by each scoring run (global view only)
+    affected_devices: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False, index=True)
 
     findings: Mapped[list[Finding]] = relationship(back_populates="vuln")
     chains: Mapped[list[CVEChainMember]] = relationship(back_populates="vuln")

@@ -30,6 +30,10 @@ Multipliers applied for: NodeZero-confirmed exploitability, internet exposure, n
 | CVE chaining | MITRE ATT&CK technique correlation detects multi-CVE attack paths |
 | Compensating controls | Firewall, EDR, Zscaler, Guardicore policies auto-adjust scores |
 | CISA KEV override | KEV findings always floor at 75/100 |
+| KEV + EPSS enrichment | Daily CISA KEV flags and FIRST EPSS scores, refreshed again after every sync (`THREAT_FEEDS_ENABLED=false` to turn off) |
+| Drill-down lists | Device and vulnerability lists with server-side paging, sorting, search, and detail pages (devices -> findings, vulnerabilities -> affected devices) |
+| CSV export | Every list exports all matching rows with its current filters and sort; formula-injection safe |
+| No indexing | `X-Robots-Tag` noindex/noai on every response, robots meta on every page, `/robots.txt` disallows all crawlers including AI crawlers |
 | NodeZero reachability | ×2.0 if confirmed exploitable, ×0.3 if confirmed safe |
 | Identity blast radius | Privileged AD group membership raises user risk score |
 | Tag-based RBAC | Groups see only assets matching their assigned tags |
@@ -51,9 +55,9 @@ Multipliers applied for: NodeZero-confirmed exploitability, internet exposure, n
 |---|---|---|
 | LDAP / Active Directory | Identity | Users, computers, groups, GPOs |
 | Qualys | Vulnerability | Findings, CVSS, asset data |
-| Rapid7 InsightVM | Vulnerability | Findings, risk scores |
-| Rapid7 AppSec | Vulnerability | Web app findings |
-| Rapid7 CloudSec/CSPM | Cloud | Cloud posture findings |
+| Rapid7 InsightVM | Vulnerability | Assets and per-asset findings (cloud v4 API or on-prem console) |
+| Rapid7 InsightAppSec | Vulnerability | Web app findings with triage status |
+| Rapid7 InsightCloudSec | Cloud | Cloud posture findings |
 | Horizon3 NodeZero | Pentest | Reachability validation |
 | CrowdStrike Falcon | EDR + Threat | Devices, detections |
 | SentinelOne | EDR | Devices, threat data |
@@ -71,6 +75,49 @@ Multipliers applied for: NodeZero-confirmed exploitability, internet exposure, n
 | GitHub Advanced Security | AppSec | SAST/secret scan findings |
 | ForgeRepo | SCM | Repository security findings |
 | AI (Anthropic) | Analysis | Risk narratives, threat analysis, hunt |
+
+### Rapid7 endpoints
+
+One Insight Platform API key (an organization or user key) can cover several Rapid7 products. Pick the region your org lives in; the connectors only talk to `https://<region>.api.insight.rapid7.com` for `us`, `us2`, `us3`, `eu`, `ca`, `au`, or `ap`.
+
+| Product | Base URL | Auth |
+|---|---|---|
+| InsightAppSec | `https://<region>.api.insight.rapid7.com/ias/v1` | `X-Api-Key` |
+| InsightVM (cloud) | `https://<region>.api.insight.rapid7.com/vm/v4/integration` | `X-Api-Key` |
+| InsightVM (on-prem console) | `https://<console-host>:3780/api/3` | Basic (console user) |
+| InsightCloudSec (CSPM) | Your tenant host, e.g. `https://us1.cloudsec.insight.rapid7.com` (Command Platform tenants; older standalone installs use their own URL). `/v2` is added for you | `Api-Key` (a Cloud Security key: Command Platform > Administration > Cloud Security > Profile, or an API-only user; Insight Platform keys are not accepted, and a bad key gets a 302 to the Rapid7 logout page) |
+
+Quick key check: `GET https://<region>.api.insight.rapid7.com/validate` returns 200 for any valid key, in any region, so use a product call (e.g. `GET /ias/v1/apps?size=1`) to confirm the region and product access. Syncs pull every record by default. InsightVM's first sync is a full import; after that each sync asks only for assets scanned since the last successful sync and only their new and remediated findings, with a full refresh every `full_sync_days` (default 7). Set `full_sync: true` on the integration to force one. InsightVM streams assets 250 at a time, so a large tenant (10k+ assets, millions of findings) never sits in memory at once; the first full sync of a big tenant can take a while. "Max Assets / Findings / Insights per Sync" are optional limits (blank = all). The Command Platform key needs InsightVM access for the InsightVM connector; a 401 "does not have permission" means the key lacks that product.
+
+---
+
+## On-prem shippers (internal LDAP, Rapid7 console, CrowdStrike, Splunk)
+
+When CTEM is hosted outside your network it can't reach your domain controllers, Rapid7 Security Console, or Splunk search head. A **shipper** is a small agent on one internal box that reads those sources locally and pushes the data to CTEM's REST API over outbound HTTPS. Nothing inside your network has to accept a connection from CTEM.
+
+**Setting one up**
+
+1. In CTEM go to **Settings > Shippers > + New shipper**. Pick the sources (LDAP / AD, Rapid7 InsightVM console, CrowdStrike Falcon, Splunk), enter hosts, users, SPL, and the schedule. No passwords yet.
+2. Click **Download installer**. The script holds a one-time enrollment code (24 hours, optionally limited to source CIDRs) and no secrets.
+3. Copy it to the internal box and run `sudo bash open-ctem-shipper-NAME.sh`. It asks:
+   - **Local script mode** (Python venv + systemd + cron; the box key is sealed with `systemd-creds`, TPM-backed when available) or **self-contained Docker** (read-only, cap-dropped container that restarts on its own). Docker is optional.
+   - Whether each source's TLS certificate matches (self-signed consoles get their fingerprint pinned), and to approve each destination.
+   - Optionally the source passwords, which it tests and then seals.
+4. Set or rotate passwords any time under **Shippers > Rotate**.
+
+A **generic installer** (no code inside) is also available: the box signs in once with an admin account (+ MFA code), and you pick the sources in the wizard. The admin password is used for that one request and never stored.
+
+**How credentials stay safe**
+
+- The box generates an RSA-3072 key pair at install. The private key never leaves the box. CTEM only stores the public key and a hash of the box's push token, which is pinned to the box's source IP.
+- Passwords are sealed **in your browser** (WebCrypto, RSA-OAEP-256 + AES-256-GCM, bound to the shipper, source, and field) before they're sent. CTEM stores the envelope, wrapped again with its own key, and can't decrypt it. A database dump or a read-only compromise of CTEM exposes no internal credentials. The shipper unseals in memory only.
+- Destinations (host, port, TLS mode, certificate pin, Splunk SPL, Falcon cloud) only take effect after `open-ctem-collector approve` on the box, so even a compromised CTEM can't point a shipper at an attacker's server to harvest a password. The GUI shows "waiting for approve on the box" until then.
+- Compare the key fingerprint the installer prints with the one CTEM shows before typing passwords.
+- Every batch is staged to a private spool (mode 0600) on the box and deleted as soon as CTEM confirms it. Unsent batches retry on the next run, and anything older than 7 days is purged.
+
+**Day two** (on the box): `open-ctem-collector approve | secrets [--all] | run-now | test | test-ctem | status | logs`. The shipper checks in every 15 minutes. Schedule and enable/disable changes in CTEM apply at the next check-in; no cron edits needed. `sudo bash open-ctem-shipper-NAME.sh --uninstall` removes it (revoke it in CTEM too).
+
+**Notes:** Set `PUBLIC_URL=https://ctem.acme.example` so installers carry the right default address. A shipper-fed Splunk supplies notable events and the index catalog, but Hunt can't run live SPL through it (it's push-only). The CrowdStrike API client needs *Hosts: Read* and *Alerts: Read*.
 
 ---
 
@@ -152,6 +199,10 @@ Roles are fully customizable -- create new ones, duplicate existing ones, assign
 
 The executive dashboard filters by tag category: **Executive Owner**, **Technical Owner**, **Application**, **Environment**, **Severity** -- all driven by the tag system. Each filter narrows the entire view to assets matching that tag combination.
 
+**AI usage** (Admin > AI Usage): month-to-date AI cost and tokens against optional monthly limits (dollars and/or tokens), with a forecast and per-model / per-feature breakdowns. Claude models are priced from Anthropic list prices; custom or OpenAI-compatible providers use the input/output/cache prices you enter there.
+
+Counts are server-side totals across every device you can see. Click a risk card (Critical, High, Medium, KEV, Total) to open the device list with that filter applied. Scores refresh after every integration sync and every two hours.
+
 ---
 
 ## Security design
@@ -175,6 +226,7 @@ The executive dashboard filters by tag category: **Executive Owner**, **Technica
 api/
   auth/        OIDC, local login, TOTP, RBAC middleware
   core/        Config, DB, encryption, SSRF client, Celery tasks, security middleware
+  collector/   On-prem shipper: ingest + profile rules (server) and agent/ (the code installed on the box)
   integrations/ Vendor connectors (one file per vendor)
   models/      SQLAlchemy ORM models
   routes/      FastAPI route handlers

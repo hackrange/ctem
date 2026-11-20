@@ -2,11 +2,12 @@
 <html lang="en" data-theme="">
 <head>
   <meta charset="utf-8" />
+  <meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex, noai, noimageai" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>{% block title %}open-ctem{% endblock %}</title>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@700;800&display=swap" />
-  <link rel="stylesheet" href="/static/css/style.css" />
-  <link rel="stylesheet" href="/static/css/components.css" />
+  <link rel="stylesheet" href="{{ static('css/style.css') }}" />
+  <link rel="stylesheet" href="{{ static('css/components.css') }}" />
   <style>
     /* Accent color injected per-tenant via AppSetting */
     :root { --accent: {{ accent_color | default('#f5a623') }}; --accent-dim: {{ accent_color | default('#f5a623') }}26; }
@@ -97,6 +98,10 @@
     <a href="/settings/integrations" class="sidebar__link {% if active_nav == 'integrations' %}active{% endif %}">
       <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
       Integrations
+    </a>
+    <a href="/settings/shippers" class="sidebar__link {% if active_nav == 'shippers' %}active{% endif %}">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="1" y="7" width="15" height="10" rx="1"/><path d="M16 10h4l3 3v4h-7"/><circle cx="6" cy="18" r="2"/><circle cx="19" cy="18" r="2"/></svg>
+      Shippers
     </a>
     <a href="/settings/tokens" class="sidebar__link {% if active_nav == 'tokens' %}active{% endif %}">
       <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="11" width="20" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>

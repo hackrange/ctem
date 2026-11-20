@@ -72,10 +72,15 @@ def create_app() -> FastAPI:
     from api.routes.tokens import router as tokens_router
     from api.routes.hunt import router as hunt_router
     from api.routes.tickets import router as tickets_router
+    from api.routes.ticket_assist import router as ticket_assist_router
+    from api.routes.ai_usage import router as ai_usage_router
+    from api.routes.admin_export import router as admin_export_router
     from api.routes.identity import router as identity_router
     from api.routes.attack_paths import router as attack_paths_router
     from api.routes.grc_exceptions import router as grc_exceptions_router
     from api.routes.tags import router as tags_router
+    from api.routes.collector_agent import router as collector_agent_router
+    from api.routes.collectors_admin import router as collectors_admin_router
 
     app.include_router(auth_router)
     app.include_router(admin_router)
@@ -87,11 +92,16 @@ def create_app() -> FastAPI:
     app.include_router(grc_router)
     app.include_router(tokens_router)
     app.include_router(hunt_router)
+    app.include_router(ai_usage_router)
+    app.include_router(admin_export_router)
+    app.include_router(ticket_assist_router)  # before tickets so /ticket-options never hits a {finding_id} route
     app.include_router(tickets_router)
     app.include_router(identity_router)
     app.include_router(attack_paths_router)
     app.include_router(grc_exceptions_router)
     app.include_router(tags_router)
+    app.include_router(collector_agent_router)
+    app.include_router(collectors_admin_router)
 
     # ── Web UI (must come after API routes) ───────────────────────────────────
     app.mount("/static", StaticFiles(directory="api/web/static"), name="static")
@@ -141,6 +151,10 @@ def _register_web_routes(app: FastAPI) -> None:
 
     templates = Jinja2Templates(directory="api/web/templates")
 
+    from api.web.assets import install as _install_assets
+
+    _install_assets(templates)
+
     def _render(template: str, slug: str):
         """Return a route handler with tag-aware page access control."""
         async def handler(request: Request, current_user=Depends(get_current_user), db=Depends(get_session)):
@@ -159,11 +173,24 @@ def _register_web_routes(app: FastAPI) -> None:
             return templates.TemplateResponse(request, template, ctx)
         return handler
 
+    from fastapi.responses import PlainTextResponse
+
+    # Public on purpose: crawlers read it before anything else. Everything is disallowed.
+    _AI_BOTS = ("GPTBot", "ChatGPT-User", "OAI-SearchBot", "ClaudeBot", "Claude-User", "Claude-SearchBot",
+                "anthropic-ai", "Google-Extended", "GoogleOther", "CCBot", "PerplexityBot", "Perplexity-User",
+                "Bytespider", "Applebot-Extended", "Meta-ExternalAgent", "Meta-ExternalFetcher", "Amazonbot",
+                "cohere-ai", "cohere-training-data-crawler", "Diffbot", "ImagesiftBot", "YouBot", "MistralAI-User")
+    _ROBOTS_TXT = "".join(f"User-agent: {b}\nDisallow: /\n\n" for b in _AI_BOTS) + "User-agent: *\nDisallow: /\n"
+    app.get("/robots.txt", response_class=PlainTextResponse, include_in_schema=False)(lambda: _ROBOTS_TXT)
+
     # ── Operations ────────────────────────────────────────────────────────────
     app.get("/", response_class=HTMLResponse, include_in_schema=False)(_render("pages/dashboard.html", "/"))
     app.get("/devices", response_class=HTMLResponse, include_in_schema=False)(_render("pages/devices.html", "/devices"))
+    # Detail pages share their list page's access rule; the API re-checks the object itself
+    app.get("/devices/{device_id}", response_class=HTMLResponse, include_in_schema=False)(_render("pages/device_detail.html", "/devices"))
     app.get("/users", response_class=HTMLResponse, include_in_schema=False)(_render("pages/users.html", "/users"))
     app.get("/vulns", response_class=HTMLResponse, include_in_schema=False)(_render("pages/vulns.html", "/vulns"))
+    app.get("/vulns/{vuln_id}", response_class=HTMLResponse, include_in_schema=False)(_render("pages/vuln_detail.html", "/vulns"))
 
     # ── Analysis ──────────────────────────────────────────────────────────────
     app.get("/threat", response_class=HTMLResponse, include_in_schema=False)(_render("pages/threat.html", "/threat"))
@@ -175,6 +202,7 @@ def _register_web_routes(app: FastAPI) -> None:
 
     # ── Settings ──────────────────────────────────────────────────────────────
     app.get("/settings/integrations", response_class=HTMLResponse, include_in_schema=False)(_render("pages/integrations.html", "/settings/integrations"))
+    app.get("/settings/shippers", response_class=HTMLResponse, include_in_schema=False)(_render("pages/shippers.html", "/settings/shippers"))
     app.get("/settings/tokens", response_class=HTMLResponse, include_in_schema=False)(_render("pages/tokens.html", "/settings/tokens"))
 
     # ── Admin ─────────────────────────────────────────────────────────────────

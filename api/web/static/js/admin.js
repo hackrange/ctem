@@ -5,7 +5,7 @@ let _auditCursor = null;
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 
-const PANES = ['users','tokens','roles','branding','audit'];
+const PANES = ['users','tokens','roles','branding','audit', 'ai'];
 function switchTab(name) {
   PANES.forEach(p => {
     document.getElementById('pane-'+p).style.display = p === name ? '' : 'none';
@@ -15,6 +15,7 @@ function switchTab(name) {
   if (name === 'roles' && !document.getElementById('roles-tbody').dataset.loaded) loadRoles();
   if (name === 'audit' && !document.getElementById('audit-tbody').dataset.loaded) loadAudit();
   if (name === 'branding') loadBranding();
+  if (name === 'ai' && window.AIUsage) AIUsage.load();
 }
 
 // ── Data loaders ──────────────────────────────────────────────────────────────
@@ -95,7 +96,7 @@ async function loadRoles() {
 let _auditEntries = [];
 async function loadAudit(append=false) {
   try {
-    const url = _auditCursor ? `${API}/admin/audit-log?limit=50&cursor=${_auditCursor}` : `${API}/admin/audit-log?limit=50`;
+    const url = _auditCursor ? `${API}/admin/audit?limit=50&cursor=${encodeURIComponent(_auditCursor)}` : `${API}/admin/audit?limit=50`;
     const data = await fetchJson(url);
     document.getElementById('audit-tbody').dataset.loaded = '1';
     _auditCursor = data.next_cursor || null;
@@ -115,7 +116,9 @@ async function loadAudit(append=false) {
     } else {
       document.getElementById('audit-tbody').innerHTML = html || '<tr><td colspan="5" class="text-muted text-sm" style="text-align:center;padding:20px">No audit entries</td></tr>';
     }
-  } catch (_) {}
+  } catch (_) {
+    document.getElementById('audit-tbody').innerHTML = '<tr><td colspan="5" class="text-muted text-sm" style="text-align:center;padding:20px">Could not load the audit log</td></tr>';
+  }
 }
 function loadMoreAudit() { loadAudit(true); }
 
