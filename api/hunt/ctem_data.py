@@ -208,6 +208,7 @@ async def _alerts(db: AsyncSession, f: dict, limit: int) -> list[dict]:
             continue
         if not isinstance(a, dict):
             continue
+        a.pop("detail_enc", None)   # encrypted detail stays out of hunting and AI prompts
         host = a.get("hostname") or a.get("source_asset") or ", ".join(a.get("hosts") or [])
         blob = json.dumps(a).lower()
         if "hostname" in f and f["hostname"].lower().strip("*") not in str(host).lower():

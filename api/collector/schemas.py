@@ -130,6 +130,16 @@ class CsDetection(_Lax):
     link: Annotated[str, StringConstraints(max_length=1000, pattern=r"^https://falcon(\.[a-z0-9-]+)*\.crowdstrike\.com/[^\s\"'<>]*$")] | None = None
     device: CsHost | None = None
     behaviors: list[CsBehavior] = Field(default_factory=list, max_length=20)
+    # Process tree, actions taken, IOCs, network and DNS; rebuilt key by key by collector_cs_alert.clean()
+    detail: dict | None = None
+
+    @field_validator("detail")
+    @classmethod
+    def _detail_size(cls, v):
+        import json
+        if v is not None and len(json.dumps(v, default=str)) > 200_000:
+            raise ValueError("alert detail too large")
+        return v
 
 
 FieldKey = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_.:-]{1,64}$")]

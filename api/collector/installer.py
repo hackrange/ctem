@@ -12,7 +12,7 @@ AGENT_DIR = Path(__file__).parent / "agent"
 # Fixed list, so nothing outside the agent folder can ever be pulled into a download
 AGENT_FILES = ("ctem_collector.py", "collector_core.py", "collector_setup.py", "collector_crypto.py",
                "collector_common.py", "collector_ldap.py", "collector_rapid7.py", "collector_crowdstrike.py",
-               "collector_splunk.py", "Dockerfile")
+               "collector_cs_alert.py", "collector_splunk.py", "Dockerfile")
 _URL_RE = re.compile(r"^https://[A-Za-z0-9.-]+(:\d{1,5})?$")
 _HOST_RE = re.compile(r"^[A-Za-z0-9.-]{1,253}(:\d{1,5})?$")
 _CODE_RE = re.compile(r"^([0-9a-f]{64})?$")

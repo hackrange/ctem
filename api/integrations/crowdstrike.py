@@ -79,22 +79,33 @@ class CrowdStrikeConnector(BaseConnector):
         return detail.json().get("resources", [])
 
     async def _list_detections(self, token: str) -> list[dict]:
+        """Alerts (API v2) from the last 30 days in any status, in the shipper's shape. The Detects API is retired."""
+        from datetime import datetime, timedelta, timezone
+
+        from api.core.cs_alert import csa
+        since = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        out: list[dict] = []
         async with safe_client() as client:
-            resp = await client.get(
-                f"{_API_BASE}/detects/queries/detects/v1",
-                headers={"Authorization": f"Bearer {token}"},
-                params={"limit": 1000, "filter": "status:'new'"},
-            )
-            resp.raise_for_status()
-            ids = resp.json().get("resources", [])
-            if not ids:
-                return []
-            detail = await client.post(
-                f"{_API_BASE}/detects/entities/summaries/GET/v1",
-                headers={"Authorization": f"Bearer {token}"},
-                json={"ids": ids[:500]},
-            )
-        return detail.json().get("resources", [])
+            for offset in range(0, 10000, 1000):   # the query endpoint stops at 10k
+                resp = await client.get(
+                    f"{_API_BASE}/alerts/queries/alerts/v2",
+                    headers={"Authorization": f"Bearer {token}"},
+                    params={"limit": 1000, "offset": offset, "sort": "created_timestamp.desc",
+                            "filter": f"created_timestamp:>'{since}'"},
+                )
+                resp.raise_for_status()
+                ids = resp.json().get("resources") or []
+                for i in range(0, len(ids), 500):
+                    detail = await client.post(
+                        f"{_API_BASE}/alerts/entities/alerts/v2",
+                        headers={"Authorization": f"Bearer {token}"},
+                        json={"composite_ids": ids[i:i + 500]},
+                    )
+                    detail.raise_for_status()
+                    out += [x for x in map(csa.summary, detail.json().get("resources") or []) if x]
+                if len(ids) < 1000:
+                    break
+        return out
 
     async def _upsert(self, devices: list[dict], detections: list[dict], db: AsyncSession) -> int:
         from api.core.device_match import add_source, find_device, type_from_os
@@ -159,6 +170,8 @@ class CrowdStrikeConnector(BaseConnector):
 
         from sqlalchemy import select
 
+        from api.core.cs_alert import csa
+        from api.core.encryption import encrypt
         from api.models.settings import AppSetting
 
         rows = {}
@@ -183,6 +196,12 @@ class CrowdStrikeConnector(BaseConnector):
                 "link": det.get("link"),
                 "description": det.get("behaviors", [{}])[0].get("description") if det.get("behaviors") else None,
             }
+            # The rest (command lines, users, hashes, network) is sensitive: encrypted, opened only on the detail page
+            detail = csa.clean(det.get("detail"))
+            if detail:
+                rows[f"threat_alert_{det['detection_id']}"].update({
+                    "aggregate_id": detail.get("aggregate_id"),
+                    "detail_enc": encrypt(json.dumps(detail, separators=(",", ":")))})
         keys = list(rows)
         for i in range(0, len(keys), 500):
             part = keys[i:i + 500]

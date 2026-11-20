@@ -79,6 +79,8 @@ def normalize(key: str, item: dict, first_seen: datetime | None = None) -> dict:
         "technique": _s(item.get("technique"), 128) or _s(item.get("classification"), 128) or _s(item.get("category"), 128),
         "technique_id": _technique(item),
         "link": link if link and _LINK.match(link) else None,
+        "aggregate_id": _s(item.get("aggregate_id"), 200),
+        "has_detail": bool(item.get("detail_enc")),
     }
 
 

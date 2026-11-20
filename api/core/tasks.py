@@ -167,7 +167,10 @@ async def _ai_analyze(alert_ids: list[str], device_id: str | None) -> dict:
             row = result.scalar_one_or_none()
             if row and row.value:
                 try:
-                    alert_data.append(json.loads(row.value))
+                    a = json.loads(row.value)
+                    if isinstance(a, dict):
+                        a.pop("detail_enc", None)   # command lines and users don't go to the AI provider
+                    alert_data.append(a)
                 except ValueError:
                     log.warning("skipping unreadable alert %s", aid)
 
