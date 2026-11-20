@@ -40,7 +40,7 @@ Multipliers applied for: NodeZero-confirmed exploitability, internet exposure, n
 | Object-level authz | Every GET-by-ID returns 404 for forbidden -- no enumeration oracle |
 | AES-256-GCM encryption | All PII and credentials encrypted per-record with unique nonce |
 | OIDC/PKCE + TOTP | Full SSO with break glass local auth and progressive lockout |
-| Cyber Threat module | Aggregates alerts from all tools; AI analysis (async, cached) |
+| Cyber Threat module | Aggregates alerts from all tools into one list, worst first: search, severity/status/source filters, short source codes (CS, R7, S1, MDE...), click through to the alert, its device, its MITRE ATT&CK technique and the alert in Falcon; AI analysis (async, cached) |
 | Hunt module | Natural language AI queries across all telemetry sources |
 | GRC / FairTPRM | Risk export and compliance evidence ingestion |
 | CMDB | Every device, server-side paged with search, type filter and sorting; full ServiceNow import set JSON export |

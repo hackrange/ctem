@@ -6,6 +6,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 ## [Unreleased]
 
 ### Added
+- Cyber Threats rebuilt on the standard table: search (alert, host, MITRE ID, tactic), severity / status / source filters, sortable columns with the worst severity first, the site's paging and rows-per-page, and shareable URLs. Sources show as short codes (CS, R7, SPL, S1, MDE, XDR...). Each alert opens its own page with device, source, detected time, status, MITRE tactic and technique (linked to attack.mitre.org), description and an **Open in Falcon** link; the device links to its CTEM device page. `GET /api/v1/threat/alerts` gains `q`, `status`, `sort`, `order` and `offset` with a real total, and `GET /api/v1/threat/alerts/detail?id=` returns one alert
+- CrowdStrike shipper 1.0.5 sends each alert's title, detection time, status, MITRE tactic and technique IDs, Falcon device ID and console link, and pulls every alert from the last 30 days in any status (it used to pull only new ones), so closed and in-progress alerts update. Alerts stored before this show "new" and their first-seen time (marked *) until the next pull
 - Single sign-on setup wizard (**Settings > Single sign-on**, admin): pick Okta, Auth0, Ping Identity (PingOne) or Microsoft 365 (Entra ID) and get current step-by-step setup instructions with CTEM's redirect URI filled in; enter the provider's details, client ID and secret (encrypted at rest, never shown again), test the provider's live discovery document, issuer, signing keys and PKCE support, and choose SSO-and-local or SSO-only sign-in. `OIDC_*` and `AUTH_MODE` environment variables still win as the break-glass
 - New `no_access` role: people signing in through SSO for the first time get the wizard's default role (No Access unless changed). Anyone whose only role is No Access sees a custom message set in the wizard and gets no session; admins pin real roles in Admin > Users, and sign-in never changes them
 - Links survive sign-in: opening a CTEM page (for example from an email) while signed out returns you to it after password, MFA or SSO sign-in. Only same-site paths are accepted
@@ -65,6 +67,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 - Dependencies upgraded to clear all known advisories (FastAPI/Starlette, Authlib, cryptography, Pillow, Jinja2, python-multipart); python-jose replaced with PyJWT
 
 ### Fixed
+- Cyber Threats showed blank Alert, Device, MITRE, Detected and Status columns: the page read field names no connector wrote. The list also kept only the first 200 CrowdStrike alerts of each batch and its paging ignored the page number
 - The SSO authorize request wasn't URL-encoded, and IdP error replies (for example access denied) or failed callbacks showed raw errors instead of the sign-in page
 - `ctem_exposed_criticals` passed when no device was marked internet-facing; with no exposure data it now reports an error
 - Admin > Users listed every person discovered in AD/LDAP (the Discovered Users page read from the admin endpoint). Admin > Users now shows only accounts that sign in to CTEM: local accounts, token-only service accounts, and SSO sign-ins

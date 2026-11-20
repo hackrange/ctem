@@ -303,3 +303,18 @@ def test_crowdstrike_login_history_newest_real_names_first():
     assert cs._Logins(old).load(rows) == logins and old.paths[-1].endswith("/v1")
     denied = cs._Logins(FakeApi(status=403))
     assert denied.load(rows) == {} and denied.off
+
+
+def test_crowdstrike_alert_details_and_recent_window():
+    a = cs._alert({"composite_id": "cid:ind:abc:2", "severity_name": "Critical", "display_name": "Credential theft",
+                   "status": "in_progress", "created_timestamp": "2026-11-20T10:00:00Z", "tactic_id": "TA0006",
+                   "technique_id": "T1003.001", "falcon_host_link": "https://falcon.crowdstrike.com/activity-v2/detections/x",
+                   "device": {"hostname": "desktop001", "device_id": "a" * 32}})
+    assert (a["title"], a["status"], a["detected_at"], a["tactic_id"], a["technique_id"]) == \
+        ("Credential theft", "in_progress", "2026-11-20T10:00:00Z", "TA0006", "T1003.001")
+    assert a["link"].startswith("https://falcon.crowdstrike.com/") and a["device"]["device_id"] == "a" * 32
+    bad = cs._alert({"composite_id": "cid:2", "technique_id": "T1<x>", "falcon_host_link": "https://evil.example/x",
+                     "device": {"device_id": "nothex"}, "display_name": "a\nb"})
+    assert bad["technique_id"] is None and bad["link"] is None and bad["device"]["device_id"] is None and bad["title"] is None
+    q = cs._alert_query(1000, dt.datetime(2026, 11, 20, tzinfo=dt.timezone.utc))
+    assert "offset=1000" in q and "created_timestamp%3A%3E%272026-10-21T00%3A00%3A00Z%27" in q and "status" not in q

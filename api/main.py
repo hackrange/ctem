@@ -212,6 +212,7 @@ def _register_web_routes(app: FastAPI) -> None:
 
     # ── Analysis ──────────────────────────────────────────────────────────────
     app.get("/threat", response_class=HTMLResponse, include_in_schema=False)(_render("pages/threat.html", "/threat"))
+    app.get("/threat/alert", response_class=HTMLResponse, include_in_schema=False)(_render("pages/threat_alert.html", "/threat"))
     app.get("/identity", response_class=HTMLResponse, include_in_schema=False)(_render("pages/identity.html", "/identity"))
     app.get("/hunt", response_class=HTMLResponse, include_in_schema=False)(_render("pages/hunt.html", "/hunt"))
     app.get("/attack-paths", response_class=HTMLResponse, include_in_schema=False)(_render("pages/attack_paths.html", "/attack-paths"))
