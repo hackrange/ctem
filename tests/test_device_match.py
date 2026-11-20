@@ -283,3 +283,28 @@ async def test_console_tags_sync_criticality_and_cmdb_fields(db, client_cyber):
 def test_scanner_criticality_weights_risk():
     from api.scoring.engine import _CRITICALITY
     assert _CRITICALITY["Very High"] > _CRITICALITY["Medium"] > _CRITICALITY["Very Low"]
+
+
+def test_phone_numbers_normalize_to_e164():
+    from api.core.phone import normalize
+
+    assert normalize("(201) 555-0123") == "+12015550123"
+    assert normalize("201.555.0123 x45") == "+12015550123;ext=45"
+    assert normalize("+44 20 7946 0958") == "+442079460958"
+    assert normalize("0044 20 7946 0958") == "+442079460958"
+    assert normalize("020 7946 0958", country="GB") == "+442079460958"
+    assert normalize("030 901820", country="de") == "+4930901820"
+    assert normalize("1234") is None and normalize("call me") is None and normalize(None) is None
+
+
+@pytest.mark.asyncio
+async def test_directory_profile_fields_are_stored(db, client_admin):
+    from api.integrations.ldap_ingest import upsert_directory
+
+    name = _tag()
+    await upsert_directory([{"username": name, "first_name": "Jane", "last_name": "Doe", "title": "Analyst",
+                             "phone": "(201) 555-0123", "mobile": "ext 4", "country": "US"}], [], db)
+    users = (await client_admin.get("/api/v1/admin/users", params={"q": name})).json()["users"]
+    u = next(x for x in users if x["username"] == name)
+    assert (u["first_name"], u["last_name"], u["title"], u["phone"]) == ("Jane", "Doe", "Analyst", "+12015550123")
+    assert u["mobile"] == "ext 4"  # not a number we can normalize, so it's kept as entered

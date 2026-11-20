@@ -33,6 +33,12 @@ class LdapUser(_Lax):
     pwd_expired: bool | None = None
     pwd_never_expires: bool | None = None
     locked_out: bool | None = None
+    first_name: Short | None = None
+    last_name: Short | None = None
+    title: Short | None = None
+    phone: Annotated[str, StringConstraints(strip_whitespace=True, max_length=64, pattern=r"^[^\x00-\x1f]+$")] | None = None
+    mobile: Annotated[str, StringConstraints(strip_whitespace=True, max_length=64, pattern=r"^[^\x00-\x1f]+$")] | None = None
+    country: Annotated[str, StringConstraints(pattern=r"^[A-Za-z]{2}$")] | None = None
 
 
 class LdapComputer(_Lax):

@@ -256,3 +256,12 @@ def test_rapid7_pages_shrink_on_timeout_without_losing_rows(monkeypatch):
     monkeypatch.setattr(r7, "_get", lambda s, secret, path: (_ for _ in ()).throw(TimeoutError()))
     with pytest.raises(RuntimeError, match="took over"):
         list(r7._pages({}, {}, "/api/3/assets"))
+
+
+def test_ldap_user_profile_fields():
+    u = ldapmod._user({"dn": "CN=J Doe,DC=acme", "attributes": {
+        "sAMAccountName": "jdoe", "userAccountControl": 512, "givenName": "Jane", "sn": "Doe",
+        "title": "Security Analyst", "telephoneNumber": "(201) 555-0123", "mobile": "bad\nvalue", "c": "US"}}, True)
+    assert (u["first_name"], u["last_name"], u["title"], u["phone"], u["country"]) == \
+        ("Jane", "Doe", "Security Analyst", "(201) 555-0123", "US")
+    assert u["mobile"] is None

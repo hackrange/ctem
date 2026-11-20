@@ -22,11 +22,13 @@ def _chunks(items: list, size: int = _IN_CHUNK):
 
 async def upsert_directory(users: list[dict], computers: list[dict], db: AsyncSession, commit: bool = True) -> int:
     from api.core.device_match import add_source, find_devices, type_from_os
+    from api.core.config import get_settings
     from api.core.encryption import search_hash
+    from api.core.phone import normalize
     from api.models.device import Device, DeviceType
     from api.models.user import User
 
-    count = 0
+    count, region = 0, get_settings().phone_default_region
     users = [u for u in users if u.get("username")]
     known: dict[str, User] = {}
     for part in _chunks(list({u["username"] for u in users})):
@@ -54,6 +56,12 @@ async def upsert_directory(users: list[dict], computers: list[dict], db: AsyncSe
                 setattr(user, dst, u[src])
         if u.get("pwd_never_expires"):
             user.ad_pwd_expires = None
+        for field in ("first_name", "last_name", "title"):
+            if u.get(field):
+                setattr(user, field, u[field])
+        for field in ("phone", "mobile"):
+            if u.get(field):
+                setattr(user, field, normalize(u[field], u.get("country"), region) or u[field])
         count += 1
 
     computers = [c for c in computers if c.get("hostname")]
