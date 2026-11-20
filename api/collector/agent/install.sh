@@ -204,8 +204,16 @@ install_local() {
   id "$SVC_USER" >/dev/null 2>&1 || useradd --system --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin "$SVC_USER"
   install -d -m 755 "$APP"
   install -m 644 "$STAGE"/*.py "$APP/"
-  [[ -x "$APP/venv/bin/python" ]] || "$py" -m venv --system-site-packages "$APP/venv"
-  install_deps
+  # umask 077 is for keys; the service user still has to run this venv
+  (
+    umask 022
+    [[ -x "$APP/venv/bin/python" ]] || "$py" -m venv --system-site-packages "$APP/venv"
+    install_deps
+  )
+  chown -R root:root "$APP"
+  chmod -R u=rwX,go=rX "$APP"
+  runuser -u "$SVC_USER" -- "$APP/venv/bin/python" -c 'import cryptography' \
+    || die "the service user can't run $APP/venv/bin/python (check mount options and SELinux on $APP)"
 
   while IFS= read -r -d '' a; do args+=("$a"); done < <(setup_args)
   install -d -m 700 "$STAGE/out"

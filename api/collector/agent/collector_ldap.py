@@ -90,14 +90,23 @@ def probe(settings):
 
 def test(s, secret):
     conn = _open(s, secret["password"])
-    conn.search(_base(s, conn), _user_filter(_flavor(conn)), attributes=["cn"], size_limit=1)
-    conn.unbind()
+    try:
+        flavor, base = _flavor(conn), _base(s, conn)
+        conn.search(base, _user_filter(flavor), attributes=["cn"], size_limit=1)
+        if not any(e.get("type") == "searchResEntry" for e in conn.response or []):
+            raise RuntimeError(f"bind worked but no {'AD' if flavor == 'ad' else 'LDAP'} users are visible under {base}")
+    finally:
+        conn.unbind()
 
 
 def _flavor(conn):
+    # ldap3 files supportedCapabilities under supported_features, not other
     info = conn.server.info
-    caps = (info.other.get("supportedCapabilities") or []) if info else []
-    return "ad" if AD_CAPABILITY in caps else "openldap"
+    if not info:
+        return "openldap"
+    oids = {f[0] if isinstance(f, (tuple, list)) else f for f in (info.supported_features or [])}
+    oids.update(info.other.get("supportedCapabilities") or [])
+    return "ad" if AD_CAPABILITY in oids else "openldap"
 
 
 def _base(s, conn):
