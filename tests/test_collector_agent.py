@@ -26,6 +26,22 @@ def test_ldap_user_and_computer_shapes():
     assert c["hostname"] == "DESKTOP001" and c["last_logon"].startswith("2026-11-01")
 
 
+def test_ldap_detects_ad_from_real_ldap3_root_dse():
+    # AD used to look like OpenLDAP here and ship zero records
+    from types import SimpleNamespace
+    from ldap3.protocol.rfc4512 import DsaInfo
+
+    def conn_for(attrs):
+        return SimpleNamespace(server=SimpleNamespace(info=DsaInfo(attrs, [])))
+
+    ad = conn_for({"supportedCapabilities": [ldapmod.AD_CAPABILITY],
+                   "defaultNamingContext": ["DC=ad,DC=acme,DC=com"]})
+    assert ldapmod._flavor(ad) == "ad"
+    assert ldapmod._base({}, ad) == "DC=ad,DC=acme,DC=com"
+    assert ldapmod._flavor(conn_for({"vendorName": ["OpenLDAP"]})) == "openldap"
+    assert ldapmod._flavor(SimpleNamespace(server=SimpleNamespace(info=None))) == "openldap"
+
+
 def test_ldap_drops_names_the_server_would_reject():
     assert ldapmod._computer({"dn": "x", "attributes": {"name": "bad host!"}}, True) is None
     assert ldapmod._user({"dn": "x", "attributes": {"sAMAccountName": "a\x00b"}}, True) is None
