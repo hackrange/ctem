@@ -233,3 +233,26 @@ def test_rapid7_console_tag_map(monkeypatch):
         raise cc.HttpError(403)
     monkeypatch.setattr(r7, "_get", denied)
     assert r7._tag_map({}, {}) is None
+
+
+def test_rapid7_pages_shrink_on_timeout_without_losing_rows(monkeypatch):
+    rows = list(range(450))
+    seen_sizes = []
+
+    def fake_get(s, secret, path):
+        size = int(path.split("size=")[1].split("&")[0])
+        page = int(path.split("page=")[1])
+        seen_sizes.append(size)
+        if size == 200 and page == 1:
+            raise TimeoutError("The read operation timed out")
+        chunk = rows[page * size:(page + 1) * size]
+        return {"resources": chunk, "page": {"totalResources": len(rows), "totalPages": -(-len(rows) // size)}}
+
+    monkeypatch.setattr(r7, "_get", fake_get)
+    got = [x for page in r7._pages({}, {}, "/api/3/assets") for x in page]
+    assert got == rows  # every row exactly once, in order
+    assert seen_sizes[:3] == [200, 200, 100]
+
+    monkeypatch.setattr(r7, "_get", lambda s, secret, path: (_ for _ in ()).throw(TimeoutError()))
+    with pytest.raises(RuntimeError, match="took over"):
+        list(r7._pages({}, {}, "/api/3/assets"))
