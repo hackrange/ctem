@@ -8,7 +8,7 @@ Config and sealed passwords come from CTEM; destinations only change after `appr
   ctem_collector.py test-ctem      check CTEM is reachable and the TLS chain is good
   ctem_collector.py test           check every source with the current config, ship nothing
   ctem_collector.py run [--force]  check in, and ship if the schedule says so (cron fires this)
-  ctem_collector.py daemon         Docker mode: check in every 15 minutes forever
+  ctem_collector.py daemon         Docker mode: check in every 5 minutes forever
 """
 import argparse
 import fcntl
@@ -24,7 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import collector_common as cc  # noqa: E402
 import collector_core as core  # noqa: E402
 
-TICK = 15 * 60
+TICK = 5 * 60
 SPOOL_MAX_AGE = 7 * 86400
 MAX_BODY = 768 * 1024  # load balancers commonly stop at 1 MB
 
@@ -113,29 +113,48 @@ def run(force=False):
         return _run_locked(force)
 
 
+def _every(m, cfg):
+    """Minutes between runs for one source: its own setting, else the shipper's."""
+    return int((m.get("settings") or {}).get("schedule_minutes") or cfg["schedule_minutes"])
+
+
+def _due(m, cfg, state, now, force):
+    last = float((state.get("last_by_kind") or {}).get(m["kind"], state.get("last_run", 0)))
+    return force or now - last >= _every(m, cfg) * 60 - 60  # a minute of slack for cron jitter
+
+
 def _run_locked(force):
     state = _state()
     sh = core.Shipper()
     cfg = sh.checkin()
-    due = force or time.time() - float(state.get("last_run", 0)) >= cfg["schedule_minutes"] * 60 - 60
+    now = time.time()
+    due = [m for m in sh.modules() if _due(m, cfg, state, now, force)]
     if not due:
         return 0
     _prune_spool({m["integration_id"] for m in sh.modules()})
-    secrets, errors = sh.secrets()
-    for m in sh.modules():
+    secrets, problems = sh.secrets()
+    # Sources that weren't due keep reporting their last problem, so CTEM's status doesn't flap
+    errors = {k: v for k, v in (state.get("errors") or {}).items() if k in {m["kind"] for m in sh.modules()}}
+    last_by_kind = state.setdefault("last_by_kind", {})
+    for m in due:
         kind = m["kind"]
+        errors.pop(kind, None)
+        last_by_kind[kind] = time.time()
         s = sh.settings_for(m)
         if s is None:
             errors[kind] = "destination changed in CTEM; waiting for `open-ctem-collector approve` on the box"
             continue
+        if kind in problems:
+            errors[kind] = problems[kind]
+            continue
         secret = secrets.get(kind, {})
         missing = [f for f in core.mod(kind).SECRETS if f not in secret]
         if missing:
-            errors.setdefault(kind, f"no {', '.join(missing)} set in CTEM yet")
+            errors[kind] = f"no {', '.join(missing)} set in CTEM yet"
             continue
         if kind == "splunk":
             gap = (time.time() - float(state.get("splunk_ok", 0))) / 60
-            s["lookback_minutes"] = int(min(max(gap, cfg["schedule_minutes"]) + 5, 7 * 1440))
+            s["lookback_minutes"] = int(min(max(gap, _every(m, cfg)) + 5, 7 * 1440))
         started = time.time()
         try:
             n = ship(sh.api, m, s, secret, state)
@@ -145,7 +164,7 @@ def _run_locked(force):
         except Exception as e:
             errors[kind] = cc.short_error(e)
             cc.say(f"{kind}: FAILED {errors[kind]}")
-    state.update(last_run=time.time())
+    state.update(last_run=time.time(), errors=errors)
     _state(state)
     sh.checkin(errors, ran=True)
     return 1 if errors else 0
@@ -161,7 +180,7 @@ def daemon():
             run()
         except Exception as e:
             cc.say(f"run failed: {cc.short_error(e)}")
-        time.sleep(TICK + random.randint(0, 60))  # nosec B311 - jitter, not crypto
+        time.sleep(TICK + random.randint(0, 30))  # nosec B311 - jitter, not crypto
 
 
 def test():

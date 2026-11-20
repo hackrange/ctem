@@ -136,3 +136,18 @@ def test_crowdstrike_device_carries_last_user_safely():
     assert d["last_login_user"] == "jdoe"
     assert cs._device({"hostname": "DESKTOP001", "last_login_user": "j\x1bdoe"})["last_login_user"] is None
     assert cs._device({"hostname": "DESKTOP001", "last_login_user": ["x"]})["last_login_user"] is None
+
+
+def test_each_source_runs_on_its_own_schedule():
+    import ctem_collector as agent
+    cfg = {"schedule_minutes": 30}
+    ldap = {"kind": "ldap", "settings": {}}
+    r7 = {"kind": "rapid7_console", "settings": {"schedule_minutes": 300}}
+    splunk = {"kind": "splunk", "settings": {"schedule_minutes": 5}}
+    now = 1_000_000.0
+    state = {"last_by_kind": {"ldap": now - 31 * 60, "rapid7_console": now - 60 * 60, "splunk": now - 5 * 60}}
+    due = [m["kind"] for m in (ldap, r7, splunk) if agent._due(m, cfg, state, now, False)]
+    assert due == ["ldap", "splunk"]
+    assert agent._due(r7, cfg, state, now, True)  # run-now ignores schedules
+    # Upgraded boxes only know the old shared last_run; every source starts from it
+    assert [agent._due(m, cfg, {"last_run": now - 10 * 60}, now, False) for m in (ldap, r7, splunk)] == [False, False, True]

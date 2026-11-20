@@ -137,7 +137,7 @@ async def get_device(
     device = await _visible_device(device_id, current_user, db)
     base = dq.summary(device)
     base.update({
-        "fqdn": device.fqdn,
+        "fqdn": dq.full_name(device),
         "mac_address": device.mac_address,
         "os_version": device.os_version,
         "ad_last_logon": device.ad_last_logon.isoformat() if device.ad_last_logon else None,
