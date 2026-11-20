@@ -110,6 +110,7 @@ class CsDevice(_Lax):
 
 class CsHost(_Lax):
     hostname: Annotated[str, StringConstraints(strip_whitespace=True, max_length=253)] | None = None
+    device_id: Annotated[str, StringConstraints(pattern=r"^[0-9a-fA-F]{32}$")] | None = None
 
 
 class CsBehavior(_Lax):
@@ -121,6 +122,12 @@ class CsDetection(_Lax):
     max_severity_displayname: Annotated[str, StringConstraints(max_length=32)] | None = None
     tactic: Annotated[str, StringConstraints(max_length=128)] | None = None
     technique: Annotated[str, StringConstraints(max_length=128)] | None = None
+    title: Annotated[str, StringConstraints(max_length=300, pattern=r"^[^\x00-\x1f]+$")] | None = None
+    status: Annotated[str, StringConstraints(max_length=32, pattern=r"^[A-Za-z_ -]+$")] | None = None
+    detected_at: datetime | None = None
+    tactic_id: Annotated[str, StringConstraints(pattern=r"^TA\d{4}$")] | None = None
+    technique_id: Annotated[str, StringConstraints(pattern=r"^T\d{4}(\.\d{3})?$")] | None = None
+    link: Annotated[str, StringConstraints(max_length=1000, pattern=r"^https://falcon(\.[a-z0-9-]+)*\.crowdstrike\.com/[^\s\"'<>]*$")] | None = None
     device: CsHost | None = None
     behaviors: list[CsBehavior] = Field(default_factory=list, max_length=20)
 

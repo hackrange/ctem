@@ -17,52 +17,86 @@ from api.models.user import User
 router = APIRouter(prefix="/api/v1/threat", tags=["threat"])
 
 
-@router.get("/alerts")
-async def list_threat_alerts(
-    _: User = Depends(require_cyber_or_admin),
-    db: AsyncSession = Depends(get_session),
-    source: str | None = Query(None, description="crowdstrike, splunk, sentinelone"),
-    severity: str | None = None,
-    limit: int = Query(50, le=200),
-):
-    """
-    Aggregated threat alerts from connected SIEMs and EDR platforms.
-    Correlated against active findings to highlight in-flight attacks.
-    """
-    from api.models.integration import IntegrationConfig, Vendor
-    from api.models.device import Device
-    from api.models.vuln import Finding, FindingStatus
-
-    # Connectors cache one alert per row as threat_alert_<source>_<id>
+async def _alerts(db: AsyncSession, key: str | None = None) -> list[dict]:
+    """Every cached alert in one shape (or just one by key)."""
     import json
+    from api.core.threat_view import normalize
     from api.models.settings import AppSetting
-    result = await db.execute(
-        select(AppSetting)
-        .where(AppSetting.key.like("threat_alert_%"))
-        .order_by(AppSetting.updated_at.desc())
-        .limit(5000)
-    )
-    alerts = []
-    for row in result.scalars():
+
+    stmt = select(AppSetting).where(AppSetting.key == key) if key else \
+        select(AppSetting).where(AppSetting.key.like("threat\\_alert\\_%", escape="\\")).limit(20000)
+    out = []
+    for row in (await db.execute(stmt)).scalars():
         try:
             data = json.loads(row.value) if row.value else None
         except ValueError:
             continue
-        for item in data if isinstance(data, list) else [data]:
-            if isinstance(item, dict):
-                alerts.append({"id": row.key, **item})
+        items = [x for x in (data if isinstance(data, list) else [data]) if isinstance(x, dict)]
+        for i, item in enumerate(items):
+            out.append(normalize(row.key if len(items) == 1 else f"{row.key}#{i}", item, row.created_at))
+    return out
 
+
+async def _link_devices(db: AsyncSession, alerts: list[dict]) -> None:
+    """Point each alert at its CTEM device so the host is clickable."""
+    from api.core.device_match import host_key
+    from api.models.device import Device
+
+    keys = {host_key(a["hostname"]) for a in alerts if a.get("hostname")} - {None}
+    found = {}
+    if keys:
+        found = dict((await db.execute(select(Device.host_key, Device.id).where(Device.host_key.in_(keys)))).all())
+    for a in alerts:
+        a["device_id"] = found.get(host_key(a.get("hostname")))
+
+
+@router.get("/alerts")
+async def list_threat_alerts(
+    _: User = Depends(require_cyber_or_admin),
+    db: AsyncSession = Depends(get_session),
+    q: str | None = Query(None, max_length=200),
+    source: str | None = Query(None, max_length=64, description="Source name or code: crowdstrike / CS"),
+    severity: str | None = Query(None, max_length=32),
+    status: str | None = Query(None, max_length=32),
+    sort: str = Query("severity", max_length=32),
+    order: str = Query("desc", pattern="^(asc|desc)$"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    """Threat alerts from connected EDR, SIEM and firewall tools; worst first by default."""
+    from api.core.threat_view import SORTS, matches, sort_key
+
+    alerts = await _alerts(db)
+    sources = sorted({(a["source"], a["source_code"]) for a in alerts if a["source"]}, key=lambda s: s[1])
+    statuses = sorted({a["status"] for a in alerts if a["status"]})
     if source:
-        alerts = [a for a in alerts if a.get("source") == source]
+        s = source.strip().lower()
+        alerts = [a for a in alerts if s in ((a["source"] or ""), a["source_code"].lower())]
     if severity:
-        alerts = [a for a in alerts if a.get("severity", "").lower() == severity.lower()]
+        alerts = [a for a in alerts if (a["severity"] or "") == severity.strip().lower()]
+    if status:
+        alerts = [a for a in alerts if (a["status"] or "") == status.strip().lower()]
+    if q and q.strip():
+        alerts = [a for a in alerts if matches(a, q.strip())]
+    alerts.sort(key=sort_key(sort if sort in SORTS else "severity"), reverse=order == "desc")
+    page = alerts[offset:offset + limit]
+    await _link_devices(db, page)
+    return {"alerts": page, "total": len(alerts), "limit": limit, "offset": offset,
+            "sources": [{"source": s, "code": c} for s, c in sources], "statuses": statuses}
 
-    alerts = alerts[:limit]
-    return {
-        "alerts": alerts,
-        "total": len(alerts),
-        "sources": list({a.get("source") for a in alerts if a.get("source")}),
-    }
+
+@router.get("/alerts/detail")
+async def get_threat_alert(
+    id: str = Query(..., min_length=14, max_length=300, pattern=r"^threat_alert_[^#\s]+(#\d{1,4})?$"),
+    _: User = Depends(require_cyber_or_admin),
+    db: AsyncSession = Depends(get_session),
+):
+    key = id.partition("#")[0]
+    found = [a for a in await _alerts(db, key) if a["id"] == id]
+    if not found:
+        raise HTTPException(404, detail="Alert not found")
+    await _link_devices(db, found)
+    return found[0]
 
 
 @router.post("/analyze")

@@ -7,119 +7,79 @@
 <div class="page-header">
   <div>
     <h1 class="page-header__title">Cyber Threats</h1>
-    <p class="page-header__sub">Active threat alerts and indicators across integrated tools</p>
-  </div>
-  <div class="flex items-center gap-2">
-    <select id="filter-severity" class="filter-select" onchange="loadThreats()">
-      <option value="">All Severity</option>
-      <option value="critical">Critical</option>
-      <option value="high">High</option>
-      <option value="medium">Medium</option>
-      <option value="low">Low</option>
-    </select>
-    <select id="filter-source" class="filter-select" onchange="loadThreats()">
-      <option value="">All Sources</option>
-    </select>
+    <p class="page-header__sub">Alerts from your EDR, SIEM and firewalls, worst first</p>
   </div>
 </div>
 
 <div class="panel" style="padding:0">
-  <table class="data-table">
-    <thead>
-      <tr>
-        <th>Alert</th>
-        <th>Source</th>
-        <th>Severity</th>
-        <th>Device</th>
-        <th>MITRE</th>
-        <th>Detected</th>
-        <th>Status</th>
-      </tr>
-    </thead>
-    <tbody id="threats-tbody">
-      <tr><td colspan="7" class="text-muted text-sm" style="text-align:center;padding:24px">Loading...</td></tr>
-    </tbody>
-  </table>
-  <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-top:1px solid var(--border)">
-    <span id="page-info" class="text-muted text-sm"></span>
-    <div style="display:flex;gap:8px">
-      <button class="btn btn--ghost btn--sm" id="btn-prev" onclick="prevPage()" disabled>Previous</button>
-      <button class="btn btn--ghost btn--sm" id="btn-next" onclick="nextPage()" disabled>Next</button>
+  <div class="panel__header" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+    <div class="search-bar-wrap">
+      <svg class="search-icon" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+      <input id="search-input" type="search" class="search-bar" placeholder="Alert, host, MITRE ID or tactic" aria-label="Search alerts">
     </div>
+    <select id="filter-severity" class="filter-select" aria-label="Severity">
+      <option value="">Any severity</option>
+      <option value="critical">Critical</option>
+      <option value="high">High</option>
+      <option value="medium">Medium</option>
+      <option value="low">Low</option>
+      <option value="informational">Informational</option>
+    </select>
+    <select id="filter-status" class="filter-select" aria-label="Status"><option value="">Any status</option></select>
+    <select id="filter-source" class="filter-select" aria-label="Source"><option value="">All sources</option></select>
   </div>
+  <div id="threats-table"></div>
 </div>
 {% endblock %}
 
 {% block extra_scripts %}
+<script src="{{ static('js/data_table.js') }}"></script>
+<script src="{{ static('js/threat_common.js') }}"></script>
 <script>
-const API = '/api/v1';
-let page = 1;
-const PAGE_SIZE = 50;
-let totalCount = 0;
+const R = DataTable.R;
+const $ = id => document.getElementById(id);
+const T = ThreatView;
 
-async function fetchJson(url) {
-  const res = await fetch(url, { headers: { Accept: 'application/json' } });
-  if (!res.ok) throw new Error(res.statusText);
-  return res.json();
+// Prefill from the URL so shared links land on the same view
+const initial = new URLSearchParams(location.search);
+const FILTERS = { q: 'search-input', severity: 'filter-severity', status: 'filter-status', source: 'filter-source' };
+Object.entries(FILTERS).forEach(([k, id]) => { if (initial.get(k)) $(id).value = initial.get(k); });
+
+function fillOnce(id, items) {
+  const sel = $(id);
+  if (sel.options.length > 1) return;
+  const want = initial.get(id === 'filter-source' ? 'source' : 'status') || '';
+  items.forEach(([value, label]) => sel.add(new Option(label, value, false, value === want)));
 }
 
-function sevChip(s) {
-  const m = { critical: 'critical', high: 'high', medium: 'medium', low: 'low' };
-  return s ? `<span class="chip chip--${m[s.toLowerCase()] || 'info'}">${s}</span>` : '--';
-}
+const table = DataTable.create({
+  mount: $('threats-table'),
+  endpoint: '/api/v1/threat/alerts',
+  listKey: 'alerts',
+  defaultSort: 'severity',
+  defaultOrder: 'desc',
+  syncUrl: true,
+  emptyText: 'No alerts match these filters',
+  rowHref: a => T.href(a),
+  onLoad: data => {
+    fillOnce('filter-source', (data.sources || []).map(s => [s.code, s.code]));
+    fillOnce('filter-status', (data.statuses || []).map(s => [s, T.statusLabel(s)]));
+  },
+  params: () => ({ q: $('search-input').value.trim(), severity: $('filter-severity').value,
+                   status: $('filter-status').value, source: $('filter-source').value }),
+  columns: [
+    { label: 'Alert', sort: 'title', render: a => `<span style="display:inline-block;max-width:340px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom" title="${esc(a.title || '')}">${R.link(T.href(a), a.title || a.id)}</span>` },
+    { label: 'Source', sort: 'source', render: a => T.sourceChip(a) },
+    { label: 'Severity', sort: 'severity', firstOrder: 'desc', render: a => T.sevChip(a.severity) },
+    { label: 'Device', sort: 'hostname', render: a => T.device(a) },
+    { label: 'MITRE', sort: 'technique_id', render: a => T.mitre(a) },
+    { label: 'Detected', sort: 'detected_at', firstOrder: 'desc', render: a => T.when(a) },
+    { label: 'Status', sort: 'status', render: a => T.statusChip(a.status) },
+  ],
+});
 
-async function loadThreats() {
-  const sev = document.getElementById('filter-severity').value;
-  const src = document.getElementById('filter-source').value;
-  const offset = (page - 1) * PAGE_SIZE;
-  const params = new URLSearchParams({ limit: PAGE_SIZE, offset });
-  if (sev) params.set('severity', sev);
-  if (src) params.set('source', src);
-
-  try {
-    const data = await fetchJson(`${API}/threat/alerts?${params}`);
-    const alerts = data.alerts || [];
-    totalCount = data.total || alerts.length;
-
-    // Populate source filter from first load
-    if (page === 1 && !src) {
-      const sources = [...new Set(alerts.map(a => a.source).filter(Boolean))];
-      const sel = document.getElementById('filter-source');
-      if (sel.options.length <= 1) {
-        sources.forEach(s => {
-          const opt = document.createElement('option');
-          opt.value = s;
-          opt.textContent = s;
-          sel.appendChild(opt);
-        });
-      }
-    }
-
-    document.getElementById('threats-tbody').innerHTML = alerts.map(a => `
-      <tr>
-        <td style="max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500" title="${esc(a.title || '')}">${esc(a.title) || '--'}</td>
-        <td class="text-muted text-sm">${esc(a.source) || '--'}</td>
-        <td>${sevChip(a.severity)}</td>
-        <td class="text-sm">${esc(a.device_hostname) || '--'}</td>
-        <td class="text-mono text-sm">${esc(a.mitre_technique_id) || ''}</td>
-        <td class="text-muted text-sm">${a.detected_at ? new Date(a.detected_at).toLocaleString() : '--'}</td>
-        <td>${a.status ? `<span class="chip chip--info">${esc(a.status)}</span>` : ''}</td>
-      </tr>
-    `).join('') || '<tr><td colspan="7" class="text-muted text-sm" style="text-align:center;padding:24px">No threat alerts</td></tr>';
-
-    const start = offset + 1;
-    const end = Math.min(offset + alerts.length, totalCount);
-    document.getElementById('page-info').textContent = alerts.length ? `${start}-${end} of ${totalCount}` : '';
-    document.getElementById('btn-prev').disabled = page <= 1;
-    document.getElementById('btn-next').disabled = end >= totalCount;
-  } catch (e) {
-    document.getElementById('threats-tbody').innerHTML = `<tr><td colspan="7" class="text-muted text-sm" style="text-align:center;padding:24px">Error loading threats</td></tr>`;
-  }
-}
-
-function prevPage() { if (page > 1) { page--; loadThreats(); } }
-function nextPage() { page++; loadThreats(); }
-
-document.addEventListener('DOMContentLoaded', loadThreats);
+let timer;
+$('search-input').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => table.reload(), 300); });
+['filter-severity', 'filter-status', 'filter-source'].forEach(id => $(id).addEventListener('change', () => table.reload()));
 </script>
 {% endblock %}

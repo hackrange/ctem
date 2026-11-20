@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% set active_nav = 'threat' %}
+
+{% block title %}Alert -- open-ctem{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div style="min-width:0">
+    <p class="text-sm"><a href="/threat" class="dt-link" style="color:var(--fg-muted)">&larr; Cyber Threats</a></p>
+    <h1 class="page-header__title" id="al-title" style="overflow-wrap:anywhere">Loading...</h1>
+    <p class="page-header__sub" id="al-sub"></p>
+  </div>
+  <div id="al-actions" style="display:flex;align-items:center;gap:8px"></div>
+</div>
+
+<div class="panel">
+  <div class="panel__header"><span class="panel__title">Details</span></div>
+  <div class="panel__body">
+    <dl id="al-info" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px 24px;margin:0"></dl>
+  </div>
+</div>
+
+<div class="panel" id="al-desc-panel" style="margin-top:16px;display:none">
+  <div class="panel__header"><span class="panel__title">Description</span></div>
+  <div class="panel__body"><p id="al-desc" style="margin:0;white-space:pre-wrap;overflow-wrap:anywhere"></p></div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ static('js/threat_common.js') }}"></script>
+<script>
+const T = ThreatView;
+const $ = id => document.getElementById(id);
+const txt = v => v == null || v === '' ? '<span class="text-muted">--</span>' : esc(v);
+const info = (label, html) => `<div style="min-width:0"><dt class="text-sm text-muted">${esc(label)}</dt><dd style="margin:2px 0 0;overflow-wrap:anywhere">${html}</dd></div>`;
+
+async function load() {
+  const id = new URLSearchParams(location.search).get('id') || '';
+  const res = await fetch(`/api/v1/threat/alerts/detail?id=${encodeURIComponent(id)}`, { headers: { Accept: 'application/json' } });
+  if (!res.ok) {
+    $('al-title').textContent = 'Alert not found';
+    $('al-sub').textContent = 'It may have aged out of the source tool.';
+    return;
+  }
+  const a = await res.json();
+  document.title = `${a.title || 'Alert'} -- open-ctem`;
+  $('al-title').textContent = a.title || a.id;
+  $('al-sub').innerHTML = `${T.sevChip(a.severity)} ${T.statusChip(a.status)} ${T.sourceChip(a)}`;
+  if (a.link) {
+    $('al-actions').innerHTML = `<a class="btn btn--ghost btn--sm" href="${esc(a.link)}" target="_blank" rel="noopener noreferrer">Open in ${esc(T.sourceName(a))} &#8599;</a>`;
+  }
+  const tactic = a.tactic_id
+    ? `<a class="dt-link" href="${esc(T.tacticUrl(a.tactic_id))}" target="_blank" rel="noopener noreferrer">${esc(a.tactic_id)}</a> ${txt(a.tactic)}`
+    : txt(a.tactic);
+  const technique = a.technique_id ? `${T.mitre(a)} ${txt(a.technique)}` : txt(a.technique);
+  $('al-info').innerHTML = [
+    info('Device', T.device(a)),
+    info('Source', esc(T.sourceName(a))),
+    info('Detected', T.when(a)),
+    info('Status', T.statusChip(a.status)),
+    info('MITRE tactic', tactic),
+    info('MITRE technique', technique),
+    info('Alert ID', `<span class="text-mono text-sm">${txt(a.id.replace(/^threat_alert_/, ''))}</span>`),
+  ].join('');
+  if (a.description) {
+    $('al-desc').textContent = a.description;
+    $('al-desc-panel').style.display = '';
+  }
+}
+load();
+</script>
+{% endblock %}

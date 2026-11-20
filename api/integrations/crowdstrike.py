@@ -153,22 +153,42 @@ class CrowdStrikeConnector(BaseConnector):
         return count
 
     async def _cache_threats(self, detections: list[dict], db: AsyncSession) -> None:
-        from api.models.settings import AppSetting
-        from sqlalchemy import select
+        """One row per alert; the newest copy of an alert replaces the old one, so status changes show."""
         import json
-        for det in detections[:200]:
-            key = f"threat_alert_{det.get('detection_id', '')}"
-            payload = {
+        from datetime import datetime
+
+        from sqlalchemy import select
+
+        from api.models.settings import AppSetting
+
+        rows = {}
+        for det in detections:
+            if not det.get("detection_id"):
+                continue
+            when = det.get("detected_at")
+            dev = det.get("device") or {}
+            rows[f"threat_alert_{det['detection_id']}"] = {
                 "source": "crowdstrike",
-                "id": det.get("detection_id"),
+                "id": det["detection_id"],
+                "title": det.get("title"),
                 "severity": det.get("max_severity_displayname", ""),
+                "status": det.get("status"),
+                "detected_at": when.isoformat() if isinstance(when, datetime) else when,
                 "tactic": det.get("tactic", ""),
+                "tactic_id": det.get("tactic_id"),
                 "technique": det.get("technique", ""),
-                "hostname": det.get("device", {}).get("hostname"),
+                "technique_id": det.get("technique_id"),
+                "hostname": dev.get("hostname"),
+                "falcon_device_id": dev.get("device_id"),
+                "link": det.get("link"),
                 "description": det.get("behaviors", [{}])[0].get("description") if det.get("behaviors") else None,
             }
-            result = await db.execute(select(AppSetting).where(AppSetting.key == key))
-            setting = result.scalar_one_or_none() or AppSetting(key=key, is_sensitive=False)
-            setting.value = json.dumps(payload)
-            db.add(setting)
+        keys = list(rows)
+        for i in range(0, len(keys), 500):
+            part = keys[i:i + 500]
+            have = {r.key: r for r in (await db.execute(select(AppSetting).where(AppSetting.key.in_(part)))).scalars()}
+            for k in part:
+                setting = have.get(k) or AppSetting(key=k, is_sensitive=False)
+                setting.value = json.dumps({x: v for x, v in rows[k].items() if v not in (None, "")})
+                db.add(setting)
         await db.commit()
