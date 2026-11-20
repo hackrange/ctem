@@ -20,6 +20,7 @@ def user_summary(u: User, risk: object | None = None) -> dict:
         "username": u.username,
         "email_display": u.email,  # decrypted by EncryptedString on read
         "display_name": getattr(u, "display_name", None),
+        "upn": getattr(u, "upn", None),
         "first_name": getattr(u, "first_name", None),
         "last_name": getattr(u, "last_name", None),
         "title": getattr(u, "title", None),

@@ -67,7 +67,8 @@ class LDAPConnector(BaseConnector):
             attrs = ["cn", "uid", "mail", "displayName", "distinguishedName", "description", "title"]
         else:
             obj_filter = "(objectClass=user)"
-            attrs = ["sAMAccountName", "mail", "displayName", "distinguishedName", "memberOf", "userAccountControl", "lastLogon"]
+            attrs = ["sAMAccountName", "mail", "displayName", "distinguishedName", "memberOf", "userAccountControl", "lastLogon",
+                     "userPrincipalName"]
         conn.search(base, obj_filter, search_scope=SUBTREE, attributes=attrs)
         users = []
         for entry in conn.entries:
@@ -92,6 +93,7 @@ class LDAPConnector(BaseConnector):
                     "ad_dn":        str(entry.distinguishedName),
                     "groups":       [str(g) for g in (entry.memberOf.values if entry.memberOf else [])],
                     "disabled":     bool(uac & 0x2),
+                    "upn":          str(entry.userPrincipalName) if entry.userPrincipalName else None,
                 })
         return users
 

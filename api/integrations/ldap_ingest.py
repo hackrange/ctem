@@ -1,6 +1,7 @@
 """Directory upsert shared by the direct LDAP connector and the on-prem collector push."""
 from __future__ import annotations
 
+import re
 from datetime import datetime
 
 from sqlalchemy import select
@@ -18,6 +19,9 @@ _AD_STATE = (("last_logon", "ad_last_logon"), ("pwd_last_set", "ad_pwd_last_set"
 def _chunks(items: list, size: int = _IN_CHUNK):
     for i in range(0, len(items), size):
         yield items[i:i + size]
+
+
+_UPN = re.compile(r"^[^\s@\x00-\x1f]{1,128}@[^\s@\x00-\x1f]{1,127}$")
 
 
 async def upsert_directory(users: list[dict], computers: list[dict], db: AsyncSession, commit: bool = True) -> int:
@@ -56,6 +60,8 @@ async def upsert_directory(users: list[dict], computers: list[dict], db: AsyncSe
                 setattr(user, dst, u[src])
         if u.get("pwd_never_expires"):
             user.ad_pwd_expires = None
+        if _UPN.match(u.get("upn") or ""):
+            user.upn, user.upn_hash = u["upn"], search_hash(u["upn"].lower())
         for field in ("first_name", "last_name", "title"):
             if u.get(field):
                 setattr(user, field, u[field])

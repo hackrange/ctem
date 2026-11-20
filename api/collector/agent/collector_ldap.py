@@ -173,6 +173,8 @@ def _user(e, ad):
                                ("phone", "telephoneNumber", 64), ("mobile", "mobile", 64), ("country", "c", 2)):
             v = _text(a, attr, cap)
             out[key] = v if v and not any(ord(ch) < 32 for ch in v) else None
+        upn = _text(a, "userPrincipalName", 256)
+        out["upn"] = upn if upn and "@" in upn and not any(ord(ch) <= 32 for ch in upn) else None
     return out
 
 
@@ -250,7 +252,7 @@ def collect(s, secret, state):
         uattrs = ["sAMAccountName", "mail", "displayName", "cn", "memberOf", "userAccountControl",
                   "lastLogonTimestamp", "pwdLastSet", "msDS-UserPasswordExpiryTimeComputed",
                   "msDS-User-Account-Control-Computed", "givenName", "sn", "title", "telephoneNumber",
-                  "mobile", "c"] if ad \
+                  "mobile", "c", "userPrincipalName"] if ad \
             else ["uid", "cn", "mail", "displayName"]
         for chunk in _paged(conn, base, _user_filter("ad" if ad else "openldap"), uattrs):
             yield {"users": [u for u in (_user(e, ad) for e in chunk) if u]}

@@ -19,6 +19,9 @@ class _Lax(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
+UPN = Annotated[str, StringConstraints(strip_whitespace=True, max_length=256, pattern=r"^[^\s@\x00-\x1f]+@[^\s@\x00-\x1f]+$")]
+
+
 class LdapUser(_Lax):
     username: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=256, pattern=r"^[^\x00-\x1f]+$")]
     email: Annotated[str, StringConstraints(strip_whitespace=True, max_length=320)] | None = None
@@ -34,6 +37,7 @@ class LdapUser(_Lax):
     pwd_never_expires: bool | None = None
     locked_out: bool | None = None
     first_name: Short | None = None
+    upn: UPN | None = None
     last_name: Short | None = None
     title: Short | None = None
     phone: Annotated[str, StringConstraints(strip_whitespace=True, max_length=64, pattern=r"^[^\x00-\x1f]+$")] | None = None

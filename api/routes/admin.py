@@ -9,7 +9,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -40,7 +40,8 @@ async def list_users(
 ):
     stmt = select(User).options(selectinload(User.roles)).order_by(User.created_at.desc())
     if q:
-        stmt = stmt.where(User.username.ilike(f"%{q}%"))
+        from api.core.encryption import search_hash
+        stmt = stmt.where(or_(User.username.ilike(f"%{q}%"), User.upn_hash == search_hash(q.strip().lower())))
     if cursor:
         stmt = stmt.where(User.id < str(cursor))
     total_result = await db.execute(select(func.count(User.id)))

@@ -76,20 +76,10 @@ function typeIcon(t) {
     + `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg></span>`;
 }
 
-// Assigned (by a person) beats detected (from sign-ins); flag when someone else is the one signing in
+// Who's on it; assigning and the details live on the device page
 function userCell(d) {
-  const a = d.assigned_user;
-  const last = d.last_login_user ? d.last_login_user.split('\\').pop().split('@')[0].toLowerCase() : '';
-  if (a) {
-    const other = last && last !== a.username.toLowerCase()
-      ? `<div class="text-sm text-muted" title="Last signed in">last: ${esc(d.last_login_user)}</div>` : '';
-    return `<span title="Assigned by ${esc(a.assigned_by || '?')}"><span style="color:var(--severity-low)">&#10003;</span> ${esc(a.name)}</span>${other}`
-      + ` <button type="button" class="btn btn--ghost btn--sm" data-assign="${esc(d.id)}" title="Change assignment">&#9998;</button>`;
-  }
-  const who = d.user ? esc(d.user) : '<span class="text-muted">--</span>';
-  const ok = d.detected_user_id
-    ? ` <button type="button" class="btn btn--ghost btn--sm" data-confirm="${esc(d.id)}" title="Assign to ${esc(d.detected_user)}">&#10003; Assign</button>` : '';
-  return `${who}${ok} <button type="button" class="btn btn--ghost btn--sm" data-assign="${esc(d.id)}">Assign to...</button>`;
+  if (d.assigned_user) return `<span style="color:var(--severity-low)" title="Assigned">&#10003;</span> ${esc(d.assigned_user.name)}`;
+  return d.user ? esc(d.user) : '<span class="text-muted">--</span>';
 }
 
 const FILTERS = { q: 'search-input', grade: 'filter-grade', device_type: 'filter-type', source: 'filter-source', status: 'filter-status' };
@@ -103,7 +93,6 @@ function normalizeMac(input) {
   return /^[0-9A-F]{12}$/.test(raw) ? raw.match(/.{2}/g).join(':') : null;
 }
 
-let rowsById = {};
 const table = DataTable.create({
   mount: $('devices-table'),
   endpoint: '/api/v1/devices',
@@ -114,7 +103,6 @@ const table = DataTable.create({
   syncUrl: true,
   emptyText: 'No devices match these filters',
   rowHref: d => `/devices/${encodeURIComponent(d.id)}`,
-  onLoad: data => { rowsById = Object.fromEntries((data.devices || []).map(d => [d.id, d])); },
   params: () => {
     const q = $('search-input').value.trim();
     return { q: normalizeMac(q) || q, grade: $('filter-grade').value,
@@ -138,12 +126,6 @@ const table = DataTable.create({
     { label: 'Tags', render: d => (d.tags || []).slice(0, 3).map(t => `<span class="chip chip--info" style="font-size:.7rem">${esc(t.split(':').pop())}</span>`).join(' ')
         + ((d.tags || []).length > 3 ? ` <span class="text-muted text-sm">+${d.tags.length - 3}</span>` : '') },
   ],
-});
-
-$('devices-table').addEventListener('click', e => {
-  const a = e.target.closest('[data-assign]'), c = e.target.closest('[data-confirm]');
-  if (a) DeviceAssign.open(rowsById[a.dataset.assign], () => table.reload(false));
-  if (c) DeviceAssign.confirmDetected(rowsById[c.dataset.confirm], () => table.reload(false));
 });
 
 let timer;
