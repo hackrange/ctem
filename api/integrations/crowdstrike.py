@@ -12,6 +12,8 @@ from api.models.integration import Vendor
 log = logging.getLogger("open-ctem.crowdstrike")
 
 _API_BASE = "https://api.crowdstrike.com"
+# Contained hosts still have a working sensor; it just isolates them
+_SENSOR_RUNNING = {"normal", "containment_pending", "contained", "lift_containment_pending"}
 
 
 @register(Vendor.crowdstrike)
@@ -82,22 +84,26 @@ class CrowdStrikeConnector(BaseConnector):
         return detail.json().get("resources", [])
 
     async def _upsert(self, devices: list[dict], detections: list[dict], db: AsyncSession) -> int:
+        from api.core.device_match import find_device
+        from api.core.encryption import search_hash
         from api.models.device import Device, DeviceType
-        from sqlalchemy import select
 
         count = 0
         for d in devices:
             hostname = d.get("hostname") or d.get("device_id")
             if not hostname:
                 continue
-            result = await db.execute(select(Device).where(Device.hostname == hostname))
-            dev = result.scalar_one_or_none()
+            dev = await find_device(db, hostname)
             if dev is None:
                 dev = Device(hostname=hostname, device_type=DeviceType.workstation, source="crowdstrike")
                 db.add(dev)
             dev.edr_vendor = "crowdstrike"
-            dev.edr_active = d.get("status") == "normal"
+            dev.edr_active = d.get("status") in _SENSOR_RUNNING
             dev.os = d.get("os_version")
+            user = (d.get("last_login_user") or "").strip()
+            if user and not any(ord(ch) < 32 for ch in user):
+                dev.last_login_user = user[:256]
+                dev.last_login_user_hash = search_hash(user.split("\\")[-1])
             dev.edr_last_seen = __import__("datetime").datetime.utcnow()
             count += 1
 

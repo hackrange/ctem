@@ -6,6 +6,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 ## [Unreleased]
 
 ### Added
+- `--upgrade` for the shipper installer: replaces the shipper code (local or Docker mode) and keeps the box key, sealed passwords and approved destinations, so no re-enrollment
+- CrowdStrike now records each host's last signed-in user (direct connector and shipper), so the device inventory's User column fills in and Hunt can find a user's computers
 - On-prem shippers: an agent for an internal box that reads LDAP / AD, the Rapid7 InsightVM Security Console, CrowdStrike Falcon, and a local Splunk, then pushes to CTEM over outbound HTTPS. Managed under **Settings > Shippers**
 - One-file installer generated per shipper (one-time enrollment code, optional CIDR lock), with local script mode (systemd + cron) or a self-contained Docker container, plus a generic installer that enrolls with an admin sign-in
 - Central shipper config: sources, hosts, SPL, and schedule are edited in CTEM and picked up at the next 15-minute check-in
@@ -35,6 +37,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 - Dependencies upgraded to clear all known advisories (FastAPI/Starlette, Authlib, cryptography, Pillow, Jinja2, python-multipart); python-jose replaced with PyJWT
 
 ### Fixed
+- Devices were duplicated across sources because every connector matched on the exact host name: CrowdStrike and AD report `DESKTOP001`, Rapid7 reports `desktop001.ad.acme.example`. The Rapid7 copy showed EDR as missing and no user. Devices now match on a normalized host key (short name, case-insensitive, with a domain check), Rapid7 fills in the FQDN, and `python -m api.maintenance.merge_devices` folds existing duplicates together (dry run by default)
+- CrowdStrike hosts under network containment were shown as having no working EDR
 - Shipper batches over the load balancer's body limit (a 500-user AD batch with group memberships easily passes 1 MB) failed with HTTP 413 and stayed spooled, so every later run hit the same wall. Batches, including ones already spooled, are now split to stay under 768 KB per request
 - Shipper LDAP read Active Directory as plain OpenLDAP (ldap3 files `supportedCapabilities` under `supported_features`), so it searched for `inetOrgPerson`/`device` and shipped zero users and computers while reporting success. AD is now detected correctly, and `open-ctem-collector test` fails when the bind works but no users are visible
 - Local-mode shipper installs on boxes where the installer's `umask 077` left `/opt/open-ctem-collector/venv` root-only, so the service user failed with `203/EXEC Permission denied` and nothing ever shipped. The venv is now built world-readable (root-owned), re-running the installer repairs an existing one, and the install stops if the service user can't run it

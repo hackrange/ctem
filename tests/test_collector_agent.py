@@ -129,3 +129,10 @@ def test_big_batches_split_under_the_body_limit():
     small = {"users": users[:2]}
     assert list(agent._fit(small)) == [small]
     assert list(agent._fit({"users": [{"username": "x" * 5000}]}, limit=100)) == [{"users": [{"username": "x" * 5000}]}]
+
+
+def test_crowdstrike_device_carries_last_user_safely():
+    d = cs._device({"device_id": "a" * 32, "hostname": "DESKTOP001", "last_login_user": " jdoe "})
+    assert d["last_login_user"] == "jdoe"
+    assert cs._device({"hostname": "DESKTOP001", "last_login_user": "j\x1bdoe"})["last_login_user"] is None
+    assert cs._device({"hostname": "DESKTOP001", "last_login_user": ["x"]})["last_login_user"] is None

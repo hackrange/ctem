@@ -182,6 +182,7 @@ class InsightVMConnector(ConsoleMixin, BaseConnector):
     async def _upsert_cloud(self, assets: list[dict], vuln_ids: dict, db: AsyncSession) -> int:
         from sqlalchemy import select
 
+        from api.core.device_match import find_device, remember_fqdn
         from api.core.encryption import search_hash
         from api.models.device import Device, DeviceType
         from api.models.vuln import Finding, FindingStatus
@@ -194,13 +195,14 @@ class InsightVMConnector(ConsoleMixin, BaseConnector):
                 Device.source == "rapid7_insightvm", Device.source_id == a["id"]))).scalar_one_or_none()
             hostname = a.get("host_name") or a.get("ip")
             if dev is None and hostname:
-                dev = (await db.execute(select(Device).where(Device.hostname == hostname))).scalars().first()
+                dev = await find_device(db, hostname)
             if dev is None:
                 if not hostname:
                     continue
                 dev = Device(hostname=hostname[:253], device_type=_device_type(a, DeviceType),
                              source="rapid7_insightvm")
                 db.add(dev)
+            remember_fqdn(dev, a.get("host_name"))
             dev.source_id = dev.source_id or a["id"]
             dev.os = (a.get("os_description") or a.get("os_name") or "")[:128] or dev.os
             dev.os_version = (a.get("os_version") or "")[:128] or dev.os_version

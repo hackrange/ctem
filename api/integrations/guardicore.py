@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.core.ssrf import safe_client
 from api.integrations.base import BaseConnector, register
 from api.models.integration import Vendor
+from api.core.device_match import find_device
 
 log = logging.getLogger("open-ctem.guardicore")
 
@@ -82,8 +83,7 @@ class GuardicoreConnector(BaseConnector):
             name = a.get("name") or a.get("id")
             if not name:
                 continue
-            result = await db.execute(select(Device).where(Device.hostname == name))
-            dev = result.scalar_one_or_none()
+            dev = await find_device(db, name)
             if dev is None:
                 dev = Device(hostname=name, device_type=DeviceType.server, source="guardicore")
                 db.add(dev)

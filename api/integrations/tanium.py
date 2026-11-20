@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.core.ssrf import safe_client
 from api.integrations.base import BaseConnector, register
 from api.models.integration import Vendor
+from api.core.device_match import find_device
 
 log = logging.getLogger("open-ctem.tanium")
 
@@ -64,15 +65,13 @@ class TaniumConnector(BaseConnector):
 
     async def _upsert(self, endpoints: list[dict], vulns: list[dict], db: AsyncSession) -> int:
         from api.models.device import Device, DeviceType
-        from sqlalchemy import select
 
         count = 0
         for ep in endpoints:
             name = ep.get("name") or ep.get("computerName")
             if not name:
                 continue
-            result = await db.execute(select(Device).where(Device.hostname == name))
-            dev = result.scalar_one_or_none()
+            dev = await find_device(db, name)
             if dev is None:
                 dev = Device(hostname=name, device_type=DeviceType.workstation, source="tanium")
                 db.add(dev)

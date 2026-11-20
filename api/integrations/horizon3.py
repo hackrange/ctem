@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.core.ssrf import safe_client
 from api.integrations.base import BaseConnector, register
 from api.models.integration import Vendor
+from api.core.device_match import find_device
 
 log = logging.getLogger("open-ctem.horizon3")
 
@@ -73,12 +74,7 @@ class Horizon3Connector(BaseConnector):
                 continue
 
             # Find the device
-            dev_result = await db.execute(
-                select(Device).where(
-                    Device.hostname == affected_host
-                )
-            )
-            device = dev_result.scalar_one_or_none()
+            device = await find_device(db, affected_host)
             if device is None:
                 continue  # only update known devices, don't create phantom ones
 

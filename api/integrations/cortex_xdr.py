@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.core.ssrf import safe_client
 from api.integrations.base import BaseConnector, register
 from api.models.integration import Vendor
+from api.core.device_match import find_device
 
 log = logging.getLogger("open-ctem.cortex-xdr")
 
@@ -83,8 +84,7 @@ class CortexXDRConnector(BaseConnector):
             hostname = ep.get("host_name") or ep.get("endpoint_name")
             if not hostname:
                 continue
-            result = await db.execute(select(Device).where(Device.hostname == hostname))
-            dev = result.scalar_one_or_none()
+            dev = await find_device(db, hostname)
             if dev is None:
                 dev = Device(hostname=hostname, device_type=DeviceType.workstation, source="cortex_xdr")
                 db.add(dev)

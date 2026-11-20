@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.core.ssrf import safe_client
 from api.integrations.base import BaseConnector, register
 from api.models.integration import Vendor
+from api.core.device_match import find_device
 
 log = logging.getLogger("open-ctem.zscaler")
 
@@ -90,10 +91,7 @@ class ZscalerConnector(BaseConnector):
 
         count = 0
         for host in protected_hosts:
-            result = await db.execute(
-                select(Device).where(Device.hostname == host)
-            )
-            dev = result.scalar_one_or_none()
+            dev = await find_device(db, host)
             if dev:
                 # Check tag not already on device
                 tag_check = await db.execute(

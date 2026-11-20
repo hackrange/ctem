@@ -15,6 +15,7 @@ def _chunks(items: list, size: int = _IN_CHUNK):
 
 
 async def upsert_directory(users: list[dict], computers: list[dict], db: AsyncSession, commit: bool = True) -> int:
+    from api.core.device_match import find_devices
     from api.core.encryption import search_hash
     from api.models.device import Device, DeviceType
     from api.models.user import User
@@ -44,19 +45,16 @@ async def upsert_directory(users: list[dict], computers: list[dict], db: AsyncSe
         count += 1
 
     computers = [c for c in computers if c.get("hostname")]
-    devices: dict[str, Device] = {}
-    for part in _chunks(list({c["hostname"] for c in computers})):
-        for row in (await db.execute(select(Device).where(Device.hostname.in_(part)))).scalars():
-            devices.setdefault(row.hostname, row)
+    devices = await find_devices(db, [(c["hostname"], c.get("fqdn")) for c in computers])
     for c in computers:
         device = devices.get(c["hostname"])
         if device is None:
             device = Device(hostname=c["hostname"], device_type=DeviceType.workstation, source="ldap")
             db.add(device)
             devices[c["hostname"]] = device
-        device.fqdn = c.get("fqdn")
+        device.fqdn = c.get("fqdn") or device.fqdn
         device.ad_dn = c.get("ad_dn")
-        device.os = c.get("os")
+        device.os = c.get("os") or device.os
         device.ad_joined = True
         last = c.get("last_logon")
         if isinstance(last, datetime):

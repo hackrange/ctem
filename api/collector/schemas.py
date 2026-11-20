@@ -78,6 +78,7 @@ class CsDevice(_Lax):
     hostname: Annotated[str, StringConstraints(strip_whitespace=True, max_length=253)] | None = None
     status: Annotated[str, StringConstraints(max_length=32)] | None = None
     os_version: Annotated[str, StringConstraints(strip_whitespace=True, max_length=128)] | None = None
+    last_login_user: Annotated[str, StringConstraints(strip_whitespace=True, max_length=256, pattern=r"^[^\x00-\x1f]+$")] | None = None
 
 
 class CsHost(_Lax):
