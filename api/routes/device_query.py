@@ -75,7 +75,9 @@ def build_query(scope, q: str | None, grade: str | None, device_type: DeviceType
     if q:
         q = q.strip()[:200]
         like = _like(q)
-        hashes = {search_hash(q), search_hash(q.lower())}
+        hashes = {search_hash(q), search_hash(q.lower()), *(search_hash(n) for n in sign_in_names(q))}
+        named = select(User.id).where(or_(User.username.ilike(like, escape="\\"), User.upn_hash == search_hash(q.lower())))
+        assigned_to = select(DeviceAssignment.device_id).where(DeviceAssignment.user_id.in_(named))
         stmt = stmt.where(or_(
             Device.hostname.ilike(like, escape="\\"),
             Device.fqdn.ilike(like, escape="\\"),
@@ -83,8 +85,22 @@ def build_query(scope, q: str | None, grade: str | None, device_type: DeviceType
             Device.ip_hash.in_(hashes),
             Device.last_login_user_hash.in_(hashes),
             Owner.username.ilike(like, escape="\\"),
+            Owner.upn_hash == search_hash(q.lower()),
+            Device.id.in_(assigned_to),
         ))
     return stmt
+
+
+def sign_in_names(q: str) -> list[str]:
+    """dhollin also finds machines where they signed in as sulocal_dhollin."""
+    from api.core.config import get_settings
+    from api.core.user_match import bare
+
+    b = bare(q)
+    if not b:
+        return []
+    prefixes = [p.strip().lower() for p in get_settings().account_alias_prefixes.split(",") if p.strip()]
+    return [b, *(p + b for p in prefixes)]
 
 
 def sorted_query(stmt, sort: str | None, order: str | None):
@@ -124,7 +140,7 @@ def assigned_user(d: Device) -> dict | None:
     a = assignment(d)
     if a is None or a.user is None:
         return None
-    return {"id": str(a.user_id), "username": a.user.username, "name": _person(a.user),
+    return {"id": str(a.user_id), "username": a.user.username, "name": _person(a.user), "upn": getattr(a.user, "upn", None), "title": getattr(a.user, "title", None),
             "assigned_by": a.assigned_by, "assigned_at": a.created_at.isoformat() if a.created_at else None,
             "note": a.note}
 

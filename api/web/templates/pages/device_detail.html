@@ -57,8 +57,13 @@ const deviceId = location.pathname.split('/').filter(Boolean).pop();
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function info(label, valueHtml) {
-  return `<div><dt class="text-sm text-muted">${esc(label)}</dt><dd style="margin:2px 0 0">${valueHtml}</dd></div>`;
+  return `<div style="min-width:0"><dt class="text-sm text-muted">${esc(label)}</dt><dd style="margin:2px 0 0;overflow-wrap:anywhere">${valueHtml}</dd></div>`;
 }
+// Long names wrap at the dots instead of shoving the next column over
+// Job title and UPN under a person's name
+const upnLine = (upn, title) => (title ? `<div class="text-sm text-muted">${esc(title)}</div>` : '')
+  + (upn ? `<div class="text-sm text-mono" title="User principal name">${esc(upn).replace('@', '<wbr>@')}</div>` : '');
+const dotted = v => v ? esc(v).split('.').join('.<wbr>') : txt(v);
 const txt = v => v == null || v === '' ? '<span class="text-muted">--</span>' : esc(v);
 
 // Who should be on this machine, set by a person; the buttons are wired up after render
@@ -68,6 +73,7 @@ function assignedCell(d) {
   const a = d.assigned_user;
   if (a) {
     return `<span style="color:var(--severity-low)">&#10003;</span> ${esc(a.name)} <span class="text-sm text-muted">by ${esc(a.assigned_by || '?')}</span>`
+      + upnLine(a.upn, a.title)
       + (a.note ? `<div class="text-sm text-muted">${esc(a.note)}</div>` : '')
       + ` <button type="button" class="btn btn--ghost btn--sm" data-da="open">Change</button>`
       + ` <button type="button" class="btn btn--ghost btn--sm" data-da="remove">Remove</button>`;
@@ -128,11 +134,11 @@ async function loadDevice() {
   $('dev-info').innerHTML = [
     info('Assigned to', assignedCell(d)),
     info('Inventory status', statusCell(d)),
-    info('Detected user (from sign-ins)', txt(d.detected_user)),
+    info('Detected user (from sign-ins)', txt(d.detected_user) + upnLine(d.detected_user_upn, d.detected_user_title)),
     info('Last login user', txt(d.last_login_user)),
     info('IP address', `<span class="text-mono">${txt(d.ip)}</span>`),
     info('MAC address', `<span class="text-mono">${txt(d.mac_address)}</span>`),
-    info('FQDN', txt(d.fqdn)),
+    info('FQDN', `<span title="${esc(d.fqdn || '')}">${dotted(d.fqdn)}</span>`),
     info('OS version', txt(d.os_version)),
     info('Criticality', txt(d.criticality)),
     info('Source', txt(d.source)),

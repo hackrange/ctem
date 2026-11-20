@@ -83,6 +83,8 @@ class User(Base, UUIDPrimaryKey, TimestampMixin):
     ad_locked_out: Mapped[bool | None] = mapped_column(Boolean)
     # Directory profile (personal data, so encrypted at rest like display_name)
     first_name: Mapped[str | None] = mapped_column(EncryptedString)
+    upn: Mapped[str | None] = mapped_column(EncryptedString)                 # userPrincipalName, jdoe@ad.acme.example
+    upn_hash: Mapped[str | None] = mapped_column(String(64), index=True)    # HMAC of the lowercased UPN, for search
     last_name: Mapped[str | None] = mapped_column(EncryptedString)
     title: Mapped[str | None] = mapped_column(EncryptedString)
     phone: Mapped[str | None] = mapped_column(EncryptedString)   # +15550100199 when it parses, else as entered

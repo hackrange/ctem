@@ -265,3 +265,11 @@ def test_ldap_user_profile_fields():
     assert (u["first_name"], u["last_name"], u["title"], u["phone"], u["country"]) == \
         ("Jane", "Doe", "Security Analyst", "(201) 555-0123", "US")
     assert u["mobile"] is None
+
+
+def test_ldap_user_upn():
+    u = ldapmod._user({"dn": "CN=J Doe,DC=acme", "attributes": {
+        "sAMAccountName": "jdoe", "userAccountControl": 512, "userPrincipalName": "jane.doe@ad.acme.example"}}, True)
+    assert u["upn"] == "jane.doe@ad.acme.example"
+    bad = ldapmod._user({"dn": "", "attributes": {"sAMAccountName": "x", "userPrincipalName": "no at sign"}}, True)
+    assert bad["upn"] is None

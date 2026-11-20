@@ -10,6 +10,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 - New `inventory` role (and `inventory:write` permission, also held by admin): sees every device but no findings, and is the only role besides admin that can change assignment or status
 - Devices link to the directory user CrowdStrike saw signing in last (`DOMAIN\user`, `user@domain`, and prefixes in `ACCOUNT_ALIAS_PREFIXES`, default `sulocal_`). Discovered Users shows assigned and detected device counts, and user risk now counts assigned devices first, then detected ones nobody assigned. `backfill_sources` links existing devices
 - REST API docs at `/api/docs` for signed-in admins and cyber analysts (Swagger UI pinned on cdnjs with Subresource Integrity); still hidden from anonymous visitors
+- Inventory search matches people by partial username, whether the device is assigned to them or they were seen signing in, and finds admin-alias sign-ins by the bare name (`jdoe` finds `sulocal_jdoe`)
+- User principal name (UPN) from AD (`userPrincipalName`, encrypted at rest with a search hash). Sign-ins in UPN form (`mark.langston@ad.acme.example`) link to that person even when the name part isn't their username; device inventory and Discovered Users search accept a full UPN (any case); the device page shows the assigned and detected user's UPN and job title, and Discovered Users shows the UPN under the username. Needs the shipper upgrade below (re-run its installer); the in-app LDAP connector reads it too
+- Shipper 1.0.3: reads `userPrincipalName`. The version was still 1.0.2 after the name/title/phone fields were added, so 1.0.3 is also the first that reports it sends them
+- Admin-alias sign-ins that use a first name (`sulocal_akash`) link to the one active directory user with that first name; if two people share it, nobody gets linked
 - AD user profile: first name, last name, title, office phone and mobile from the directory (encrypted at rest), shown on **Discovered Users**. Phone numbers are normalized to E.164 (`+15550100199`, with `;ext=N` for extensions) using the user's AD country, falling back to `PHONE_DEFAULT_REGION` (default US); anything that isn't a real number is kept as entered. New dependency: `phonenumbers` (SBOM updated)
 - Rapid7 InsightVM asset tags (cloud API and console shipper) become CTEM device tags: custom tags as `r7:<name>`, plus `location:`, `owner:` and `criticality:`. Each sync replaces them, so tags removed in Rapid7 disappear here; tags from other sources are untouched. Criticality (Very High to Very Low) sets the device's asset-criticality weight in risk scoring, and the CMDB gains Location and Criticality columns, takes Owner from the Rapid7 owner tag before the last signed-in user, and reads Environment from Rapid7 custom tags like "Production". A console account that can't read tags leaves existing tags alone
 - CrowdStrike containment: a host Falcon has network-contained is marked **Contained** in the inventory, on its device page (with a banner) and in each vulnerability's affected-device list. While contained its findings can't be exploited, so they show as **info**, greyed out, and score 0 / grade A; the original score and grade stay visible beside the adjusted one, e.g. `(F 87.3 → A 0)`. Lifting containment restores normal scoring at the next sync. Device finding exports gain a Severity column
@@ -90,6 +94,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 - Beat container healthcheck always failed
 
 ### Changed
+- Device inventory's User column is just the name (a check mark when assigned); assigning, status and last sign-in details live on the device page
+- Device page: long FQDNs wrap at the dots instead of spilling into the next column
 - Test and SBOM tooling moved to `requirements-dev.txt` so they no longer ship in the image
 - CycloneDX SBOM added at `sbom.cdx.json`
 - Example credentials declared in `.github/secret_scanning.yml` and `.gitleaks.toml`

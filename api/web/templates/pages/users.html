@@ -14,7 +14,7 @@
       <svg class="search-icon" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
         <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
       </svg>
-      <input id="search" type="search" class="search-bar" placeholder="Search username or email..." autocomplete="off" spellcheck="false"
+      <input id="search" type="search" class="search-bar" placeholder="Search username or UPN..." autocomplete="off" spellcheck="false"
         oninput="_userSearchTimer && clearTimeout(_userSearchTimer); _userSearchTimer = setTimeout(() => loadUsers(0), 220)">
     </div>
     <select id="filter-grade" class="filter-select" onchange="loadUsers(0)">
@@ -134,7 +134,7 @@ async function loadUsers(offset = 0) {
       const moreGroups = (u.ad_groups || []).length > 3 ? ` +${(u.ad_groups.length - 3)} more` : '';
       return `
         <tr>
-          <td style="font-weight:600">${esc(u.username)}</td>
+          <td><span style="font-weight:600">${esc(u.username)}</span>${u.upn ? `<div class="text-sm text-muted text-mono">${esc(u.upn)}</div>` : ''}</td>
           <td class="text-sm">${esc([u.first_name, u.last_name].filter(Boolean).join(' ') || u.display_name || '--')}</td>
           <td class="text-sm text-muted">${esc(u.title || '--')}</td>
           <td class="text-sm text-mono" title="${esc(u.mobile ? 'Mobile ' + u.mobile : '')}">${esc(u.phone || u.mobile || '--')}</td>
