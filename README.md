@@ -43,7 +43,7 @@ Multipliers applied for: NodeZero-confirmed exploitability, internet exposure, n
 | Cyber Threat module | Aggregates alerts from all tools; AI analysis (async, cached) |
 | Hunt module | Natural language AI queries across all telemetry sources |
 | GRC / FairTPRM | Risk export and compliance evidence ingestion |
-| CMDB export | ServiceNow import set format JSON |
+| CMDB | Every device, server-side paged with search, type filter and sorting; full ServiceNow import set JSON export |
 | Full REST API | OpenAPI docs at `/api/docs` (served only when `DEBUG=true`) |
 | Customizable branding | Logo, accent color, app title all configurable |
 

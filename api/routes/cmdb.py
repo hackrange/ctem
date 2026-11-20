@@ -14,54 +14,63 @@ from api.auth.rbac import get_accessible_device_tag_ids, require_cyber_or_admin
 from api.core.db import get_session
 from api.models.device import Device, DeviceTag, DeviceType
 from api.models.user import User
+from api.routes.device_query import full_name, short_name, source_codes
 
 log = logging.getLogger("open-ctem.cmdb")
 router = APIRouter(prefix="/api/v1/cmdb", tags=["cmdb"])
+
+_SORTS = {"hostname": Device.host_key, "device_type": Device.device_type, "os": Device.os,
+          "last_seen": Device.last_seen, "risk_grade": Device.risk_grade}
+
+
+def _scoped(stmt, tag_ids):
+    # IN (subquery) rather than a join: a device with two visible tags must count once
+    if tag_ids is None:
+        return stmt
+    return stmt.where(Device.id.in_(select(DeviceTag.device_id).where(DeviceTag.tag_id.in_(tag_ids))))
+
 
 @router.get("")
 async def list_cmdb(
     current_user: User = Depends(require_cyber_or_admin),
     db: AsyncSession = Depends(get_session),
-    limit: int = Query(200, le=5000),
-    offset: int = 0,
+    q: str | None = Query(None, max_length=200),
+    device_type: DeviceType | None = None,
+    sort: str | None = Query(None, max_length=32),
+    order: str | None = Query(None, pattern="^(asc|desc)$"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0, le=1_000_000),
 ):
-    """CMDB record list for the UI table, with ServiceNow integration status."""
+    """CMDB record list for the UI table (server-side paged), with ServiceNow integration status."""
+    from sqlalchemy import func, or_
+
     from api.models.integration import IntegrationConfig, Vendor
-    from api.models.settings import AppSetting
-    from sqlalchemy import func
+    from api.routes.device_query import _like
 
     tag_ids = await get_accessible_device_tag_ids(current_user, db)
-    stmt = (
-        select(Device)
-        .options(
-            selectinload(Device.owner),
-            selectinload(Device.tags).selectinload(DeviceTag.tag),
-        )
-        .order_by(Device.hostname)
-    )
-    if tag_ids is not None:
-        stmt = stmt.join(DeviceTag).where(DeviceTag.tag_id.in_(tag_ids))
+    stmt = _scoped(select(Device), tag_ids)
+    if device_type:
+        stmt = stmt.where(Device.device_type == device_type)
+    if q and q.strip():
+        like = _like(q.strip()[:200])
+        stmt = stmt.where(or_(Device.hostname.ilike(like, escape="\\"), Device.fqdn.ilike(like, escape="\\"),
+                              Device.os.ilike(like, escape="\\")))
+    total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
+    col = _SORTS.get(sort or "", Device.host_key)
+    ordered = col.desc().nulls_last() if order == "desc" else col.asc().nulls_last()
+    page = (stmt.options(selectinload(Device.owner), selectinload(Device.tags).selectinload(DeviceTag.tag))
+            .order_by(ordered, Device.id).offset(offset).limit(limit))
+    devices = (await db.execute(page)).scalars().unique().all()
 
-    total_q = select(func.count()).select_from(stmt.subquery())
-    total = (await db.execute(total_q)).scalar_one()
-    result = await db.execute(stmt.offset(offset).limit(limit))
-    devices = result.scalars().unique().all()
-
-    # Check if ServiceNow integration is configured + get last sync time
-    snow_result = await db.execute(
-        select(IntegrationConfig).where(
-            IntegrationConfig.vendor == Vendor.servicenow,
-            IntegrationConfig.is_enabled.is_(True),
-        )
-    )
-    snow_integration = snow_result.scalar_one_or_none()
-    last_sync_at = snow_integration.last_sync_at.isoformat() if snow_integration and snow_integration.last_sync_at else None
-
+    snow = (await db.execute(select(IntegrationConfig).where(
+        IntegrationConfig.vendor == Vendor.servicenow, IntegrationConfig.is_enabled.is_(True)))).scalar_one_or_none()
     return {
         "records": [_to_cmdb_record(d) for d in devices],
         "total": total,
-        "last_sync_at": last_sync_at,
-        "servicenow_enabled": snow_integration is not None,
+        "limit": limit,
+        "offset": offset,
+        "last_sync_at": snow.last_sync_at.isoformat() if snow and snow.last_sync_at else None,
+        "servicenow_enabled": snow is not None,
     }
 
 
@@ -118,7 +127,7 @@ async def export_cmdb(
     db: AsyncSession = Depends(get_session),
     tag: str | None = Query(None, description="Filter by tag name"),
     device_type: DeviceType | None = None,
-    limit: int = Query(10000, le=50000),
+    limit: int = Query(200_000, ge=1, le=200_000),
 ):
     """
     Full CMDB export in ServiceNow import set format.
@@ -130,8 +139,7 @@ async def export_cmdb(
         selectinload(Device.tags).selectinload(DeviceTag.tag),
     ).limit(limit)
 
-    if tag_ids is not None:
-        stmt = stmt.join(DeviceTag).where(DeviceTag.tag_id.in_(tag_ids))
+    stmt = _scoped(stmt, tag_ids)
     if device_type:
         stmt = stmt.where(Device.device_type == device_type)
 
@@ -140,7 +148,7 @@ async def export_cmdb(
         tag_result = await db.execute(select(Tag).where(Tag.name == tag))
         t = tag_result.scalar_one_or_none()
         if t:
-            stmt = stmt.join(DeviceTag, isouter=True).where(DeviceTag.tag_id == t.id)
+            stmt = stmt.where(Device.id.in_(select(DeviceTag.device_id).where(DeviceTag.tag_id == t.id)))
 
     result = await db.execute(stmt)
     devices = result.scalars().unique().all()
@@ -172,7 +180,8 @@ def _to_cmdb_record(d: Device) -> dict:
 
     return {
         "id":               str(d.id),
-        "hostname":         d.hostname,
+        "hostname":         short_name(d.hostname),
+        "fqdn":             full_name(d),
         "ip_address":       None,   # encrypted at rest; not exposed in list view
         "device_type":      d.device_type.value if d.device_type else None,
         "os_name":          d.os,
@@ -191,8 +200,8 @@ def _to_ci(d: Device) -> dict:
     return {
         "ci_id": str(d.id),
         "ci_class": _CI_CLASS_MAP.get(d.device_type.value if d.device_type else "unknown", "cmdb_ci_hardware"),
-        "name": d.hostname,
-        "fqdn": d.fqdn,
+        "name": short_name(d.hostname),
+        "fqdn": full_name(d),
         "os": d.os,
         "os_version": d.os_version,
         "mac_address": d.mac_address,
@@ -206,4 +215,7 @@ def _to_ci(d: Device) -> dict:
         "tags": [dt.tag.name for dt in d.tags if dt.tag],
         "device_type": d.device_type.value if d.device_type else None,
         "source": d.source,
+        "sources": source_codes(d),
+        "firewall_enabled": d.firewall_enabled,
+        "usb_storage_blocked": d.usb_storage_blocked,
     }
