@@ -7,7 +7,7 @@ from datetime import datetime
 from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Integer, String, Text, event
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from api.core.device_match import NOT_HOSTS, host_key
+from api.core.device_match import NOT_HOSTS, add_source, host_key
 from api.core.encryption import EncryptedString
 from api.models.base import Base, TimestampMixin, UUIDPrimaryKey
 
@@ -69,6 +69,7 @@ class Device(Base, UUIDPrimaryKey, TimestampMixin):
     # Source tracking
     source: Mapped[str | None] = mapped_column(String(64))  # ldap, qualys, crowdstrike...
     source_id: Mapped[str | None] = mapped_column(String(256))
+    sources: Mapped[str | None] = mapped_column(String(512))  # every feed that saw it: ",crowdstrike,ldap,"
 
     # Owner
     owner_user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
@@ -82,6 +83,7 @@ class Device(Base, UUIDPrimaryKey, TimestampMixin):
 @event.listens_for(Device, "before_update")
 def _set_host_key(_mapper, _conn, dev: Device) -> None:
     dev.host_key = None if dev.source in NOT_HOSTS else host_key(dev.hostname)
+    add_source(dev, dev.source)
 
 
 class DeviceTag(Base):

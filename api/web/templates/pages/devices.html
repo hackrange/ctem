@@ -36,10 +36,11 @@
     </select>
     <select id="filter-source" class="filter-select" aria-label="Source">
       <option value="">All sources</option>
-      <option value="rapid7_insightvm">Rapid7 InsightVM</option>
+      <option value="crowdstrike">CrowdStrike (CS)</option>
+      <option value="rapid7_insightvm">Rapid7 InsightVM (R7)</option>
       <option value="rapid7_appsec">Rapid7 AppSec</option>
       <option value="rapid7_cloudsec">Rapid7 CloudSec</option>
-      <option value="ldap">LDAP / AD</option>
+      <option value="ldap">Active Directory (AD)</option>
     </select>
   </div>
 </div>
@@ -52,6 +53,20 @@
 <script>
 const R = DataTable.R;
 const $ = id => document.getElementById(id);
+// Small line icons so the Type column reads at a glance
+const TYPE_ICONS = {
+  server: ['Server', '<rect x="3" y="3" width="18" height="7" rx="1.5"/><rect x="3" y="14" width="18" height="7" rx="1.5"/><path d="M7 6.5h.01M7 17.5h.01"/>'],
+  workstation: ['Workstation', '<rect x="2.5" y="4" width="19" height="12" rx="1.5"/><path d="M8 20h8M12 16v4"/>'],
+  network_device: ['Network device', '<rect x="2.5" y="13" width="19" height="7" rx="1.5"/><path d="M6.5 16.5h.01M10 16.5h.01M12 13V8M8.5 6.5a5 5 0 0 1 7 0"/>'],
+  cloud_instance: ['Cloud instance', '<path d="M7 18h10a4 4 0 0 0 .5-7.97A6 6 0 0 0 6 9.5 4.25 4.25 0 0 0 7 18z"/>'],
+  unknown: ['Unknown', '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6M12 17h.01"/>'],
+};
+function typeIcon(t) {
+  const [label, path] = TYPE_ICONS[t] || TYPE_ICONS.unknown;
+  return `<span title="${esc(label)}" aria-label="${esc(label)}" style="display:inline-flex;color:var(--text-muted, currentColor)">`
+    + `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg></span>`;
+}
+
 const FILTERS = { q: 'search-input', grade: 'filter-grade', device_type: 'filter-type', source: 'filter-source' };
 
 // Prefill from the URL so dashboard cards and shared links land on a filtered view
@@ -79,10 +94,10 @@ const table = DataTable.create({
              device_type: $('filter-type').value, source: $('filter-source').value };
   },
   columns: [
-    { label: 'Hostname', sort: 'hostname', render: d => R.link(`/devices/${encodeURIComponent(d.id)}`, d.hostname) },
+    { label: 'Hostname', sort: 'hostname', render: d => `<span title="${esc(d.fqdn || d.hostname)}">${R.link(`/devices/${encodeURIComponent(d.id)}`, d.hostname)}</span>` },
     { label: 'User', sort: 'user', render: d => d.user ? esc(d.user) : '<span class="text-muted">--</span>' },
     { label: 'IP', render: d => `<span class="text-mono text-sm">${esc(d.ip || '--')}</span>` },
-    { label: 'Type', sort: 'device_type', render: d => `<span class="text-sm text-muted">${esc(d.device_type)}</span>` },
+    { label: 'Type', sort: 'device_type', render: d => typeIcon(d.device_type) },
     { label: 'OS', sort: 'os', render: d => `<span class="text-sm" title="${esc(d.os || '')}">${esc((d.os || '--').slice(0, 28))}</span>` },
     { label: 'Grade', sort: 'risk_grade', firstOrder: 'desc', render: d => R.grade(d.risk_grade) },
     { label: 'Score', sort: 'risk_score', firstOrder: 'desc', render: d => R.score(d.risk_score) },
@@ -90,7 +105,7 @@ const table = DataTable.create({
     { label: 'KEV', sort: 'kev_findings', firstOrder: 'desc', render: d => d.kev_findings ? `<span class="chip chip--critical">${R.num(d.kev_findings)}</span>` : '0' },
     { label: 'Last seen', sort: 'last_seen', firstOrder: 'desc', render: d => R.date(d.last_seen) },
     { label: 'EDR', sort: 'edr_active', render: d => R.bool(d.edr_active) },
-    { label: 'Source', sort: 'source', render: d => `<span class="text-sm text-muted">${esc(d.source || '--')}</span>` },
+    { label: 'Sources', render: d => (d.sources || []).map(c => `<span class="chip chip--info" style="font-size:.7rem">${esc(c)}</span>`).join(' ') || '<span class="text-muted">--</span>' },
     { label: 'Tags', render: d => (d.tags || []).slice(0, 3).map(t => `<span class="chip chip--info" style="font-size:.7rem">${esc(t.split(':').pop())}</span>`).join(' ')
         + ((d.tags || []).length > 3 ? ` <span class="text-muted text-sm">+${d.tags.length - 3}</span>` : '') },
   ],

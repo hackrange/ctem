@@ -8,6 +8,7 @@ from sqlalchemy.orm import aliased, selectinload
 
 import api.models.tag  # noqa: F401  -- aliased() below configures mappers, so every related model must be loaded
 import api.models.vuln  # noqa: F401
+from api.core.device_match import SOURCE_CODES, source_list
 from api.core.encryption import search_hash
 from api.models.device import Device, DeviceTag, DeviceType, RiskGrade
 from api.models.user import User
@@ -16,7 +17,7 @@ Owner = aliased(User)
 
 # Allow-listed sort keys -> columns. Anything else falls back to risk_score.
 SORTS = {
-    "hostname": Device.hostname,
+    "hostname": Device.host_key,
     "user": Owner.username,
     "device_type": Device.device_type,
     "os": Device.os,
@@ -30,7 +31,7 @@ SORTS = {
 }
 
 EXPORT_HEADER = ["Hostname", "FQDN", "User", "IP", "MAC", "Type", "OS", "Grade", "Score", "Open findings",
-                 "KEV findings", "Last seen", "EDR", "EDR vendor", "Internet exposed", "Source", "Tags"]
+                 "KEV findings", "Last seen", "EDR", "EDR vendor", "Internet exposed", "Sources", "Tags"]
 
 
 def _like(q: str) -> str:
@@ -51,7 +52,9 @@ def build_query(scope, q: str | None, grade: str | None, device_type: DeviceType
             stmt = stmt.where(Device.risk_grade.is_(None))
         elif g in RiskGrade.__members__:
             stmt = stmt.where(Device.risk_grade == RiskGrade[g])
-    if source:
+    if source in SOURCE_CODES:  # allow-listed, so it's safe inside LIKE
+        stmt = stmt.where(Device.sources.like(f"%,{source},%"))
+    elif source:
         stmt = stmt.where(Device.source == source[:64])
     if tags:
         from api.models.tag import Tag
@@ -113,16 +116,21 @@ def user_label(d: Device) -> str | None:
 
 
 def short_name(name: str | None) -> str | None:
-    """desktop001.ad.acme.example shows as desktop001; IPs stay whole."""
-    if not name or "." not in name or _is_ip(name):
+    """desktop001.ad.acme.example and Desktop001$ both show as DESKTOP001; IPs stay whole."""
+    if not name or _is_ip(name):
         return name
-    return name.split(".", 1)[0]
+    return name.split(".", 1)[0].rstrip("$").upper()
 
 
 def full_name(d: Device) -> str | None:
     if d.fqdn:
-        return d.fqdn
-    return d.hostname if d.hostname and "." in d.hostname and not _is_ip(d.hostname) else None
+        return d.fqdn.upper()
+    return d.hostname.upper() if d.hostname and "." in d.hostname and not _is_ip(d.hostname) else None
+
+
+def source_codes(d: Device) -> list[str]:
+    names = source_list(d) or ([d.source] if d.source else [])
+    return [SOURCE_CODES.get(n, n.upper()) for n in names]
 
 
 def _is_ip(name: str) -> bool:
@@ -152,6 +160,7 @@ def summary(d: Device) -> dict:
         "ad_joined": d.ad_joined,
         "is_internet_exposed": d.is_internet_exposed,
         "source": d.source,
+        "sources": source_codes(d),
         "tags": [dt.tag.name for dt in d.tags if dt.tag],
     }
 
@@ -160,5 +169,5 @@ def export_row(d: Device) -> list:
     s = summary(d)
     return [s["hostname"], s["fqdn"], s["user"], s["ip"], d.mac_address, s["device_type"], s["os"], s["risk_grade"],
             s["risk_score"], s["open_findings"], s["kev_findings"], s["last_seen"], s["edr_active"],
-            s["edr_vendor"], s["is_internet_exposed"], s["source"], "; ".join(s["tags"])]
+            s["edr_vendor"], s["is_internet_exposed"], " ".join(s["sources"]), "; ".join(s["tags"])]
 

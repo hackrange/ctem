@@ -51,7 +51,7 @@ Multipliers applied for: NodeZero-confirmed exploitability, internet exposure, n
 
 ## Integrations
 
-Every source is matched to the same device row by host name, however it spells it: `DESKTOP001` (CrowdStrike, AD), `desktop001.ad.acme.example` (Rapid7) and `desktop001$` all land on one device, so EDR, AD, vulnerability and last-user data show up together. A parent and child domain count as one (`ad.acme.example` ~ `acme.example`). A bare short name goes to the AD-joined record, or else the fleet's main domain. Two hosts with the same short name in unrelated domains stay separate. The inventory shows the short host name; the full name is on the device page, and the CSV export has both Hostname and FQDN columns. Web apps and cloud resources are never matched to hosts by name. Upgrading from an earlier build that already made duplicates? Run `docker compose exec app python -m api.maintenance.merge_devices` to preview, then add `--apply` (back up the database first).
+Every source is matched to the same device row by host name, however it spells it: `DESKTOP001` (CrowdStrike, AD), `desktop001.ad.acme.example` (Rapid7) and `desktop001$` all land on one device, so EDR, AD, vulnerability and last-user data show up together. A parent and child domain count as one (`ad.acme.example` ~ `acme.example`). A bare short name goes to the AD-joined record, or else the fleet's main domain. Two hosts with the same short name in unrelated domains stay separate. The inventory shows one uppercase short host name per device with a **Sources** column (CS, R7, AD, ...) and a type icon; the FQDN is on the device page and the CSV export has both Hostname and FQDN columns. After upgrading, run `docker compose exec app python -m api.maintenance.backfill_sources` once to fill Sources for existing devices. Web apps and cloud resources are never matched to hosts by name. Upgrading from an earlier build that already made duplicates? Run `docker compose exec app python -m api.maintenance.merge_devices` to preview, then add `--apply` (back up the database first).
 
 | Vendor | Type | Data pulled |
 |---|---|---|
@@ -232,7 +232,7 @@ api/
   core/        Config, DB, encryption, SSRF client, Celery tasks, security middleware
   collector/   On-prem shipper: ingest + profile rules (server) and agent/ (the code installed on the box)
   integrations/ Vendor connectors (one file per vendor)
-  maintenance/ One-off data repair commands (device merge)
+  maintenance/ One-off data repair commands (device merge, sources backfill)
   models/      SQLAlchemy ORM models
   routes/      FastAPI route handlers
   scoring/     Risk engine: compensating controls, CVE chains, device/user scores

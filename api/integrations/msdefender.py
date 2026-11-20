@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.core.ssrf import safe_client
 from api.integrations.base import BaseConnector, register
 from api.models.integration import Vendor
-from api.core.device_match import find_device
+from api.core.device_match import add_source, find_device
 
 log = logging.getLogger("open-ctem.msdefender")
 
@@ -104,6 +104,7 @@ class MSDefenderConnector(BaseConnector):
                 dev = Device(hostname=hostname, device_type=DeviceType.workstation, source="msdefender")
                 db.add(dev)
                 await db.flush()
+            add_source(dev, "msdefender")
 
             dev.os = m.get("osPlatform")
             dev.edr_vendor = "msdefender"

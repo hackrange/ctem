@@ -84,7 +84,7 @@ class CrowdStrikeConnector(BaseConnector):
         return detail.json().get("resources", [])
 
     async def _upsert(self, devices: list[dict], detections: list[dict], db: AsyncSession) -> int:
-        from api.core.device_match import find_device
+        from api.core.device_match import add_source, find_device, type_from_os
         from api.core.encryption import search_hash
         from api.models.device import Device, DeviceType
 
@@ -97,9 +97,16 @@ class CrowdStrikeConnector(BaseConnector):
             if dev is None:
                 dev = Device(hostname=hostname, device_type=DeviceType.workstation, source="crowdstrike")
                 db.add(dev)
+            add_source(dev, "crowdstrike")
             dev.edr_vendor = "crowdstrike"
             dev.edr_active = d.get("status") in _SENSOR_RUNNING
             dev.os = d.get("os_version")
+            kind = (d.get("product_type") or d.get("product_type_desc") or "").lower()
+            if kind in ("server", "domain controller"):
+                dev.device_type = DeviceType.server
+            elif kind == "workstation" and dev.device_type in (DeviceType.unknown, None):
+                dev.device_type = DeviceType.workstation
+            dev.device_type = type_from_os(dev.os, dev.device_type)
             user = (d.get("last_login_user") or "").strip()
             if user and not any(ord(ch) < 32 for ch in user):
                 dev.last_login_user = user[:256]

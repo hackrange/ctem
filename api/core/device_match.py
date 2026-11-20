@@ -94,3 +94,31 @@ async def find_devices(db: AsyncSession, items: Iterable) -> dict:
 def remember_fqdn(dev, name: str | None) -> None:
     if not dev.fqdn and _domain(name):
         dev.fqdn = name.strip().lower()[:512]
+
+
+# Short codes for the inventory's Sources column
+SOURCE_CODES = {"crowdstrike": "CS", "rapid7_insightvm": "R7", "ldap": "AD", "qualys": "QL",
+                "msdefender": "MDE", "sentinelone": "S1", "cortex_xdr": "XDR", "tanium": "TAN",
+                "guardicore": "GC", "rapid7_appsec": "R7-APP", "rapid7_cloudsec": "R7-CLOUD"}
+
+
+def source_list(dev) -> list[str]:
+    return [s for s in (dev.sources or "").split(",") if s]
+
+
+def add_source(dev, name: str | None) -> None:
+    """Remember every feed that reported this device; stored as ",a,b," so filters can LIKE it."""
+    have = source_list(dev)
+    if name and name not in have:
+        dev.sources = "," + ",".join(sorted(have + [name])) + ","
+
+
+def type_from_os(os_name: str | None, current):
+    """Windows Server, Domain Controller and friends are servers whatever the feed assumed."""
+    from api.models.device import DeviceType
+
+    text = (os_name or "").lower()
+    if "server" in text or "domain controller" in text:
+        return DeviceType.server
+    return current
+

@@ -85,7 +85,8 @@ def _device(d):
             "hostname": (d.get("hostname") or "")[:253] or None,
             "status": (d.get("status") or "")[:32] or None,
             "os_version": (d.get("os_version") or "")[:128] or None,
-            "last_login_user": _user(d.get("last_login_user"))}
+            "last_login_user": _user(d.get("last_login_user")),
+            "product_type": (d.get("product_type_desc") or "")[:64] or None}
 
 
 def _user(v):
