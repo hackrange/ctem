@@ -5,6 +5,7 @@ import urllib.parse
 from datetime import datetime, timedelta, timezone
 
 import collector_common as cc
+import collector_cs_alert as csa
 
 KIND = "crowdstrike"
 LABEL = "CrowdStrike Falcon"
@@ -16,10 +17,6 @@ CLOUDS = {
     "us-gov-1": "api.laggar.gcw.crowdstrike.com",
 }
 _ID = re.compile(r"^[0-9a-fA-F]{32}$")
-_ALERT_ID = re.compile(r"^[A-Za-z0-9:_.-]{1,200}$")
-_TECH = re.compile(r"^T\d{4}(?:\.\d{3})?$")
-_TACTIC = re.compile(r"^TA\d{4}$")
-_LINK = re.compile(r"^https://falcon(?:\.[a-z0-9-]+)*\.crowdstrike\.com/[^\s\"'<>]*$")
 ALERT_DAYS = 30
 
 
@@ -234,28 +231,9 @@ def _txt(v, cap):
     return v[:cap] if v and not any(ord(ch) < 32 for ch in v) else None
 
 
-def _match(rx, v):
-    v = _txt(v, 1000)
-    return v if v and rx.match(v) else None
-
-
 def _alert(a):
-    cid = a.get("composite_id")
-    if not isinstance(cid, str) or not _ALERT_ID.match(cid):
-        return None
-    desc = a.get("description") or a.get("display_name")
-    dev = a.get("device") if isinstance(a.get("device"), dict) else {}
-    did = dev.get("device_id")
-    return {"detection_id": cid, "max_severity_displayname": (a.get("severity_name") or "")[:32] or None,
-            "title": _txt(a.get("display_name") or a.get("name"), 300),
-            "status": _txt(a.get("status"), 32),
-            "detected_at": _txt(a.get("created_timestamp") or a.get("timestamp"), 40),
-            "tactic": (a.get("tactic") or "")[:128] or None, "technique": (a.get("technique") or "")[:128] or None,
-            "tactic_id": _match(_TACTIC, a.get("tactic_id")), "technique_id": _match(_TECH, a.get("technique_id")),
-            "link": _match(_LINK, a.get("falcon_host_link")),
-            "device": {"hostname": (dev.get("hostname") or "")[:253] or None,
-                       "device_id": did if isinstance(did, str) and _ID.match(did) else None},
-            "behaviors": [{"description": str(desc)[:2000]}] if desc else []}
+    """List fields plus the full detail (process tree, actions taken, IOCs, network, DNS); see collector_cs_alert."""
+    return csa.summary(a) if isinstance(a, dict) else None
 
 
 def _alert_query(offset, now=None):

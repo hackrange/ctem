@@ -315,6 +315,6 @@ def test_crowdstrike_alert_details_and_recent_window():
     assert a["link"].startswith("https://falcon.crowdstrike.com/") and a["device"]["device_id"] == "a" * 32
     bad = cs._alert({"composite_id": "cid:2", "technique_id": "T1<x>", "falcon_host_link": "https://evil.example/x",
                      "device": {"device_id": "nothex"}, "display_name": "a\nb"})
-    assert bad["technique_id"] is None and bad["link"] is None and bad["device"]["device_id"] is None and bad["title"] is None
+    assert bad["technique_id"] is None and bad["link"] is None and bad["device"]["device_id"] is None and bad["title"] == "a b"  # control characters become spaces
     q = cs._alert_query(1000, dt.datetime(2026, 11, 20, tzinfo=dt.timezone.utc))
     assert "offset=1000" in q and "created_timestamp%3A%3E%272026-10-21T00%3A00%3A00Z%27" in q and "status" not in q

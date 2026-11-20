@@ -318,3 +318,18 @@
   font-size: .875rem; font-weight: 500; text-decoration: none; transition: color .15s, border-color .15s; }
 .page-tabs__tab:hover { color: var(--fg); }
 .page-tabs__tab.is-active { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* Alert timeline: one row per step, a line down the left */
+.tl { list-style: none; margin: 0; padding: 0; position: relative; }
+.tl::before { content: ""; position: absolute; left: 13px; top: 4px; bottom: 4px; width: 2px; background: var(--border); }
+.tl__item { display: flex; gap: 12px; padding: 6px 0; position: relative; }
+.tl__icon { flex: 0 0 28px; height: 28px; border-radius: 50%; background: var(--surface2); border: 1px solid var(--border);
+            display: flex; align-items: center; justify-content: center; font-size: .85rem; z-index: 1; }
+.tl__body { min-width: 0; flex: 1; }
+.tl__item--detection .tl__icon { border-color: var(--severity-high); }
+.tl__item--action .tl__icon { border-color: var(--severity-low); }
+
+/* Process tree: grandparent -> parent -> the process that triggered it */
+.ptree__node { border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; background: var(--surface2); min-width: 0; }
+.ptree__node--hit { border-left: 4px solid var(--severity-high); }
+.ptree__arrow { text-align: center; color: var(--fg-muted); line-height: 1.6; }

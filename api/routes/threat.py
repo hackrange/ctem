@@ -96,7 +96,74 @@ async def get_threat_alert(
     if not found:
         raise HTTPException(404, detail="Alert not found")
     await _link_devices(db, found)
-    return found[0]
+    alert = found[0]
+    detail = await _detail(db, key) if alert.get("has_detail") else {}
+    related = await _related(db, alert)
+    from api.core.threat_timeline import actions_text, story, timeline
+    return {**alert, "detail": detail, "story": story(alert, detail) if detail else None,
+            "actions_text": actions_text(detail) if detail else [],
+            "timeline": timeline(alert, detail, related), "related": related,
+            "ctem_device": await _ctem_device(db, alert.get("device_id"))}
+
+
+async def _detail(db: AsyncSession, key: str) -> dict:
+    """The encrypted detail, opened and rebuilt from known keys again (it came from outside)."""
+    import json
+    import logging
+
+    from api.core.cs_alert import csa
+    from api.core.encryption import decrypt
+    from api.models.settings import AppSetting
+    row = (await db.execute(select(AppSetting).where(AppSetting.key == key))).scalar_one_or_none()
+    try:
+        raw = json.loads(row.value) if row and row.value else {}
+        return csa.clean(json.loads(decrypt(raw["detail_enc"]))) if isinstance(raw, dict) and raw.get("detail_enc") else {}
+    except Exception:  # noqa: BLE001 -- a bad row shows the alert without its detail
+        logging.getLogger("open-ctem.threat").warning("alert detail unreadable for %s", key[:80])
+        return {}
+
+
+async def _related(db: AsyncSession, alert: dict, days: int = 7) -> list[dict]:
+    """Other alerts on the same host within a week either side (or from the same process tree)."""
+    from datetime import timedelta
+    host, agg = (alert.get("hostname") or "").lower(), alert.get("aggregate_id")
+    try:
+        at = datetime.fromisoformat(alert["detected_at"]) if alert.get("detected_at") else None
+    except ValueError:
+        at = None
+    out = []
+    for a in await _alerts(db):
+        if a["id"] == alert["id"]:
+            continue
+        same = (agg and a.get("aggregate_id") == agg) or (host and (a.get("hostname") or "").lower() == host)
+        if not same:
+            continue
+        if at and a.get("detected_at") and not (agg and a.get("aggregate_id") == agg):
+            try:
+                if abs(datetime.fromisoformat(a["detected_at"]) - at) > timedelta(days=days):
+                    continue
+            except (ValueError, TypeError):   # unparseable, or one side has no time zone
+                continue
+        out.append({k: a.get(k) for k in ("id", "title", "severity", "status", "detected_at", "technique_id",
+                                          "source_code")})
+    out.sort(key=lambda r: r.get("detected_at") or "")
+    return out[:25]
+
+
+async def _ctem_device(db: AsyncSession, device_id: str | None) -> dict | None:
+    """What CTEM knows about the host: risk, open and KEV findings, who it's assigned to."""
+    if not device_id:
+        return None
+    from api.models.device import Device
+    from api.routes import device_query as dq
+    d = (await db.execute(dq.with_relations(select(Device).where(Device.id == device_id)))).scalars().first()
+    if d is None:
+        return None
+    a = dq.assigned_user(d)
+    return {"id": str(d.id), "risk_grade": d.risk_grade.value if d.risk_grade else None, "risk_score": d.risk_score,
+            "open_findings": d.open_findings or 0, "kev_findings": d.kev_findings or 0, "criticality": d.criticality,
+            "assigned_to": a["name"] if a else None, "user": dq.user_label(d), "edr_contained": bool(d.edr_contained),
+            "internet_exposed": bool(d.is_internet_exposed), "device_type": d.device_type.value if d.device_type else None}
 
 
 @router.post("/analyze")
