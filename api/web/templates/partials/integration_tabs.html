@@ -1,0 +1,7 @@
+{# Integrations and Shippers share one sidebar entry; this bar switches between them. #}
+<nav class="page-tabs" aria-label="Integration sections">
+  <a class="page-tabs__tab{% if integ_tab == 'integrations' %} is-active{% endif %}" href="/settings/integrations"
+     {% if integ_tab == 'integrations' %}aria-current="page"{% endif %}>Integrations</a>
+  <a class="page-tabs__tab{% if integ_tab == 'shippers' %} is-active{% endif %}" href="/settings/shippers"
+     {% if integ_tab == 'shippers' %}aria-current="page"{% endif %}>Shippers</a>
+</nav>

@@ -93,7 +93,7 @@ def drift(risk: GrcRisk, controls: dict[str, GrcControl], feeds: dict[str, list[
 
 @router.get("/risks")
 async def risks(status: str | None = None, drift_only: bool = False,
-                _: User = Depends(require_permission("grc", "read")), db: AsyncSession = Depends(get_session)):
+                user: User = Depends(require_permission("grc", "read")), db: AsyncSession = Depends(get_session)):
     from api.models.risk import ThirdPartyRisk
     if status is not None and status not in _RISK_STATUS:
         raise HTTPException(400, detail="Unknown status")
@@ -119,11 +119,14 @@ async def risks(status: str | None = None, drift_only: bool = False,
             "likelihood": r.likelihood, "impact": r.impact, "inherent_risk_score": r.inherent_risk_score,
             "residual_risk_score": r.residual_risk_score, "risk_treatment": r.risk_treatment, "status": r.status,
             "review_date": r.review_date.isoformat() if r.review_date else None,
+            "treatment_plan": r.treatment_plan,
             "vendor": vendors.get(r.vendor_id) if r.vendor_id else None,
             "controls": [controls[c].control_ref or controls[c].title for c in r.control_ids or [] if c in controls],
             "drift": reasons,
         })
-    return {"risks": out, "total": len(out), "drifting": sum(1 for r in out if r["drift"])}
+    from api.auth.rbac import _load_user_permissions
+    can_edit = any(p.startswith("grc:write:") for p in await _load_user_permissions(user, db))
+    return {"risks": out, "total": len(out), "drifting": sum(1 for r in out if r["drift"]), "can_edit": can_edit}
 
 
 @router.get("/evidence-status")
@@ -144,8 +147,8 @@ async def evidence_status(_: User = Depends(require_permission("grc", "read")), 
 
 @router.get("/overview")
 async def overview(_: User = Depends(require_permission("grc", "read")), db: AsyncSession = Depends(get_session)):
-    from api.grc.checks import REGISTRY
     from api.integrations.fairtprm_grc import DASHBOARD_SETTING
+    from api.rules.custom import PREFIX, all_checks
     from api.models.settings import AppSetting
     row = (await db.execute(select(AppSetting).where(AppSetting.key == DASHBOARD_SETTING))).scalar_one_or_none()
     try:
@@ -160,4 +163,5 @@ async def overview(_: User = Depends(require_permission("grc", "read")), db: Asy
         "result": latest[c.check_type].result if c.check_type in latest else None,
         "summary": latest[c.check_type].summary if c.check_type in latest else None,
         "measured_at": _iso(latest[c.check_type].measured_at) if c.check_type in latest else None,
-    } for c in REGISTRY.values()]}
+        "custom": c.check_type.startswith(PREFIX),
+    } for c in (await all_checks(db)).values()]}

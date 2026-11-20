@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% set active_nav = 'grc' %}
+
+{% block title %}Assessment -- open-ctem{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div style="min-width:0">
+    <p class="text-sm"><a href="/grc" class="dt-link" style="color:var(--fg-muted)">&larr; GRC</a></p>
+    <h1 class="page-header__title" id="as-title" style="overflow-wrap:anywhere">Loading...</h1>
+    <p class="page-header__sub" id="as-sub"></p>
+  </div>
+</div>
+
+<div class="panel" style="margin-bottom:20px">
+  <div class="panel__header"><span class="panel__title">Results</span></div>
+  <div class="panel__body" id="as-results"></div>
+</div>
+
+<div class="panel" style="padding:0">
+  <div class="panel__header" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+    <span class="panel__title">Gaps</span>
+    <div style="display:flex;gap:8px;align-items:center">
+      <input id="gap-search" type="search" class="search-bar" placeholder="Question or domain" aria-label="Search gaps">
+      <select id="gap-status" class="filter-select" aria-label="Gap type">
+        <option value="">All gaps</option><option value="non_conforming">Non-conforming</option><option value="partial">Partial</option>
+      </select>
+    </div>
+  </div>
+  <div class="dt-scroll"><table class="data-table">
+    <thead><tr><th>Question</th><th>Domain</th><th>Result</th><th>Maturity</th><th>Validation</th></tr></thead>
+    <tbody id="as-gaps"><tr><td colspan="5" class="text-muted text-sm" style="text-align:center;padding:20px">Loading...</td></tr></tbody>
+  </table></div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ static('js/grc_assess.js') }}"></script>
+<script>
+const G = GrcAssess;
+const $ = id => document.getElementById(id);
+const GAP = { non_conforming: 'chip--critical', partial: 'chip--medium' };
+let gaps = [];
+
+function renderGaps() {
+  const q = $('gap-search').value.trim().toLowerCase(), st = $('gap-status').value;
+  const rows = gaps.filter(g => (!st || g.status === st)
+    && (!q || [g.ref, g.question, g.domain, g.domain_code].some(v => (v || '').toLowerCase().includes(q))));
+  $('as-gaps').innerHTML = rows.map(g => `<tr>
+      <td class="text-sm"><b>${esc(g.ref || '')}</b> ${esc(g.question || '')}</td>
+      <td class="text-sm"><b>${esc(g.domain_code || '')}</b> ${esc(g.domain || '')}</td>
+      <td>${G.chip(g.status, GAP)}</td>
+      <td class="text-sm">${g.maturity ? `${esc(g.maturity)}<span class="text-muted"> / 4</span>` : '<span class="text-muted">--</span>'}</td>
+      <td class="text-sm">${G.label(g.validation)}</td>
+    </tr>`).join('') || `<tr><td colspan="5" class="text-muted text-sm" style="text-align:center;padding:16px">${gaps.length ? 'No gaps match' : 'No gaps: everything assessed conforms'}</td></tr>`;
+}
+
+async function load() {
+  const id = location.pathname.split('/').filter(Boolean).pop();
+  const res = await fetch(`/api/v1/grc/assessments/${encodeURIComponent(id)}`, { headers: { Accept: 'application/json' } });
+  if (!res.ok) {
+    $('as-title').textContent = 'Assessment not found';
+    $('as-gaps').innerHTML = '';
+    return;
+  }
+  const a = await res.json();
+  document.title = `${a.title} -- open-ctem`;
+  $('as-title').textContent = `${a.ref ? a.ref + ' ' : ''}${a.title}`;
+  $('as-sub').innerHTML = `${G.chip(a.status)} ${G.label(a.type)}`
+    + (a.completed ? ` &middot; completed ${G.day(a.completed)}` : a.planned_end ? ` &middot; due ${G.day(a.planned_end)}` : '')
+    + (a.synced_at ? ` <span class="text-muted">&middot; synced from FairTPRM ${esc(new Date(a.synced_at).toLocaleString())}</span>` : '');
+  $('as-results').innerHTML = G.latestPanel(a);
+  gaps = a.gaps || [];
+  renderGaps();
+}
+$('gap-search').addEventListener('input', renderGaps);
+$('gap-status').addEventListener('change', renderGaps);
+load();
+</script>
+{% endblock %}

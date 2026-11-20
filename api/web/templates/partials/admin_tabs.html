@@ -1,0 +1,11 @@
+{# Admin tab bar. On /admin the tabs switch panes in place; elsewhere (SSO) they link back. #}
+{% set on_admin = admin_tab is not defined %}
+<nav class="page-tabs" aria-label="Admin sections">
+  {% for key, label in [('users', 'Users'), ('tokens', 'Active Tokens'), ('roles', 'Roles'), ('rules', 'Curated Rules'),
+                        ('branding', 'Branding'), ('audit', 'Audit Log'), ('ai', 'AI Usage')] %}
+  <a id="tab-{{ key }}" class="page-tabs__tab{% if on_admin and key == 'users' %} is-active{% endif %}" href="/admin#{{ key }}"
+     {% if on_admin %}data-tab="{{ key }}"{% endif %}>{{ label }}</a>
+  {% endfor %}
+  <a class="page-tabs__tab{% if admin_tab == 'sso' %} is-active{% endif %}" href="/settings/sso"
+     {% if admin_tab == 'sso' %}aria-current="page"{% endif %}>Single sign-on</a>
+</nav>

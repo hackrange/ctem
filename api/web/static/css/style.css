@@ -12,6 +12,7 @@
   --bg-topbar:#0d0d0d;
   --surface:  #ffffff;
   --surface2: #f4f6f9;
+  --row-stripe: #f6f7f9;   /* every other row in striped tables */
   --bg:       #f0f2f5;
 
   /* ── Light mode text ── */
@@ -59,6 +60,7 @@
     --bg-card:  #101828;   /* card/panel -- clearly distinct from page */
     --surface:  #101828;
     --surface2: #182238;   /* raised / hover state */
+    --row-stripe: #131d31;
     --bg:       #080c14;
     --bg-topbar:#050810;
 
@@ -91,6 +93,7 @@
   --bg-card:  #101828;
   --surface:  #101828;
   --surface2: #182238;
+  --row-stripe: #131d31;
   --bg:       #080c14;
   --bg-topbar:#050810;
   --fg:         #dce6f5;
@@ -411,6 +414,13 @@ body {
 
 .data-table tr:last-child td  { border-bottom: none; }
 .data-table tbody tr:hover    { background: var(--accent-dim); cursor: pointer; }
+
+/* Zebra rows: grey, white, grey... no rule lines; the stripe does the separating */
+.data-table--striped td { border-bottom: none; padding: 12px 14px; }
+.data-table--striped th { padding: 10px 14px; }
+.data-table--striped tbody tr:nth-child(odd) { background: var(--row-stripe); }
+.data-table--striped tbody tr:hover { background: var(--accent-dim); }
+.data-table--striped tbody tr.row-flag td:first-child { box-shadow: inset 3px 0 0 var(--severity-high); }
 
 /* ── Severity chips ───────────────────────────────────────────────────────── */
 .chip {

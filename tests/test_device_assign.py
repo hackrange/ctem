@@ -192,3 +192,17 @@ async def test_api_docs_only_for_signed_in_admin_or_cyber(client_no_auth, client
               "/api/v1/devices/assignable-users", "/api/v1/devices"):
         assert p in paths
     assert "/api/docs" not in paths
+
+
+@pytest.mark.asyncio
+async def test_status_filter_contained_lists_edr_isolated_devices(db, client_admin):
+    from api.models.device import Device, DeviceType
+
+    tag = _n()
+    db.add_all([Device(hostname=f"{tag}-iso", device_type=DeviceType.workstation, edr_contained=True),
+                Device(hostname=f"{tag}-ok", device_type=DeviceType.workstation, edr_contained=False),
+                Device(hostname=f"{tag}-unk", device_type=DeviceType.workstation)])
+    await db.commit()
+    r = (await client_admin.get("/api/v1/devices", params={"status": "contained", "q": tag})).json()
+    assert [d["hostname"] for d in r["devices"]] == [f"{tag}-iso".upper()]
+    assert (await client_admin.get("/api/v1/devices", params={"status": "isolated"})).status_code == 422

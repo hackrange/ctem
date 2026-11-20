@@ -63,6 +63,8 @@ def build_query(scope, q: str | None, grade: str | None, device_type: DeviceType
         stmt = stmt.where(Device.id.in_(select(DeviceAssignment.device_id).where(DeviceAssignment.status == status)))
     elif status == "assigned":
         stmt = stmt.where(Device.id.in_(select(DeviceAssignment.device_id).where(DeviceAssignment.user_id.is_not(None))))
+    elif status == "contained":  # network-isolated by the EDR
+        stmt = stmt.where(Device.edr_contained.is_(True))
     if source in SOURCE_CODES:  # allow-listed, so it's safe inside LIKE
         stmt = stmt.where(Device.sources.like(f"%,{source},%"))
     elif source:

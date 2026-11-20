@@ -18,8 +18,10 @@ from api.models.integration import IntegrationConfig, SyncJob, SyncStatus
 
 EDR = ("crowdstrike", "sentinelone", "msdefender", "tanium", "cortex_xdr")
 SCANNERS = ("qualys", "rapid7_insightvm", "tanium", "msdefender")
+EXPOSURE = SCANNERS + ("rapid7_appsec",)   # web app scanners see internet-facing apps too
 DIRECTORY = ("ldap",)
 IDENTITY = ("grip",)
+SHADOW = ("grip", "fairtprm:shadow_saas")   # Grip here, or FairTPRM's Grip/HERO-fed inventory
 PENTEST = ("horizon3",)
 HARDENING = ("crowdstrike",)
 
@@ -52,6 +54,7 @@ class Check:
     thresholds: dict[str, Threshold]
     run: Callable[[AsyncSession, dict, bool], Awaitable[Outcome]]
     max_age_hours: int = 48
+    device_scoped: bool = False       # curated rules may narrow which devices it counts
 
     def parse(self, params: dict) -> dict:
         """Only declared thresholds, only integers, only inside their bounds."""
@@ -78,7 +81,7 @@ class Check:
                 "check_version": self.version, "data_sources": list(self.sources),
                 "suggested_controls": list(self.controls),
                 "thresholds": {k: {"default": t.default, "min": t.lo, "max": t.hi, "help": t.help}
-                               for k, t in self.thresholds.items()}}
+                               for k, t in self.thresholds.items()}, "device_scoped": self.device_scoped}
 
 
 REGISTRY: dict[str, Check] = {}
@@ -117,8 +120,10 @@ async def freshness(db: AsyncSession, vendors: tuple[str, ...], max_age_hours: i
     """Latest successful sync per configured source. Fresh when at least one is inside the window."""
     if not vendors:
         return True, {}, ""
-    configured = {c.vendor.value for c in (await db.execute(select(IntegrationConfig).where(
-        IntegrationConfig.is_enabled == True))).scalars() if c.vendor.value in vendors}  # noqa: E712
+    # "fairtprm:shadow_saas" is part of the FairTPRM integration, fresh only when that data actually arrived
+    enabled = {c.vendor.value for c in (await db.execute(select(IntegrationConfig).where(
+        IntegrationConfig.is_enabled == True))).scalars()}  # noqa: E712
+    configured = {v for v in vendors if v.split(":", 1)[0] in enabled}
     if not configured:
         return False, {}, f"no data source configured (needs one of: {', '.join(vendors)})"
     rows = await db.execute(select(SyncJob.vendor, func.max(SyncJob.finished_at)).where(
@@ -128,17 +133,29 @@ async def freshness(db: AsyncSession, vendors: tuple[str, ...], max_age_hours: i
     cutoff = now() - timedelta(hours=max_age_hours)
     if any(ts and ts >= cutoff for ts in seen.values()):
         return True, stamps, ""
+    if not any(seen.values()):
+        return False, stamps, f"no successful sync yet from: {', '.join(sorted(configured))}"
     return False, stamps, f"source data is older than {max_age_hours}h, so the result can't be trusted"
 
 
-async def evaluate(db: AsyncSession, check: Check, params: dict, detail: bool = False) -> tuple[dict, Outcome]:
-    thresholds = check.parse(params)
+async def evaluate(db: AsyncSession, check: Check, params: dict, detail: bool = False,
+                   rules: list | None = None) -> tuple[dict, Outcome]:
+    """rules: (row, RuleDoc) pairs to use instead of the saved ones (rule preview)."""
+    from api.rules.apply import active_rules, combine, scoped
+    if rules is None:
+        rules = await active_rules(db, check.check_type)
+    clause, rule_thresholds, applied, problem = combine(rules)
+    # Curated rules set this org's defaults; a caller's explicit parameter still wins
+    thresholds = check.parse({**rule_thresholds, **params})
     fresh, stamps, why = await freshness(db, check.sources, check.max_age_hours)
-    if not fresh:
+    if problem:
+        outcome = Outcome("error", problem)
+    elif not fresh:
         outcome = Outcome("error", why)
     else:
         try:
-            outcome = await check.run(db, thresholds, detail)
+            with scoped(clause):
+                outcome = await check.run(db, thresholds, detail)
         except Exception:
             import logging
             logging.getLogger("open-ctem.grc").exception("check %s failed", check.check_type)
@@ -146,8 +163,9 @@ async def evaluate(db: AsyncSession, check: Check, params: dict, detail: bool = 
     body = {
         "check_type": check.check_type, "check_version": check.version, "name": check.name,
         "result": outcome.result, "summary": outcome.summary[:500], "measured_at": now().isoformat(),
-        "thresholds": thresholds, "data_freshness": stamps, "details": outcome.details,
-        "evidence_data": {**outcome.details, "thresholds": thresholds, "check_version": check.version},
+        "thresholds": thresholds, "data_freshness": stamps, "details": outcome.details, "curated_rules": applied,
+        "evidence_data": {**outcome.details, "thresholds": thresholds, "check_version": check.version,
+                          "curated_rules": applied},
     }
     return body, outcome
 

@@ -41,6 +41,7 @@ import api.models.identity    # noqa: F401, E402
 import api.models.risk        # noqa: F401, E402
 import api.models.collector   # noqa: F401, E402
 import api.models.grc         # noqa: F401, E402
+import api.models.rules       # noqa: F401, E402
 
 _TEST_DB_URL = os.environ["DATABASE_URL"]
 

@@ -21,8 +21,8 @@ async def export_risk_for_grc(
     db: AsyncSession = Depends(get_session),
 ):
     """Latest result of every CTEM control check, with suggested control mappings, for any GRC tool."""
-    from api.grc.checks import REGISTRY
     from api.routes.grc_data import latest_results
+    from api.rules.custom import all_checks
 
     latest = await latest_results(db)
     return {
@@ -33,7 +33,7 @@ async def export_risk_for_grc(
             "result": latest[c.check_type].result if c.check_type in latest else None,
             "summary": latest[c.check_type].summary if c.check_type in latest else None,
             "measured_at": latest[c.check_type].measured_at.isoformat() if c.check_type in latest else None,
-        } for c in REGISTRY.values()],
+        } for c in (await all_checks(db)).values()],
     }
 
 

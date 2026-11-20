@@ -13,14 +13,7 @@
 </div>
 
 <!-- Tab navigation -->
-<div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px">
-  <button id="tab-users" class="tab-btn tab-btn--active" onclick="switchTab('users')">Users</button>
-  <button id="tab-tokens" class="tab-btn" onclick="switchTab('tokens')">Active Tokens</button>
-  <button id="tab-roles" class="tab-btn" onclick="switchTab('roles')">Roles</button>
-  <button id="tab-branding" class="tab-btn" onclick="switchTab('branding')">Branding</button>
-  <button id="tab-audit" class="tab-btn" onclick="switchTab('audit')">Audit Log</button>
-  <button id="tab-ai" class="tab-btn" onclick="switchTab('ai')">AI Usage</button>
-</div>
+{% include "partials/admin_tabs.html" %}
 
 <!-- Users tab -->
 <div id="pane-users">
@@ -123,6 +116,9 @@
 
 <!-- AI Usage tab (static/js/ai_usage.js renders into it) -->
 <div id="pane-ai" style="display:none"></div>
+
+<!-- Curated Rules tab (rendered by curated_rules.js) -->
+<div id="pane-rules" style="display:none"></div>
 
 <!-- Audit Log tab -->
 <div id="pane-audit" style="display:none">
@@ -358,4 +354,5 @@
 </style>
 <script src="{{ static('js/admin.js') }}"></script>
 <script src="{{ static('js/ai_usage.js') }}"></script>
+<script src="{{ static('js/curated_rules.js') }}"></script>
 {% endblock %}

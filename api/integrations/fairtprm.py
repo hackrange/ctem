@@ -38,7 +38,9 @@ UNRATED = "-"
 
 
 class FairTPRMError(RuntimeError):
-    pass
+    def __init__(self, msg: str, status: int | None = None):
+        super().__init__(msg)
+        self.status = status
 
 
 @register(Vendor.fairtprm)
@@ -163,7 +165,21 @@ class FairTPRMConnector(BaseConnector):
             pass
         hint = {401: "FairTPRM rejected the API token (wrong token, expired, or CTEM's IP isn't on the token's IP whitelist)",
                 403: "the FairTPRM token has no access to the TPRM module"}.get(r.status_code, f"FairTPRM returned HTTP {r.status_code}")
-        raise FairTPRMError(f"{hint}{f': {reason}' if reason else ''}")
+        raise FairTPRMError(f"{hint}{f': {reason}' if reason else ''}", r.status_code)
+
+    async def review_risk(self, risk_id: str, fields: dict, acting_user: str) -> dict:
+        """Status / review date / treatment plan on a FairTPRM risk. Needs a read_write token."""
+        async with safe_client(timeout=30.0) as client:
+            r = await client.put(f"{self._api}/grc/risks/{int(risk_id)}/review", headers=self._headers(),
+                                 json={**fields, "acting_user": acting_user})
+        try:
+            body = r.json()
+        except ValueError:
+            body = {}
+        if r.status_code == 200 and isinstance(body, dict) and isinstance(body.get("data"), dict):
+            return body["data"]
+        reason = str((body or {}).get("error") or "")[:160] if isinstance(body, dict) else ""
+        raise FairTPRMError(reason or f"FairTPRM returned HTTP {r.status_code}", r.status_code)
 
     def _headers(self) -> dict:
         return {"Authorization": f"Bearer {self.config['api_key']}", "Accept": "application/json"}

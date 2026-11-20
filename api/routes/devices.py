@@ -39,7 +39,7 @@ async def _filtered(user, db, q, grade, device_type, source, tag, status=None):
     return dq.build_query(await device_scope(user, db), q, grade, device_type, source, tag, status)
 
 
-_STATUS_FILTER = Query(None, pattern="^(assigned|shipped|lost|stolen|returned)$")
+_STATUS_FILTER = Query(None, pattern="^(assigned|shipped|lost|stolen|returned|contained)$")
 
 
 _TAGS = Query(None, max_length=128, description="Tag name; repeat to require several")

@@ -6,6 +6,7 @@ rapid7_appsec: [
   {key:'api_key',    label:'Insight Platform API Key', type:'password', placeholder:'', required:true},
   {key:'min_severity', label:'Minimum Severity', type:'select', options:['HIGH','CRITICAL','MEDIUM','LOW'], required:false},
   {key:'max_findings', label:'Max Findings per Sync (blank = all)', type:'number', placeholder:'all', required:false},
+  {key:'internal_domains', label:'Internal domains (apps scanned here are not internet-facing)', type:'text', placeholder:'ad.acme.example, corp.acme.example', required:false},
 ],
 rapid7_insightvm: [
   {key:'mode',       label:'Deployment',      type:'select',   options:['cloud','console'],

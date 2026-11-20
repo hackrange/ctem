@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% set active_nav = 'grc' %}
+
+{% block title %}Control check -- open-ctem{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div style="min-width:0">
+    <p class="text-sm"><a href="/grc" class="dt-link" style="color:var(--fg-muted)">&larr; GRC</a></p>
+    <h1 class="page-header__title" id="ck-title" style="overflow-wrap:anywhere">Loading...</h1>
+    <p class="page-header__sub" id="ck-sub"></p>
+  </div>
+</div>
+
+<div class="panel" style="margin-bottom:20px">
+  <div class="panel__header"><span class="panel__title">Result</span></div>
+  <div class="panel__body text-sm" id="ck-result">Loading...</div>
+</div>
+
+<div class="panel" style="padding:0">
+  <div class="panel__header" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+    <span class="panel__title">To remediate</span>
+    <span style="display:flex;gap:8px;align-items:center">
+      <input id="ck-search" type="search" class="search-bar" placeholder="Search" aria-label="Search items" maxlength="200">
+      <a class="btn btn--ghost btn--sm" id="ck-csv" href="#">Signed CSV</a>
+    </span>
+  </div>
+  <div id="ck-table"></div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ static('js/data_table.js') }}"></script>
+<script src="{{ static('js/grc_check.js') }}"></script>
+{% endblock %}

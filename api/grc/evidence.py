@@ -12,7 +12,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.grc.checks import REGISTRY, Check, evaluate
+from api.grc.checks import Check, evaluate
 from api.models.grc import GrcCheckResult
 
 log = logging.getLogger("open-ctem.grc")
@@ -67,10 +67,30 @@ async def record(db: AsyncSession, body: dict) -> None:
     await db.commit()
 
 
+async def refresh(db: AsyncSession, check_type: str) -> dict | None:
+    """Re-measure one check now (a curated rule changed): drop its cached answers, record a fresh result."""
+    from api.rules.custom import get_check
+    check = await get_check(db, check_type)
+    if check is None:
+        return None
+    try:
+        r = await _redis()
+        keys = [k async for k in r.scan_iter(match=f"grc:check:{check_type}:*", count=200)]
+        if keys:
+            await r.delete(*keys)
+        await r.aclose()
+    except Exception:
+        log.debug("check cache unavailable")
+    body, _ = await evaluate(db, check, {})
+    await record(db, body)
+    return body
+
+
 async def run_all(db: AsyncSession) -> dict[str, str]:
     """Daily run of every check at default thresholds, so history has no gaps; prunes old rows."""
+    from api.rules.custom import all_checks
     results = {}
-    for check in REGISTRY.values():
+    for check in (await all_checks(db)).values():
         body, _ = await evaluate(db, check, {})
         await record(db, body)
         results[check.check_type] = body["result"]
@@ -138,7 +158,8 @@ def render(body: dict, outcome, fmt: str, instance: str, max_rows: int) -> tuple
     rows = outcome.rows[:max_rows]
     meta = _meta(body, len(rows), len(outcome.rows) >= max_rows, instance)
     if fmt == "json":
-        doc = {"meta": meta, "columns": outcome.columns, "rows": rows}
+        # only the published columns; rows can carry extra keys (device_id) for CTEM's own pages
+        doc = {"meta": meta, "columns": outcome.columns, "rows": [{c: r.get(c) for c in outcome.columns} for r in rows]}
         return json.dumps(doc, separators=(",", ":"), default=str).encode(), "application/json"
     buf = io.StringIO()
     for k, v in meta.items():

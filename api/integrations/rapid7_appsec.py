@@ -1,7 +1,9 @@
 """Rapid7 InsightAppSec connector -- web application findings."""
 from __future__ import annotations
 
+import ipaddress
 import logging
+from urllib.parse import urlsplit
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,6 +17,38 @@ log = logging.getLogger("open-ctem.rapid7-appsec")
 _SEVERITY_CVSS = {"CRITICAL": 9.5, "HIGH": 7.5, "MEDIUM": 5.0, "LOW": 2.5, "INFORMATIONAL": 0.0}
 _SEVERITIES = ("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFORMATIONAL")
 _PAGE = 100
+
+
+_PRIVATE_SUFFIXES = (".local", ".internal", ".lan", ".corp", ".home.arpa", ".localdomain", ".intranet")
+
+
+def internal_domains(raw) -> tuple[str, ...]:
+    """'ad.acme.example, corp.acme.example' -> ('.ad.acme.example', '.corp.acme.example')."""
+    out = []
+    for part in str(raw or "").replace(";", ",").split(","):
+        d = part.strip().lower().strip(".")
+        if d and len(d) <= 253 and all(c.isalnum() or c in "-." for c in d):
+            out.append("." + d)
+    return tuple(out[:50])
+
+
+def public_url(url: str | None, internal: tuple[str, ...] = ()) -> bool | None:
+    """Is the scanned URL reachable from the internet? None when there's no usable host. No DNS lookups."""
+    try:
+        host = (urlsplit(str(url or "")).hostname or "").strip(".").lower()
+    except ValueError:
+        return None
+    if not host:
+        return None
+    try:
+        ip = ipaddress.ip_address(host)
+        return ip.is_global
+    except ValueError:
+        pass
+    if host == "localhost" or "." not in host:
+        return False
+    dotted = "." + host
+    return not any(dotted.endswith(s) for s in _PRIVATE_SUFFIXES + internal)
 
 
 def _status(raw: str | None):
@@ -91,6 +125,8 @@ class InsightAppSecConnector(BaseConnector):
         from api.models.vuln import Finding, Vulnerability
 
         devices: dict[str, Device] = {}
+        public: dict[str, bool] = {}       # app id -> any scanned URL internet-facing
+        internal = internal_domains(self.config.get("internal_domains"))
         count = 0
         for v in vulns:
             app_id = (v.get("app") or {}).get("id")
@@ -110,6 +146,9 @@ class InsightAppSecConnector(BaseConnector):
             vuln = (await db.execute(select(Vulnerability).where(
                 Vulnerability.source == "rapid7_appsec", Vulnerability.source_vuln_id == v["id"]))).scalar_one_or_none()
             root = v.get("root_cause") or {}
+            verdict = public_url(root.get("url"), internal)
+            if verdict is not None:
+                public[app_id] = public.get(app_id, False) or verdict
             sev = (v.get("severity") or "MEDIUM").upper()
             if vuln is None:
                 vuln = Vulnerability(source="rapid7_appsec", source_vuln_id=v["id"], title="")
@@ -130,5 +169,7 @@ class InsightAppSecConnector(BaseConnector):
             finding.first_detected = r7.parse_dt(v.get("first_discovered"))
             finding.last_seen = r7.parse_dt(v.get("last_discovered"))
             count += 1
+        for app_id, exposed in public.items():
+            devices[app_id].is_internet_exposed = exposed
         await db.commit()
         return count
