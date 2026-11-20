@@ -12,6 +12,7 @@ Config and sealed passwords come from CTEM; destinations only change after `appr
 """
 import argparse
 import fcntl
+import json
 import os
 import random
 import sys
@@ -25,6 +26,7 @@ import collector_core as core  # noqa: E402
 
 TICK = 15 * 60
 SPOOL_MAX_AGE = 7 * 86400
+MAX_BODY = 768 * 1024  # load balancers commonly stop at 1 MB
 
 
 def _state(update=None):
@@ -42,13 +44,30 @@ def _spool_dir(iid):
     return path
 
 
-def _post_and_forget(api, path, body, spool_file):
-    api.call("POST", path, body, retries=4)
-    os.remove(spool_file)
-
-
 def _count(part):
     return sum(len(v) for v in part.values() if isinstance(v, list))
+
+
+def _fit(part, limit=None):
+    """Halve the biggest list until each piece fits under the load balancer's body limit."""
+    limit = limit or MAX_BODY
+    if len(json.dumps(part, separators=(",", ":"))) <= limit:
+        yield part
+        return
+    key = max((k for k, v in part.items() if isinstance(v, list)), key=lambda k: len(part[k]), default=None)
+    if key is None or len(part[key]) < 2:
+        yield part  # one giant record; let CTEM say no
+        return
+    half = len(part[key]) // 2
+    yield from _fit({**part, key: part[key][:half]}, limit)
+    yield from _fit({key: part[key][half:]}, limit)
+
+
+def _send(api, path, kind, run_id, part, spool_file):
+    for piece in _fit(part):
+        api.call("POST", path, {"kind": kind, "run_id": run_id, "final": False, **piece}, retries=4)
+    os.remove(spool_file)
+    return _count(part)
 
 
 def ship(api, m, s, secret, state):
@@ -61,14 +80,11 @@ def ship(api, m, s, secret, state):
         if time.time() - os.path.getmtime(f) > SPOOL_MAX_AGE:
             os.remove(f)
             continue
-        part = core.read_json(f)
-        _post_and_forget(api, path, {"kind": m["kind"], "run_id": run_id, "final": False, **part}, f)
-        sent += _count(part)
+        sent += _send(api, path, m["kind"], run_id, core.read_json(f), f)
     for seq, part in enumerate(core.mod(m["kind"]).collect(s, secret, state)):
         f = os.path.join(spool, f"{time.time_ns()}-{seq:06d}.json")
         core.write_json(f, part, 0o600)
-        _post_and_forget(api, path, {"kind": m["kind"], "run_id": run_id, "final": False, **part}, f)
-        sent += _count(part)
+        sent += _send(api, path, m["kind"], run_id, part, f)
     api.call("POST", path, {"kind": m["kind"], "run_id": run_id, "final": True}, retries=4)
     return sent
 

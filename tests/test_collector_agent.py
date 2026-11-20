@@ -113,3 +113,19 @@ def test_pin_mismatch_raises():
 def test_box_rejects_bad_destinations(kind, s):
     with pytest.raises(ValueError):
         cc.check_dest(kind, s)
+
+
+def test_big_batches_split_under_the_body_limit():
+    import json
+
+    import ctem_collector as agent
+    users = [{"username": f"user{i:05d}", "groups": [f"CN=Group{g},OU=Groups,DC=acme,DC=example" for g in range(40)]}
+             for i in range(500)]
+    part = {"users": users, "computers": []}
+    pieces = list(agent._fit(part, limit=64 * 1024))
+    assert len(pieces) > 1
+    assert all(len(json.dumps(p, separators=(",", ":"))) <= 64 * 1024 for p in pieces)
+    assert [u for p in pieces for u in p["users"]] == users
+    small = {"users": users[:2]}
+    assert list(agent._fit(small)) == [small]
+    assert list(agent._fit({"users": [{"username": "x" * 5000}]}, limit=100)) == [{"users": [{"username": "x" * 5000}]}]
