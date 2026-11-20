@@ -217,3 +217,12 @@ async def test_fairtprm_service_token(client_admin, client_cyber, client):
 async def test_fairtprm_token_ip_binding(client_admin, client):
     tok = (await client_admin.post("/api/v1/grc/fairtprm-token", json={"allowed_ips": ["198.51.100.20"]})).json()["token"]
     assert (await client.get("/api/v1/grc/checks", headers={"Authorization": f"Bearer {tok}"})).status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_no_exposure_data_is_not_a_pass(gdb):
+    await _source(gdb, "qualys")
+    gdb.add(_device())
+    await gdb.commit()
+    body, _ = await evaluate(gdb, REGISTRY["ctem_exposed_criticals"], {})
+    assert body["result"] == "error"

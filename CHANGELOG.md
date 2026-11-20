@@ -61,6 +61,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 - Dependencies upgraded to clear all known advisories (FastAPI/Starlette, Authlib, cryptography, Pillow, Jinja2, python-multipart); python-jose replaced with PyJWT
 
 ### Fixed
+- `ctem_exposed_criticals` passed when no device was marked internet-facing; with no exposure data it now reports an error
 - Admin > Users listed every person discovered in AD/LDAP (the Discovered Users page read from the admin endpoint). Admin > Users now shows only accounts that sign in to CTEM: local accounts, token-only service accounts, and SSO sign-ins
 - Discovered Users reads from a new `GET /api/v1/directory/users` (admin and cyber), which lists only directory people, with search applied to the total
 - API tokens with an expiry date failed with a server error on SQLite (timezone-naive comparison)

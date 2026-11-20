@@ -87,6 +87,9 @@ async def _exposed(db: AsyncSession, t: dict, detail: bool) -> Outcome:
          .where(_exposed_cond()))
     hosts = (await db.execute(q)).scalar_one()
     exposed = (await db.execute(select(func.count()).select_from(Device).where(Device.is_internet_exposed == True))).scalar_one()  # noqa: E712
+    if not exposed:
+        # Nothing marked internet-facing means we lack exposure data, not that we're safe
+        return Outcome("error", "no devices are marked internet-facing, so external exposure can't be judged")
     out = Outcome(grade_low(hosts, 0, t["warn_max"]),
                   f"{hosts:,} of {exposed:,} internet-facing devices have a critical or KEV finding that isn't ruled unreachable",
                   {"internet_exposed_devices": exposed, "with_exposed_criticals": hosts})
