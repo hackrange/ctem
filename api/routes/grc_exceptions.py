@@ -132,49 +132,15 @@ async def get_compliance(
     _: User = Depends(require_permission("grc", "read")),
     db: AsyncSession = Depends(get_session),
 ):
-    """
-    Aggregates evidence records from AppSetting (written by /grc/evidence)
-    into a per-framework score. Unknown/missing controls count as 0.
-    """
-    from api.models.settings import AppSetting
-    import json
+    """Per-framework compliance as FairTPRM reports it (requirements implemented / total)."""
+    from api.models.grc import GrcFramework
 
-    _FRAMEWORKS = [
-        ("nist-csf",    "NIST CSF",    15),
-        ("iso-27001",   "ISO 27001",   14),
-        ("nist-800-53", "NIST 800-53", 20),
-    ]
-
-    result = await db.execute(select(AppSetting).where(AppSetting.key.like("grc_evidence_%")))
-    rows = {r.key: r.value for r in result.scalars().all()}
-
-    now = datetime.now(timezone.utc)
-    frameworks = []
-    for slug, label, total_controls in _FRAMEWORKS:
-        passed = 0
-        for key, val in rows.items():
-            if not key.startswith(f"grc_evidence_{slug}_"):
-                continue
-            try:
-                d = json.loads(val or "{}")
-            except ValueError:
-                continue
-            if d.get("status") not in ("pass", "partial"):
-                continue
-            if d.get("expires_at"):
-                try:
-                    exp = datetime.fromisoformat(str(d["expires_at"]).replace("Z", "+00:00"))
-                except ValueError:
-                    continue  # unreadable expiry never counts as passing evidence
-                if now > (exp if exp.tzinfo else exp.replace(tzinfo=timezone.utc)):
-                    continue
-            passed += 1
-
-        score = round((passed / total_controls) * 100) if total_controls else 0
-        frameworks.append({"slug": slug, "name": label, "score": score,
-                           "passed": passed, "total": total_controls})
-
-    return {"frameworks": frameworks}
+    rows = (await db.execute(select(GrcFramework).where(GrcFramework.is_active == True)  # noqa: E712
+                             .order_by(GrcFramework.code))).scalars().all()
+    return {"frameworks": [{
+        "slug": f.code, "name": f.name, "score": round(f.compliance_percentage or 0),
+        "passed": f.implemented, "partial": f.partial, "total": f.total_requirements,
+    } for f in rows], "source": "fairtprm" if rows else None}
 
 
 # ── Pydantic schemas ──────────────────────────────────────────────────────────
