@@ -213,3 +213,33 @@ def test_ad_hygiene_raises_user_risk():
     off, _, _ = compute_user_score(**base, ad={"disabled": True, "days_since_logon": 200, "pwd_never_expires": True})
     assert risky > clean and off <= clean
     assert {"ad_dormant_account_penalty", "ad_old_password_penalty", "ad_pwd_never_expires_penalty"} <= set(why)
+
+
+@pytest.mark.asyncio
+async def test_contained_host_scores_zero_and_findings_show_as_info(db, client_admin):
+    from api.integrations.crowdstrike import CrowdStrikeConnector
+    from api.models.device import Device
+    from api.models.vuln import Finding, Vulnerability
+    from api.scoring.engine import recalculate_device
+
+    n = _tag()
+    await CrowdStrikeConnector({})._upsert([{"hostname": n.upper(), "status": "contained"}], [], db)
+    dev = (await db.execute(select(Device).where(Device.host_key == n))).scalar_one()
+    vuln = Vulnerability(title="bad", source="rapid7_insightvm", cvss_base=9.8, is_kev=True)
+    db.add(vuln)
+    await db.flush()
+    db.add(Finding(device_id=dev.id, vuln_id=vuln.id, source="rapid7_insightvm"))
+    await db.commit()
+    await recalculate_device(dev, db)
+    assert dev.edr_contained is True and dev.risk_score == 0.0
+    body = (await client_admin.get(f"/api/v1/devices/{dev.id}/findings")).json()
+    assert body["contained"] is True
+    assert [(f["severity"], f["composite_score"]) for f in body["findings"]] == [("info", 0.0)]
+    f = body["findings"][0]
+    assert f["raw_score"] > 0 and f["raw_grade"] and f["risk_grade"] == "A"  # original kept beside the adjusted one
+    assert dev.raw_risk_score > 0 and dev.risk_grade == "A"
+
+    # Released from containment: the real risk comes straight back
+    await CrowdStrikeConnector({})._upsert([{"hostname": n.upper(), "status": "normal"}], [], db)
+    await recalculate_device(dev, db)
+    assert dev.edr_contained is False and dev.risk_score > 0

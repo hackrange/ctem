@@ -82,7 +82,7 @@ async def test_affected_devices_page_sort_and_export(client_admin, db):
     v = vulns[5]  # affects 5 devices
     base = f"/api/v1/vulns/{v.id}/findings"
     data = (await client_admin.get(base, params={"sort": "hostname", "order": "asc", "limit": 2})).json()
-    assert data["total"] == 5 and [f["hostname"] for f in data["findings"]] == ["vh-00.acme.example", "vh-01.acme.example"]
+    assert data["total"] == 5 and [f["hostname"] for f in data["findings"]] == ["VH-00", "VH-01"]
     assert data["findings"][0]["device_id"]
     detail = (await client_admin.get(f"/api/v1/vulns/{v.id}")).json()
     assert detail["affected_devices"] == 5 and detail["source_vuln_id"] == "acme-widget-rce-5"
@@ -106,7 +106,7 @@ async def test_affected_view_is_scoped_for_restricted_users(client_it_user, it_u
 
     v = vulns[5]
     data = (await client_it_user.get(f"/api/v1/vulns/{v.id}/findings")).json()
-    assert data["total"] == 1 and data["findings"][0]["hostname"] == "vh-01.acme.example"
+    assert data["total"] == 1 and data["findings"][0]["hostname"] == "VH-01"
     listing = (await client_it_user.get("/api/v1/vulns", params={"source": src, "q": "CVE-2026-7005"})).json()
     assert listing["vulns"][0]["affected_devices"] == 1  # counts don't leak hidden devices
     exp = await client_it_user.get(f"/api/v1/vulns/{v.id}/findings/export")

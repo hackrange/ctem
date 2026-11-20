@@ -87,6 +87,7 @@ function notFound() {
 let table;
 function startAffected() {
   const base = `/api/v1/vulns/${encodeURIComponent(vulnId)}/findings`;
+  const dim = (f, html) => f.contained ? `<span style="opacity:.45">${html}</span>` : html;
   const dev = f => `/devices/${encodeURIComponent(f.device_id)}`;
   table = DataTable.create({
     mount: $('affected-table'),
@@ -99,15 +100,16 @@ function startAffected() {
     rowHref: dev,
     params: () => ({ status: $('a-status').value, q: $('a-search').value.trim() }),
     columns: [
-      { label: 'Hostname', sort: 'hostname', render: f => R.link(dev(f), f.hostname) },
-      { label: 'User', sort: 'user', render: f => txt(f.user) },
-      { label: 'IP', render: f => `<span class="text-mono text-sm">${txt(f.ip)}</span>` },
-      { label: 'OS', sort: 'os', render: f => `<span class="text-sm">${txt((f.os || '').slice(0, 28) || null)}</span>` },
-      { label: 'Grade', sort: 'risk_grade', firstOrder: 'desc', render: f => R.grade(f.device_grade) },
-      { label: 'Device score', sort: 'risk_score', firstOrder: 'desc', render: f => R.score(f.device_score) },
-      { label: 'Status', sort: 'status', render: f => `<span class="text-sm">${esc(f.status.replace('_', ' '))}</span>` },
-      { label: 'First detected', sort: 'first_detected', firstOrder: 'desc', render: f => R.date(f.first_detected) },
-      { label: 'Last seen', sort: 'last_seen', firstOrder: 'desc', render: f => R.date(f.last_seen) },
+      { label: 'Hostname', sort: 'hostname', render: f => dim(f, R.link(dev(f), f.hostname)) + (f.contained ? ' <span class="chip chip--info" style="font-size:.7rem">Contained</span>' : '') },
+      { label: 'Severity', render: f => `<span class="chip chip--${esc(f.severity)}" style="font-size:.7rem">${esc(f.severity === 'info' ? 'Info' : f.severity)}</span>` },
+      { label: 'User', sort: 'user', render: f => dim(f, txt(f.user)) },
+      { label: 'IP', render: f => dim(f, `<span class="text-mono text-sm">${txt(f.ip)}</span>`) },
+      { label: 'OS', sort: 'os', render: f => dim(f, `<span class="text-sm">${txt((f.os || '').slice(0, 28) || null)}</span>`) },
+      { label: 'Grade', sort: 'risk_grade', firstOrder: 'desc', render: f => dim(f, R.grade(f.device_grade)) },
+      { label: 'Device score', sort: 'risk_score', firstOrder: 'desc', render: f => dim(f, R.score(f.device_score)) + (f.contained ? ' ' + R.adjusted(f.raw_device_grade, f.raw_device_score, f.device_grade, f.device_score) : '') },
+      { label: 'Status', sort: 'status', render: f => dim(f, `<span class="text-sm">${esc(f.status.replace('_', ' '))}</span>`) },
+      { label: 'First detected', sort: 'first_detected', firstOrder: 'desc', render: f => dim(f, R.date(f.first_detected)) },
+      { label: 'Last seen', sort: 'last_seen', firstOrder: 'desc', render: f => dim(f, R.date(f.last_seen)) },
       { label: '', render: f => `<button type="button" class="btn btn--ghost btn--sm" data-ticket="${esc(f.id)}" data-host="${esc(f.hostname)}">Ticket</button>` },
     ],
   });

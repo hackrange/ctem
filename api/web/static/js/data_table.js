@@ -161,6 +161,11 @@
       const m = { F: 'critical', D: 'high', C: 'medium', B: 'low', A: 'info' };
       return g ? `<span class="chip chip--${m[g] || 'info'}">${esc(g)}</span>` : '<span class="text-muted">--</span>';
     },
+    // "(F 87.3 → A 0)": original grade/score, then what it is after an adjustment such as EDR containment
+    adjusted(rawGrade, rawScore, grade, score) {
+      const fmt = (g, n) => `${esc(g || '?')} ${n == null ? '--' : esc(Number(n).toFixed(n % 1 ? 1 : 0))}`;
+      return `<span class="text-sm text-muted" title="Original score, then the score after containment">(${fmt(rawGrade, rawScore)} &rarr; ${fmt(grade, score)})</span>`;
+    },
     bool(v) {
       return v ? '<span style="color:var(--severity-low)">&#10003;</span>'
                : '<span style="color:var(--severity-critical)">&#10007;</span>';

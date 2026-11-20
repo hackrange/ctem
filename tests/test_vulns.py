@@ -73,7 +73,7 @@ async def test_vuln_findings_shape(client_cyber, db):
     assert "findings" in d
     assert d["total"] >= 1
     f = d["findings"][0]
-    assert f["hostname"] == "test-host-vulns"
+    assert f["hostname"] == "TEST-HOST-VULNS"
     assert "composite_score" in f
 
 

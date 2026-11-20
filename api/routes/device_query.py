@@ -130,6 +130,14 @@ def full_name(d: Device) -> str | None:
     return d.hostname.upper() if d.hostname and "." in d.hostname and not _is_ip(d.hostname) else None
 
 
+def severity(cvss: float | None, contained: bool = False) -> str:
+    """CVSS band, except a contained host can't be reached, so all of it is info until it's released."""
+    if contained:
+        return "info"
+    c = cvss or 0.0
+    return "critical" if c >= 9 else "high" if c >= 7 else "medium" if c >= 4 else "low"
+
+
 def source_codes(d: Device) -> list[str]:
     names = source_list(d) or ([d.source] if d.source else [])
     return [SOURCE_CODES.get(n, n.upper()) for n in names]
@@ -159,6 +167,9 @@ def summary(d: Device) -> dict:
         "last_seen": d.last_seen.isoformat() if d.last_seen else None,
         "edr_active": d.edr_active,
         "edr_vendor": d.edr_vendor,
+        "edr_contained": bool(d.edr_contained),
+        "raw_risk_score": d.raw_risk_score,
+        "raw_risk_grade": d.raw_risk_grade,
         "firewall_enabled": d.firewall_enabled,
         "usb_storage_blocked": d.usb_storage_blocked,
         "ad_joined": d.ad_joined,

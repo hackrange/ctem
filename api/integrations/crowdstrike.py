@@ -14,6 +14,8 @@ log = logging.getLogger("open-ctem.crowdstrike")
 _API_BASE = "https://api.crowdstrike.com"
 # Contained hosts still have a working sensor; it just isolates them
 _SENSOR_RUNNING = {"normal", "containment_pending", "contained", "lift_containment_pending"}
+# Isolated from the network until someone lifts it; pending only means it hasn't taken yet
+_CONTAINED = {"contained", "lift_containment_pending"}
 
 
 @register(Vendor.crowdstrike)
@@ -100,6 +102,8 @@ class CrowdStrikeConnector(BaseConnector):
             add_source(dev, "crowdstrike")
             dev.edr_vendor = "crowdstrike"
             dev.edr_active = d.get("status") in _SENSOR_RUNNING
+            if d.get("status"):
+                dev.edr_contained = d["status"] in _CONTAINED
             dev.os = d.get("os_version")
             kind = (d.get("product_type") or d.get("product_type_desc") or "").lower()
             if kind in ("server", "domain controller"):
