@@ -27,6 +27,11 @@ const SOURCES = {
   ], secrets: { password: 'Splunk password' } },
 };
 
+// Each source can run on its own clock; blank follows the shipper's schedule
+const EVERY = { key: 'schedule_minutes', label: 'Run every', type: 'select', num: true, opts: [['', 'Shipper schedule'],
+  ...[5, 10, 15, 30, 60, 120, 240, 300, 360, 720, 1440].map(n => [String(n), n < 60 ? `${n} minutes` : `${n / 60} hour${n === 60 ? '' : 's'}`])] };
+for (const def of Object.values(SOURCES)) def.fields.push(EVERY);
+
 let _shippers = [];
 let _editId = null;
 let _sealing = null;
@@ -52,7 +57,8 @@ function ago(iso) {
 function sourceBlock(p, kind, m) {
   const def = SOURCES[kind];
   const s = m.settings || {};
-  const where = kind === 'crowdstrike' ? `cloud ${s.cloud}` : `${s.host}${s.port ? ':' + s.port : ''}`;
+  const where = (kind === 'crowdstrike' ? `cloud ${s.cloud}` : `${s.host}${s.port ? ':' + s.port : ''}`)
+    + ` · every ${s.schedule_minutes || p.schedule_minutes} min`;
   const appr = m.approval === 'approved' ? chip('destination approved', 'low')
     : m.approval === 'pending' ? chip('waiting for approve on the box', 'medium') : chip('not enrolled yet', 'info');
   const secrets = Object.entries(def.secrets).map(([field, label]) => {
@@ -137,7 +143,7 @@ function collect() {
     for (const f of def.fields) {
       const raw = document.getElementById(`f-${kind}-${f.key}`).value.trim();
       if (raw === '') continue;
-      s[f.key] = f.type === 'number' ? Number(raw) : raw;
+      s[f.key] = f.type === 'number' || f.num ? Number(raw) : raw;
     }
     modules[kind] = { enabled: true, settings: s };
   }

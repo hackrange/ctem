@@ -1,6 +1,8 @@
 """Shared filter, sort, and serializer logic for the device list, summary, and export."""
 from __future__ import annotations
 
+import ipaddress
+
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import aliased, selectinload
 
@@ -27,7 +29,7 @@ SORTS = {
     "source": Device.source,
 }
 
-EXPORT_HEADER = ["Hostname", "User", "IP", "MAC", "Type", "OS", "Grade", "Score", "Open findings",
+EXPORT_HEADER = ["Hostname", "FQDN", "User", "IP", "MAC", "Type", "OS", "Grade", "Score", "Open findings",
                  "KEV findings", "Last seen", "EDR", "EDR vendor", "Internet exposed", "Source", "Tags"]
 
 
@@ -110,10 +112,32 @@ def user_label(d: Device) -> str | None:
     return d.last_login_user
 
 
+def short_name(name: str | None) -> str | None:
+    """desktop001.ad.acme.example shows as desktop001; IPs stay whole."""
+    if not name or "." not in name or _is_ip(name):
+        return name
+    return name.split(".", 1)[0]
+
+
+def full_name(d: Device) -> str | None:
+    if d.fqdn:
+        return d.fqdn
+    return d.hostname if d.hostname and "." in d.hostname and not _is_ip(d.hostname) else None
+
+
+def _is_ip(name: str) -> bool:
+    try:
+        ipaddress.ip_address(name)
+        return True
+    except ValueError:
+        return False
+
+
 def summary(d: Device) -> dict:
     return {
         "id": str(d.id),
-        "hostname": d.hostname,
+        "hostname": short_name(d.hostname),
+        "fqdn": full_name(d),
         "user": user_label(d),
         "ip": d.ip,
         "os": d.os,
@@ -134,7 +158,7 @@ def summary(d: Device) -> dict:
 
 def export_row(d: Device) -> list:
     s = summary(d)
-    return [s["hostname"], s["user"], s["ip"], d.mac_address, s["device_type"], s["os"], s["risk_grade"],
+    return [s["hostname"], s["fqdn"], s["user"], s["ip"], d.mac_address, s["device_type"], s["os"], s["risk_grade"],
             s["risk_score"], s["open_findings"], s["kev_findings"], s["last_seen"], s["edr_active"],
             s["edr_vendor"], s["is_internet_exposed"], s["source"], "; ".join(s["tags"])]
 

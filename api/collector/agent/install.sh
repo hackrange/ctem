@@ -9,6 +9,8 @@
 #   sudo bash open-ctem-shipper.sh --docker      self-contained Docker container
 #   sudo bash open-ctem-shipper.sh --test-ctem   just check CTEM is reachable
 #   sudo bash open-ctem-shipper.sh --upgrade     new shipper code, same key, passwords and approvals
+#                                                (plain runs on a box that already has a shipper do this too)
+#   sudo bash open-ctem-shipper.sh --reinstall   enroll from scratch even though one is installed
 #   sudo bash open-ctem-shipper.sh --uninstall   remove it again (either mode)
 set -euo pipefail
 umask 077
@@ -165,11 +167,11 @@ store_identity() {
 }
 
 install_cron() {
-  # Every 15 minutes the shipper checks in; it only ships when CTEM's schedule says it's due
-  printf '# open-ctem shipper: check in with CTEM, ship when due. The schedule lives in CTEM.\n*/15 * * * * root systemctl start --no-block %s.service\n' \
+  # Every 5 minutes the shipper checks in; each source ships only when its own schedule says so
+  printf '# open-ctem shipper: check in with CTEM, ship what is due. Schedules live in CTEM.\n*/5 * * * * root systemctl start --no-block %s.service\n' \
     "$UNIT" > "$CRON"
   chmod 644 "$CRON"
-  ok "cron check-in every 15 minutes ($CRON)"
+  ok "cron check-in every 5 minutes ($CRON)"
 }
 
 write_local_helper() {
@@ -289,7 +291,7 @@ start_container() {
     --cap-drop ALL --security-opt no-new-privileges:true --memory 512m --pids-limit 128 \
     --log-opt max-size=10m --log-opt max-file=3 \
     "${COMMON[@]}" "$IMAGE" daemon >/dev/null
-  ok "container $CTR is running; it checks in with CTEM every 15 minutes"
+  ok "container $CTR is running; it checks in with CTEM every 5 minutes"
   write_docker_helper
 }
 
@@ -307,11 +309,17 @@ install_docker() {
   warn "Docker mode keeps the shipper key in the $VOL volume (mode 600, container user only); local mode seals it with systemd-creds"
 }
 
+existing_install() {
+  [[ -f "$CONF/collector.json" ]] && return 0
+  command -v docker >/dev/null && docker volume inspect "$VOL" >/dev/null 2>&1
+}
+
 upgrade() {
   # New code only: the key, passwords, approvals and schedule all stay put
   if [[ -f "$CONF/collector.json" ]]; then
     say "Upgrading the shipper code (local script mode)"
     install_code
+    install_cron
     ok "code updated in $APP; key and approvals in $CONF untouched"
     "$HELPER" run-now || warn "run reported a problem; see: open-ctem-collector logs"
   elif command -v docker >/dev/null && docker volume inspect "$VOL" >/dev/null 2>&1; then
@@ -344,11 +352,22 @@ main() {
       "$PY" "$STAGE/ctem_collector.py" test-ctem --url "${2:-$CTEM_URL_DEFAULT}"; exit $? ;;
     --local) mode=local ;;
     --docker) mode=docker ;;
-    -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
+    --reinstall) mode=reinstall ;;
+    -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
     "") ;;
     *) die "unknown option $1 (try --help)" ;;
   esac
   [[ $EUID -eq 0 ]] || die "run as root (sudo bash $0)"
+  # Already installed? Then this is an update: keep the key, passwords, approvals and sources
+  if [[ "$mode" != reinstall ]] && existing_install; then
+    say "Found an existing shipper on this box; upgrading it in place (nothing to re-enter)."
+    say "To enroll from scratch instead, uninstall first or use --reinstall."
+    unpack; upgrade; exit 0
+  fi
+  if [[ "$mode" == reinstall ]]; then
+    warn "--reinstall makes a new key: passwords must be entered again and destinations re-approved"
+    mode=""
+  fi
   [[ -n "$mode" ]] || mode=$(choose_mode)
   unpack
   if [[ "$mode" == docker ]]; then install_docker; else install_local; fi

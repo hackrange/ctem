@@ -356,3 +356,15 @@ async def test_rejected_payloads_never_log_passwords(client, caplog):
     r = await client.post("/api/v1/collector/enroll-login", json={"username": "a", "password": "Sup3r-Secret-Value"})
     assert r.status_code == 400
     assert "Sup3r-Secret-Value" not in caplog.text and "collector payload rejected" in caplog.text
+
+
+def test_source_schedule_is_validated_and_needs_no_approval():
+    from api.collector.profile import dest_digest, validate_settings
+
+    base = {"host": "splunk001.acme.example", "username": "svc-ctem"}
+    every5 = validate_settings("splunk", {**base, "schedule_minutes": 5})
+    assert every5["schedule_minutes"] == 5
+    assert dest_digest("splunk", every5) == dest_digest("splunk", validate_settings("splunk", base))
+    for bad in (7, 0, -5, "30", 100000):
+        with pytest.raises(Exception):
+            validate_settings("splunk", {**base, "schedule_minutes": bad})

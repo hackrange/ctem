@@ -17,7 +17,16 @@ class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class LdapSettings(_Strict):
+# Per-source "run every N minutes"; blank falls back to the shipper's schedule
+SOURCE_SCHEDULES = (5, 10, 15, 30, 60, 120, 240, 300, 360, 720, 1440)
+Every = Literal[SOURCE_SCHEDULES] | None
+
+
+class _Source(_Strict):
+    schedule_minutes: Every = None
+
+
+class LdapSettings(_Source):
     host: Host
     port: Port | None = None
     tls: Literal["ldaps", "starttls"] | None = None
@@ -25,19 +34,19 @@ class LdapSettings(_Strict):
     base_dn: Annotated[str, StringConstraints(strip_whitespace=True, max_length=1024)] | None = None
 
 
-class Rapid7Settings(_Strict):
+class Rapid7Settings(_Source):
     host: Host
     port: Port = 3780
     username: Short
     vuln_catalog_hours: int = Field(24, ge=1, le=168)
 
 
-class CrowdStrikeSettings(_Strict):
+class CrowdStrikeSettings(_Source):
     cloud: Literal["us-1", "us-2", "eu-1", "us-gov-1"] = "us-1"
     client_id: Annotated[str, StringConstraints(pattern=r"^[0-9a-fA-F]{32}$")]
 
 
-class SplunkSettings(_Strict):
+class SplunkSettings(_Source):
     host: Host
     port: Port = 8089
     username: Short
