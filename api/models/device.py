@@ -73,6 +73,13 @@ class Device(Base, UUIDPrimaryKey, TimestampMixin):
     open_findings: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     kev_findings: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
 
+    # Not In Scope: set by admin or cyber with a justification and an end date. While it runs, nothing on
+    # the device counts against it (risk 0, no open findings, left out of vuln counts and GRC checks).
+    scope_exempt_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    scope_exempt_reason: Mapped[str | None] = mapped_column(EncryptedString)
+    scope_exempt_by: Mapped[str | None] = mapped_column(String(128))
+    scope_exempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
     # Business criticality from the scanner (Rapid7: Very High ... Very Low); weights risk scoring
     criticality: Mapped[str | None] = mapped_column(String(16))
 

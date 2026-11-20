@@ -14,6 +14,7 @@ from api.auth.device_scope import device_scope
 from api.auth.rbac import require_permission
 from api.core.csv_export import csv_paged_response
 from api.core.db import get_session
+from api.core.device_scope_exempt import in_scope, is_exempt
 from api.models.device import Device, DeviceAssignment, DeviceTag
 from api.models.user import User
 from api.models.vuln import Finding, FindingStatus, Vulnerability
@@ -30,7 +31,7 @@ def _affected_count(scope):
     """Correlated count of distinct visible devices with an active finding for this vuln."""
     stmt = (select(func.count(distinct(Finding.device_id)))
             .join(Device, Device.id == Finding.device_id)
-            .where(Finding.vuln_id == Vulnerability.id, Finding.status.in_(_OPEN)))
+            .where(Finding.vuln_id == Vulnerability.id, Finding.status.in_(_OPEN), in_scope()))
     if scope is not None:
         stmt = stmt.where(scope)
     return stmt.correlate(Vulnerability).scalar_subquery()
@@ -279,8 +280,9 @@ def _affected_row(f: Finding, cvss: float | None = None) -> dict:
         "id": str(f.id),
         "device_id": str(f.device_id),
         "hostname": dq.short_name(d.hostname) if d else None,
-        "contained": bool(d.edr_contained) if d else False,
-        "severity": dq.severity(cvss, bool(d and d.edr_contained)),
+        "contained": bool(d and (d.edr_contained or is_exempt(d))),
+        "out_of_scope": bool(d and is_exempt(d)),
+        "severity": dq.severity(cvss, bool(d and (d.edr_contained or is_exempt(d)))),
         "user": dq.user_label(d) if d else None,
         "ip": d.ip if d else None,
         "os": d.os if d else None,

@@ -65,6 +65,9 @@ def build_query(scope, q: str | None, grade: str | None, device_type: DeviceType
         stmt = stmt.where(Device.id.in_(select(DeviceAssignment.device_id).where(DeviceAssignment.user_id.is_not(None))))
     elif status == "contained":  # network-isolated by the EDR
         stmt = stmt.where(Device.edr_contained.is_(True))
+    elif status == "out_of_scope":  # Not In Scope, still running
+        from api.core.device_scope_exempt import now
+        stmt = stmt.where(Device.scope_exempt_until > now())
     if source in SOURCE_CODES:  # allow-listed, so it's safe inside LIKE
         stmt = stmt.where(Device.sources.like(f"%,{source},%"))
     elif source:
@@ -252,6 +255,11 @@ def _is_ip(name: str) -> bool:
         return False
 
 
+def _exempt(d: Device) -> bool:
+    from api.core.device_scope_exempt import is_exempt
+    return is_exempt(d)
+
+
 def summary(d: Device) -> dict:
     return {
         "id": str(d.id),
@@ -260,6 +268,7 @@ def summary(d: Device) -> dict:
         "user": user_label(d),
         "assigned_user": assigned_user(d),
         "inventory_status": inventory_status(d),
+        "out_of_scope_until": d.scope_exempt_until.isoformat() if d.scope_exempt_until and _exempt(d) else None,
         "detected_user": _person(d.owner),
         "detected_user_id": str(d.owner_user_id) if d.owner_user_id else None,
         "last_login_user": d.last_login_user,
