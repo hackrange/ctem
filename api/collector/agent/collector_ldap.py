@@ -168,6 +168,11 @@ def _user(e, ad):
     }
     if ad:
         out.update(_account_state(a, uac))
+        # Raw values; CTEM normalizes phone numbers using the user's country
+        for key, attr, cap in (("first_name", "givenName", 128), ("last_name", "sn", 128), ("title", "title", 256),
+                               ("phone", "telephoneNumber", 64), ("mobile", "mobile", 64), ("country", "c", 2)):
+            v = _text(a, attr, cap)
+            out[key] = v if v and not any(ord(ch) < 32 for ch in v) else None
     return out
 
 
@@ -244,7 +249,8 @@ def collect(s, secret, state):
         ad, base = _flavor(conn) == "ad", _base(s, conn)
         uattrs = ["sAMAccountName", "mail", "displayName", "cn", "memberOf", "userAccountControl",
                   "lastLogonTimestamp", "pwdLastSet", "msDS-UserPasswordExpiryTimeComputed",
-                  "msDS-User-Account-Control-Computed"] if ad \
+                  "msDS-User-Account-Control-Computed", "givenName", "sn", "title", "telephoneNumber",
+                  "mobile", "c"] if ad \
             else ["uid", "cn", "mail", "displayName"]
         for chunk in _paged(conn, base, _user_filter("ad" if ad else "openldap"), uattrs):
             yield {"users": [u for u in (_user(e, ad) for e in chunk) if u]}

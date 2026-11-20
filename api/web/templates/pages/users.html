@@ -42,7 +42,9 @@
     <thead>
       <tr>
         <th>Username</th>
-        <th>Display Name</th>
+        <th>Name</th>
+        <th>Title</th>
+        <th>Phone</th>
         <th>Risk Grade</th>
         <th>Score</th>
         <th>Roles</th>
@@ -56,7 +58,7 @@
       </tr>
     </thead>
     <tbody id="users-tbody">
-      <tr><td colspan="12" class="text-muted text-sm" style="text-align:center;padding:32px">Loading...</td></tr>
+      <tr><td colspan="14" class="text-muted text-sm" style="text-align:center;padding:32px">Loading...</td></tr>
     </tbody>
   </table>
 </div>
@@ -111,7 +113,7 @@ async function loadUsers(offset = 0) {
   if (search) url += `&q=${encodeURIComponent(search)}`;
 
   const tb = document.getElementById('users-tbody');
-  tb.innerHTML = '<tr><td colspan="12" class="text-muted text-sm" style="text-align:center;padding:24px">Loading...</td></tr>';
+  tb.innerHTML = '<tr><td colspan="14" class="text-muted text-sm" style="text-align:center;padding:24px">Loading...</td></tr>';
 
   try {
     const d = await fetchJson(url);
@@ -120,7 +122,7 @@ async function loadUsers(offset = 0) {
     if (grade) users = users.filter(u => (u.risk_grade || '') === grade);
 
     if (!users.length) {
-      tb.innerHTML = '<tr><td colspan="12" class="text-muted text-sm" style="text-align:center;padding:32px">No users found</td></tr>';
+      tb.innerHTML = '<tr><td colspan="14" class="text-muted text-sm" style="text-align:center;padding:32px">No users found</td></tr>';
       document.getElementById('users-pagination').innerHTML = '';
       updateTiles([]);
       return;
@@ -132,7 +134,9 @@ async function loadUsers(offset = 0) {
       return `
         <tr>
           <td style="font-weight:600">${esc(u.username)}</td>
-          <td class="text-sm text-muted">${esc(u.display_name || '--')}</td>
+          <td class="text-sm">${esc([u.first_name, u.last_name].filter(Boolean).join(' ') || u.display_name || '--')}</td>
+          <td class="text-sm text-muted">${esc(u.title || '--')}</td>
+          <td class="text-sm text-mono" title="${esc(u.mobile ? 'Mobile ' + u.mobile : '')}">${esc(u.phone || u.mobile || '--')}</td>
           <td>${gradeChip(u.risk_grade)}</td>
           <td class="text-sm text-center">${u.risk_score != null ? parseFloat(u.risk_score).toFixed(0) : '--'}</td>
           <td>${(u.roles || []).map(r => `<span class="chip chip--info" style="font-size:.7rem">${esc(r.role_name || r)}</span>`).join(' ')}</td>
@@ -156,7 +160,7 @@ async function loadUsers(offset = 0) {
       ${hasPrev ? `<button class="btn btn--ghost btn--sm" onclick="loadUsers(${offset - PAGE})">Prev</button>` : ''}
       ${hasNext ? `<button class="btn btn--ghost btn--sm" onclick="loadUsers(${offset + PAGE})">Next</button>` : ''}`;
   } catch (e) {
-    tb.innerHTML = `<tr><td colspan="12" class="text-muted text-sm" style="text-align:center;padding:24px">Error loading users</td></tr>`;
+    tb.innerHTML = `<tr><td colspan="14" class="text-muted text-sm" style="text-align:center;padding:24px">Error loading users</td></tr>`;
   }
 }
 

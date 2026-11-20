@@ -1317,6 +1317,29 @@
       "version": "26.3"
     },
     {
+      "bom-ref": "phonenumbers==9.0.43",
+      "description": "Python version of Google's common library for parsing, formatting, storing and validating international phone numbers.",
+      "externalReferences": [
+        {
+          "comment": "from packaging metadata Project-URL: homepage",
+          "type": "website",
+          "url": "https://github.com/daviddrysdale/python-phonenumbers"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "acknowledgement": "declared",
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "name": "phonenumbers",
+      "purl": "pkg:pypi/phonenumbers@9.0.43",
+      "type": "library",
+      "version": "9.0.43"
+    },
+    {
       "bom-ref": "pillow==13.0.0",
       "description": "Python Imaging Library (fork)",
       "externalReferences": [
@@ -2648,6 +2671,9 @@
       "ref": "packaging==26.3"
     },
     {
+      "ref": "phonenumbers==9.0.43"
+    },
+    {
       "dependsOn": [
         "defusedxml==0.7.1",
         "packaging==26.3"
@@ -2803,7 +2829,12 @@
     }
   ],
   "metadata": {
-    "timestamp": "2026-11-19T20:51:34.337936+00:00",
+    "properties": [
+      {
+        "name": "cdx:reproducible",
+        "value": "true"
+      }
+    ],
     "tools": {
       "components": [
         {
@@ -2907,7 +2938,6 @@
       ]
     }
   },
-  "serialNumber": "urn:uuid:084c5721-3c4a-4f99-9607-467fe2775aa4",
   "version": 1,
   "$schema": "http://cyclonedx.org/schema/bom-1.6.schema.json",
   "bomFormat": "CycloneDX",

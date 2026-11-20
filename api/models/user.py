@@ -81,6 +81,12 @@ class User(Base, UUIDPrimaryKey, TimestampMixin):
     ad_pwd_expired: Mapped[bool | None] = mapped_column(Boolean)
     ad_pwd_never_expires: Mapped[bool | None] = mapped_column(Boolean)
     ad_locked_out: Mapped[bool | None] = mapped_column(Boolean)
+    # Directory profile (personal data, so encrypted at rest like display_name)
+    first_name: Mapped[str | None] = mapped_column(EncryptedString)
+    last_name: Mapped[str | None] = mapped_column(EncryptedString)
+    title: Mapped[str | None] = mapped_column(EncryptedString)
+    phone: Mapped[str | None] = mapped_column(EncryptedString)   # +15550100199 when it parses, else as entered
+    mobile: Mapped[str | None] = mapped_column(EncryptedString)
     is_service_account: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # Tag-based page access -- admins assign tags like ["identity","grc"] to let
