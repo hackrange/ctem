@@ -5,18 +5,32 @@ let _auditCursor = null;
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 
-const PANES = ['users','tokens','roles','branding','audit', 'ai'];
+const PANES = ['users','tokens','roles','rules','branding','audit', 'ai'];
 function switchTab(name) {
   PANES.forEach(p => {
     document.getElementById('pane-'+p).style.display = p === name ? '' : 'none';
-    document.getElementById('tab-'+p).classList.toggle('tab-btn--active', p === name);
+    document.getElementById('tab-'+p).classList.toggle('is-active', p === name);
   });
   if (name === 'tokens' && !document.getElementById('admin-tokens-tbody').dataset.loaded) loadAdminTokens();
   if (name === 'roles' && !document.getElementById('roles-tbody').dataset.loaded) loadRoles();
   if (name === 'audit' && !document.getElementById('audit-tbody').dataset.loaded) loadAudit();
   if (name === 'branding') loadBranding();
   if (name === 'ai' && window.AIUsage) AIUsage.load();
+  if (name === 'rules' && window.CuratedRules) CuratedRules.load();
 }
+
+// Tabs are links (/admin#roles) so the SSO page and bookmarks can open one directly
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-tab]');
+  if (!t) return;
+  e.preventDefault();
+  switchTab(t.dataset.tab);
+  history.replaceState(null, '', '#' + t.dataset.tab);
+});
+document.addEventListener('DOMContentLoaded', () => {
+  const want = location.hash.slice(1);
+  if (want !== 'users' && PANES.includes(want)) switchTab(want);
+});
 
 // ── Data loaders ──────────────────────────────────────────────────────────────
 

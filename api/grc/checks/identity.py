@@ -6,7 +6,7 @@ from datetime import timedelta
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.grc.checks import DIRECTORY, IDENTITY, Check, Outcome, Threshold, aware, grade_low, now, register
+from api.grc.checks import DIRECTORY, IDENTITY, SHADOW, Check, Outcome, Threshold, aware, grade_low, now, register
 from api.models.identity import IdentityThreat, ItdrAlertStatus, SaasAppRecord
 from api.models.user import User
 
@@ -134,21 +134,31 @@ async def _itdr(db: AsyncSession, t: dict, detail: bool) -> Outcome:
     return out
 
 
+def _app_key(a) -> str:
+    """Grip and FairTPRM can both report the same app; match on domain, else name. Agents stay separate."""
+    key = (a.vendor or a.app_name or "").strip().lower()
+    return f"agent:{a.app_name.lower()}" if a.source == "grip_ai_agent" else key
+
+
 def _shadow(ai: bool):
     async def run(db: AsyncSession, t: dict, detail: bool) -> Outcome:
-        cond = and_(SaasAppRecord.is_shadow_ai == ai, SaasAppRecord.is_sanctioned == False,  # noqa: E712
-                    SaasAppRecord.user_count > 0)
-        n = (await db.execute(select(func.count()).select_from(SaasAppRecord).where(cond))).scalar_one()
-        people = (await db.execute(select(func.coalesce(func.sum(SaasAppRecord.user_count), 0)).where(cond))).scalar_one()
+        cond = and_(SaasAppRecord.source.in_(("grip", "grip_ai_agent", "fairtprm")), SaasAppRecord.is_shadow_ai == ai,
+                    SaasAppRecord.is_sanctioned == False, SaasAppRecord.user_count > 0)  # noqa: E712
+        apps: dict[str, SaasAppRecord] = {}
+        for a in (await db.execute(select(SaasAppRecord).where(cond))).scalars():
+            k = _app_key(a)
+            if k not in apps or a.user_count > apps[k].user_count:
+                apps[k] = a
+        n, people = len(apps), sum(a.user_count for a in apps.values())
         kind = "AI" if ai else "SaaS"
         out = Outcome(grade_low(n, t["pass_max"], t["warn_max"]),
                       f"{n:,} unsanctioned {kind} apps in use by {int(people):,} user accounts",
                       {"unsanctioned_apps": n, "user_accounts": int(people)})
         if detail:
-            found = await db.execute(select(SaasAppRecord).where(cond).order_by(SaasAppRecord.user_count.desc()).limit(MAX_ROWS))
-            out.columns = ["app", "vendor", "category", "risk_level", "users", "last_seen"]
+            out.columns = ["app", "vendor", "category", "risk_level", "users", "last_seen", "source"]
             out.rows = [{"app": a.app_name, "vendor": a.vendor or "", "category": a.app_category or "", "risk_level": a.risk_level,
-                         "users": a.user_count, "last_seen": _iso(a.last_seen)} for a in found.scalars()]
+                         "users": a.user_count, "last_seen": _iso(a.last_seen), "source": a.source}
+                        for a in sorted(apps.values(), key=lambda x: -x.user_count)[:MAX_ROWS]]
         return out
     return run
 
@@ -177,13 +187,13 @@ register(Check(
     {"max_age_hours": Threshold(24, 1, 720, "alerts open longer than this fail")}, _itdr))
 
 register(Check(
-    "ctem_shadow_ai", "Shadow AI", "Unsanctioned AI apps in use", 1, IDENTITY,
+    "ctem_shadow_ai", "Shadow AI", "Unsanctioned AI apps in use", 2, SHADOW,
     ("ISO/IEC 42001", "NIST AI RMF GOVERN 1.6", "ISO 27001 A.5.23"),
     {"pass_max": Threshold(0, 0, 10000, "apps tolerated as a pass"), "warn_max": Threshold(3, 0, 10000, "apps tolerated as a warning")},
     _shadow(True)))
 
 register(Check(
-    "ctem_shadow_saas", "Shadow SaaS", "Unsanctioned SaaS apps in use", 1, IDENTITY,
+    "ctem_shadow_saas", "Shadow SaaS", "Unsanctioned SaaS apps in use", 2, SHADOW,
     ("ISO 27001 A.5.23", "CIS 2.3", "SOC 2 CC9.2"),
     {"pass_max": Threshold(0, 0, 100000, "apps tolerated as a pass"), "warn_max": Threshold(25, 0, 100000, "apps tolerated as a warning")},
     _shadow(False)))

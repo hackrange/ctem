@@ -1,5 +1,6 @@
 {% extends "base.html" %}
-{% set active_nav = 'shippers' %}
+{% set active_nav = 'integrations' %}
+{% set integ_tab = 'shippers' %}
 
 {% block title %}Shippers -- open-ctem{% endblock %}
 
@@ -14,6 +15,7 @@
     <button class="btn btn--primary btn--sm" data-action="new">+ New shipper</button>
   </div>
 </div>
+{% include "partials/integration_tabs.html" %}
 
 <div class="panel sh-intro" style="margin-bottom:16px;font-size:.88rem;line-height:1.5">
   Passwords you type here are sealed <b>in this browser</b> to the shipper's own public key before they're sent.

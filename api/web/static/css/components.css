@@ -311,3 +311,10 @@
 /* A button that reads like a link, for small inline "(edit)" toggles */
 .btn-link { background: none; border: 0; padding: 0; font: inherit; font-size: .85em; color: var(--accent); cursor: pointer; text-decoration: underline; }
 .btn-link:hover, .btn-link:focus-visible { color: var(--fg); }
+
+/* Section tabs under a page header; plain links, so each tab has its own URL */
+.page-tabs { display: flex; flex-wrap: wrap; border-bottom: 2px solid var(--border); margin-bottom: 20px; }
+.page-tabs__tab { padding: 8px 18px; border-bottom: 3px solid transparent; margin-bottom: -2px; color: var(--fg-muted);
+  font-size: .875rem; font-weight: 500; text-decoration: none; transition: color .15s, border-color .15s; }
+.page-tabs__tab:hover { color: var(--fg); }
+.page-tabs__tab.is-active { color: var(--accent); border-bottom-color: var(--accent); }

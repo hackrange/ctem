@@ -1,4 +1,5 @@
-"""Pull FairTPRM's GRC module: frameworks + compliance, controls, risk register, evidence, monitors, dashboard.
+"""Pull FairTPRM's GRC module: frameworks + compliance, controls, risk register, evidence, monitors, dashboard,
+assessment results and audits (fairtprm_assess.py).
 
 FairTPRM is the source of truth, so each table mirrors it: rows that vanish there are removed here,
 but only after that resource was fetched successfully. All calls are GETs.
@@ -16,6 +17,7 @@ from api.models.grc import GrcControl, GrcEvidence, GrcFramework, GrcMonitor, Gr
 
 log = logging.getLogger("open-ctem.fairtprm")
 DASHBOARD_SETTING = "grc_dashboard_fairtprm"
+ASSESSMENTS_SETTING = "grc_fairtprm_assessments_api"   # "1" once FairTPRM answers /grc/assessments
 
 
 def _dt(val):
@@ -130,6 +132,7 @@ def _risk(rec: GrcRisk, r: dict) -> None:
     rec.control_ids = _ids(r.get("control_ids"))
     rec.vendor_id = str(r["vendor_id"])[:64] if r.get("vendor_id") not in (None, "", 0) else None
     rec.review_date = _date(r.get("review_date"))
+    rec.treatment_plan = _text(r.get("treatment_plan"), 10000)
 
 
 def _evidence(rec: GrcEvidence, e: dict) -> None:
@@ -164,17 +167,27 @@ async def _save_dashboard(db: AsyncSession, dash: dict) -> None:
     row.value = json.dumps(keep, default=str)
 
 
+async def _flag(db: AsyncSession, key: str, on: bool) -> None:
+    from api.models.settings import AppSetting
+    row = (await db.execute(select(AppSetting).where(AppSetting.key == key))).scalar_one_or_none()
+    if row is None:
+        row = AppSetting(key=key, is_sensitive=False)
+        db.add(row)
+    row.value = "1" if on else "0"
+
+
 async def sync_grc(conn, client, db: AsyncSession) -> tuple[int, list[str]]:
     """Returns (records mirrored, problems). A failed resource leaves its old rows untouched."""
     from api.integrations.fairtprm import FairTPRMError
 
     count, problems = 0, []
 
-    async def fetch(path: str):
+    async def fetch(path: str, quiet_404: bool = False):
         try:
             return (await conn._get(client, path)).get("data")
         except FairTPRMError as exc:
-            problems.append(f"{path}: {exc}")
+            if not (quiet_404 and exc.status == 404):
+                problems.append(f"{path}: {exc}")
             return None
 
     dash = await fetch("/grc/dashboard")
@@ -188,6 +201,16 @@ async def sync_grc(conn, client, db: AsyncSession) -> tuple[int, list[str]]:
         rows = await fetch(path)
         if isinstance(rows, list):
             count += await _mirror(db, model, rows, fill)
+    from api.integrations.fairtprm_assess import sync_assessments
+    from api.integrations.fairtprm_shadow import sync_shadow
+    n, available = await sync_assessments(fetch, db)
+    count += n
+    await _flag(db, ASSESSMENTS_SETTING, available)
+    try:
+        n, _outcome = await sync_shadow(conn, client, db)
+        count += n
+    except FairTPRMError as exc:
+        problems.append(f"/shadow-saas/apps: {exc}")
     await db.commit()
     log.info("FairTPRM GRC: %d records mirrored, %d problems", count, len(problems))
     return count, problems

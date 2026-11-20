@@ -86,6 +86,9 @@ def create_app() -> FastAPI:
     from api.routes.collectors_admin import router as collectors_admin_router
     from api.routes.grc_checks import router as grc_checks_router
     from api.routes.grc_data import router as grc_data_router
+    from api.routes.grc_assess import router as grc_assess_router
+    from api.routes.grc_risk_edit import router as grc_risk_edit_router
+    from api.routes.curated_rules import router as curated_rules_router
     from api.routes.grc_service_token import router as grc_service_token_router
     from api.routes.directory_users import router as directory_users_router
     from api.routes.admin_sso import router as admin_sso_router
@@ -114,6 +117,9 @@ def create_app() -> FastAPI:
     app.include_router(collectors_admin_router)
     app.include_router(grc_checks_router)
     app.include_router(grc_data_router)
+    app.include_router(grc_assess_router)
+    app.include_router(grc_risk_edit_router)
+    app.include_router(curated_rules_router)
     app.include_router(grc_service_token_router)
     app.include_router(directory_users_router)
     app.include_router(admin_sso_router)
@@ -217,6 +223,8 @@ def _register_web_routes(app: FastAPI) -> None:
     app.get("/hunt", response_class=HTMLResponse, include_in_schema=False)(_render("pages/hunt.html", "/hunt"))
     app.get("/attack-paths", response_class=HTMLResponse, include_in_schema=False)(_render("pages/attack_paths.html", "/attack-paths"))
     app.get("/grc", response_class=HTMLResponse, include_in_schema=False)(_render("pages/grc.html", "/grc"))
+    app.get("/grc/checks/{check_type}", response_class=HTMLResponse, include_in_schema=False)(_render("pages/grc_check.html", "/grc"))
+    app.get("/grc/assessments/{assessment_id}", response_class=HTMLResponse, include_in_schema=False)(_render("pages/grc_assessment.html", "/grc"))
     app.get("/cmdb", response_class=HTMLResponse, include_in_schema=False)(_render("pages/cmdb.html", "/cmdb"))
 
     # ── Settings ──────────────────────────────────────────────────────────────

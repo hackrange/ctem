@@ -70,6 +70,7 @@ class GrcRisk(_Mirrored, Base, UUIDPrimaryKey, TimestampMixin):
     control_ids: Mapped[list | None] = mapped_column(JSON)         # FairTPRM control ids as strings
     vendor_id: Mapped[str | None] = mapped_column(String(64))      # FairTPRM vendor id (ThirdPartyRisk.external_id)
     review_date: Mapped[date | None] = mapped_column(Date)
+    treatment_plan: Mapped[str | None] = mapped_column(EncryptedString)
 
 
 class GrcEvidence(_Mirrored, Base, UUIDPrimaryKey, TimestampMixin):
@@ -100,6 +101,48 @@ class GrcMonitor(_Mirrored, Base, UUIDPrimaryKey, TimestampMixin):
     last_result: Mapped[str | None] = mapped_column(String(16))
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     control_ids: Mapped[list | None] = mapped_column(JSON)
+
+
+class GrcAssessment(_Mirrored, Base, UUIDPrimaryKey, TimestampMixin):
+    """A FairTPRM maturity assessment: scores and counts. Gaps say where we're weak, so they're encrypted."""
+    __tablename__ = "grc_assessments"
+    __table_args__ = (UniqueConstraint("source", "external_id", name="uq_grc_assessments_ext"),)
+
+    assessment_ref: Mapped[str | None] = mapped_column(String(50))
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    assessment_type: Mapped[str | None] = mapped_column(String(32))
+    status: Mapped[str | None] = mapped_column(String(32))
+    planned_start: Mapped[date | None] = mapped_column(Date)
+    planned_end: Mapped[date | None] = mapped_column(Date)
+    actual_start: Mapped[date | None] = mapped_column(Date)
+    actual_end: Mapped[date | None] = mapped_column(Date)
+    fairscore: Mapped[float | None] = mapped_column(Float)            # 1.00 - 4.00
+    compliance_pct: Mapped[float | None] = mapped_column(Float)
+    progress: Mapped[dict | None] = mapped_column(JSON)
+    domain_scores: Mapped[list | None] = mapped_column(JSON)
+    framework_compliance: Mapped[list | None] = mapped_column(JSON)
+    gaps: Mapped[list | None] = mapped_column(EncryptedJSON)
+    source_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class GrcAudit(_Mirrored, Base, UUIDPrimaryKey, TimestampMixin):
+    """A FairTPRM audit and its findings (titles, severity, status; no remediation text)."""
+    __tablename__ = "grc_audits"
+    __table_args__ = (UniqueConstraint("source", "external_id", name="uq_grc_audits_ext"),)
+
+    audit_ref: Mapped[str | None] = mapped_column(String(50))
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    audit_type: Mapped[str | None] = mapped_column(String(32))
+    status: Mapped[str | None] = mapped_column(String(32))
+    framework_code: Mapped[str | None] = mapped_column(String(50))
+    audit_firm: Mapped[str | None] = mapped_column(String(255))
+    planned_start: Mapped[date | None] = mapped_column(Date)
+    planned_end: Mapped[date | None] = mapped_column(Date)
+    actual_end: Mapped[date | None] = mapped_column(Date)
+    findings_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    critical_findings: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    certification_valid_until: Mapped[date | None] = mapped_column(Date)
+    findings: Mapped[list | None] = mapped_column(EncryptedJSON)
 
 
 class GrcCheckResult(Base, UUIDPrimaryKey):

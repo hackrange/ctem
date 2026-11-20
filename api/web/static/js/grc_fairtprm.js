@@ -14,14 +14,56 @@
     return res.json();
   }
 
+  let canEdit = false, risksById = {};
+  const STATUSES = ['identified', 'assessing', 'treating', 'monitoring', 'closed'];
+
+  // Status, review date and treatment plan go to FairTPRM; everything else is edited there
+  function editorRow(r) {
+    const opts = STATUSES.map(s => `<option value="${s}"${s === r.status ? ' selected' : ''}>${label(s)}</option>`).join('');
+    return `<tr class="risk-editor" data-for="${esc(r.id)}"><td colspan="7" style="background:var(--surface2)">
+      <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end">
+        <label class="text-sm">Status<br><select class="filter-select" data-f="status">${opts}</select></label>
+        <label class="text-sm">Review date<br><input type="date" class="input" data-f="review_date" value="${esc(r.review_date || '')}"></label>
+        <label class="text-sm" style="flex:1;min-width:240px">Treatment plan<br>
+          <textarea class="input" data-f="treatment_plan" rows="2" maxlength="10000" style="width:100%;resize:vertical">${esc(r.treatment_plan || '')}</textarea></label>
+        <button type="button" class="btn btn--primary btn--sm" data-risk-save="${esc(r.id)}">Save to FairTPRM</button>
+        <button type="button" class="btn btn--ghost btn--sm" data-risk-cancel>Cancel</button>
+      </div>
+      <div class="text-sm" data-msg style="margin-top:6px"></div>
+      <div class="text-muted" style="font-size:.75rem;margin-top:4px">Likelihood, impact, owner and controls are edited in FairTPRM.</div>
+    </td></tr>`;
+  }
+
+  async function saveRisk(id, box) {
+    const msg = box.querySelector('[data-msg]');
+    const v = f => box.querySelector(`[data-f="${f}"]`).value;
+    const body = { status: v('status'), treatment_plan: v('treatment_plan') };
+    if (v('review_date')) body.review_date = v('review_date'); else body.clear_review_date = true;
+    msg.textContent = 'Saving...';
+    try {
+      const res = await fetch(`${BASE}/risks/${encodeURIComponent(id)}/review`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(body) });
+      if (res.status === 403) throw new Error('You need GRC write access to edit risks.');
+      if (!res.ok) throw new Error('Check the values and try again.');
+      const d = await res.json();
+      if (!d.saved) throw new Error(d.message || 'FairTPRM did not accept the change.');
+      loadRisks();
+    } catch (e) {
+      msg.style.color = 'var(--severity-critical)';
+      msg.textContent = e.message;
+    }
+  }
+
   async function loadRisks() {
     const body = document.getElementById('risks-tbody');
     const driftOnly = document.getElementById('risk-drift-only').checked;
     try {
       const d = await get(`/risks${driftOnly ? '?drift_only=true' : ''}`);
+      canEdit = !!d.can_edit;
+      risksById = Object.fromEntries(d.risks.map(r => [r.id, r]));
       document.getElementById('risk-count').textContent = `${d.total} risks, ${d.drifting} drifting`;
       body.innerHTML = d.risks.map(r => `
-        <tr${r.drift.length ? ' style="background:color-mix(in srgb, var(--severity-high) 8%, transparent)"' : ''}>
+        <tr${r.drift.length ? ' class="row-flag" title="Risk drift"' : ''}>
           <td class="text-sm"><b>${esc(r.risk_ref || '')}</b> ${esc(r.title)}
             ${r.vendor ? `<br><span class="text-muted" style="font-size:.75rem">Supplier: ${esc(r.vendor)}</span>` : ''}
             ${r.controls.length ? `<br><span class="text-muted" style="font-size:.75rem">Controls: ${r.controls.map(esc).join(', ')}</span>` : ''}</td>
@@ -29,7 +71,8 @@
           <td class="text-sm">${r.inherent_risk_score ?? '--'}</td>
           <td class="text-sm">${r.residual_risk_score ?? '--'}</td>
           <td class="text-sm">${label(r.risk_treatment)}</td>
-          <td class="text-sm">${label(r.status)}</td>
+          <td class="text-sm">${label(r.status)}${r.review_date ? `<br><span class="text-muted" style="font-size:.75rem">review ${day(r.review_date)}</span>` : ''}
+            ${canEdit ? `<br><button type="button" class="btn-link" data-risk-edit="${esc(r.id)}">(edit)</button>` : ''}</td>
           <td class="text-sm">${r.drift.length ? r.drift.map(x => `<div>&bull; ${esc(x)}</div>`).join('') : '<span class="text-muted">--</span>'}</td>
         </tr>`).join('') || empty(7, driftOnly ? 'No drifting risks' : 'No risks yet. Connect FairTPRM under Settings &gt; Integrations.');
     } catch (_) {
@@ -42,8 +85,8 @@
     try {
       const d = await get('/overview');
       body.innerHTML = d.checks.map(c => `
-        <tr>
-          <td class="text-sm"><b>${esc(c.name)}</b><br><span class="text-muted" style="font-size:.75rem">${esc(c.check_type)}</span></td>
+        <tr data-href="/grc/checks/${encodeURIComponent(c.check_type)}" style="cursor:pointer" title="Show what to remediate">
+          <td class="text-sm"><b><a class="dt-link" href="/grc/checks/${encodeURIComponent(c.check_type)}">${esc(c.name)}</a></b>${c.custom ? ' <span class="chip chip--info" title="Created from a curated rule">custom</span>' : ''}<br><span class="text-muted" style="font-size:.75rem">${esc(c.check_type)}</span></td>
           <td class="text-sm">${c.result ? `<span class="chip ${RESULT_CHIP[c.result] || 'chip--info'}">${esc(c.result)}</span>
             <div class="text-muted" style="font-size:.75rem;margin-top:3px">${esc(c.summary || '')}</div>` : '<span class="text-muted">not run yet</span>'}</td>
           <td class="text-sm">${when(c.measured_at)}</td>
@@ -56,6 +99,11 @@
       body.innerHTML = empty(5, 'Control checks unavailable');
     }
   }
+  // a click anywhere on a check row opens its remediation list (links inside the row keep their own target)
+  document.addEventListener('click', e => {
+    const tr = e.target.closest('#checks-tbody tr[data-href]');
+    if (tr && !e.target.closest('a,button')) location.href = tr.dataset.href;
+  });
 
   async function loadControls() {
     const body = document.getElementById('controls-tbody');
@@ -92,6 +140,18 @@
   }
 
   document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('risks-tbody').addEventListener('click', e => {
+      const ed = e.target.closest('[data-risk-edit]'), sv = e.target.closest('[data-risk-save]');
+      if (ed) {
+        const tr = ed.closest('tr'), open = tr.nextElementSibling;
+        if (open && open.classList.contains('risk-editor')) { open.remove(); return; }
+        tr.insertAdjacentHTML('afterend', editorRow(risksById[ed.dataset.riskEdit]));
+      } else if (sv) {
+        saveRisk(sv.dataset.riskSave, sv.closest('tr'));
+      } else if (e.target.closest('[data-risk-cancel]')) {
+        e.target.closest('tr').remove();
+      }
+    });
     document.getElementById('risk-drift-only').addEventListener('change', loadRisks);
     loadRisks();
     loadChecks();

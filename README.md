@@ -99,7 +99,7 @@ When CTEM is hosted outside your network it can't reach your domain controllers,
 
 **Setting one up**
 
-1. In CTEM go to **Settings > Shippers > + New shipper**. Pick the sources (LDAP / AD, Rapid7 InsightVM console, CrowdStrike Falcon, Splunk), enter hosts, users, SPL, and the schedule. No passwords yet.
+1. In CTEM go to **Settings > Integrations > Shippers > + New shipper**. Pick the sources (LDAP / AD, Rapid7 InsightVM console, CrowdStrike Falcon, Splunk), enter hosts, users, SPL, and the schedule. No passwords yet.
 2. Click **Download installer**. The script holds a one-time enrollment code (24 hours, optionally limited to source CIDRs) and no secrets.
 3. Copy it to the internal box and run `sudo bash open-ctem-shipper-NAME.sh`. It asks:
    - **Local script mode** (Python venv + systemd + cron; the box key is sealed with `systemd-creds`, TPM-backed when available) or **self-contained Docker** (read-only, cap-dropped container that restarts on its own). Docker is optional.
@@ -129,6 +129,14 @@ A **generic installer** (no code inside) is also available: the box signs in onc
 
 **FairTPRM updates CTEM.** The FairTPRM integration mirrors suppliers and the GRC module: frameworks and their compliance, internal controls, the risk register, evidence status and continuous monitors. The GRC page shows them next to CTEM's telemetry and flags **risk drift**: a risk recorded as mitigated whose controls are ineffective, whose CTEM checks are failing, that has no linked controls, or whose review date has passed.
 
+**Shadow SaaS and Shadow AI.** The `ctem_shadow_saas` and `ctem_shadow_ai` checks accept Grip connected to CTEM, or FairTPRM's Shadow SaaS inventory (Grip, HERO or CSV fed) through `GET /api/v2/shadow-saas/apps`; an app reported by both counts once. FairTPRM only counts as a source after that data actually arrives, so an older FairTPRM or a token user who can't view Shadow SaaS shows as "no data", never as a pass. The FairTPRM token's user needs the administrator, cyber_tprm or auditor group.
+
+**Internet-facing exposure from web apps.** `ctem_exposed_criticals` (v2) also counts Rapid7 AppSec web apps. An app is internet-facing when a scanned URL points at a public host: private, loopback and link-local IPs, single-label names, `.local`, `.internal`, `.lan`, `.corp`, `.home.arpa` and any domains listed in the integration's **Internal domains** setting are treated as internal (decided from the URL, no DNS lookups).
+
+**Assessment results and audits.** CTEM also pulls FairTPRM's maturity assessments: overall FairScore (1 to 4) and compliance, answer progress, per-domain scores against FairTPRM's maturity targets, per-framework compliance, and the gaps (non-conforming and partial questions), plus audits with their findings. The GRC page shows the latest completed assessment up top, every assessment and audit below, and each assessment opens to its gap list. Gaps and findings are encrypted at rest; assessor notes, remediation text and report PDFs never leave FairTPRM. This needs FairTPRM with `GET /api/v2/grc/assessments`; an older FairTPRM keeps syncing everything else and the panel says it needs the update.
+
+**Editing risks from CTEM.** Admins and the `grc` role can edit a risk's status, review date and treatment plan on the GRC page (**(edit)** on each row). The change goes straight to FairTPRM through `PUT /api/v2/grc/risks/{id}/review`, which records who made it in CTEM plus the before and after values in FairTPRM's audit log; CTEM audits it too. Likelihood, impact, treatment, category, owner and controls stay editable only in FairTPRM. This needs a FairTPRM token with **read_write** scope and FairTPRM with the review endpoint; if either is missing the page says so and nothing changes.
+
 **CTEM updates FairTPRM.** CTEM answers 16 control checks that FairTPRM continuous monitors call on their schedule; each run becomes FairTPRM evidence and updates control effectiveness in every framework the control maps to.
 
 | Check | Measures |
@@ -152,10 +160,34 @@ A **generic installer** (no code inside) is also available: the box signs in onc
 - `GET /api/v1/grc/checks` lists them with default thresholds and suggested control mappings; `GET /api/v1/grc/checks/{type}` runs one (thresholds can be overridden within their bounds).
 - A check whose source data is missing or older than its window returns `error`, never `pass`.
 - Results sent to FairTPRM carry counts only. The detail behind a check (hosts, CVEs, accounts) comes from `/checks/{type}/report`, signed with Ed25519 (`X-CTEM-Evidence-Signature` over the exact body; public key at `/api/v1/grc/evidence-key`), formula-safe as CSV, and every download is audited.
+- In CTEM, click a check on the GRC page to see that detail as a remediation list (`/grc/checks/{type}`, API `/api/v1/grc/checks/{type}/items`): searchable, sortable, paged, with each device linked to its page.
 - `/checks/{type}/history?from=&to=` rolls up daily results (up to 400 days) for audit-period evidence; every check runs daily so there are no gaps.
 - **Connecting FairTPRM:** GRC page > **FairTPRM access** (admin) creates a read-only, IP-bound token for the `svc-fairtprm-grc` service account. Enter that token and the CTEM URL in FairTPRM's open-ctem integration.
 
 ---
+
+## Curated rules
+
+**Admin > Curated Rules** lets an admin change what a control check counts without code. A rule is a JSON document in the `open-ctem/curated-rule@1` standard (schema at `/api/v1/rules/schema`):
+
+```json
+{"schema": "open-ctem/curated-rule@1", "name": "EDR coverage: workstations and servers only",
+ "check": "ctem_edr_coverage", "scope": {"include": {"device_types": ["workstation", "server"]}}}
+```
+
+- **Scope** (device-based checks: EDR coverage, host hardening, asset inventory, stale AD computers, KEV, SLA, internet-facing exposure): `include` and `exclude` take `device_types`, `os_contains`, `hostname_patterns` (`*` and `?`), `tags`, `sources`, `criticality`, `internet_facing` and `edr_contained` (true when the EDR has network-isolated the device). Source names take any case and common names (`CrowdStrike`, `InsightVM`, `Defender`). A device must meet every `include` condition, and is left out if it meets any one `exclude` condition; values in one list are alternatives. To leave out only a combination, make `exclude` a list of blocks: a device is left out when it meets every condition of any one block, for example `"exclude": [{"sources_only": ["rapid7_insightvm"], "not_seen_days": 5}]` drops old scan records only the scanner still holds. `sources_only` means reported by those sources and no other; `not_seen_days` means no source has seen the device for that many days. Printers and firewalls are often typed `unknown` by scanners, so exclude them by `os_contains` too (for example `printer`, `ricoh`, `fortigate`).
+- **Thresholds**: a rule can move a check's thresholds, only inside the bounds the check already allows. They become the org's defaults; a FairTPRM monitor's explicit parameter still wins. Two enabled rules can't set the same threshold differently.
+- **Plain English**: with an AI integration enabled, type the rule ("for EDR coverage only count workstations and servers") and AI drafts the JSON. The draft is validated like anything typed and is never saved until you save it.
+- **Preview** shows the check's result now and with the rule, how many devices stay in scope, and examples of what it leaves out.
+- **New checks** (`open-ctem/custom-check@1`, "+ New check"): a rule can also create a control check, named `ctem_custom_<id>`, that the GRC page, its remediation list and FairTPRM monitors use like a built-in one. `population` is the devices it looks at and `match` the condition, using the same filters plus `ad_joined`, `ad_stale_days` (no AD logon for N days, or never), `sources_only` (reported by those sources and no other), `seen_within_days` / `not_seen_days` (a scan, EDR heartbeat or AD logon within, or not within, N days) and `inventory_status` (`in_use`, `shipped`, `lost`, `stolen`, `returned`). `measure: "count"` counts matching devices (fewer is better, `pass_max` / `warn_max`) and lists them; `measure: "percent"` is the share that match (more is better, `pass_at` / `warn_at`) and lists the rest. Optional `controls` become its suggested mappings. Disabling or deleting it removes the check; its history stays.
+
+```json
+{"schema": "open-ctem/custom-check@1", "name": "Servers with a vulnerability scan", "id": "scanned_servers",
+ "measure": "percent", "population": {"device_types": ["server"]},
+ "match": {"sources": ["rapid7_insightvm", "qualys"]}, "thresholds": {"pass_at": 95, "warn_at": 85}}
+```
+
+- Rules are filters on an allow-list of fields; nothing in a rule runs as code or SQL, and rules never change stored data. Every result records the rules (name and version) that shaped it, in CTEM and in the evidence FairTPRM keeps. A rule that stops validating (say a check changed) makes its check report an error instead of silently measuring something else. Every change is audited.
 
 ## Authentication modes
 
@@ -167,7 +199,7 @@ A **generic installer** (no code inside) is also available: the box signs in onc
 
 ### Single sign-on (OIDC)
 
-**Settings > Single sign-on** (admin) walks through it:
+**Admin > Single sign-on** (admin) walks through it:
 
 1. Pick **Okta**, **Auth0**, **Ping Identity (PingOne)** or **Microsoft 365 (Entra ID)**. CTEM shows that provider's current setup steps with its own redirect URI (`https://<PUBLIC_URL>/auth/callback`) and sign-out URL filled in.
 2. Enter what the provider needs (Okta domain and authorization server, Auth0 domain, PingOne region and environment ID, or Entra tenant ID); CTEM builds the issuer.
