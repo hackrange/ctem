@@ -57,6 +57,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 - Dependencies upgraded to clear all known advisories (FastAPI/Starlette, Authlib, cryptography, Pillow, Jinja2, python-multipart); python-jose replaced with PyJWT
 
 ### Fixed
+- `install.sh --upgrade` pulled new code but never rebuilt the app, worker and beat images, so a server kept running the old code while reporting success. It now rebuilds them (and does the same on rollback), and honors a local `docker-compose.override.yml`
 - CrowdStrike shipper: a firewall or device-control policy API that returns 404 now leaves that column blank instead of failing the whole CrowdStrike run
 - A slow Rapid7 console (or a proxy in front of it) failed the whole run with "The read operation timed out": the shipper asked for 500 assets per page with a 2-minute limit. It now starts at 200 per page with a 5-minute limit and, on a timeout, retries the same position with 100, 50, then 25 rows instead of giving up
 - CMDB looked empty: the hostname sort put bare-IP scanner assets (no FQDN, no OS) first, Owner only used an explicit owner (never set), and Environment only read `env:` tags. Named hosts now sort before bare IPs, Owner falls back to the last signed-in user, Environment comes from an `env:` tag or the AD OU path (Prod, Dev, QA, Stg, UAT, Test), and the FQDN is filled from Rapid7's full host name where it was missing (`backfill_sources` repairs existing rows)

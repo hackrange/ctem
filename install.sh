@@ -58,7 +58,12 @@ done
 
 # ── Compose helper: always pass --env-file so variable substitution works
 # even though .env lives in the project root, not beside the compose file.
-_compose() { docker compose -f "${COMPOSE_FILE}" --env-file "${INSTALL_DIR}/.env" "$@"; }
+# A local docker-compose.override.yml (ports, etc.) is kept too; -f would otherwise skip it.
+_compose() {
+  local files=(-f "${COMPOSE_FILE}")
+  [[ -f "${INSTALL_DIR}/docker/docker-compose.override.yml" ]] && files+=(-f "${INSTALL_DIR}/docker/docker-compose.override.yml")
+  docker compose "${files[@]}" --env-file "${INSTALL_DIR}/.env" "$@"
+}
 
 # ── Password generator ────────────────────────────────────────────────────────
 # Format: XXXXX-XXXXXX-NNNN-XXXXXX  (21 chars + dashes = 23 total)
@@ -141,8 +146,9 @@ if (( UPGRADE )); then
   ok "Code: ${PRE_REV:0:8} -> ${POST_REV:0:8}"
   git log --oneline "${PRE_REV}..${POST_REV}" | sed 's/^/     /'
 
-  say "Pulling updated images..."
-  _compose pull --quiet
+  say "Pulling base images and rebuilding the app..."
+  _compose pull --quiet --ignore-buildable
+  _compose build --pull || die "Build failed. Still running ${PRE_REV:0:8}; code is at ${POST_REV:0:8}."
 
   say "Restarting services..."
   _compose up -d --remove-orphans
@@ -157,7 +163,7 @@ if (( UPGRADE )); then
   if (( ! HEALTHY )); then
     warn "App did not come up healthy. Rolling back code to ${PRE_REV:0:8}..."
     git checkout "${PRE_REV}" -- .
-    _compose up -d --remove-orphans
+    _compose build && _compose up -d --remove-orphans
     die "Upgrade rolled back. DB backup is at: ${BACKUP_FILE}"
   fi
 
