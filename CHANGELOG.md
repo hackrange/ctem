@@ -35,6 +35,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 - Dependencies upgraded to clear all known advisories (FastAPI/Starlette, Authlib, cryptography, Pillow, Jinja2, python-multipart); python-jose replaced with PyJWT
 
 ### Fixed
+- Shipper batches over the load balancer's body limit (a 500-user AD batch with group memberships easily passes 1 MB) failed with HTTP 413 and stayed spooled, so every later run hit the same wall. Batches, including ones already spooled, are now split to stay under 768 KB per request
 - Shipper LDAP read Active Directory as plain OpenLDAP (ldap3 files `supportedCapabilities` under `supported_features`), so it searched for `inetOrgPerson`/`device` and shipped zero users and computers while reporting success. AD is now detected correctly, and `open-ctem-collector test` fails when the bind works but no users are visible
 - Local-mode shipper installs on boxes where the installer's `umask 077` left `/opt/open-ctem-collector/venv` root-only, so the service user failed with `203/EXEC Permission denied` and nothing ever shipped. The venv is now built world-readable (root-owned), re-running the installer repairs an existing one, and the install stops if the service user can't run it
 - Two syncs of the same integration could run at once (Sync Now during a scheduled run) and insert duplicate rows; a per-integration lock now makes the second one skip. FairTPRM suppliers without a security rating show as "unrated" instead of grade A
