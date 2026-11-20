@@ -8,7 +8,7 @@ from collections import defaultdict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.core.device_match import add_source, type_from_os
+from api.core.device_match import add_source, remember_fqdn, type_from_os
 
 _BATCH = 2000
 
@@ -27,6 +27,7 @@ async def run(db: AsyncSession) -> dict:
         for name in [d.source, d.edr_vendor, "ldap" if d.ad_joined else None, *seen.get(d.id, ())]:
             add_source(d, name)
         d.device_type = type_from_os(d.os, d.device_type)
+        remember_fqdn(d, d.hostname)  # Rapid7 names like desktop001.ad.acme.example are the FQDN
         changed += d.sources != before
         servers += kind != d.device_type and d.device_type == DeviceType.server
         if i % _BATCH == 0:

@@ -14,7 +14,7 @@ from api.auth.rbac import get_accessible_device_tag_ids, require_cyber_or_admin
 from api.core.db import get_session
 from api.models.device import Device, DeviceTag, DeviceType
 from api.models.user import User
-from api.routes.device_query import full_name, short_name, source_codes
+from api.routes.device_query import environment, full_name, short_name, source_codes, user_label
 
 log = logging.getLogger("open-ctem.cmdb")
 router = APIRouter(prefix="/api/v1/cmdb", tags=["cmdb"])
@@ -58,8 +58,13 @@ async def list_cmdb(
     total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
     col = _SORTS.get(sort or "", Device.host_key)
     ordered = col.desc().nulls_last() if order == "desc" else col.asc().nulls_last()
+    # Named hosts first; bare-IP scanner assets (no FQDN, often no OS) sink to the end
+    # host_key keeps dots only for IP literals, so this flags bare-IP assets portably
+    is_ip = or_(Device.host_key.like("%.%"), Device.host_key.like("%:%"))
+    named_first = is_ip if col is Device.host_key else None
+    keys = [k for k in (named_first, ordered, Device.id) if k is not None]
     page = (stmt.options(selectinload(Device.owner), selectinload(Device.tags).selectinload(DeviceTag.tag))
-            .order_by(ordered, Device.id).offset(offset).limit(limit))
+            .order_by(*keys).offset(offset).limit(limit))
     devices = (await db.execute(page)).scalars().unique().all()
 
     snow = (await db.execute(select(IntegrationConfig).where(
@@ -162,21 +167,9 @@ async def export_cmdb(
     }
 
 
-_ENV_KEYWORDS = {"prod", "production", "staging", "stage", "dev", "development", "test", "qa", "uat", "sandbox"}
 
 def _to_cmdb_record(d: Device) -> dict:
     """UI-facing CMDB record. IP withheld; use /export (cyber/admin) for full details."""
-    owner_obj = getattr(d, "owner", None)
-    owner_name = None
-    if owner_obj:
-        owner_name = getattr(owner_obj, "display_name", None) or getattr(owner_obj, "username", None)
-
-    environment = None
-    for dt in (d.tags or []):
-        tag = getattr(dt, "tag", None)
-        if tag and tag.name.lower() in _ENV_KEYWORDS:
-            environment = tag.name
-            break
 
     return {
         "id":               str(d.id),
@@ -186,8 +179,8 @@ def _to_cmdb_record(d: Device) -> dict:
         "device_type":      d.device_type.value if d.device_type else None,
         "os_name":          d.os,
         "os_version":       d.os_version,
-        "owner":            owner_name,
-        "environment":      environment,
+        "owner":            user_label(d),
+        "environment":      environment(d),
         "servicenow_ci_id": None,   # populated after first ServiceNow sync
         "last_seen":        d.last_seen.isoformat() if d.last_seen else None,
         "risk_grade":       d.risk_grade.value if d.risk_grade else None,
@@ -216,6 +209,8 @@ def _to_ci(d: Device) -> dict:
         "device_type": d.device_type.value if d.device_type else None,
         "source": d.source,
         "sources": source_codes(d),
+        "owner": user_label(d),
+        "environment": environment(d),
         "firewall_enabled": d.firewall_enabled,
         "usb_storage_blocked": d.usb_storage_blocked,
     }
