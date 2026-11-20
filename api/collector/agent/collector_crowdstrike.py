@@ -52,6 +52,7 @@ def test(s, secret):
 def ask_settings():
     cc.say(f"\n== {LABEL} ==")
     cc.say("  needs an API client with Hosts: Read and Alerts: Read scopes")
+    cc.say("  (Firewall management: Read and Device control policies: Read add the firewall / USB columns)")
     cloud = cc.ask(f"Falcon cloud ({', '.join(CLOUDS)})", default="us-1",
                    validate=lambda v: None if v in CLOUDS else "pick one of the listed clouds")
     cid = cc.ask("API client ID", validate=lambda v: None if _ID.match(v) else "client IDs are 32 hex chars")
@@ -79,14 +80,89 @@ def _device_ids(api):
     return ids
 
 
-def _device(d):
+class _Policies:
+    """Falcon firewall and device-control policies, fetched once per run and cached by id."""
+
+    def __init__(self, api):
+        self.api, self.fw, self.usb, self.denied = api, {}, {}, set()
+
+    def _fetch(self, path, ids, into, kind):
+        todo = [i for i in ids if i not in into]
+        for i in range(0, len(todo), 100):
+            q = "&".join(f"ids={x}" for x in todo[i:i + 100])
+            try:
+                rows = self.api.call("GET", f"{path}?{q}").get("resources") or []
+            except cc.HttpError as e:
+                if e.status in (401, 403):
+                    if kind not in self.denied:
+                        cc.say(f"  CrowdStrike: no read access to {kind} policies; that column stays blank")
+                    self.denied.add(kind)
+                    for x in todo:
+                        into[x] = None
+                    return
+                raise
+            for r in rows:
+                rid = str(r.get("id") or r.get("policy_id") or "") if isinstance(r, dict) else ""
+                if _ID.match(rid):  # fwmgr calls it policy_id, the policy API calls it id
+                    into[rid] = r
+            for x in todo[i:i + 100]:
+                into.setdefault(x, None)
+
+    def load(self, rows):
+        fw_ids, usb_ids = set(), set()
+        for d in rows:
+            fw_ids.add(_policy_id(d, "firewall"))
+            usb_ids.add(_policy_id(d, "device_control"))
+        self._fetch("/policy/entities/firewall/v1", sorted(i for i in fw_ids if i), self.fw, "firewall")
+        enforce = {}
+        if "firewall" not in self.denied:
+            self._fetch("/fwmgr/entities/policies/v1", sorted(i for i in fw_ids if i), enforce, "firewall rule")
+        for pid, pol in self.fw.items():
+            if isinstance(pol, dict) and pid in enforce and isinstance(enforce[pid], dict):
+                pol["_enforce"] = enforce[pid].get("enforce")
+        self._fetch("/policy/entities/device-control/v1", sorted(i for i in usb_ids if i), self.usb, "device control")
+
+    def firewall_on(self, d):
+        pid = _policy_id(d, "firewall")
+        if pid is None:
+            return False  # no Falcon firewall policy applied to this host
+        pol = self.fw.get(pid)
+        if not isinstance(pol, dict):
+            return None  # couldn't read the policy
+        if not pol.get("enabled"):
+            return False
+        return pol.get("_enforce") if isinstance(pol.get("_enforce"), bool) else None
+
+    def usb_blocked(self, d):
+        pid = _policy_id(d, "device_control")
+        if pid is None:
+            return False
+        pol = self.usb.get(pid)
+        if not isinstance(pol, dict):
+            return None
+        st = pol.get("settings") or {}
+        if not pol.get("enabled") or st.get("enforcement_mode") != "MONITOR_ENFORCE":
+            return False
+        mass = next((c for c in st.get("classes") or [] if isinstance(c, dict) and c.get("id") == "MASS_STORAGE"), {})
+        return mass.get("action") == "BLOCK_ALL"
+
+
+def _policy_id(d, name):
+    p = ((d.get("device_policies") or {}).get(name) or {})
+    pid = p.get("policy_id")
+    return pid if p.get("applied") and isinstance(pid, str) and _ID.match(pid) else None
+
+
+def _device(d, policies=None):
     did = d.get("device_id")
     return {"device_id": did if isinstance(did, str) and _ID.match(did) else None,
             "hostname": (d.get("hostname") or "")[:253] or None,
             "status": (d.get("status") or "")[:32] or None,
             "os_version": (d.get("os_version") or "")[:128] or None,
             "last_login_user": _user(d.get("last_login_user")),
-            "product_type": (d.get("product_type_desc") or "")[:64] or None}
+            "product_type": (d.get("product_type_desc") or "")[:64] or None,
+            "firewall_enabled": policies.firewall_on(d) if policies else None,
+            "usb_storage_blocked": policies.usb_blocked(d) if policies else None}
 
 
 def _user(v):
@@ -107,10 +183,12 @@ def _alert(a):
 
 def collect(s, secret, state):
     api = _Falcon(s, secret)
+    policies = _Policies(api)
     ids = _device_ids(api)  # scroll cursors expire fast, so grab every id before shipping
     for i in range(0, len(ids), 500):
         rows = api.call("POST", "/devices/entities/devices/v2", {"ids": ids[i:i + 500]}).get("resources") or []
-        yield {"devices": [_device(d) for d in rows]}
+        policies.load(rows)
+        yield {"devices": [_device(d, policies) for d in rows]}
     for offset in range(0, 10000, 1000):  # the alerts query endpoint stops at 10k
         q = f"/alerts/queries/alerts/v2?limit=1000&offset={offset}&filter=status:'new'"
         found = api.call("GET", q.replace("'", "%27")).get("resources") or []

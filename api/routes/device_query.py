@@ -28,10 +28,12 @@ SORTS = {
     "last_seen": Device.last_seen,
     "edr_active": Device.edr_active,
     "source": Device.source,
+    "firewall_enabled": Device.firewall_enabled,
+    "usb_storage_blocked": Device.usb_storage_blocked,
 }
 
 EXPORT_HEADER = ["Hostname", "FQDN", "User", "IP", "MAC", "Type", "OS", "Grade", "Score", "Open findings",
-                 "KEV findings", "Last seen", "EDR", "EDR vendor", "Internet exposed", "Sources", "Tags"]
+                 "KEV findings", "Last seen", "EDR", "EDR vendor", "Firewall", "USB storage blocked", "Internet exposed", "Sources", "Tags"]
 
 
 def _like(q: str) -> str:
@@ -157,6 +159,8 @@ def summary(d: Device) -> dict:
         "last_seen": d.last_seen.isoformat() if d.last_seen else None,
         "edr_active": d.edr_active,
         "edr_vendor": d.edr_vendor,
+        "firewall_enabled": d.firewall_enabled,
+        "usb_storage_blocked": d.usb_storage_blocked,
         "ad_joined": d.ad_joined,
         "is_internet_exposed": d.is_internet_exposed,
         "source": d.source,
@@ -169,5 +173,5 @@ def export_row(d: Device) -> list:
     s = summary(d)
     return [s["hostname"], s["fqdn"], s["user"], s["ip"], d.mac_address, s["device_type"], s["os"], s["risk_grade"],
             s["risk_score"], s["open_findings"], s["kev_findings"], s["last_seen"], s["edr_active"],
-            s["edr_vendor"], s["is_internet_exposed"], " ".join(s["sources"]), "; ".join(s["tags"])]
+            s["edr_vendor"], s["firewall_enabled"], s["usb_storage_blocked"], s["is_internet_exposed"], " ".join(s["sources"]), "; ".join(s["tags"])]
 

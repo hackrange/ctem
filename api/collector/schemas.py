@@ -80,6 +80,8 @@ class CsDevice(_Lax):
     os_version: Annotated[str, StringConstraints(strip_whitespace=True, max_length=128)] | None = None
     last_login_user: Annotated[str, StringConstraints(strip_whitespace=True, max_length=256, pattern=r"^[^\x00-\x1f]+$")] | None = None
     product_type: Annotated[str, StringConstraints(strip_whitespace=True, max_length=64, pattern=r"^[^\x00-\x1f]+$")] | None = None
+    firewall_enabled: bool | None = None
+    usb_storage_blocked: bool | None = None
 
 
 class CsHost(_Lax):

@@ -55,6 +55,9 @@ class Device(Base, UUIDPrimaryKey, TimestampMixin):
     edr_vendor: Mapped[str | None] = mapped_column(String(64))  # crowdstrike, sentinelone, defender, none
     edr_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     edr_last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # From the EDR's policies; None means the feed couldn't tell us
+    firewall_enabled: Mapped[bool | None] = mapped_column(Boolean)
+    usb_storage_blocked: Mapped[bool | None] = mapped_column(Boolean)
 
     # Network exposure
     is_internet_exposed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

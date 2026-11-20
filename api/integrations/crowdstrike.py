@@ -107,6 +107,9 @@ class CrowdStrikeConnector(BaseConnector):
             elif kind == "workstation" and dev.device_type in (DeviceType.unknown, None):
                 dev.device_type = DeviceType.workstation
             dev.device_type = type_from_os(dev.os, dev.device_type)
+            for f in ("firewall_enabled", "usb_storage_blocked"):
+                if isinstance(d.get(f), bool):
+                    setattr(dev, f, d[f])
             user = (d.get("last_login_user") or "").strip()
             if user and not any(ord(ch) < 32 for ch in user):
                 dev.last_login_user = user[:256]

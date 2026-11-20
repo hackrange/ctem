@@ -6,6 +6,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 ## [Unreleased]
 
 ### Added
+- CrowdStrike firewall and USB storage telemetry: each host's applied Falcon firewall policy (enabled and enforcing) and device-control policy (enforced with mass storage set to block all) show as **FW** and **USB block** columns, on the device page, and in the CSV export. Needs *Firewall management: Read* and *Device control policies: Read* on the API client; without them the columns stay blank instead of guessing
 - Per-source shipper schedules: each source (LDAP, Rapid7 console, CrowdStrike, Splunk) has its own **Run every** (5 minutes to 1 day, validated server-side; blank uses the shipper default). The box checks in every 5 minutes and ships only the sources that are due; Splunk's look-back follows its own schedule. Schedule changes need no approval on the box
 - Running a shipper installer on a box that already has one now upgrades in place instead of re-enrolling, so the key, sealed passwords, approvals and source settings all survive; `--reinstall` forces a fresh enrollment. Upgrades also move the box's cron check-in to every 5 minutes
 - Device inventory shows one normalized, uppercase short host name per device (DESKTOP001); the FQDN (also uppercase) is on the device page, in a tooltip, and in its own CSV column

@@ -171,3 +171,16 @@ async def test_lookup_accepts_parent_domain_and_prefers_ad_joined(db):
     await db.flush()
     assert (await find_device(db, f"{n}.ad.acme.example")).id == joined.id
     assert (await find_device(db, n)).id == joined.id
+
+
+@pytest.mark.asyncio
+async def test_crowdstrike_policy_flags_and_server_type_are_stored(db):
+    from api.integrations.crowdstrike import CrowdStrikeConnector
+    from api.models.device import Device, DeviceType
+
+    n = _tag()
+    await CrowdStrikeConnector({})._upsert([{"hostname": n.upper(), "status": "normal", "product_type": "Domain Controller",
+                                             "firewall_enabled": True, "usb_storage_blocked": False}], [], db)
+    dev = (await db.execute(select(Device).where(Device.host_key == n))).scalar_one()
+    assert dev.device_type == DeviceType.server and dev.firewall_enabled is True and dev.usb_storage_blocked is False
+    assert dev.sources == ",crowdstrike,"
