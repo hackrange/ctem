@@ -33,6 +33,9 @@ _FAIR_LEVEL = {"critical": 90.0, "very high": 90.0, "high": 75.0, "medium": 50.0
                "low": 25.0, "very low": 10.0}
 
 
+UNRATED = "-"
+
+
 class FairTPRMError(RuntimeError):
     pass
 
@@ -102,7 +105,8 @@ class FairTPRMConnector(BaseConnector):
 
         ext_id = str(v["id"])
         rec = (await db.execute(select(ThirdPartyRisk).where(
-            ThirdPartyRisk.source == "fairtprm", ThirdPartyRisk.external_id == ext_id))).scalar_one_or_none()
+            ThirdPartyRisk.source == "fairtprm", ThirdPartyRisk.external_id == ext_id)
+            .order_by(ThirdPartyRisk.created_at))).scalars().first()
         if rec is None:
             rec = ThirdPartyRisk(source="fairtprm", external_id=ext_id)
             db.add(rec)
@@ -123,11 +127,13 @@ class FairTPRMConnector(BaseConnector):
         if score is None and fair:
             score = _FAIR_LEVEL.get(str(fair.get("risk_level") or "").strip().lower())
         rec.risk_score = score if score is not None else 0.0
-        rec.risk_grade = grade or _score_to_grade(rec.risk_score)
+        # No rating and no FAIR analysis means we don't know, which is not the same as "A"
+        rec.risk_grade = grade or (_score_to_grade(rec.risk_score) if score is not None else UNRATED)
         rec.open_gaps = open_issues
         rec.last_assessment = assessed or _parse_dt(v.get("updated_at"))
         rec.extra = {
             "domain": v.get("vendor_domain"),
+            "rated": score is not None,
             "srs": None if not srs else {k: srs.get(k) for k in (
                 "score", "score_grade", "critical_risks", "high_risks", "medium_risks", "low_risks", "scored_at")},
             "fair": None if not fair else {k: fair.get(k) for k in (

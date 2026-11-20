@@ -147,7 +147,7 @@ async function loadSuppliers() {
             ${s.status ? `<br><span class="text-muted" style="font-size:.75rem">${esc(s.status)}</span>` : ''}
           </td>
           <td class="text-muted text-sm">${esc(s.tier || '--')}</td>
-          <td class="text-sm">${s.risk_score.toFixed(0)}</td>
+          <td class="text-sm">${s.risk_score == null ? '<span class="text-muted" title="No security rating in FairTPRM yet">unrated</span>' : s.risk_score.toFixed(0)}</td>
           <td class="text-sm text-center">${s.open_gaps > 0 ? `<span class="chip chip--high">${s.open_gaps}</span>` : '0'}</td>
           <td><span class="chip ${cls}">${esc(s.risk_grade)}</span></td>
         </tr>`;

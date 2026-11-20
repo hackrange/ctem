@@ -35,6 +35,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 - Dependencies upgraded to clear all known advisories (FastAPI/Starlette, Authlib, cryptography, Pillow, Jinja2, python-multipart); python-jose replaced with PyJWT
 
 ### Fixed
+- Two syncs of the same integration could run at once (Sync Now during a scheduled run) and insert duplicate rows; a per-integration lock now makes the second one skip. FairTPRM suppliers without a security rating show as "unrated" instead of grade A
 - FairTPRM integration imported nothing while reporting success: it called a `/api/v1/suppliers` endpoint with an `X-API-Key` header, but FairTPRM's API is `/api/v2` with Bearer tokens. The connector now uses `/api/v2/vendors`, takes the latest security rating per vendor (risk score, grade, open high/critical issues) and FAIR loss estimates, accepts a base URL with or without `/api/v2`, and fails the sync with a clear reason on 401/403 (bad token or CTEM's IP not on the token's whitelist)
 - Grip's `fairtprm_grip_passthrough` option silently skipped the Grip sync on the assumption FairTPRM relays Grip data; it doesn't, so the option is now ignored. ITDR, posture, shadow SaaS and shadow AI come from CTEM's Grip integration only
 - Admin audit log never loaded (the page called a URL that does not exist) and its "Load more" paging used random ids as a time cursor
