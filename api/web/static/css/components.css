@@ -307,3 +307,7 @@
 .ai-bar:focus { outline: none; }
 .ai-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
 .ai-form-grid .form-group { margin-bottom: 0; }
+
+/* A button that reads like a link, for small inline "(edit)" toggles */
+.btn-link { background: none; border: 0; padding: 0; font: inherit; font-size: .85em; color: var(--accent); cursor: pointer; text-decoration: underline; }
+.btn-link:hover, .btn-link:focus-visible { color: var(--fg); }

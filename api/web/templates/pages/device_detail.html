@@ -66,36 +66,40 @@ const upnLine = (upn, title) => (title ? `<div class="text-sm text-muted">${esc(
 const dotted = v => v ? esc(v).split('.').join('.<wbr>') : txt(v);
 const txt = v => v == null || v === '' ? '<span class="text-muted">--</span>' : esc(v);
 
+// Editors stay folded away until someone clicks (edit) beside the value
+const editLink = id => ` <button type="button" class="btn-link" data-edit="${id}" aria-expanded="false" aria-controls="${id}">(edit)</button>`;
+const editor = (id, html) => `<div id="${id}" style="display:none;flex-wrap:wrap;gap:6px;margin-top:6px">${html}</div>`;
+
 // Who should be on this machine, set by a person; the buttons are wired up after render
 let current = null;
 function assignedCell(d) {
   current = d;
   const a = d.assigned_user;
   if (a) {
-    return `<span style="color:var(--severity-low)">&#10003;</span> ${esc(a.name)} <span class="text-sm text-muted">by ${esc(a.assigned_by || '?')}</span>`
+    return `<span style="color:var(--severity-low)">&#10003;</span> ${esc(a.name)} <span class="text-sm text-muted">by ${esc(a.assigned_by || '?')}</span>${editLink('ed-user')}`
       + upnLine(a.upn, a.title)
       + (a.note ? `<div class="text-sm text-muted">${esc(a.note)}</div>` : '')
-      + ` <button type="button" class="btn btn--ghost btn--sm" data-da="open">Change</button>`
-      + ` <button type="button" class="btn btn--ghost btn--sm" data-da="remove">Remove</button>`;
+      + editor('ed-user', `<button type="button" class="btn btn--ghost btn--sm" data-da="open">Change</button>`
+        + `<button type="button" class="btn btn--ghost btn--sm" data-da="remove">Remove</button>`);
   }
-  const ok = d.detected_user_id ? ` <button type="button" class="btn btn--ghost btn--sm" data-da="confirm">&#10003; Assign to ${esc(d.detected_user)}</button>` : '';
-  return `<span class="text-muted">Not assigned</span>${ok} <button type="button" class="btn btn--ghost btn--sm" data-da="open">Assign to...</button>`;
+  const ok = d.detected_user_id ? `<button type="button" class="btn btn--ghost btn--sm" data-da="confirm">&#10003; Assign to ${esc(d.detected_user)}</button>` : '';
+  return `<span class="text-muted">Not assigned</span>${editLink('ed-user')}`
+    + editor('ed-user', `${ok}<button type="button" class="btn btn--ghost btn--sm" data-da="open">Assign to...</button>`);
 }
 // Shipped / lost / stolen / returned; carrier and tracking only matter while shipped
 function statusCell(d) {
   const st = d.inventory_status || {};
   const opt = (v, l, cur) => `<option value="${v}"${v === (cur || '') ? ' selected' : ''}>${l}</option>`;
   const carriers = Object.entries(DeviceAssign.CARRIERS).map(([k, [l]]) => opt(k, l, st.carrier)).join('');
-  return `${DeviceAssign.statusChip(d.inventory_status, true) || '<span class="text-muted">In use</span>'}
-    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">
+  return `${DeviceAssign.statusChip(d.inventory_status, true) || '<span class="text-muted">In use</span>'}${editLink('ed-status')}
+    ${editor('ed-status', `
       <select id="st-status" class="filter-select" aria-label="Status">
         ${opt('', 'In use', st.status)}${opt('shipped', 'Shipped', st.status)}${opt('lost', 'Lost', st.status)}${opt('stolen', 'Stolen', st.status)}${opt('returned', 'Returned', st.status)}
       </select>
       <select id="st-carrier" class="filter-select" aria-label="Carrier">${opt('', 'Carrier...', st.carrier)}${carriers}</select>
       <input id="st-tracking" class="search-bar" style="width:14em" maxlength="40" placeholder="Tracking number" value="${esc(st.tracking_number || '')}">
       <input id="st-note" class="search-bar" style="width:14em" maxlength="256" placeholder="Note (optional)" value="${esc(st.note || '')}">
-      <button type="button" class="btn btn--ghost btn--sm" data-da="status">Save</button>
-    </div>`;
+      <button type="button" class="btn btn--ghost btn--sm" data-da="status">Save</button>`)}`;
 }
 function syncShipFields() {
   const ship = $('st-status') && $('st-status').value === 'shipped';
@@ -104,6 +108,15 @@ function syncShipFields() {
 document.addEventListener('change', e => { if (e.target.id === 'st-status') syncShipFields(); });
 
 document.addEventListener('click', e => {
+  const t = e.target.closest('[data-edit]');
+  if (t) {
+    const box = $(t.dataset.edit), open = box.style.display === 'none';
+    box.style.display = open ? 'flex' : 'none';
+    if (open && t.dataset.edit === 'ed-status') syncShipFields();
+    t.setAttribute('aria-expanded', String(open));
+    t.textContent = open ? '(close)' : '(edit)';
+    return;
+  }
   const b = e.target.closest('[data-da]');
   if (!b || !current) return;
   const done = () => loadDevice();

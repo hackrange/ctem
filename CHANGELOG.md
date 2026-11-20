@@ -114,6 +114,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 - Removed `POST /api/v1/grc/evidence`, which stored evidence in app settings and had no callers; evidence now lives in FairTPRM and CTEM reports
 - Device inventory's User column is just the name (a check mark when assigned); assigning, status and last sign-in details live on the device page
 - Device page: long FQDNs wrap at the dots instead of spilling into the next column
+- Device page: Assigned to and Inventory status show just the value with an **(edit)** link; the Change/Remove/Assign buttons and the status, carrier, tracking and note fields appear only after clicking it
 - Device page shows every source as a short chip instead of the raw `rapid7_insightvm` name, and chips everywhere read in one order: AD, R7, CS, then the rest
 - Test and SBOM tooling moved to `requirements-dev.txt` so they no longer ship in the image
 - CycloneDX SBOM added at `sbom.cdx.json`
