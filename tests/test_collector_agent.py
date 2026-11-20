@@ -151,3 +151,44 @@ def test_each_source_runs_on_its_own_schedule():
     assert agent._due(r7, cfg, state, now, True)  # run-now ignores schedules
     # Upgraded boxes only know the old shared last_run; every source starts from it
     assert [agent._due(m, cfg, {"last_run": now - 10 * 60}, now, False) for m in (ldap, r7, splunk)] == [False, False, True]
+
+
+def test_crowdstrike_firewall_and_usb_from_policies():
+    fw_on, fw_off, usb_block, usb_ro = "a" * 32, "b" * 32, "c" * 32, "d" * 32
+
+    class FakeApi:
+        def __init__(self, deny=()):
+            self.deny = deny
+
+        def call(self, method, path):
+            if any(path.startswith(p) for p in self.deny):
+                raise cc.HttpError(403, "forbidden")
+            if path.startswith("/policy/entities/firewall/"):
+                return {"resources": [{"id": fw_on, "enabled": True}, {"id": fw_off, "enabled": False}]}
+            if path.startswith("/fwmgr/entities/policies/"):
+                return {"resources": [{"policy_id": fw_on, "enforce": True}, {"policy_id": fw_off, "enforce": False}]}
+            if path.startswith("/policy/entities/device-control/"):
+                mode = {"enforcement_mode": "MONITOR_ENFORCE"}
+                return {"resources": [
+                    {"id": usb_block, "enabled": True, "settings": {**mode, "classes": [{"id": "MASS_STORAGE", "action": "BLOCK_ALL"}]}},
+                    {"id": usb_ro, "enabled": True, "settings": {**mode, "classes": [{"id": "MASS_STORAGE", "action": "READ_ONLY"}]}}]}
+            raise AssertionError(path)
+
+    def host(fw, usb):
+        pol = {}
+        if fw:
+            pol["firewall"] = {"applied": True, "policy_id": fw}
+        if usb:
+            pol["device_control"] = {"applied": True, "policy_id": usb}
+        return {"device_id": "e" * 32, "hostname": "DESKTOP001", "device_policies": pol}
+
+    rows = [host(fw_on, usb_block), host(fw_off, usb_ro), host(None, None)]
+    p = cs._Policies(FakeApi())
+    p.load(rows)
+    got = [(cs._device(d, p)["firewall_enabled"], cs._device(d, p)["usb_storage_blocked"]) for d in rows]
+    assert got == [(True, True), (False, False), (False, False)]
+
+    denied = cs._Policies(FakeApi(deny=("/policy/entities/device-control/", "/fwmgr/")))
+    denied.load(rows)
+    first = cs._device(rows[0], denied)
+    assert first["firewall_enabled"] is None and first["usb_storage_blocked"] is None  # unknown, not "off"

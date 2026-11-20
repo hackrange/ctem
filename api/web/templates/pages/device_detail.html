@@ -77,6 +77,8 @@ async function loadDevice() {
     info('Open findings', R.num(d.open_findings)),
     info('KEV findings', d.kev_findings ? `<span class="chip chip--critical">${R.num(d.kev_findings)}</span>` : '0'),
     info('EDR', `${R.bool(d.edr_active)} ${txt(d.edr_vendor)}`),
+    info('Firewall (EDR policy)', d.firewall_enabled == null ? txt(null) : R.bool(d.firewall_enabled)),
+    info('USB storage blocked', d.usb_storage_blocked == null ? txt(null) : R.bool(d.usb_storage_blocked)),
     info('Internet exposed', R.bool(d.is_internet_exposed)),
     info('AD joined', R.bool(d.ad_joined)),
     info('Tags', (d.tags || []).map(t => `<span class="chip chip--info" style="font-size:.7rem">${esc(t)}</span>`).join(' ') || txt(null)),

@@ -121,7 +121,7 @@ A **generic installer** (no code inside) is also available: the box signs in onc
 
 **Troubleshooting:** `open-ctem-collector logs` showing `203/EXEC Permission denied` means the venv isn't readable by the service user (installs before this fix); re-run the installer. If LDAP syncs succeed with 0 records, run `open-ctem-collector test`, which now says when the bind works but no users are visible to that account. Shippers keep each request under 768 KB, so a load balancer with nginx's default 1 MB body limit is fine.
 
-**Notes:** Set `PUBLIC_URL=https://ctem.acme.example` so installers carry the right default address. A shipper-fed Splunk supplies notable events and the index catalog, but Hunt can't run live SPL through it (it's push-only). The CrowdStrike API client needs *Hosts: Read* and *Alerts: Read*.
+**Notes:** Set `PUBLIC_URL=https://ctem.acme.example` so installers carry the right default address. A shipper-fed Splunk supplies notable events and the index catalog, but Hunt can't run live SPL through it (it's push-only). The CrowdStrike API client needs *Hosts: Read* and *Alerts: Read*; add *Firewall management: Read* and *Device control policies: Read* for the inventory's firewall and USB-blocking columns (they reflect the Falcon policies applied to each host).
 
 ---
 

@@ -105,6 +105,8 @@ const table = DataTable.create({
     { label: 'KEV', sort: 'kev_findings', firstOrder: 'desc', render: d => d.kev_findings ? `<span class="chip chip--critical">${R.num(d.kev_findings)}</span>` : '0' },
     { label: 'Last seen', sort: 'last_seen', firstOrder: 'desc', render: d => R.date(d.last_seen) },
     { label: 'EDR', sort: 'edr_active', render: d => R.bool(d.edr_active) },
+    { label: 'FW', sort: 'firewall_enabled', render: d => d.firewall_enabled == null ? '<span class="text-muted" title="Unknown">--</span>' : R.bool(d.firewall_enabled) },
+    { label: 'USB block', sort: 'usb_storage_blocked', render: d => d.usb_storage_blocked == null ? '<span class="text-muted" title="Unknown">--</span>' : R.bool(d.usb_storage_blocked) },
     { label: 'Sources', render: d => (d.sources || []).map(c => `<span class="chip chip--info" style="font-size:.7rem">${esc(c)}</span>`).join(' ') || '<span class="text-muted">--</span>' },
     { label: 'Tags', render: d => (d.tags || []).slice(0, 3).map(t => `<span class="chip chip--info" style="font-size:.7rem">${esc(t.split(':').pop())}</span>`).join(' ')
         + ((d.tags || []).length > 3 ? ` <span class="text-muted text-sm">+${d.tags.length - 3}</span>` : '') },
