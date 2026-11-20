@@ -24,6 +24,7 @@ def compute_user_score(
     is_service_account: bool,
     last_login_days_ago: int,
     saas_risk_score: float | None = None,
+    ad: dict | None = None,
 ) -> tuple[float, str, dict]:
     """
     Returns (score_0_100, grade, breakdown_dict).
@@ -67,15 +68,41 @@ def compute_user_score(
         base += saas_component * 0.2
         breakdown["saas_component"] = round(saas_component * 0.2, 1)
 
+    _ad_signals(ad or {}, bool(priv_groups), breakdown)
+    base += sum(v for k, v in breakdown.items() if k.startswith("ad_"))
+
     # Stale account: last login > 90 days reduces urgency slightly
     if last_login_days_ago > 90:
         base *= 0.8
         breakdown["stale_account_modifier"] = -0.2
 
+    # A disabled account can't sign in; it still counts, just far less
+    if (ad or {}).get("disabled"):
+        base *= 0.3
+        breakdown["ad_disabled_modifier"] = -0.7
+
     score = round(min(100.0, max(0.0, base)), 1)
     grade = _user_grade(score)
     breakdown["final"] = score
     return score, grade, breakdown
+
+
+def _ad_signals(ad: dict, privileged: bool, out: dict) -> None:
+    """Directory hygiene penalties; ad holds days_since_logon, pwd_age_days and the AD flags."""
+    if ad.get("disabled"):
+        return  # handled as a modifier at the end
+    if ad.get("pwd_never_expires"):
+        out["ad_pwd_never_expires_penalty"] = 10.0
+    if (ad.get("pwd_age_days") or 0) > 365:
+        out["ad_old_password_penalty"] = 10.0
+    if ad.get("pwd_expired"):
+        out["ad_expired_password_penalty"] = 5.0
+    logon = ad.get("days_since_logon")
+    if logon is not None and logon > 90:
+        # Enabled but unused: nobody notices when someone else starts using it
+        out["ad_dormant_account_penalty"] = 20.0 if privileged else 10.0
+    if ad.get("locked_out"):
+        out["ad_locked_out_penalty"] = 5.0
 
 
 def _user_grade(score: float) -> str:

@@ -192,3 +192,26 @@ def test_crowdstrike_firewall_and_usb_from_policies():
     denied.load(rows)
     first = cs._device(rows[0], denied)
     assert first["firewall_enabled"] is None and first["usb_storage_blocked"] is None  # unknown, not "off"
+
+
+def test_ad_account_state_from_raw_and_parsed_values():
+    now = dt.datetime.now(dt.timezone.utc)
+
+    def ft(d):  # datetime -> AD FILETIME
+        return int((d - dt.datetime(1601, 1, 1, tzinfo=dt.timezone.utc)).total_seconds() * 10_000_000)
+
+    u = ldapmod._user({"dn": "CN=J Doe,DC=acme", "attributes": {
+        "sAMAccountName": "jdoe", "userAccountControl": 512,
+        "lastLogonTimestamp": now - dt.timedelta(days=3), "pwdLastSet": ft(now - dt.timedelta(days=400)),
+        "msDS-UserPasswordExpiryTimeComputed": ft(now - dt.timedelta(days=10)),
+        "msDS-User-Account-Control-Computed": 0x10}}, True)
+    assert u["pwd_expired"] is True and u["locked_out"] is True and u["pwd_never_expires"] is False
+    assert u["last_logon"].startswith(str((now - dt.timedelta(days=3)).date()))
+    assert u["pwd_last_set"].startswith(str((now - dt.timedelta(days=400)).date()))
+
+    svc = ldapmod._user({"dn": "CN=svc,DC=acme", "attributes": {
+        "sAMAccountName": "svc-backup", "userAccountControl": 0x10000 | 0x2, "pwdLastSet": 0,
+        "msDS-UserPasswordExpiryTimeComputed": 0x7FFFFFFFFFFFFFFF,
+        "lastLogonTimestamp": dt.datetime(1601, 1, 1, tzinfo=dt.timezone.utc)}}, True)
+    assert svc["disabled"] and svc["pwd_never_expires"] and not svc["pwd_expired"]
+    assert svc["pwd_last_set"] is None and svc["last_logon"] is None and svc["pwd_expires"] is None

@@ -1,6 +1,7 @@
 """LDAP / Active Directory module: users and computer objects, paged, over LDAPS or StartTLS."""
 import re
 import ssl
+from datetime import datetime, timedelta, timezone
 
 import collector_common as cc
 
@@ -156,14 +157,63 @@ def _user(e, ad):
         return None
     dn = e.get("dn", "")
     groups = [str(g) for g in (a.get("memberOf") or []) if len(str(g)) <= 1024][:5000] if ad else []
-    uac = _one(a, "userAccountControl") or 0
-    return {
+    uac = _int(_one(a, "userAccountControl"))
+    out = {
         "username": name,
         "email": _text(a, "mail", 320),
         "display_name": _text(a, "displayName", 256) or _text(a, "cn", 256),
         "ad_dn": dn if len(dn) <= 1024 else None,
         "groups": groups,
-        "disabled": bool(int(uac) & 0x2) if ad else False,
+        "disabled": bool(uac & 0x2) if ad else False,
+    }
+    if ad:
+        out.update(_account_state(a, uac))
+    return out
+
+
+def _int(v):
+    try:
+        return int(v or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+_NEVER = 0x7FFFFFFFFFFFFFFF
+
+
+def _filetime(v):
+    """AD timestamps arrive as datetimes or raw 100ns-since-1601 counts; 0 and max mean 'never'."""
+    if isinstance(v, datetime):
+        return v if v.year > 1601 and v.year < 9000 else None
+    n = _int(v)
+    if n <= 0 or n >= _NEVER:
+        return None
+    try:
+        return datetime(1601, 1, 1, tzinfo=timezone.utc) + timedelta(microseconds=n // 10)
+    except OverflowError:
+        return None
+
+
+def _iso(dt):
+    if dt is None:
+        return None
+    return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).isoformat()
+
+
+def _account_state(a, uac):
+    """Logon, password and lockout signals for one AD user."""
+    computed = _int(_one(a, "msDS-User-Account-Control-Computed"))
+    expires = _filetime(_one(a, "msDS-UserPasswordExpiryTimeComputed"))
+    never = bool(uac & 0x10000)
+    expired = bool(computed & 0x800000) or (not never and expires is not None
+                                             and expires < datetime.now(timezone.utc))
+    return {
+        "last_logon": _iso(_filetime(_one(a, "lastLogonTimestamp"))),
+        "pwd_last_set": _iso(_filetime(_one(a, "pwdLastSet"))),
+        "pwd_expires": None if never else _iso(expires),
+        "pwd_expired": expired,
+        "pwd_never_expires": never,
+        "locked_out": bool(computed & 0x10),
     }
 
 
@@ -192,7 +242,9 @@ def collect(s, secret, state):
     conn = _open(s, secret["password"])
     try:
         ad, base = _flavor(conn) == "ad", _base(s, conn)
-        uattrs = ["sAMAccountName", "mail", "displayName", "cn", "memberOf", "userAccountControl"] if ad \
+        uattrs = ["sAMAccountName", "mail", "displayName", "cn", "memberOf", "userAccountControl",
+                  "lastLogonTimestamp", "pwdLastSet", "msDS-UserPasswordExpiryTimeComputed",
+                  "msDS-User-Account-Control-Computed"] if ad \
             else ["uid", "cn", "mail", "displayName"]
         for chunk in _paged(conn, base, _user_filter("ad" if ad else "openldap"), uattrs):
             yield {"users": [u for u in (_user(e, ad) for e in chunk) if u]}
