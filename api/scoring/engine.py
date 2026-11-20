@@ -47,7 +47,8 @@ async def recalculate_device(device: Device, db: AsyncSession) -> RiskScore:
             "cvss_base": f.vuln.cvss_base or 0.0,
             "epss_score": f.vuln.epss_score or 0.0,
             "is_kev": f.vuln.is_kev,
-            "asset_criticality": 0.7 if device.device_type.value == "server" else 0.5,
+            "asset_criticality": _CRITICALITY.get(device.criticality or "",
+                                                  0.7 if device.device_type.value == "server" else 0.5),
             "is_reachable": f.is_reachable,
             "control_context": ctx,
         })
@@ -226,6 +227,10 @@ async def refresh_affected_counts(db: AsyncSession) -> None:
              .correlate(Vulnerability).scalar_subquery())
     await db.execute(update(Vulnerability).values(affected_devices=count).execution_options(synchronize_session=False))
     await db.commit()
+
+
+# Scanner-assigned business criticality beats the server/workstation guess
+_CRITICALITY = {"Very High": 1.0, "High": 0.85, "Medium": 0.6, "Low": 0.4, "Very Low": 0.25}
 
 
 def _days_since(dt: datetime | None) -> int:

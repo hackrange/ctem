@@ -78,6 +78,7 @@ async function loadDevice() {
     info('MAC address', `<span class="text-mono">${txt(d.mac_address)}</span>`),
     info('FQDN', txt(d.fqdn)),
     info('OS version', txt(d.os_version)),
+    info('Criticality', txt(d.criticality)),
     info('Source', txt(d.source)),
     info('Last seen', R.date(d.last_seen)),
     info('Open findings', R.num(d.open_findings)),

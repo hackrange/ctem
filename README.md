@@ -57,7 +57,7 @@ Every source is matched to the same device row by host name, however it spells i
 |---|---|---|
 | LDAP / Active Directory | Identity | Users (incl. last logon, password age/expiry, lockout, disabled), computers, groups, GPOs |
 | Qualys | Vulnerability | Findings, CVSS, asset data |
-| Rapid7 InsightVM | Vulnerability | Assets and per-asset findings (cloud v4 API or on-prem console) |
+| Rapid7 InsightVM | Vulnerability | Assets, per-asset findings and asset tags (custom, location, owner, criticality; cloud v4 API or on-prem console) |
 | Rapid7 InsightAppSec | Vulnerability | Web app findings with triage status |
 | Rapid7 InsightCloudSec | Cloud | Cloud posture findings |
 | Horizon3 NodeZero | Pentest | Reachability validation |

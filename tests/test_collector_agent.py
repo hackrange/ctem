@@ -215,3 +215,21 @@ def test_ad_account_state_from_raw_and_parsed_values():
         "lastLogonTimestamp": dt.datetime(1601, 1, 1, tzinfo=dt.timezone.utc)}}, True)
     assert svc["disabled"] and svc["pwd_never_expires"] and not svc["pwd_expired"]
     assert svc["pwd_last_set"] is None and svc["last_logon"] is None and svc["pwd_expires"] is None
+
+
+def test_rapid7_console_tag_map(monkeypatch):
+    calls = {"/api/3/tags": {"resources": [{"id": 1, "name": "Dallas", "type": "location"},
+                                           {"id": 2, "name": "High", "type": "criticality"},
+                                           {"id": "x", "name": "bad id"}], "page": {"totalPages": 1}},
+             "/api/3/tags/1/assets": {"resources": [10, 11]}, "/api/3/tags/2/assets": {"resources": [10]}}
+    monkeypatch.setattr(r7, "_get", lambda s, secret, path: calls[path.split("?")[0]])
+    tags = r7._tag_map({}, {})
+    assert tags == {10: [{"type": "location", "name": "Dallas"}, {"type": "criticality", "name": "High"}],
+                    11: [{"type": "location", "name": "Dallas"}]}
+    assert r7._asset({"id": 11, "hostName": "server001"}, tags)["tags"] == [{"type": "location", "name": "Dallas"}]
+    assert "tags" not in r7._asset({"id": 11, "hostName": "server001"}, None)  # couldn't read: send nothing
+
+    def denied(s, secret, path):
+        raise cc.HttpError(403)
+    monkeypatch.setattr(r7, "_get", denied)
+    assert r7._tag_map({}, {}) is None

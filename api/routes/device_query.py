@@ -146,18 +146,36 @@ _ENV_WORDS = {"prod": "Production", "production": "Production", "prd": "Producti
 
 def environment(d: Device) -> str | None:
     """An env: tag wins; otherwise the nearest AD OU that names an environment (OU=Prod, OU=DE Test)."""
-    for dt in d.tags or []:
-        name = (dt.tag.name if dt.tag else "").lower()
+    for name in tag_names(d):
+        name = name.lower()
         if name.startswith("env:") and name[4:]:
             return _ENV_WORDS.get(name[4:], name[4:].title())
-        if name in _ENV_WORDS:
-            return _ENV_WORDS[name]
+        bare = name.split(":", 1)[-1]  # r7:production, or a plain "prod" tag
+        if bare in _ENV_WORDS:
+            return _ENV_WORDS[bare]
     for part in (d.ad_dn or "").split(","):
         if part.strip().upper().startswith("OU="):
             for word in re.split(r"[\s_-]+", part.strip()[3:].lower()):
                 if word in _ENV_WORDS:
                     return _ENV_WORDS[word]
     return None
+
+
+def tag_names(d: Device) -> list[str]:
+    return [dt.tag.name for dt in d.tags or [] if dt.tag]
+
+
+def tag_value(d: Device, prefix: str) -> str | None:
+    """First tag under a prefix, e.g. location:Dallas -> Dallas."""
+    return next((n.split(":", 1)[1] for n in tag_names(d) if n.startswith(prefix + ":")), None)
+
+
+def owner_label(d: Device) -> str | None:
+    """Explicit owner, then the scanner's owner tag, then whoever signed in last."""
+    owner = d.owner
+    if owner is not None:
+        return getattr(owner, "display_name", None) or owner.username
+    return tag_value(d, "owner") or d.last_login_user
 
 
 def source_codes(d: Device) -> list[str]:
@@ -190,6 +208,7 @@ def summary(d: Device) -> dict:
         "edr_active": d.edr_active,
         "edr_vendor": d.edr_vendor,
         "edr_contained": bool(d.edr_contained),
+        "criticality": d.criticality,
         "raw_risk_score": d.raw_risk_score,
         "raw_risk_grade": d.raw_risk_grade,
         "firewall_enabled": d.firewall_enabled,

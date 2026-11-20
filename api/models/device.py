@@ -72,6 +72,9 @@ class Device(Base, UUIDPrimaryKey, TimestampMixin):
     open_findings: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     kev_findings: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
 
+    # Business criticality from the scanner (Rapid7: Very High ... Very Low); weights risk scoring
+    criticality: Mapped[str | None] = mapped_column(String(16))
+
     # Source tracking
     source: Mapped[str | None] = mapped_column(String(64))  # ldap, qualys, crowdstrike...
     source_id: Mapped[str | None] = mapped_column(String(256))

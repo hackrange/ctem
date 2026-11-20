@@ -54,9 +54,10 @@ class ConsoleMixin:
 
     async def _console_upsert_assets(self, assets: list[dict], db: AsyncSession) -> int:
         from api.core.device_match import add_source, find_device, remember_fqdn
+        from api.core.device_tags import R7_MANAGED, r7_tags, sync_tags
         from api.models.device import Device, DeviceType
 
-        count = 0
+        count, tag_cache = 0, {}
         for a in assets:
             hostname = a.get("hostName") or a.get("ip")
             if not hostname:
@@ -68,6 +69,11 @@ class ConsoleMixin:
             add_source(dev, "rapid7_insightvm")
             remember_fqdn(dev, a.get("hostName"))
             dev.os = ((a.get("os") or "") if isinstance(a.get("os"), str) else (a.get("os") or {}).get("name") or "")[:128] or None
+            if a.get("tags") is not None:  # older shippers don't send tags; leave what's there
+                names, crit = r7_tags(a["tags"])
+                dev.criticality = crit
+                await db.flush()
+                await sync_tags(db, dev.id, names, R7_MANAGED, "rapid7_insightvm", tag_cache)
             count += 1
         await db.commit()
         return count

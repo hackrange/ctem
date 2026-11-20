@@ -243,3 +243,43 @@ async def test_contained_host_scores_zero_and_findings_show_as_info(db, client_a
     await CrowdStrikeConnector({})._upsert([{"hostname": n.upper(), "status": "normal"}], [], db)
     await recalculate_device(dev, db)
     assert dev.edr_contained is False and dev.risk_score > 0
+
+
+def test_rapid7_tag_mapping():
+    from api.core.device_tags import r7_tags
+
+    names, crit = r7_tags([{"type": "CUSTOM", "name": "Production"}, {"type": "location", "name": "Dallas  DC"},
+                           {"type": "OWNER", "name": "IT Ops"}, {"type": "criticality", "name": "Very High"},
+                           {"type": "weird", "name": "x"}, {"type": "custom", "name": "bad\x07\nname"}, "nope"])
+    assert crit == "Very High"
+    assert names == {"r7:production", "location:Dallas DC", "owner:IT Ops", "criticality:very high", "r7:badname"}
+
+
+@pytest.mark.asyncio
+async def test_console_tags_sync_criticality_and_cmdb_fields(db, client_cyber):
+    from api.integrations.rapid7_insightvm import InsightVMConnector
+    from api.models.device import Device
+
+    n = _tag()
+    conn = InsightVMConnector({})
+    tags = [{"type": "custom", "name": "Production"}, {"type": "location", "name": "Dallas"},
+            {"type": "owner", "name": "IT Ops"}, {"type": "criticality", "name": "High"}]
+    await conn._console_upsert_assets([{"hostName": f"{n}.ad.acme.example", "tags": tags}], db)
+    rec = next(r for r in (await client_cyber.get("/api/v1/cmdb", params={"q": n})).json()["records"])
+    assert (rec["environment"], rec["location"], rec["owner"], rec["criticality"]) == ("Production", "Dallas", "IT Ops", "High")
+
+    # Tag removed in Rapid7 -> gone here; a tag from elsewhere stays; an older shipper (no tags key) changes nothing
+    from api.core.device_tags import sync_tags
+    dev = (await db.execute(select(Device).where(Device.host_key == n))).scalar_one()
+    await sync_tags(db, dev.id, {"edr:manual"}, ("edr:",), "manual", {})
+    await conn._console_upsert_assets([{"hostName": f"{n}.ad.acme.example", "tags": [{"type": "location", "name": "Austin"}]}], db)
+    await conn._console_upsert_assets([{"hostName": f"{n}.ad.acme.example"}], db)
+    rec = next(r for r in (await client_cyber.get("/api/v1/cmdb", params={"q": n})).json()["records"])
+    assert (rec["location"], rec["criticality"], rec["environment"]) == ("Austin", None, None)
+    names = (await client_cyber.get(f"/api/v1/devices/{dev.id}")).json()["tags"]
+    assert sorted(names) == ["edr:manual", "location:Austin"]
+
+
+def test_scanner_criticality_weights_risk():
+    from api.scoring.engine import _CRITICALITY
+    assert _CRITICALITY["Very High"] > _CRITICALITY["Medium"] > _CRITICALITY["Very Low"]

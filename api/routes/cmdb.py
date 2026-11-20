@@ -14,7 +14,7 @@ from api.auth.rbac import get_accessible_device_tag_ids, require_cyber_or_admin
 from api.core.db import get_session
 from api.models.device import Device, DeviceTag, DeviceType
 from api.models.user import User
-from api.routes.device_query import environment, full_name, short_name, source_codes, user_label
+from api.routes.device_query import environment, full_name, owner_label, short_name, source_codes, tag_value
 
 log = logging.getLogger("open-ctem.cmdb")
 router = APIRouter(prefix="/api/v1/cmdb", tags=["cmdb"])
@@ -179,7 +179,9 @@ def _to_cmdb_record(d: Device) -> dict:
         "device_type":      d.device_type.value if d.device_type else None,
         "os_name":          d.os,
         "os_version":       d.os_version,
-        "owner":            user_label(d),
+        "owner":            owner_label(d),
+        "location":         tag_value(d, "location"),
+        "criticality":      d.criticality,
         "environment":      environment(d),
         "servicenow_ci_id": None,   # populated after first ServiceNow sync
         "last_seen":        d.last_seen.isoformat() if d.last_seen else None,
@@ -209,8 +211,10 @@ def _to_ci(d: Device) -> dict:
         "device_type": d.device_type.value if d.device_type else None,
         "source": d.source,
         "sources": source_codes(d),
-        "owner": user_label(d),
+        "owner": owner_label(d),
         "environment": environment(d),
+        "location": tag_value(d, "location"),
+        "criticality": d.criticality,
         "firewall_enabled": d.firewall_enabled,
         "usb_storage_blocked": d.usb_storage_blocked,
     }
