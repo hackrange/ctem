@@ -74,6 +74,8 @@ const table = DataTable.create({
     { label: 'OS', sort: 'os', render: r => `<span class="text-sm">${esc(r.os_name || '--')}</span>` },
     { label: 'Owner', render: r => `<span class="text-sm">${esc(r.owner || '--')}</span>` },
     { label: 'Environment', render: r => `<span class="text-sm">${esc(r.environment || '--')}</span>` },
+    { label: 'Location', render: r => `<span class="text-sm">${esc(r.location || '--')}</span>` },
+    { label: 'Criticality', render: r => `<span class="text-sm">${esc(r.criticality || '--')}</span>` },
     { label: 'ServiceNow CI', render: r => r.servicenow_ci_id ? `<span class="text-mono text-sm">${esc(r.servicenow_ci_id)}</span>` : '<span class="text-muted">Not synced</span>' },
   ],
 });

@@ -183,11 +183,12 @@ class InsightVMConnector(ConsoleMixin, BaseConnector):
         from sqlalchemy import select
 
         from api.core.device_match import add_source, find_device, remember_fqdn
+        from api.core.device_tags import R7_MANAGED, r7_tags, sync_tags
         from api.core.encryption import search_hash
         from api.models.device import Device, DeviceType
         from api.models.vuln import Finding, FindingStatus
 
-        count = 0
+        count, tag_cache = 0, {}
         for a in assets:
             if not a.get("id"):
                 continue
@@ -213,6 +214,11 @@ class InsightVMConnector(ConsoleMixin, BaseConnector):
                 dev.last_seen = seen
             if a.get("ip"):
                 dev.ip, dev.ip_hash = a["ip"], search_hash(a["ip"])
+            if "tags" in a:  # absent means the API didn't say, not "no tags"
+                names, crit = r7_tags(a.get("tags"))
+                dev.criticality = crit
+                await db.flush()
+                await sync_tags(db, dev.id, names, R7_MANAGED, "rapid7_insightvm", tag_cache)
             await db.flush()
 
             existing = {f.vuln_id: f for f in (await db.execute(select(Finding).where(

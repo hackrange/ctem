@@ -10,6 +10,7 @@ LABEL = "Rapid7 InsightVM Security Console"
 SECRETS = {"password": "Rapid7 console password"}  # nosec B105 - prompt label
 PAGE = 500
 _CVE = re.compile(r"^CVE-\d{4}-\d{4,}$")
+_TAG_TYPES = {"custom", "location", "owner", "criticality"}
 
 
 def _auth(s, secret):
@@ -46,13 +47,35 @@ def _pages(s, secret, path):
         page += 1
 
 
-def _asset(a):
+def _asset(a, tags=None):
     os_val = a.get("os")
     if isinstance(os_val, dict):
         os_val = os_val.get("name")
     out = {"hostName": (a.get("hostName") or "")[:253] or None, "ip": (a.get("ip") or "")[:45] or None,
            "os": str(os_val)[:256] if os_val else None}
+    if tags is not None:  # None = couldn't read tags, so CTEM keeps what it has
+        out["tags"] = tags.get(a.get("id"), [])[:100]
     return out if out["hostName"] or out["ip"] else None
+
+
+def _tag_map(s, secret):
+    """asset id -> [{type, name}] for every console tag (custom, location, owner, criticality)."""
+    out = {}
+    try:
+        for rows in _pages(s, secret, "/api/3/tags"):
+            for t in rows:
+                tid, name, kind = t.get("id"), t.get("name"), str(t.get("type") or "custom").lower()
+                if not isinstance(tid, int) or not isinstance(name, str) or kind not in _TAG_TYPES:
+                    continue
+                for aid in (_get(s, secret, f"/api/3/tags/{tid}/assets") or {}).get("resources") or []:
+                    if isinstance(aid, int):
+                        out.setdefault(aid, []).append({"type": kind, "name": name[:256]})
+    except cc.HttpError as e:
+        if e.status in (401, 403):
+            cc.say("  Rapid7: this account can't read tags; asset tags are skipped")
+            return None
+        raise
+    return out
 
 
 def _score(block):
@@ -76,8 +99,9 @@ def _vuln(v):
 
 
 def collect(s, secret, state):
+    tags = _tag_map(s, secret)
     for rows in _pages(s, secret, "/api/3/assets"):
-        yield {"assets": [a for a in map(_asset, rows) if a]}
+        yield {"assets": [a for a in (_asset(r, tags) for r in rows) if a]}
     # The vuln catalog is huge and barely changes; once a day is plenty
     key = f"rapid7_vulns_at:{s['host']}"
     if time.time() - float(state.get(key, 0)) < float(s.get("vuln_catalog_hours", 24)) * 3600:

@@ -53,10 +53,16 @@ class R7Os(_Lax):
     name: Short | None = None
 
 
+class R7Tag(_Lax):
+    type: Literal["custom", "location", "owner", "criticality"] = "custom"
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=256)]
+
+
 class R7Asset(_Lax):
     hostName: Annotated[str, StringConstraints(strip_whitespace=True, max_length=253)] | None = None
     ip: Annotated[str, StringConstraints(strip_whitespace=True, max_length=45)] | None = None
     os: Short | R7Os | None = None
+    tags: list[R7Tag] | None = Field(None, max_length=100)  # None: an older shipper, keep existing tags
 
 
 class R7Score(_Lax):
