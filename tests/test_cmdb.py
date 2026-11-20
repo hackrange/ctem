@@ -102,3 +102,33 @@ async def test_cmdb_total_and_paging_go_past_200(client_cyber, db):
     assert len(last["records"]) == 30 and len(names) == 230
     assert first["records"][0]["fqdn"] == f"CMDBPAGE{tag.upper()}-000.ACME.EXAMPLE"
     assert (await client_cyber.get("/api/v1/cmdb", params={"limit": 500})).status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_cmdb_environment_owner_and_named_hosts_first(client_cyber, db):
+    from api.models.device import Device, DeviceType
+    tag = uuid.uuid4().hex[:8]
+    db.add_all([
+        Device(hostname=f"{tag}-db01.ad.acme.example", fqdn=f"{tag}-db01.ad.acme.example", os="Windows Server 2022",
+               device_type=DeviceType.server, last_login_user="jdoe",
+               ad_dn=f"CN={tag}-DB01,OU=Prod,OU=Servers,DC=ad,DC=acme,DC=example"),
+        Device(hostname=f"{tag}-kiosk1", device_type=DeviceType.workstation,
+               ad_dn=f"CN={tag}-KIOSK1,OU=Kiosk Test,OU=Workstations,DC=ad,DC=acme,DC=example"),
+    ])
+    await db.commit()
+    recs = {r["hostname"]: r for r in (await client_cyber.get("/api/v1/cmdb", params={"q": tag})).json()["records"]}
+    db01 = recs[f"{tag.upper()}-DB01"]
+    assert db01["environment"] == "Production" and db01["owner"] == "jdoe" and db01["os_name"] == "Windows Server 2022"
+    assert db01["fqdn"] == f"{tag}-DB01.AD.ACME.EXAMPLE".upper()
+    assert recs[f"{tag.upper()}-KIOSK1"]["environment"] == "Test"
+
+
+@pytest.mark.asyncio
+async def test_cmdb_default_sort_puts_ip_only_assets_last(client_cyber, db):
+    from api.models.device import Device, DeviceType
+    tag = uuid.uuid4().hex[:6]
+    db.add_all([Device(hostname=f"198.51.100.{i}", device_type=DeviceType.unknown) for i in range(3)])
+    db.add(Device(hostname=f"zz{tag}.acme.example", fqdn=f"zz{tag}.acme.example", device_type=DeviceType.server))
+    await db.commit()
+    first = (await client_cyber.get("/api/v1/cmdb", params={"limit": 5})).json()["records"]
+    assert not any(r["hostname"].startswith("198.51.100.") for r in first)  # no bare IPs ahead of named hosts

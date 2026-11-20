@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ipaddress
+import re
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import aliased, selectinload
@@ -136,6 +137,27 @@ def severity(cvss: float | None, contained: bool = False) -> str:
         return "info"
     c = cvss or 0.0
     return "critical" if c >= 9 else "high" if c >= 7 else "medium" if c >= 4 else "low"
+
+
+_ENV_WORDS = {"prod": "Production", "production": "Production", "prd": "Production", "dev": "Development",
+              "development": "Development", "qa": "QA", "stg": "Staging", "stage": "Staging", "staging": "Staging",
+              "uat": "UAT", "test": "Test", "tst": "Test", "sandbox": "Sandbox", "dr": "DR"}
+
+
+def environment(d: Device) -> str | None:
+    """An env: tag wins; otherwise the nearest AD OU that names an environment (OU=Prod, OU=DE Test)."""
+    for dt in d.tags or []:
+        name = (dt.tag.name if dt.tag else "").lower()
+        if name.startswith("env:") and name[4:]:
+            return _ENV_WORDS.get(name[4:], name[4:].title())
+        if name in _ENV_WORDS:
+            return _ENV_WORDS[name]
+    for part in (d.ad_dn or "").split(","):
+        if part.strip().upper().startswith("OU="):
+            for word in re.split(r"[\s_-]+", part.strip()[3:].lower()):
+                if word in _ENV_WORDS:
+                    return _ENV_WORDS[word]
+    return None
 
 
 def source_codes(d: Device) -> list[str]:
