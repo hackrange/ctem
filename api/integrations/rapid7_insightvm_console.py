@@ -53,8 +53,7 @@ class ConsoleMixin:
         return out
 
     async def _console_upsert_assets(self, assets: list[dict], db: AsyncSession) -> int:
-        from sqlalchemy import select
-
+        from api.core.device_match import find_device, remember_fqdn
         from api.models.device import Device, DeviceType
 
         count = 0
@@ -62,10 +61,11 @@ class ConsoleMixin:
             hostname = a.get("hostName") or a.get("ip")
             if not hostname:
                 continue
-            dev = (await db.execute(select(Device).where(Device.hostname == hostname))).scalars().first()
+            dev = await find_device(db, hostname)
             if dev is None:
                 dev = Device(hostname=hostname[:253], device_type=DeviceType.workstation, source="rapid7_insightvm")
                 db.add(dev)
+            remember_fqdn(dev, a.get("hostName"))
             dev.os = ((a.get("os") or "") if isinstance(a.get("os"), str) else (a.get("os") or {}).get("name") or "")[:128] or None
             count += 1
         await db.commit()

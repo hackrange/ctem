@@ -8,6 +8,7 @@
 #   sudo bash open-ctem-shipper.sh --local       local script mode (Python + systemd + cron)
 #   sudo bash open-ctem-shipper.sh --docker      self-contained Docker container
 #   sudo bash open-ctem-shipper.sh --test-ctem   just check CTEM is reachable
+#   sudo bash open-ctem-shipper.sh --upgrade     new shipper code, same key, passwords and approvals
 #   sudo bash open-ctem-shipper.sh --uninstall   remove it again (either mode)
 set -euo pipefail
 umask 077
@@ -192,9 +193,8 @@ HELP
   chmod 755 "$HELPER"
 }
 
-install_local() {
-  command -v systemctl >/dev/null || die "local script mode needs systemd (or use --docker)"
-  local py creds_line a args=()
+install_code() {
+  local py
   py=$(pick_python) || die "need Python 3.9 or newer (apt/dnf install python3)"
   "$py" -c 'import venv, ensurepip' 2>/dev/null || {
     command -v apt-get >/dev/null && apt-get install -y -qq python3-venv >/dev/null 2>&1 || true
@@ -214,6 +214,12 @@ install_local() {
   chmod -R u=rwX,go=rX "$APP"
   runuser -u "$SVC_USER" -- "$APP/venv/bin/python" -c 'import cryptography' \
     || die "the service user can't run $APP/venv/bin/python (check mount options and SELinux on $APP)"
+}
+
+install_local() {
+  command -v systemctl >/dev/null || die "local script mode needs systemd (or use --docker)"
+  local creds_line a args=()
+  install_code
 
   while IFS= read -r -d '' a; do args+=("$a"); done < <(setup_args)
   install -d -m 700 "$STAGE/out"
@@ -261,35 +267,61 @@ HELP
   chmod 755 "$HELPER"
 }
 
-install_docker() {
+COMMON=()
+docker_prep() {
   command -v docker >/dev/null || die "Docker isn't installed (or use --local)"
   docker info >/dev/null 2>&1 || die "can't talk to the Docker daemon"
-  local host line a common=() args=()
+  local host line
   host=$(hostname -f 2>/dev/null || hostname)
-  common=(-e "OCTEM_HOST=$host" -v "$VOL:/data")
-  while IFS= read -r -d '' line; do common+=("$line"); done < <(host_ca_args)
-  while IFS= read -r line; do [[ -n "$line" ]] && common+=(-e "$line"); done < <(proxy_env)
-
+  COMMON=(-e "OCTEM_HOST=$host" -v "$VOL:/data")
+  while IFS= read -r -d '' line; do COMMON+=("$line"); done < <(host_ca_args)
+  while IFS= read -r line; do [[ -n "$line" ]] && COMMON+=(-e "$line"); done < <(proxy_env)
   say "Building the shipper image locally ($IMAGE)"
   docker build -q -t "$IMAGE" "$STAGE" >/dev/null || die "image build failed (the build needs to reach PyPI once)"
   ok "image built"
-  docker volume create "$VOL" >/dev/null
+}
 
-  while IFS= read -r -d '' a; do args+=("$a"); done < <(setup_args)
-  docker run --rm -it --cap-drop ALL --security-opt no-new-privileges:true "${common[@]}" "$IMAGE" \
-    setup "${args[@]}" --out-dir /data/config </dev/tty || die "setup didn't finish; nothing was started"
-
+start_container() {
   say "Starting the shipper container"
   docker rm -f "$CTR" >/dev/null 2>&1 || true
   docker run -d --name "$CTR" --restart unless-stopped \
     --read-only --tmpfs /tmp:rw,noexec,nosuid,size=16m \
     --cap-drop ALL --security-opt no-new-privileges:true --memory 512m --pids-limit 128 \
     --log-opt max-size=10m --log-opt max-file=3 \
-    "${common[@]}" "$IMAGE" daemon >/dev/null
+    "${COMMON[@]}" "$IMAGE" daemon >/dev/null
   ok "container $CTR is running; it checks in with CTEM every 15 minutes"
   write_docker_helper
+}
+
+install_docker() {
+  local a args=()
+  docker_prep
+  docker volume create "$VOL" >/dev/null
+
+  while IFS= read -r -d '' a; do args+=("$a"); done < <(setup_args)
+  docker run --rm -it --cap-drop ALL --security-opt no-new-privileges:true "${COMMON[@]}" "$IMAGE" \
+    setup "${args[@]}" --out-dir /data/config </dev/tty || die "setup didn't finish; nothing was started"
+
+  start_container
   "$HELPER" run-now || warn "first run reported a problem; see: open-ctem-collector logs"
   warn "Docker mode keeps the shipper key in the $VOL volume (mode 600, container user only); local mode seals it with systemd-creds"
+}
+
+upgrade() {
+  # New code only: the key, passwords, approvals and schedule all stay put
+  if [[ -f "$CONF/collector.json" ]]; then
+    say "Upgrading the shipper code (local script mode)"
+    install_code
+    ok "code updated in $APP; key and approvals in $CONF untouched"
+    "$HELPER" run-now || warn "run reported a problem; see: open-ctem-collector logs"
+  elif command -v docker >/dev/null && docker volume inspect "$VOL" >/dev/null 2>&1; then
+    say "Upgrading the shipper image (Docker mode)"
+    docker_prep
+    start_container
+    "$HELPER" run-now || warn "run reported a problem; see: open-ctem-collector logs"
+  else
+    die "no shipper installed here to upgrade; run without --upgrade to install one"
+  fi
 }
 
 choose_mode() {
@@ -306,12 +338,13 @@ main() {
   local mode=""
   case "${1:-}" in
     --uninstall) [[ $EUID -eq 0 ]] || die "run as root"; uninstall; exit 0 ;;
+    --upgrade) [[ $EUID -eq 0 ]] || die "run as root"; unpack; upgrade; exit 0 ;;
     --test-ctem)
       unpack; PY=$(pick_python) || die "need Python 3.9+"
       "$PY" "$STAGE/ctem_collector.py" test-ctem --url "${2:-$CTEM_URL_DEFAULT}"; exit $? ;;
     --local) mode=local ;;
     --docker) mode=docker ;;
-    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
     "") ;;
     *) die "unknown option $1 (try --help)" ;;
   esac

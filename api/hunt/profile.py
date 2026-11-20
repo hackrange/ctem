@@ -9,6 +9,7 @@ from collections import Counter, defaultdict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.core.device_match import find_device
 from api.core.encryption import search_hash
 from api.hunt import ctem_data, memory, window
 from api.hunt.fallback import entity_filter
@@ -129,7 +130,8 @@ async def _records(db: AsyncSession, kind: str, value: str) -> dict:
         out["paths"] = (await ctem_data.lookup(db, "attack_paths", {"from_host": value}, 25)
                         + await ctem_data.lookup(db, "attack_paths", {"to_host": value}, 25))
         out["alerts"] = await ctem_data.lookup(db, "alerts", {"hostname": value}, 25)
-        dev = (await db.execute(select(Device.id).where(Device.hostname.ilike(value)))).scalar_one_or_none()
+        found = await find_device(db, value)
+        dev = found.id if found else None
         if dev:
             hist = (await db.execute(select(RiskScoreHistory).where(
                 RiskScoreHistory.entity_type == "device", RiskScoreHistory.entity_id == dev)

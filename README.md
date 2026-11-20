@@ -51,6 +51,8 @@ Multipliers applied for: NodeZero-confirmed exploitability, internet exposure, n
 
 ## Integrations
 
+Every source is matched to the same device row by host name, however it spells it: `DESKTOP001` (CrowdStrike, AD), `desktop001.ad.acme.example` (Rapid7) and `desktop001$` all land on one device, so EDR, AD, vulnerability and last-user data show up together. Two hosts with the same short name in different domains stay separate. Web apps and cloud resources are never matched to hosts by name. Upgrading from an earlier build that already made duplicates? Run `docker compose exec app python -m api.maintenance.merge_devices` to preview, then add `--apply` (back up the database first).
+
 | Vendor | Type | Data pulled |
 |---|---|---|
 | LDAP / Active Directory | Identity | Users, computers, groups, GPOs |
@@ -115,7 +117,7 @@ A **generic installer** (no code inside) is also available: the box signs in onc
 - Compare the key fingerprint the installer prints with the one CTEM shows before typing passwords.
 - Every batch is staged to a private spool (mode 0600) on the box and deleted as soon as CTEM confirms it. Unsent batches retry on the next run, and anything older than 7 days is purged.
 
-**Day two** (on the box): `open-ctem-collector approve | secrets [--all] | run-now | test | test-ctem | status | logs`. The shipper checks in every 15 minutes. Schedule and enable/disable changes in CTEM apply at the next check-in; no cron edits needed. `sudo bash open-ctem-shipper-NAME.sh --uninstall` removes it (revoke it in CTEM too).
+**Day two** (on the box): `open-ctem-collector approve | secrets [--all] | run-now | test | test-ctem | status | logs`. To pick up new shipper code, download a fresh installer and run `sudo bash open-ctem-shipper-NAME.sh --upgrade`: it replaces the code only and keeps the box key, passwords and approved destinations. The shipper checks in every 15 minutes. Schedule and enable/disable changes in CTEM apply at the next check-in; no cron edits needed. `sudo bash open-ctem-shipper-NAME.sh --uninstall` removes it (revoke it in CTEM too).
 
 **Troubleshooting:** `open-ctem-collector logs` showing `203/EXEC Permission denied` means the venv isn't readable by the service user (installs before this fix); re-run the installer. If LDAP syncs succeed with 0 records, run `open-ctem-collector test`, which now says when the bind works but no users are visible to that account. Shippers keep each request under 768 KB, so a load balancer with nginx's default 1 MB body limit is fine.
 
@@ -230,6 +232,7 @@ api/
   core/        Config, DB, encryption, SSRF client, Celery tasks, security middleware
   collector/   On-prem shipper: ingest + profile rules (server) and agent/ (the code installed on the box)
   integrations/ Vendor connectors (one file per vendor)
+  maintenance/ One-off data repair commands (device merge)
   models/      SQLAlchemy ORM models
   routes/      FastAPI route handlers
   scoring/     Risk engine: compensating controls, CVE chains, device/user scores

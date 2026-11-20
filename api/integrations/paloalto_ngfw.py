@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.core.ssrf import safe_client
 from api.integrations.base import BaseConnector, register
 from api.models.integration import Vendor
+from api.core.device_match import find_device
 
 log = logging.getLogger("open-ctem.paloalto-ngfw")
 
@@ -73,13 +74,10 @@ class PaloAltoNGFWConnector(BaseConnector):
         return _parse_threat_logs(resp.text)
 
     async def _apply_firewall_compensating_controls(self, blocked: list[str], db: AsyncSession) -> int:
-        from api.models.device import Device
-        from sqlalchemy import select
 
         count = 0
         for hostname in blocked:
-            result = await db.execute(select(Device).where(Device.hostname == hostname))
-            dev = result.scalar_one_or_none()
+            dev = await find_device(db, hostname)
             if dev:
                 dev.fw_blocks_inbound = True
                 count += 1

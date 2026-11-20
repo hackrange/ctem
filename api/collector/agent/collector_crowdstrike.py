@@ -84,7 +84,13 @@ def _device(d):
     return {"device_id": did if isinstance(did, str) and _ID.match(did) else None,
             "hostname": (d.get("hostname") or "")[:253] or None,
             "status": (d.get("status") or "")[:32] or None,
-            "os_version": (d.get("os_version") or "")[:128] or None}
+            "os_version": (d.get("os_version") or "")[:128] or None,
+            "last_login_user": _user(d.get("last_login_user"))}
+
+
+def _user(v):
+    v = (v or "").strip() if isinstance(v, str) else ""
+    return v[:256] if v and not any(ord(ch) < 32 for ch in v) else None
 
 
 def _alert(a):

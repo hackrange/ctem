@@ -4,9 +4,10 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Integer, String, Text, event
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from api.core.device_match import NOT_HOSTS, host_key
 from api.core.encryption import EncryptedString
 from api.models.base import Base, TimestampMixin, UUIDPrimaryKey
 
@@ -32,6 +33,7 @@ class Device(Base, UUIDPrimaryKey, TimestampMixin):
 
     hostname: Mapped[str] = mapped_column(String(253), nullable=False, index=True)
     fqdn: Mapped[str | None] = mapped_column(String(512))
+    host_key: Mapped[str | None] = mapped_column(String(253), index=True)  # see api.core.device_match
     ip: Mapped[str | None] = mapped_column(EncryptedString)
     ip_hash: Mapped[str | None] = mapped_column(String(64), index=True)  # HMAC for search
     mac_address: Mapped[str | None] = mapped_column(String(17))
@@ -74,6 +76,12 @@ class Device(Base, UUIDPrimaryKey, TimestampMixin):
     tags: Mapped[list[DeviceTag]] = relationship(back_populates="device", cascade="all, delete-orphan")
     findings: Mapped[list] = relationship("Finding", back_populates="device")
     owner: Mapped[object | None] = relationship("User", foreign_keys=[owner_user_id])
+
+
+@event.listens_for(Device, "before_insert")
+@event.listens_for(Device, "before_update")
+def _set_host_key(_mapper, _conn, dev: Device) -> None:
+    dev.host_key = None if dev.source in NOT_HOSTS else host_key(dev.hostname)
 
 
 class DeviceTag(Base):

@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.core.ssrf import safe_client
 from api.integrations.base import BaseConnector, register
 from api.models.integration import Vendor
+from api.core.device_match import find_device
 
 log = logging.getLogger("open-ctem.qualys")
 
@@ -74,8 +75,7 @@ class QualysConnector(BaseConnector):
             if not h.get("hostname") and not h.get("ip"):
                 continue
             hostname = h.get("hostname") or h["ip"]
-            result = await db.execute(select(Device).where(Device.hostname == hostname))
-            dev = result.scalar_one_or_none()
+            dev = await find_device(db, hostname)
             if dev is None:
                 dev = Device(hostname=hostname, device_type=DeviceType.workstation, source="qualys")
                 db.add(dev)
@@ -97,8 +97,7 @@ class QualysConnector(BaseConnector):
             if not ip or not cve_id:
                 continue
 
-            dev_result = await db.execute(select(Device).where(Device.hostname == ip))
-            device = dev_result.scalar_one_or_none()
+            device = await find_device(db, ip)
             if device is None:
                 continue
 
