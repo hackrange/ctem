@@ -6,6 +6,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 ## [Unreleased]
 
 ### Added
+- Single sign-on setup wizard (**Settings > Single sign-on**, admin): pick Okta, Auth0, Ping Identity (PingOne) or Microsoft 365 (Entra ID) and get current step-by-step setup instructions with CTEM's redirect URI filled in; enter the provider's details, client ID and secret (encrypted at rest, never shown again), test the provider's live discovery document, issuer, signing keys and PKCE support, and choose SSO-and-local or SSO-only sign-in. `OIDC_*` and `AUTH_MODE` environment variables still win as the break-glass
+- New `no_access` role: people signing in through SSO for the first time get the wizard's default role (No Access unless changed). Anyone whose only role is No Access sees a custom message set in the wizard and gets no session; admins pin real roles in Admin > Users, and sign-in never changes them
+- Links survive sign-in: opening a CTEM page (for example from an email) while signed out returns you to it after password, MFA or SSO sign-in. Only same-site paths are accepted
 - FairTPRM GRC in CTEM: the FairTPRM sync now mirrors frameworks with compliance, internal controls, the risk register, evidence status, monitors and the GRC dashboard (read-only; `pull_grc` toggle, default on). The GRC page shows real per-framework compliance, controls, evidence that's expired or expiring in 30 days, and the risk register with **risk drift**: risks treated as mitigated whose controls are ineffective, whose CTEM checks fail, that have no controls, or whose review is overdue. REST: `GET /api/v1/grc/frameworks`, `/controls`, `/risks?drift_only=`, `/evidence-status`, `/overview`
 - CTEM as an evidence source for FairTPRM continuous monitors: 16 control checks (EDR coverage, host hardening, asset inventory, stale AD computers, KEV deadlines, remediation SLA, internet-facing criticals, attack paths, risk exceptions, dormant accounts, password expiry, privileged access, ITDR alerts, shadow AI, shadow SaaS, monitoring health). Each returns pass/warning/fail/error with counts only, and **never passes on stale or missing source data**. REST: `GET /api/v1/grc/checks`, `/checks/{type}` (bounded threshold overrides), `/checks/{type}/report?format=csv|json` (detail rows, Ed25519-signed, formula-safe CSV, audited), `/checks/{type}/history?from=&to=` (daily roll-up up to 400 days), `/evidence-key`
 - Every check runs daily and results are kept 400 days, so audit-period evidence has no gaps
@@ -41,6 +44,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 - The shipper's LDAP reader pages through the whole directory (AD stops a single search at 1,000 entries) and selects users with `objectCategory=person`, so computer accounts aren't counted as users. The direct LDAP connector still does a single search
 
 ### Security
+- SSO ID tokens are now verified against the provider's signing keys (asymmetric algorithms only) with issuer, audience, authorized party, expiry and nonce checks; every endpoint in the discovery document must be https on the issuer's host. SSO sign-ins never attach to an existing local or directory account with the same name
 - Device visibility for tag-scoped users came from `owner_user_id`; with owners now detected from sign-ins, anyone who logged into a machine would have gained access to it. Access now comes only from tags or a person's assignment
 - Collector API: hashed, IP-pinned push tokens scoped to one profile's integrations; single-use, atomically claimed enrollment codes; rate-limited enrollment and sign-in; payloads parsed only after auth, with nothing echoed back or logged
 - Directory pushes (and direct LDAP syncs) no longer overwrite local break-glass accounts
@@ -61,6 +65,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 - Dependencies upgraded to clear all known advisories (FastAPI/Starlette, Authlib, cryptography, Pillow, Jinja2, python-multipart); python-jose replaced with PyJWT
 
 ### Fixed
+- The SSO authorize request wasn't URL-encoded, and IdP error replies (for example access denied) or failed callbacks showed raw errors instead of the sign-in page
 - `ctem_exposed_criticals` passed when no device was marked internet-facing; with no exposure data it now reports an error
 - Admin > Users listed every person discovered in AD/LDAP (the Discovered Users page read from the admin endpoint). Admin > Users now shows only accounts that sign in to CTEM: local accounts, token-only service accounts, and SSO sign-ins
 - Discovered Users reads from a new `GET /api/v1/directory/users` (admin and cyber), which lists only directory people, with search applied to the total

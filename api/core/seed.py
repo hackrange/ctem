@@ -19,6 +19,7 @@ _ROLES = [
     ("it_user",   "IT Operations",    "Read device and CMDB data"),
     ("read_only", "Read Only",        "Read access across all dashboards"),
     ("service",   "Service Account",  "Machine-to-machine API access via tokens"),
+    ("no_access", "No Access", "Can sign in through SSO but sees only the access message; no permissions"),
     ("grc_integration", "GRC Integration", "Read-only GRC checks and evidence for FairTPRM's continuous monitors"),
     ("inventory", "Inventory",        "Sees every device; sets who it's assigned to and shipped, lost, stolen or returned"),
 ]
@@ -79,6 +80,8 @@ _ROLE_PERMS: dict[str, list[tuple[str, str]]] = {
     ],
     # FairTPRM's service token: control checks and evidence, nothing else
     "grc_integration": [("grc", "read")],
+    # Brand-new SSO people land here until an admin pins a real role
+    "no_access": [],
     "service": [
         ("devices", "read"), ("devices", "write"),
         ("vulns", "read"), ("vulns", "write"),

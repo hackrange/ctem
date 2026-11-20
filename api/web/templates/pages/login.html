@@ -115,6 +115,8 @@
       gap: 8px;
     }
     .login-error::before { content: '⚠'; font-size: 14px; }
+    .login-notice { background: var(--surface2); border: 1px solid var(--border); border-radius: 6px;
+                    padding: 14px 16px; font-size: 14px; line-height: 1.5; white-space: pre-line; }
 
     /* ── form ── */
     .field { margin-bottom: 16px; }
@@ -245,7 +247,10 @@
     <div class="login-error">{{ error }}</div>
     {% endif %}
 
-    {% if totp_step %}
+    {% if notice %}
+    <div class="login-notice" role="status">{{ notice }}</div>
+    <p style="margin-top:14px;text-align:center"><a href="/login">Back to sign in</a></p>
+    {% elif totp_step %}
     <form method="post" action="/auth/totp" autocomplete="off">
       <input type="hidden" name="_csrf" value="{{ csrf_token }}" />
       {% if enroll %}
@@ -264,7 +269,7 @@
       <button type="submit" class="btn-signin">Verify</button>
       <p style="margin-top:12px;text-align:center"><a href="/login">Start over</a></p>
     </form>
-    {% elif settings.auth_mode in ('local_only', 'both') %}
+    {% elif auth_mode in ('local_only', 'both') %}
     <form method="post" action="/auth/login" autocomplete="on">
       <input type="hidden" name="_csrf" value="{{ csrf_token }}" />
 
@@ -284,9 +289,9 @@
     </form>
     {% endif %}
 
-    {% if settings.auth_mode == 'both' and not totp_step %}
-    <div class="login-divider">or</div>
-    <a href="/auth/sso" class="btn-sso">Continue with SSO</a>
+    {% if auth_mode in ('both', 'oidc_only') and not totp_step and not notice %}
+    {% if auth_mode == 'both' %}<div class="login-divider">or</div>{% endif %}
+    <a href="/auth/sso" class="btn-sso">{{ sso_label or 'Continue with SSO' }}</a>
     {% endif %}
 
   </div>
