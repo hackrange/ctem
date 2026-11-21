@@ -193,13 +193,20 @@ async def _exceptions(db) -> dict:
     return {"active": active, "pending": pending, "ending_14d": soon}
 
 
-async def build(db: AsyncSession, source: str | None, device_type: str | None) -> dict:
+def scoped(scope) -> list:
+    """Limit findings to the devices a scoped viewer may see (scope: a Device WHERE clause, or None for all)."""
+    return [] if scope is None else [Finding.device_id.in_(select(Device.id).where(scope))]
+
+
+async def build(db: AsyncSession, source: str | None, device_type: str | None, scope=None) -> dict:
     """Everything for one filter combination, with the trend over the whole history (ranges are sliced later)."""
-    w = _where(source, device_type)
+    w = _where(source, device_type) + scoped(scope)
     k = await _kpis(db, w)
     return {"generated_at": _now().isoformat(), "tracking_since": k.pop("_fixes_since"), "sla_days": SLA_DAYS,
             "kpis": k, "trend": await _trend(db, w, None), "aging": await _aging(db, w), "mttr": await _mttr(db, w),
-            **await _breakdowns(db, w), "exceptions": await _exceptions(db)}
+            **await _breakdowns(db, w),
+            # exception counts are fleet-wide, so scoped viewers don't get them
+            "exceptions": await _exceptions(db) if scope is None else {"active": None, "pending": 0, "ending_14d": 0}}
 
 
 def sliced(out: dict, range_key: str) -> dict:
@@ -211,12 +218,14 @@ def sliced(out: dict, range_key: str) -> dict:
     return {**out, "trend": tr, "range": range_key}
 
 
-async def cached(db: AsyncSession, range_key: str, source: str | None, device_type: str | None, fresh: bool = False) -> dict:
+async def cached(db: AsyncSession, range_key: str, source: str | None, device_type: str | None, fresh: bool = False,
+                 scope=None, viewer: str | None = None) -> dict:
     """Fleet-wide numbers change with syncs, not by the second: keep each filter combination for 15 minutes."""
     import redis.asyncio as aioredis
 
     from api.core.config import get_settings
-    key = f"vulndash:v2:{source or '-'}:{device_type or '-'}"
+    # a scoped viewer's numbers are theirs alone, so their cache entry is too
+    key = f"vulndash:v2:{source or '-'}:{device_type or '-'}:{viewer if scope is not None else 'all'}"
     r = aioredis.from_url(get_settings().redis_url)
     try:
         try:
@@ -225,7 +234,7 @@ async def cached(db: AsyncSession, range_key: str, source: str | None, device_ty
                 return sliced(json.loads(hit), range_key)
         except Exception:  # noqa: BLE001 -- no Redis means no cache, not no dashboard
             log.warning("vuln dashboard cache unavailable")
-        out = await build(db, source, device_type)
+        out = await build(db, source, device_type, scope)
         try:
             await r.set(key, json.dumps(out, default=str), ex=CACHE_SECONDS)
         except Exception:  # noqa: BLE001 -- the answer is still good, it just won't be cached

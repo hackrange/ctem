@@ -84,6 +84,9 @@ def create_app() -> FastAPI:
     from api.routes.vuln_exceptions import proof_router as finding_proof_router
     from api.routes.vuln_exceptions import router as vuln_exceptions_router
     from api.routes.vuln_dashboard import router as vuln_dashboard_router
+    from api.routes.dashboards import fav_router as favorites_router
+    from api.routes.dashboards import router as dashboards_router
+    from api.routes.dashboards_ai import router as dashboards_ai_router
     from api.routes.tags import router as tags_router
     from api.routes.collector_agent import router as collector_agent_router
     from api.routes.collectors_admin import router as collectors_admin_router
@@ -125,6 +128,9 @@ def create_app() -> FastAPI:
     app.include_router(curated_rules_router)
     app.include_router(vuln_exceptions_router)
     app.include_router(vuln_dashboard_router)
+    app.include_router(dashboards_ai_router)
+    app.include_router(dashboards_router)
+    app.include_router(favorites_router)
     app.include_router(finding_proof_router)
     app.include_router(grc_service_token_router)
     app.include_router(directory_users_router)
@@ -224,6 +230,9 @@ def _register_web_routes(app: FastAPI) -> None:
     app.get("/vulns/dashboard", response_class=HTMLResponse, include_in_schema=False)(_render("pages/vuln_dashboard.html", "/vulns"))
     app.get("/vulns/{vuln_id}", response_class=HTMLResponse, include_in_schema=False)(_render("pages/vuln_detail.html", "/vulns"))
     app.get("/exceptions", response_class=HTMLResponse, include_in_schema=False)(_render("pages/exceptions.html", "/exceptions"))
+
+    app.get("/dashboards", response_class=HTMLResponse, include_in_schema=False)(_render("pages/dashboards.html", "/dashboards"))
+    app.get("/dashboards/{dash_id}", response_class=HTMLResponse, include_in_schema=False)(_render("pages/dashboard_view.html", "/dashboards"))
 
     # ── Analysis ──────────────────────────────────────────────────────────────
     app.get("/threat", response_class=HTMLResponse, include_in_schema=False)(_render("pages/threat.html", "/threat"))

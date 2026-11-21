@@ -150,7 +150,7 @@
     types(data.by_type);
     tables(data);
     const at = new Date(data.generated_at);
-    $('vd-sub').textContent = `Posture and trends across every device. Updated ${at.toLocaleTimeString()}.`;
+    $('vd-sub').textContent = `${data.scoped ? 'Posture and trends for the devices you can see' : 'Posture and trends across every device'}. Updated ${at.toLocaleTimeString()}.`;
     $('vd-trend-note').textContent = data.tracking_since
       ? `CTEM has tracked fixes since ${new Date(data.tracking_since).toLocaleDateString()}; earlier points read low` : '';
   }
