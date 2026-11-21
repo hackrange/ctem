@@ -38,15 +38,41 @@ def check(config: dict) -> None:
         raise ValueError("the fingerprint looks like 12:34:...:ef (16 pairs)")
     if "PRIVATE KEY" not in str(config.get("private_key") or ""):
         raise ValueError("paste the API signing private key (PEM)")
+    try:
+        mine = key_fingerprint(load_key(config))
+    except ValueError:
+        raise ValueError("the private key can't be read: check the PEM text and its passphrase") from None
+    if mine != str(config.get("fingerprint") or "").lower():
+        raise ValueError(f"the fingerprint doesn't belong to this private key (this key's fingerprint is {mine}). "
+                         "Use the private key whose public key you uploaded to OCI, or that key's fingerprint")
     if not regions_of(config) or any(not _REGION.match(r) for r in regions_of(config)):
         raise ValueError("give the regions, for example us-ashburn-1, us-phoenix-1")
 
 
+def load_key(config: dict):
+    """The signing key. A passphrase given for a key that has none is ignored rather than refused."""
+    from cryptography.hazmat.primitives.serialization import load_pem_private_key
+    pem, pw = str(config.get("private_key") or "").encode(), config.get("key_passphrase") or None
+    try:
+        return load_pem_private_key(pem, password=pw.encode() if pw else None)
+    except TypeError:   # "Password was given but private key is not encrypted" (or the reverse)
+        if pw:
+            return load_pem_private_key(pem, password=None)
+        raise ValueError("this private key is encrypted: give its passphrase") from None
+
+
+def key_fingerprint(key) -> str:
+    """OCI's fingerprint for a key: MD5 of the public key (DER), as colon-separated hex."""
+    import hashlib
+
+    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+    der = key.public_key().public_bytes(Encoding.DER, PublicFormat.SubjectPublicKeyInfo)
+    return ":".join(f"{b:02x}" for b in hashlib.md5(der, usedforsecurity=False).digest())
+
+
 class _Api:
     def __init__(self, config: dict, client):
-        from cryptography.hazmat.primitives.serialization import load_pem_private_key
-        pw = config.get("key_passphrase") or None
-        self.key = load_pem_private_key(config["private_key"].encode(), password=pw.encode() if pw else None)
+        self.key = load_key(config)
         self.key_id = f"{config['tenancy_ocid']}/{config['user_ocid']}/{config['fingerprint'].lower()}"
         self.client = client
 

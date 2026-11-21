@@ -283,7 +283,7 @@ body {
 /* ── Summary cards ────────────────────────────────────────────────────────── */
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 16px;
   margin-bottom: 24px;
 }
@@ -392,6 +392,13 @@ body {
 
 .panel__body { padding: 16px 20px; }
 
+/* Content placed straight in a panel (no .panel__body) gets the same inset, so text never touches the border.
+   :where() keeps these at zero specificity: any class or inline padding (padding:0 for full-width tables) wins. */
+:where(.panel:not(:has(> .panel__header, > .panel__body))) { padding: 16px 20px; }
+:where(.panel:has(> .panel__header):not([style*="padding:0"]) > :not(.panel__header, .panel__body)) { padding-left: 20px; padding-right: 20px; }
+:where(.panel:not([style*="padding:0"]) > .panel__header + :not(.panel__body)) { padding-top: 14px; }
+:where(.panel:has(> .panel__header):not([style*="padding:0"]) > :not(.panel__header, .panel__body):last-child) { padding-bottom: 16px; }
+
 /* ── Tables ───────────────────────────────────────────────────────────────── */
 .data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 
@@ -413,6 +420,9 @@ body {
 }
 
 .data-table tr:last-child td  { border-bottom: none; }
+/* In a full-width panel the first and last columns line up with the panel's 20px title inset */
+.panel[style*="padding:0"] .data-table :is(th, td):first-child { padding-left: 20px; }
+.panel[style*="padding:0"] .data-table :is(th, td):last-child  { padding-right: 20px; }
 .data-table tbody tr:hover    { background: var(--accent-dim); cursor: pointer; }
 
 /* Zebra rows: grey, white, grey... no rule lines; the stripe does the separating */
@@ -439,3 +449,26 @@ body {
 .chip--low      { background: rgba(34,197,94,0.15);  color: #15803d; }
 .chip--info     { background: rgba(59,130,246,0.15); color: var(--severity-info); }
 
+
+
+/* ── Layout helpers and global guards ───────────────────────────────────── */
+/* The hidden attribute always wins, even over a class that sets display (chips, flex rows...) */
+[hidden] { display: none !important; }
+/* Chips are labels: one line, never broken mid-word */
+.chip { white-space: nowrap; }
+/* Two- and three-column sections that fold to one column on narrow screens */
+.cols-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; margin-bottom: 20px; }
+.cols-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-bottom: 20px; }
+@media (max-width: 900px) { .cols-2, .cols-3 { grid-template-columns: minmax(0, 1fr); } }
+/* A table placed straight in a panel scrolls inside it instead of pushing the page sideways */
+/* (tables nested deeper count too, e.g. a panel body holding a wrapper holding the table) */
+.panel:has(.data-table) { overflow-x: auto; }
+/* CVE IDs and other identifiers stay on one line */
+.nowrap { white-space: nowrap; }
+
+/* Filter bars: dropdowns share one width on desktop and share the row evenly on phones */
+.filter-bar select { min-width: 170px; }
+@media (max-width: 700px) { .filter-bar select { flex: 1 1 150px; min-width: 0; } }
+
+/* Long unbroken text (DNs, URLs, IDs) wraps instead of widening the page */
+.panel__body, .page-header__sub, .tk-note { overflow-wrap: break-word; }

@@ -105,7 +105,7 @@ async def list_pivot_points(
         pivot_data.append({
             "device_id": str(d.id),
             "hostname": d.hostname,
-            "ip_address": d.ip_address,
+            "ip_address": d.ip,
             "device_type": d.device_type.value if d.device_type else None,
             "risk_score": d.risk_score,
             "risk_grade": d.risk_grade,
@@ -163,7 +163,7 @@ def _build_chains(by_device: dict, all_findings: list) -> list[dict]:
     device_ips: dict[str, str | None] = {}
     for f in all_findings:
         if f.device and f.device_id:
-            ip = f.device.ip_address
+            ip = f.device.ip
             device_ips[str(f.device_id)] = ip
             if ip:
                 subnet = ".".join(ip.split(".")[:3])

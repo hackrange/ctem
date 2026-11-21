@@ -91,9 +91,19 @@ async def device_summary(
             ungraded += n
         else:
             grades[g.value if hasattr(g, "value") else str(g)] = n
-    envs = [{"env": (env or "env:Unknown").removeprefix("env:"), "devices": n,
-             "avg_score": round(float(avg), 1) if avg is not None else None, "critical": int(crit or 0)}
-            for env, n, avg, crit in (await db.execute(dq.env_breakdown_query(stmt))).all()]
+    from api.core import tag_roles
+    roles = await tag_roles.ensure(db)
+    rules = next((r.rules for r in roles if r.key == "environment"), ())
+    merged: dict[str, dict] = {}
+    for env, n, avg, crit in (await db.execute(dq.env_breakdown_query(stmt, rules))).all():
+        m = tag_roles.match(env, roles) if env else None
+        label = m[1] if m and m[0] == "environment" else "Unknown"
+        e = merged.setdefault(label, {"env": label, "devices": 0, "_sum": 0.0, "critical": 0})
+        e["devices"] += n
+        e["_sum"] += float(avg or 0) * n
+        e["critical"] += int(crit or 0)
+    envs = [{"env": e["env"], "devices": e["devices"], "critical": e["critical"],
+             "avg_score": round(e["_sum"] / e["devices"], 1) if e["devices"] else None} for e in merged.values()]
     envs.sort(key=lambda e: -e["devices"])
     return {"total": sum(grades.values()) + ungraded, "grades": grades, "ungraded": ungraded,
             "kev_devices": kev_devices, "environments": envs}

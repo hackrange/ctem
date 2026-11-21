@@ -51,6 +51,12 @@ celery_app.conf.update(
             "task": "api.core.tasks.warm_vuln_dashboard",
             "schedule": 900.0,
         },
+        # Admin > Utilization: a row a minute, rolled into hours
+        "record-utilization": {
+            "task": "api.core.tasks.record_utilization",
+            "schedule": 60.0,
+            "options": {"expires": 55},
+        },
     },
 )
 
@@ -336,3 +342,15 @@ async def _push_siem(integration_id: str, payload: dict):
         from api.core.ssrf import safe_client
         async with safe_client() as client:
             await client.post(endpoint, json=payload, timeout=15.0)
+
+
+@celery_app.task(name="api.core.tasks.record_utilization", ignore_result=True)
+def record_utilization():
+    asyncio.run(_record_utilization())
+
+
+async def _record_utilization():
+    from api.core.db import get_session
+    from api.core.utilization import record
+    async for db in get_session():
+        await record(db)

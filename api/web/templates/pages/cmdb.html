@@ -15,7 +15,7 @@
   </div>
 </div>
 
-<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:20px" id="cmdb-stats">
+<div class="cols-3" id="cmdb-stats">
   <div class="summary-card">
     <p class="summary-card__eyebrow">Total Records</p>
     <p class="summary-card__value" id="stat-total">--</p>
@@ -30,8 +30,8 @@
   </div>
 </div>
 
-<div style="display:flex;gap:10px;margin-bottom:12px">
-  <div class="search-bar-wrap" style="flex:1">
+<div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+  <div class="search-bar-wrap" style="flex:1 1 220px">
     <input id="search-input" type="search" class="search-bar" placeholder="Search hostname, FQDN or OS..." autocomplete="off" spellcheck="false">
   </div>
   <select id="filter-type" class="filter-select" aria-label="Type">

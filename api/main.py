@@ -88,6 +88,7 @@ def create_app() -> FastAPI:
     from api.routes.dashboards import fav_router as favorites_router
     from api.routes.dashboards import router as dashboards_router
     from api.routes.tag_roles import router as tag_roles_router
+    from api.routes.utilization import router as utilization_router
     from api.routes.dashboards_ai import router as dashboards_ai_router
     from api.routes.tags import router as tags_router
     from api.routes.collector_agent import router as collector_agent_router
@@ -134,6 +135,7 @@ def create_app() -> FastAPI:
     app.include_router(dashboards_ai_router)
     app.include_router(dashboards_router)
     app.include_router(tag_roles_router)
+    app.include_router(utilization_router)
     app.include_router(favorites_router)
     app.include_router(finding_proof_router)
     app.include_router(grc_service_token_router)

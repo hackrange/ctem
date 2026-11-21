@@ -20,6 +20,8 @@ score = (CVSS × 0.25) + (EPSS × 0.30) + (KEV × 0.20) + (asset_criticality × 
 
 Multipliers applied for: NodeZero-confirmed exploitability, internet exposure, no EDR, Zscaler/firewall segmentation, offline status.
 
+**Utilization.** Admin > Utilization shows CPU, memory and disk live and over a year, where storage goes (databases, biggest tables, WAL, Redis), and warns before the disk fills.
+
 **Rule exceptions.** Admins can except whatever a rule describes (for example hostnames `can*` with an OS starting with `Cisco IOS`, all vulnerabilities or a filtered set), drafted from plain English by the AI and previewed before creation. They need a reason, compensating controls and an end date, and stay current as devices and findings change.
 
 **Tag mapping.** Admin > Tag mapping tells CTEM what your tags mean: map prefixes such as `owner:E-O:` to Executive owner or `env:` to Environment. Suggestions come from your own tags; the dashboard filters, tag-focus chips and CMDB owner and environment read the mapping.
