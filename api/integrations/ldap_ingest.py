@@ -26,6 +26,7 @@ _UPN = re.compile(r"^[^\s@\x00-\x1f]{1,128}@[^\s@\x00-\x1f]{1,127}$")
 
 async def upsert_directory(users: list[dict], computers: list[dict], db: AsyncSession, commit: bool = True) -> int:
     from api.core.device_match import add_source, find_devices, type_from_os
+    from api.core.device_ou import ou_keys
     from api.core.config import get_settings
     from api.core.encryption import search_hash
     from api.core.phone import normalize
@@ -81,6 +82,7 @@ async def upsert_directory(users: list[dict], computers: list[dict], db: AsyncSe
         add_source(device, "ldap")
         device.fqdn = c.get("fqdn") or device.fqdn
         device.ad_dn = c.get("ad_dn")
+        device.ad_ou_keys = ou_keys(c.get("ad_dn")) or ","
         device.os = c.get("os") or device.os
         device.device_type = type_from_os(device.os, device.device_type)
         device.ad_joined = True

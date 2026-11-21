@@ -371,5 +371,7 @@ async def _record_snapshots():
     from api.dashboards import snapshots
     from api.dashboards.m_directory import record_snapshots as rec
     async for db in get_session():
+        from api.core.device_ou import backfill
+        await backfill(db)   # OU keys for devices synced before they existed
         await rec(db)
         await snapshots.record(db)

@@ -209,3 +209,94 @@ async def test_widget_csv_export_is_formula_safe(db, client_admin):
     chart = await client_admin.post("/api/v1/dashboards/export", json={"widget": {"metric": "assets.by_os", "viz": "bar"}})
     assert chart.text.splitlines()[0] == '"Name","Value"'
     assert (await client_admin.post("/api/v1/dashboards/export", json={"widget": {"metric": "nope"}})).status_code == 422
+
+
+def test_ou_names_and_keys_from_a_dn():
+    from api.core.device_ou import clean_name, ou_key, ou_keys, ou_names
+    dn = r"CN=PC1,OU=Blocked_Computers,OU=Sales\, East,OU=HQ,DC=acme,DC=example"
+    assert ou_names(dn) == ["Blocked_Computers", "Sales, East", "HQ"]
+    assert clean_name("OU=Blocked_Computers") == "Blocked_Computers" and clean_name(" blocked_computers ") == "blocked_computers"
+    keys = ou_keys(dn)
+    assert keys.startswith(",") and keys.count(",") == 4 and ou_key("ou=BLOCKED_COMPUTERS") in keys
+    assert "blocked" not in keys.lower() and ou_keys("CN=x,DC=acme") is None
+
+
+@pytest.mark.asyncio
+async def test_widget_can_leave_out_an_ou(db, admin_user):
+    from api.core.device_ou import ou_keys
+    from api.models.device import Device, DeviceType
+    n = uuid.uuid4().hex[:6]
+    old = datetime.now(timezone.utc) - timedelta(days=120)
+    for name, ou in (("blk", "Blocked_Computers"), ("ok", "Workstations")):
+        dn = f"CN={name}-{n},OU={ou},OU=HQ,DC=acme,DC=example"
+        db.add(Device(hostname=f"{name}-{n}.acme.example", device_type=DeviceType.workstation, ad_joined=True,
+                      ad_last_logon=old, ad_dn=dn, ad_ou_keys=ou_keys(dn)))
+    await db.commit()
+    ctx = await cat.context(db, admin_user)
+    base = {"metric": "directory.stale_computers_list", "viz": "table", "params": {"days": 90, "limit": 50}}
+    rows = lambda out: {r[0].lower()[:3] for r in out["rows"] if r[0].lower().endswith(n)}  # noqa: E731
+    assert rows(await cat.evaluate(ctx, cat.clean_widget(base))) == {"blk", "ok-"}
+    leave_out = cat.clean_widget({**base, "filters": [{"field": "ou", "op": "not_in", "value": "OU=Blocked_Computers"}]})
+    assert leave_out["filters"][0]["value"] == "OU=Blocked_Computers"
+    assert rows(await cat.evaluate(ctx, leave_out)) == {"ok-"}
+    only = cat.clean_widget({**base, "filters": [{"field": "ou", "op": "in", "value": "hq"}]})   # any depth, any case
+    assert rows(await cat.evaluate(ctx, only)) == {"blk", "ok-"}
+
+
+@pytest.mark.asyncio
+async def test_ai_says_so_when_it_changed_nothing(client_admin, monkeypatch):
+    class Fake:
+        async def complete(self, prompt, **kw):
+            now = prompt.split("The dashboard now", 1)[1].split(":\n", 1)[1].split("\n\nReturn", 1)[0]
+            return '{"widgets": ' + now + ', "note": "Couldn\'t: there is no way to filter by printer color."}'
+
+    async def fake_ai(db):
+        return Fake()
+    monkeypatch.setattr("api.hunt.ai.get_ai", fake_ai)
+    made = (await client_admin.post("/api/v1/dashboards", json=_body())).json()
+    r = (await client_admin.post(f"/api/v1/dashboards/ai/edit/{made['id']}", json={"text": "only color printers please"})).json()
+    assert "widgets" not in r and r["error"] == "The AI couldn't make that change: there is no way to filter by printer color."
+
+
+@pytest.mark.asyncio
+async def test_conditions_on_any_source_value(db, admin_user):
+    from sqlalchemy import select
+
+    from api.dashboards import filters as flt
+    from api.models.device import Device, DeviceType
+    n = uuid.uuid4().hex[:6]
+    now = datetime.now(timezone.utc)
+    db.add_all([
+        Device(hostname=f"va-{n}.acme.example", device_type=DeviceType.server, os="Windows Server 2019", ad_joined=False,
+               ad_last_logon=now - timedelta(days=200), last_seen=now - timedelta(days=3), risk_score=82, open_findings=40),
+        Device(hostname=f"vb-{n}.acme.example", device_type=DeviceType.workstation, os="Windows 11", ad_joined=True,
+               ad_last_logon=now - timedelta(days=200), edr_active=True, edr_last_seen=now - timedelta(days=50), risk_score=10),
+        Device(hostname=f"vc-{n}.acme.example", device_type=DeviceType.workstation, os="macOS 14", ad_joined=False),
+    ])
+    await db.commit()
+
+    async def hosts(*conds, match="all"):
+        f = flt.clean([{"field": "attr", **c} for c in conds])
+        assert len(f) == len(conds), f
+        rows = (await db.execute(select(Device.hostname).where(await flt.where(db, f, match, admin_user),
+                                                               Device.hostname.like(f"%-{n}.acme.example")))).scalars().all()
+        return sorted(h[:2] for h in rows)
+    assert await hosts({"attr": "ad_last_logon", "op": "older_than", "value": 44}) == ["va", "vb", "vc"]   # never counts as old
+    assert await hosts({"attr": "ad_last_logon", "op": "older_than", "value": 44},
+                       {"attr": "last_seen", "op": "older_than", "value": 21},
+                       {"attr": "edr_last_seen", "op": "older_than", "value": 21}) == ["vb", "vc"]
+    assert await hosts({"attr": "os", "op": "contains", "value": "server"}) == ["va"]
+    assert await hosts({"attr": "risk_score", "op": "gt", "value": 70}) == ["va"]
+    assert await hosts({"attr": "edr_active", "op": "is_true"}, {"attr": "os", "op": "contains", "value": "mac"}, match="any") == ["vb", "vc"]
+    assert await hosts({"attr": "ad_joined", "op": "is_true"}) == ["vb"]
+    assert await hosts({"attr": "hostname", "op": "not_starts_with", "value": "VA-"}) == ["vb", "vc"]   # "leave out ACME-..." style
+    assert await hosts({"attr": "edr_last_seen", "op": "never"}) == ["va", "vc"]
+    assert await hosts({"attr": "hostname", "op": "starts_with", "value": f"vc-{n}"}) == ["vc"]
+    # only listed values and the operators that fit them
+    assert flt.clean([{"field": "attr", "attr": "password", "op": "equals", "value": "x"},
+                      {"field": "attr", "attr": "risk_score", "op": "contains", "value": "1"},
+                      {"field": "attr", "attr": "risk_score", "op": "gt", "value": "lots"},
+                      {"field": "attr", "attr": "os", "op": "equals", "value": "<script>"}]) == []
+    assert flt.clean([{"field": "attr", "attr": "ad_last_logon", "op": "older_than", "value": "99999"}])[0]["value"] == 3650
+    spec = flt.spec()
+    assert {"Directory (AD)", "Vulnerability scanner", "EDR", "Device", "Cloud"} <= {a["group"] for a in spec["attrs"]}

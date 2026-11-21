@@ -43,6 +43,7 @@ class Device(Base, UUIDPrimaryKey, TimestampMixin):
 
     # Active Directory
     ad_dn: Mapped[str | None] = mapped_column(EncryptedString)
+    ad_ou_keys: Mapped[str | None] = mapped_column(Text)   # keyed hashes of the DN's OU names (api.core.device_ou)
     ad_joined: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     ad_last_logon: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

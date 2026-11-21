@@ -69,8 +69,15 @@ def _catalog_for_ai(ctx) -> str:
         opts = {p.key: ([c for c in p.choices] if p.choices is not None else
                         (f"{p.low}-{p.high}" if p.low is not None else "true|false")) for p in m.params}
         rows.append({"metric": m.id, "label": m.label, "category": m.category, "viz": list(cat.VIZ_FOR[m.shape]),
-                     "about": m.description, "params": opts})
+                     "about": m.description, "params": opts, **({} if m.filterable else {"filters": "not supported"})})
     return json.dumps(rows, separators=(",", ":")) + "\n\n" + _STYLE + "\n" + _filters_help()
+
+
+def _attrs_help() -> str:
+    from api.dashboards import filters as flt
+    ops = {t: "/".join(o) for t, o in flt.ATTR_OPS.items()}
+    return "; ".join(f"{k} = {lab} [{g}, {t}: {ops[t]}]" for k, (lab, g, t) in flt.ATTRS.items()) + \
+        ". days values are a number of days, e.g. older_than 44"
 
 
 def _filters_help() -> str:
@@ -82,7 +89,9 @@ def _filters_help() -> str:
             'Fields and ops: tag (is, is_not, starts_with, not_starts_with; value is a tag name), role (is, is_not, any, '
             'none; also "role": one of ' + roles + '; value is the person or name, e.g. an executive owner), source (is, '
             'is_not; value one of ' + ", ".join(SOURCE_CODES) + '), device_type, os_family, criticality, grade (is, is_not), '
-            'access (op "mine", no value: only devices the person looking has access to). '
+            'access (op "mine", no value: only devices the person looking has access to), ou (not_in, in; value an AD '
+            'OU name such as Blocked_Computers, matched at any depth: use it for "leave out computers in OU=..."). '
+            'attr (any device value by data source: {"field": "attr", "attr": key, "op", "value"}; ' + _attrs_help() + '). '
             'Use them for requests like "only Jeffrey Davis\'s devices" or "only servers the EDR reports".')
 
 
@@ -204,7 +213,9 @@ async def ai_edit(dash_id: uuid.UUID, body: EditBody, u: User = Depends(_member)
     prompt = ("Catalog:\n" + _catalog_for_ai(ctx) + "\n\nThe dashboard now (keep each widget's id; change only what the "
               "request asks; keep positions unless asked to move or resize):\n" + json.dumps(current, separators=(",", ":"))[:20000] +
               '\n\nReturn {"widgets": [the full new list, each {"id"?, "metric", "viz", "title", "params", "style", "x", "y", '
-              '"w", "h"}; new widgets have no id], "note": "<one sentence saying what you changed>"}. Only if nothing in '
+              '"w", "h"}; new widgets have no id], "note": "<one sentence saying what you changed>"}. Never claim a change you '
+              'didn\'t make: if part of the request can\'t be done with the catalog and filters, start the note with '
+              '"Couldn\'t:" and say what. Only if nothing in '
               'the catalog can do it, return {"error": "<one friendly sentence>"}.' + earlier + _request(body))
     ok, out = await _ask(db, u, prompt, 4000)
     if ok is None:
@@ -218,6 +229,13 @@ async def ai_edit(dash_id: uuid.UUID, body: EditBody, u: User = Depends(_member)
     widgets = [w for w in _widgets(out["widgets"]) if cat.allowed(cat.REGISTRY[w["metric"]], ctx)]
     if not widgets:
         return {"available": True, "error": "The AI's version has no widgets you can use. Try rewording it."}
+    same = lambda ws: sorted(json.dumps({k: v for k, v in w.items() if k not in ("id", "x", "y", "w", "h")}, sort_keys=True)  # noqa: E731
+                             for w in ws)
+    note = out.get("note") if isinstance(out.get("note"), str) else None
+    if same(widgets) == same(current):   # nothing changed: say so rather than look like it worked
+        why = " ".join((note or "").split())[:300]
+        why = why[9:].strip() if why.lower().startswith("couldn't:") else "nothing in the widget options can do that yet"
+        return {"available": True, "error": f"The AI couldn't make that change: {why}"}
     if any(w["y"] >= 499 for w in widgets) or len({(w["x"], w["y"]) for w in widgets}) < len(widgets):
         widgets = _layout(widgets)   # it lost the positions: lay them out cleanly instead
     note = out.get("note") if isinstance(out.get("note"), str) else None

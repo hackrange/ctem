@@ -115,14 +115,15 @@ async def catalog(u: User = Depends(_member), db: AsyncSession = Depends(get_ses
     from api.dashboards import presets
     return {"metrics": [m.spec() for m in cat.REGISTRY.values() if cat.allowed(m, ctx)],
             "roles": list(ROLES), "grid_cols": cat.GRID_COLS, "max_widgets": cat.MAX_WIDGETS, "themes": list(cat.THEMES),
-            **presets.for_viewer(ctx), "filter_options": await _filter_options(db)}
+            **presets.for_viewer(ctx), "filter_options": await _filter_options(db, ctx.scope is None)}
 
 
-async def _filter_options(db) -> dict:
+async def _filter_options(db, fleet_wide: bool) -> dict:
     """What the widget filter editor offers: tag-mapping roles with the values in use, sources and the fixed lists."""
     from api.core import tag_roles
     from api.core.device_match import SOURCE_CODES
-    from api.dashboards import fleet
+    from api.core.device_ou import names_in_use as ou_names
+    from api.dashboards import filters, fleet
     from api.models.device import DeviceType, RiskGrade
     roles = await tag_roles.ensure(db)
     opts = await tag_roles.options(db, roles)
@@ -130,7 +131,9 @@ async def _filter_options(db) -> dict:
                       for r in roles],
             "sources": [{"value": k, "label": f"{k.replace('_', ' ')} ({v})"} for k, v in SOURCE_CODES.items()],
             "device_types": list(DeviceType.__members__), "os_families": [{"value": k, "label": v} for k, v in fleet.OS_LABEL.items()],
-            "grades": [g.value for g in RiskGrade]}
+            "grades": [g.value for g in RiskGrade],
+            # OU names describe the whole directory, so only people who see every device get the suggestions
+            "ous": await ou_names(db) if fleet_wide else [], **filters.spec()}
 
 
 @router.get("")

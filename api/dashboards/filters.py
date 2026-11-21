@@ -19,9 +19,47 @@ FIELDS = {
     "os_family": ("is", "is_not"),
     "criticality": ("is", "is_not"),
     "grade": ("is", "is_not"),
-    "access": ("mine",),   # only devices the viewer is granted (tags or assignment), whatever their role
+    "access": ("mine",),
+    "ou": ("not_in", "in"),   # directory OU anywhere in the device's DN ("OU=Blocked_Computers" or just the name)   # only devices the viewer is granted (tags or assignment), whatever their role
 }
-NEEDS_VALUE = {"is", "is_not", "starts_with", "not_starts_with"}
+# Device values by the data source they come from. type picks the operators; only these columns are reachable.
+ATTRS = {
+    # Directory (AD)
+    "ad_last_logon": ("Last AD logon", "Directory (AD)", "days"),
+    "ad_joined": ("In AD", "Directory (AD)", "bool"),
+    # Vulnerability scanner
+    "last_seen": ("Last seen by a scanner", "Vulnerability scanner", "days"),
+    "risk_score": ("Risk score (0-100)", "Vulnerability scanner", "number"),
+    "open_findings": ("Open findings", "Vulnerability scanner", "number"),
+    "kev_findings": ("Known exploited (KEV) findings", "Vulnerability scanner", "number"),
+    "is_internet_exposed": ("Internet exposed", "Vulnerability scanner", "bool"),
+    # EDR
+    "edr_last_seen": ("Last seen by the EDR", "EDR", "days"),
+    "edr_active": ("EDR sensor working", "EDR", "bool"),
+    "edr_contained": ("Contained by the EDR", "EDR", "bool"),
+    "edr_hidden": ("Hidden in the EDR console", "EDR", "bool"),
+    "edr_vendor": ("EDR product", "EDR", "text"),
+    "firewall_enabled": ("Host firewall on", "EDR", "bool"),
+    "usb_storage_blocked": ("USB storage blocked", "EDR", "bool"),
+    # Device
+    "hostname": ("Hostname", "Device", "text"),
+    "fqdn": ("FQDN", "Device", "text"),
+    "os": ("Operating system", "Device", "text"),
+    "os_version": ("OS version", "Device", "text"),
+    "created_at": ("First seen by CTEM", "Device", "days"),
+    # Cloud
+    "in_cloud": ("A cloud instance", "Cloud", "bool"),
+}
+ATTR_OPS = {
+    "text": ("contains", "not_contains", "starts_with", "not_starts_with", "ends_with", "not_ends_with", "equals", "not_equals",
+             "is_set", "is_empty"),
+    "number": ("gt", "gte", "lt", "lte", "eq"),
+    "days": ("older_than", "within", "never", "ever"),
+    "bool": ("is_true", "is_false"),
+}
+_NO_ATTR_VALUE = {"is_set", "is_empty", "never", "ever", "is_true", "is_false"}
+
+NEEDS_VALUE = {"is", "is_not", "starts_with", "not_starts_with", "in", "not_in"}
 
 
 def _text(v, n=128) -> str | None:
@@ -38,6 +76,13 @@ def clean(raw) -> list[dict]:
     from api.dashboards import fleet
     out = []
     for f in raw if isinstance(raw, list) else []:
+        if isinstance(f, dict) and f.get("field") == "attr":
+            c = _clean_attr(f)
+            if c:
+                out.append(c)
+            if len(out) >= MAX:
+                break
+            continue
         if not isinstance(f, dict) or f.get("field") not in FIELDS or f.get("op") not in FIELDS[f["field"]]:
             continue
         field, op = f["field"], f["op"]
@@ -57,6 +102,65 @@ def clean(raw) -> list[dict]:
         if len(out) >= MAX:
             break
     return out
+
+
+def _clean_attr(f: dict) -> dict | None:
+    spec = ATTRS.get(f.get("attr"))
+    if spec is None or f.get("op") not in ATTR_OPS[spec[2]]:
+        return None
+    c = {"field": "attr", "attr": f["attr"], "op": f["op"]}
+    if f["op"] in _NO_ATTR_VALUE:
+        return c
+    kind = spec[2]
+    try:
+        if kind == "number":
+            v = float(f.get("value"))
+            if not -1e9 < v < 1e9:
+                return None
+            c["value"] = int(v) if v.is_integer() else round(v, 2)
+        elif kind == "days":
+            c["value"] = min(max(int(float(f.get("value"))), 0), 3650)
+        else:
+            v = _text(f.get("value"))
+            if v is None:
+                return None
+            c["value"] = v
+    except (TypeError, ValueError):
+        return None
+    return c
+
+
+def _attr(f: dict):
+    """One condition on a device value. The column comes from the ATTRS allow-list; the value is bound."""
+    from datetime import timedelta
+
+    from api.dashboards import fleet
+    key, op, v = f["attr"], f["op"], f.get("value")
+    kind = ATTRS[key][2]
+    if key == "in_cloud":
+        c = Device.id.in_(fleet.cloud_ids())
+        return c if op == "is_true" else not_(c)
+    col = getattr(Device, key)
+    if kind == "bool":
+        return col.is_(True) if op == "is_true" else or_(col.is_(False), col.is_(None))
+    if kind == "number":
+        x = func.coalesce(col, 0)
+        return {"gt": x > v, "gte": x >= v, "lt": x < v, "lte": x <= v, "eq": x == v}[op]
+    if kind == "days":
+        if op == "never":
+            return col.is_(None)
+        if op == "ever":
+            return col.is_not(None)
+        cut = fleet.now() - timedelta(days=v)
+        if key == "created_at":   # stored without a time zone
+            cut = cut.replace(tzinfo=None)
+        return or_(col.is_(None), col < cut) if op == "older_than" else col >= cut   # never seen counts as old
+    t = func.lower(func.coalesce(col, ""))
+    lv = (v or "").lower()
+    return {"contains": t.like(f"%{_like(lv)}%", escape="\\"), "not_contains": ~t.like(f"%{_like(lv)}%", escape="\\"),
+            "starts_with": t.like(f"{_like(lv)}%", escape="\\"), "not_starts_with": ~t.like(f"{_like(lv)}%", escape="\\"),
+            "ends_with": t.like(f"%{_like(lv)}", escape="\\"), "not_ends_with": ~t.like(f"%{_like(lv)}", escape="\\"),
+            "equals": t == lv, "not_equals": t != lv, "is_set": t != "", "is_empty": t == ""}[op]
 
 
 def _like(v: str) -> str:
@@ -97,9 +201,15 @@ def _one(f: dict):
     from api.dashboards import fleet
     from api.models.tag import Tag
     field, op, v = f["field"], f["op"], f.get("value")
-    neg = op in ("is_not", "not_starts_with", "none")
+    neg = op in ("is_not", "not_starts_with", "none", "not_in")
     if field == "access":
         return f["_cond"]
+    if field == "attr":
+        return _attr(f)
+    if field == "ou":
+        from api.core.device_ou import ou_key
+        c = func.coalesce(Device.ad_ou_keys, "").like(f"%,{ou_key(v)},%")   # a hex key, nothing to escape
+        return not_(c) if neg else c
     if field == "tag":
         c = _tagged(func.lower(Tag.name).like(_like(v) + "%", escape="\\") if "starts" in op else func.lower(Tag.name) == v.lower())
     elif field == "role":
@@ -149,16 +259,34 @@ async def where(db, filters: list[dict], match: str = "all", user=None):
     return (or_ if match == "any" else and_)(*conds)
 
 
+ATTR_WORDS = {"contains": "contains", "not_contains": "doesn't contain", "starts_with": "starts with",
+              "not_starts_with": "doesn't start with", "ends_with": "ends with", "not_ends_with": "doesn't end with",
+              "equals": "is", "not_equals": "is not", "is_set": "is set", "is_empty": "is empty", "gt": "over", "gte": "at least",
+              "lt": "under", "lte": "at most", "eq": "equals", "older_than": "older than", "within": "within the last",
+              "never": "never", "ever": "has a date", "is_true": "yes", "is_false": "no"}
+
+
+def spec() -> dict:
+    """For the filter editor: the device values by source and the operators for each kind."""
+    return {"attrs": [{"key": k, "label": lab, "group": g, "type": t} for k, (lab, g, t) in ATTRS.items()],
+            "ops": {t: [[o, ATTR_WORDS[o]] for o in ops] for t, ops in ATTR_OPS.items()}}
+
+
 def describe(filters: list[dict], match: str = "all") -> str:
     from api.core import tag_roles
     words = {"is": "is", "is_not": "is not", "starts_with": "starts with", "not_starts_with": "doesn't start with",
-             "any": "is set", "none": "isn't set"}
+             "any": "is set", "none": "isn't set", "in": "is", "not_in": "is not"}
     parts = []
     for f in filters:
         if f["field"] == "access":
             parts.append("only devices the viewer has access to")
             continue
-        name = tag_roles.name_of(f["role"]) if f["field"] == "role" else f["field"].replace("_", " ").capitalize()
+        if f["field"] == "attr":
+            parts.append(f"{ATTRS[f['attr']][0]} {ATTR_WORDS[f['op']]}" + (f" {f['value']}" if "value" in f else "")
+                         + (" days" if ATTRS[f["attr"]][2] == "days" and "value" in f else ""))
+            continue
+        name = (tag_roles.name_of(f["role"]) if f["field"] == "role" else "AD OU" if f["field"] == "ou"
+                else f["field"].replace("_", " ").capitalize())
         parts.append(f"{name} {words[f['op']]}" + (f" {f['value']}" if f.get("value") else ""))
     return (" or " if match == "any" else " and ").join(parts)
 
