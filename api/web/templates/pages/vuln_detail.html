@@ -24,7 +24,8 @@
 <div class="panel" style="padding:0;margin-top:16px" id="v-affected-panel">
   <div class="panel__header" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
     <span class="panel__title">Affected devices</span>
-    <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <button type="button" id="ex-btn" class="btn btn--primary btn--sm" hidden disabled>Create exception</button>
       <div class="search-bar-wrap">
         <svg class="search-icon" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
         <input id="a-search" type="search" class="search-bar" placeholder="Hostname or user" aria-label="Search affected devices">
@@ -45,6 +46,7 @@
 {% block extra_scripts %}
 <script src="{{ static('js/data_table.js') }}"></script>
 <script src="{{ static('js/ticket_modal.js') }}"></script>
+<script src="{{ static('js/exception_modal.js') }}"></script>
 <script>
 const R = DataTable.R;
 const $ = id => document.getElementById(id);
@@ -100,6 +102,8 @@ function startAffected() {
     rowHref: dev,
     params: () => ({ status: $('a-status').value, q: $('a-search').value.trim() }),
     columns: [
+      ...(canExcept ? [{ label: '', render: f => ['open', 'in_progress'].includes(f.status)
+        ? `<input type="checkbox" data-pick="${esc(f.id)}" aria-label="Select ${esc(f.hostname)}"${picked.has(f.id) ? ' checked' : ''}>` : '' }] : []),
       { label: 'Hostname', sort: 'hostname', render: f => dim(f, R.link(dev(f), f.hostname)) + (f.contained ? ' <span class="chip chip--info" style="font-size:.7rem">Contained</span>' : '') },
       { label: 'Severity', render: f => `<span class="chip chip--${esc(f.severity)}" style="font-size:.7rem">${esc(f.severity === 'info' ? 'Info' : f.severity)}</span>` },
       { label: 'User', sort: 'user', render: f => dim(f, txt(f.user)) },
@@ -107,10 +111,12 @@ function startAffected() {
       { label: 'OS', sort: 'os', render: f => dim(f, `<span class="text-sm">${txt((f.os || '').slice(0, 28) || null)}</span>`) },
       { label: 'Grade', sort: 'risk_grade', firstOrder: 'desc', render: f => dim(f, R.grade(f.device_grade)) },
       { label: 'Device score', sort: 'risk_score', firstOrder: 'desc', render: f => dim(f, R.score(f.device_score)) + (f.contained ? ' ' + R.adjusted(f.raw_device_grade, f.raw_device_score, f.device_grade, f.device_score) : '') },
-      { label: 'Status', sort: 'status', render: f => dim(f, `<span class="text-sm">${esc(f.status.replace('_', ' '))}</span>`) },
+      { label: 'Status', sort: 'status', render: f => dim(f, f.exception_id
+        ? `<a class="chip chip--info" style="font-size:.7rem" href="/exceptions?id=${encodeURIComponent(f.exception_id)}">Excepted</a>`
+        : `<span class="text-sm">${esc(f.status.replace('_', ' '))}</span>`) },
       { label: 'First detected', sort: 'first_detected', firstOrder: 'desc', render: f => dim(f, R.date(f.first_detected)) },
       { label: 'Last seen', sort: 'last_seen', firstOrder: 'desc', render: f => dim(f, R.date(f.last_seen)) },
-      { label: '', render: f => `<button type="button" class="btn btn--ghost btn--sm" data-ticket="${esc(f.id)}" data-host="${esc(f.hostname)}">Ticket</button>` },
+      { label: '', render: f => `<span style="display:flex;gap:4px">${f.source === 'rapid7_insightvm' ? `<button type="button" class="btn btn--ghost btn--sm" data-proof="${esc(f.id)}" data-host="${esc(f.hostname)}">Proof</button>` : ''}<button type="button" class="btn btn--ghost btn--sm" data-ticket="${esc(f.id)}" data-host="${esc(f.hostname)}">Ticket</button></span>` },
     ],
   });
 }
@@ -118,11 +124,35 @@ function startAffected() {
 $('affected-table').addEventListener('click', e => {
   const b = e.target.closest('button[data-ticket]');
   if (b) openTicketModal(vulnId, `${$('v-title').textContent} on ${b.dataset.host}`, b.dataset.ticket);
+  const p = e.target.closest('button[data-proof]');
+  if (p) CtemFindings.proof(p.dataset.proof, `${$('v-title').textContent} on ${p.dataset.host}`);
 });
+
+// Exceptions: admin and cyber tick affected devices and create one for them (or for all devices, or a tag)
+let canExcept = false;
+const picked = new Map();   // finding id -> {id: device id, hostname}
+function pickedLabel() {
+  $('ex-btn').disabled = !picked.size;
+  $('ex-btn').textContent = picked.size ? `Create exception (${picked.size})` : 'Create exception';
+}
+$('affected-table').addEventListener('change', e => {
+  const c = e.target.closest('input[data-pick]');
+  if (!c) return;
+  const row = (table && table.rows ? table.rows() : []).find(r => r.id === c.dataset.pick);
+  if (c.checked && row) picked.set(row.id, { id: row.device_id, hostname: row.hostname });
+  else picked.delete(c.dataset.pick);
+  pickedLabel();
+});
+$('ex-btn').addEventListener('click', () => CtemFindings.exceptionForm({
+  vulnId, label: $('v-title').textContent, devices: [...picked.values()], canDecide: true,
+  onDone: () => { picked.clear(); pickedLabel(); table && table.reload(); },
+}));
 
 let timer;
 $('a-search').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => table && table.reload(), 300); });
 $('a-status').addEventListener('change', () => table && table.reload());
-loadVuln();
+fetch('/api/v1/exceptions/summary', { headers: { Accept: 'application/json' } })
+  .then(r => (r.ok ? r.json() : {})).catch(() => ({}))
+  .then(s => { canExcept = !!s.can_decide; $('ex-btn').hidden = !canExcept; loadVuln(); });
 </script>
 {% endblock %}

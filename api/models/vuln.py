@@ -4,9 +4,10 @@ import enum
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, DateTime, Enum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, Date, DateTime, Enum, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from api.core.encryption import EncryptedString
 from api.models.base import Base, TimestampMixin, UUIDPrimaryKey
 
 
@@ -67,6 +68,8 @@ class Finding(Base, UUIDPrimaryKey, TimestampMixin):
     reachability_source: Mapped[str | None] = mapped_column(String(64))
     reachability_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     in_attack_chain: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Set while an approved exception covers this finding (status is then risk_accepted)
+    exception_id: Mapped[str | None] = mapped_column(ForeignKey("vuln_exceptions.id", ondelete="SET NULL"), index=True)
 
     device: Mapped[object] = relationship("Device", back_populates="findings")
     vuln: Mapped[Vulnerability] = relationship(back_populates="findings")
@@ -111,3 +114,43 @@ class CVEChainMember(Base):
 
     chain: Mapped[CVEChain] = relationship(back_populates="members")
     vuln: Mapped[Vulnerability] = relationship(back_populates="chains")
+
+
+class ExceptionStatus(str, enum.Enum):
+    pending = "pending"        # an IT user asked; waiting for admin or cyber
+    approved = "approved"      # in effect until expires_at
+    rejected = "rejected"
+    revoked = "revoked"        # ended early by admin or cyber
+    expired = "expired"
+    cancelled = "cancelled"    # withdrawn by the requester before a decision
+
+
+class ExceptionScope(str, enum.Enum):
+    finding = "finding"        # one vulnerability on one device
+    devices = "devices"        # one vulnerability on chosen devices
+    all = "all"                # one vulnerability everywhere, including devices found later
+    tag = "tag"                # one vulnerability on every device with a tag, including ones tagged later
+
+
+class VulnException(Base, UUIDPrimaryKey, TimestampMixin):
+    """A time-boxed exception for a vulnerability. While approved, matching findings are risk_accepted,
+    so they don't count toward risk, open counts, SLA or the GRC checks."""
+    __tablename__ = "vuln_exceptions"
+
+    vuln_id: Mapped[str] = mapped_column(ForeignKey("vulnerabilities.id", ondelete="CASCADE"), nullable=False, index=True)
+    scope: Mapped[ExceptionScope] = mapped_column(Enum(ExceptionScope), nullable=False)
+    device_ids: Mapped[list | None] = mapped_column(JSON)            # finding / devices scopes
+    tag_id: Mapped[str | None] = mapped_column(ForeignKey("tags.id", ondelete="SET NULL"))
+    reason: Mapped[str] = mapped_column(EncryptedString, nullable=False)
+    compensating_controls: Mapped[str | None] = mapped_column(EncryptedString)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    status: Mapped[ExceptionStatus] = mapped_column(Enum(ExceptionStatus), nullable=False, index=True)
+    requested_by_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    requested_by: Mapped[str] = mapped_column(String(255), nullable=False)
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    decided_by: Mapped[str | None] = mapped_column(String(255))
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    decision_note: Mapped[str | None] = mapped_column(EncryptedString)
+    findings_covered: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+
+    vuln: Mapped[Vulnerability] = relationship()

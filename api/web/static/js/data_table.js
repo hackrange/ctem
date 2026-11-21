@@ -131,6 +131,7 @@
         const data = await res.json();
         if (seq !== st.seq) return;  // a newer request already won
         const rows = data[opts.listKey] || [];
+        st.rows = rows;
         st.total = data.total || 0;
         if (!rows.length && st.page > 1 && st.total) { st.page = pages(); return load(); }
         tbody.innerHTML = rows.map(r => {
@@ -152,7 +153,7 @@
     });
 
     load();
-    return { reload(resetPage = true) { if (resetPage) st.page = 1; load(); } };
+    return { reload(resetPage = true) { if (resetPage) st.page = 1; load(); }, rows: () => st.rows || [] };
   }
 
   // Shared cell renderers

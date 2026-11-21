@@ -127,6 +127,12 @@ A **generic installer** (no code inside) is also available: the box signs in onc
 
 ---
 
+## Vulnerability exceptions and proof
+
+**Proof:** on a vulnerability's affected devices, and on a device's findings, **Proof** shows what the scanner found and where (for example the path of a vulnerable PHP install), the port and the fix. It is fetched live from Rapid7 InsightVM for that one finding when you click, so nothing extra is stored; the scanner's HTML is turned into plain text first. Rapid7 findings only for now.
+
+**Exceptions** (menu: *Exceptions*): admin and cyber create exceptions, which take effect at once; IT users request them for findings on their own devices, and admin or cyber approve (optionally changing the end date) or reject them with a note. An exception covers one finding, chosen devices, every device (including ones found later), or every device with a tag (including ones tagged later). Each needs a reason and an end date at most a year out; compensating controls are optional. While active, its findings are marked *Excepted* (risk accepted) and don't count toward risk, open counts, SLA, KEV or exposure; when it expires or is revoked they count again. Requesters see their own requests and how each was decided. Every step is in the audit log, and the menu badge shows requests waiting for approval.
+
 ## GRC with FairTPRM (both directions)
 
 **FairTPRM updates CTEM.** The FairTPRM integration mirrors suppliers and the GRC module: frameworks and their compliance, internal controls, the risk register, evidence status and continuous monitors. The GRC page shows them next to CTEM's telemetry and flags **risk drift**: a risk recorded as mitigated whose controls are ineffective, whose CTEM checks are failing, that has no linked controls, or whose review date has passed.

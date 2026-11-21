@@ -291,6 +291,8 @@ def _affected_row(f: Finding, cvss: float | None = None) -> dict:
         "raw_device_grade": d.raw_risk_grade if d else None,
         "raw_device_score": d.raw_risk_score if d else None,
         "status": f.status.value,
+        "source": f.source,
+        "exception_id": f.exception_id,
         "composite_score": f.composite_score,
         "risk_grade": f.risk_grade,
         "is_reachable": f.is_reachable,

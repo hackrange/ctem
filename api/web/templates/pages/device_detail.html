@@ -31,7 +31,8 @@
 <div class="panel" style="padding:0;margin-top:16px">
   <div class="panel__header" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
     <span class="panel__title">Findings</span>
-    <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <button type="button" id="ex-btn" class="btn btn--primary btn--sm" hidden disabled>Request exception</button>
       <div class="search-bar-wrap">
         <svg class="search-icon" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
         <input id="f-search" type="search" class="search-bar" placeholder="CVE or title" aria-label="Search findings">
@@ -54,6 +55,7 @@
 {% block extra_scripts %}
 <script src="{{ static('js/data_table.js') }}"></script>
 <script src="{{ static('js/device_assign.js') }}"></script>
+<script src="{{ static('js/exception_modal.js') }}"></script>
 <script>
 const R = DataTable.R;
 const $ = id => document.getElementById(id);
@@ -248,6 +250,8 @@ function startFindings() {
     rowHref: f => `/vulns/${encodeURIComponent(f.vuln_id)}`,
     params: () => ({ status: $('f-status').value, q: $('f-search').value.trim() }),
     columns: [
+      ...(exceptRole ? [{ label: '', render: f => ['open', 'in_progress'].includes(f.status)
+        ? `<input type="checkbox" data-pick="${esc(f.id)}" aria-label="Select ${esc(f.cve_id || f.title)}"${picked.has(f.id) ? ' checked' : ''}>` : '' }] : []),
       { label: 'Severity', sort: 'cvss_base', firstOrder: 'desc', render: f => sevChip(f) },
       { label: 'CVE', sort: 'cve_id', render: f => dim(f, f.cve_id ? vulnLink(f, f.cve_id) : '<span class="text-muted">--</span>') },
       { label: 'Title', sort: 'title', render: f => dim(f, vulnLink(f, f.title)) },
@@ -255,16 +259,53 @@ function startFindings() {
       { label: 'EPSS', sort: 'epss_score', firstOrder: 'desc', render: f => dim(f, f.epss_score == null ? txt(null) : esc((f.epss_score * 100).toFixed(1) + '%')) },
       { label: 'KEV', sort: 'is_kev', firstOrder: 'desc', render: f => dim(f, f.is_kev ? '<span class="chip chip--critical">KEV</span>' : '') },
       { label: 'Score', sort: 'composite_score', firstOrder: 'desc', render: f => dim(f, R.score(f.composite_score)) },
-      { label: 'Status', sort: 'status', render: f => dim(f, `<span class="text-sm">${esc(f.status.replace('_', ' '))}</span>`) },
+      { label: 'Status', sort: 'status', render: f => dim(f, f.exception_id
+        ? `<a class="chip chip--info" style="font-size:.7rem" href="/exceptions?id=${encodeURIComponent(f.exception_id)}">Excepted</a>`
+        : `<span class="text-sm">${esc(f.status.replace('_', ' '))}</span>`) },
       { label: 'First detected', sort: 'first_detected', firstOrder: 'desc', render: f => dim(f, R.date(f.first_detected)) },
       { label: 'Last seen', sort: 'last_seen', firstOrder: 'desc', render: f => dim(f, R.date(f.last_seen)) },
+      { label: '', render: f => f.source === 'rapid7_insightvm'
+        ? `<button type="button" class="btn btn--ghost btn--sm" data-proof="${esc(f.id)}" data-label="${esc(f.cve_id || f.title)}">Proof</button>` : '' },
     ],
   });
 }
 
+// Proof, and exceptions: IT users request them for findings here, admin and cyber create them
+let exceptRole = null;   // null: can't; {canDecide}
+const picked = new Map();   // finding id -> {vulnId, label}
+$('findings-table').addEventListener('click', e => {
+  const p = e.target.closest('button[data-proof]');
+  if (p) CtemFindings.proof(p.dataset.proof, `${p.dataset.label} on ${$('dev-title').textContent}`);
+});
+$('findings-table').addEventListener('change', e => {
+  const c = e.target.closest('input[data-pick]');
+  if (!c) return;
+  const row = (table ? table.rows() : []).find(r => r.id === c.dataset.pick);
+  if (c.checked && row) picked.set(row.id, { vulnId: row.vuln_id, label: row.cve_id || row.title, deviceId });
+  else picked.delete(c.dataset.pick);
+  $('ex-btn').disabled = !picked.size;
+  $('ex-btn').textContent = `${exceptRole && exceptRole.canDecide ? 'Create' : 'Request'} exception${picked.size ? ` (${picked.size})` : ''}`;
+});
+$('ex-btn').addEventListener('click', () => {
+  const vulns = [...picked.values()];
+  const host = $('dev-title').textContent;
+  CtemFindings.exceptionForm({
+    vulnId: vulns[0].vulnId, label: `${vulns[0].label} on ${host}`, devices: [{ id: deviceId, hostname: host }],
+    canDecide: exceptRole.canDecide, vulns: vulns.length > 1 ? vulns : null,
+    onDone: () => { picked.clear(); $('ex-btn').disabled = true; table && table.reload(); },
+  });
+});
+
 let timer;
 $('f-search').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => table && table.reload(), 300); });
 $('f-status').addEventListener('change', () => table && table.reload());
-loadDevice();
+fetch('/api/v1/exceptions/summary', { headers: { Accept: 'application/json' } })
+  .then(r => (r.ok ? r.json() : null)).catch(() => null)
+  .then(s => {
+    exceptRole = s ? { canDecide: !!s.can_decide } : null;
+    $('ex-btn').hidden = !exceptRole;
+    if (exceptRole) $('ex-btn').textContent = exceptRole.canDecide ? 'Create exception' : 'Request exception';
+    loadDevice();
+  });
 </script>
 {% endblock %}

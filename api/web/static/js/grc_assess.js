@@ -61,7 +61,20 @@
         ${stat('Answered', `${esc(p.answered ?? 0)}<span class="text-muted">/${esc(p.total_questions ?? 0)}</span>`)}
         ${stat('Non-conforming', `<b style="color:${a.non_conforming ? 'var(--severity-critical)' : 'inherit'}">${esc(a.non_conforming)}</b>`)}
         ${stat('Partial', esc(a.partial))}
-      </div>${domainsTable(a.domain_scores || [])}${frameworksGrid(a.framework_compliance || [])}`;
+      </div>${domainsTable(a.domain_scores || [])}`;
+  }
+
+  // The assessment's per-framework results lead the page (they replace FairTPRM's all-zero requirement tracker)
+  function topFrameworks(a) {
+    const row = document.getElementById('compliance-row');
+    const html = frameworksGrid(a.framework_compliance || []);
+    if (!row || !html) return;
+    row.dataset.src = 'assessment';
+    row.style.display = 'block';
+    row.innerHTML = html.replace('margin-top:14px', 'margin-top:0');
+    const head = document.getElementById('compliance-head');
+    head.innerHTML = `Compliance by framework, from the latest assessment: <a class="dt-link" href="${href(a)}">${esc(a.ref || '')} ${esc(a.title)}</a>`;
+    head.hidden = false;
   }
 
   async function load() {
@@ -77,6 +90,7 @@
         document.getElementById('assess-latest-label').innerHTML =
           `Latest: <a class="dt-link" href="${href(d.latest)}">${esc(d.latest.ref || '')} ${esc(d.latest.title)}</a> ${chip(d.latest.status)}`;
         latest.innerHTML = latestPanel(d.latest);
+        topFrameworks(d.latest);
       } else {
         latest.innerHTML = `<p class="text-muted text-sm" style="margin:0">${d.available
           ? 'No assessments in FairTPRM yet.'

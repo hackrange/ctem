@@ -11,7 +11,7 @@
   </div>
   <div style="display:flex;gap:8px">
     {% if 'admin' in user.role_names %}<button class="btn btn--ghost btn--sm" id="fairtprm-token-btn">FairTPRM access</button>{% endif %}
-    <button class="btn btn--primary btn--sm" onclick="openExceptionModal()">+ Add Exception</button>
+    {% if 'admin' in user.role_names or 'cyber' in user.role_names %}<a class="btn btn--primary btn--sm" href="/exceptions">Exceptions</a>{% endif %}
   </div>
 </div>
 
@@ -34,7 +34,9 @@
 </div>
 {% endif %}
 
-<!-- Compliance framework progress -->
+<!-- Compliance by framework: the latest FairTPRM assessment's results (grc_assess.js); FairTPRM's own
+     requirement tracker only when it has progress, since all-zero tiles say nothing -->
+<div id="compliance-head" class="text-sm text-muted" style="margin:0 0 8px" hidden></div>
 <div id="compliance-row" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-bottom:24px">
   <div class="text-muted text-sm" style="padding:16px;grid-column:1/-1;text-align:center">Loading compliance posture...</div>
 </div>
@@ -112,16 +114,16 @@
 
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
 
-  <!-- Risk exceptions -->
+  <!-- Vulnerability exceptions (managed on the Exceptions page) -->
   <div class="panel" style="padding:0">
-    <div class="panel__header">
-      <h2 class="panel__title">Risk Exceptions</h2>
-      <span class="text-muted text-sm" id="exc-count"></span>
+    <div class="panel__header" style="display:flex;justify-content:space-between;align-items:center">
+      <h2 class="panel__title">Vulnerability Exceptions</h2>
+      <span class="text-muted text-sm"><span id="exc-count"></span> <a class="dt-link" href="/exceptions">Open Exceptions &rarr;</a></span>
     </div>
     <table class="data-table">
-      <thead><tr><th>CVE / Finding</th><th>Reason</th><th>Expires</th><th>Approver</th><th></th></tr></thead>
+      <thead><tr><th>Vulnerability</th><th>Covers</th><th>Ends</th><th>Approved by</th></tr></thead>
       <tbody id="exceptions-tbody">
-        <tr><td colspan="5" class="text-muted text-sm" style="text-align:center;padding:20px">Loading...</td></tr>
+        <tr><td colspan="4" class="text-muted text-sm" style="text-align:center;padding:20px">Loading...</td></tr>
       </tbody>
     </table>
   </div>
@@ -141,35 +143,6 @@
   </div>
 </div>
 
-<!-- Exception modal -->
-<div id="exc-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:1000;align-items:center;justify-content:center">
-  <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:24px;width:min(480px,92vw);display:flex;flex-direction:column;gap:16px">
-    <h3 style="margin:0;font-size:1rem">New Risk Exception</h3>
-    <div>
-      <label class="text-sm" style="display:block;margin-bottom:4px;font-weight:600">CVE ID (optional)</label>
-      <input id="exc-cve" class="input" type="text" placeholder="CVE-2024-XXXXX" style="width:100%">
-    </div>
-    <div>
-      <label class="text-sm" style="display:block;margin-bottom:4px;font-weight:600">Business Justification <span style="color:var(--severity-critical)">*</span></label>
-      <textarea id="exc-reason" class="input" rows="3" placeholder="Describe the compensating control or business reason (min 10 chars)" style="width:100%;resize:vertical"></textarea>
-    </div>
-    <div style="display:flex;gap:12px">
-      <div style="flex:1">
-        <label class="text-sm" style="display:block;margin-bottom:4px;font-weight:600">Expires</label>
-        <input id="exc-expires" class="input" type="date" style="width:100%">
-      </div>
-      <div style="display:flex;align-items:center;gap:6px;padding-top:22px">
-        <input type="checkbox" id="exc-permanent" onchange="document.getElementById('exc-expires').disabled=this.checked">
-        <label for="exc-permanent" class="text-sm">Permanent</label>
-      </div>
-    </div>
-    <div id="exc-error" style="display:none;color:var(--severity-critical);font-size:.85rem"></div>
-    <div style="display:flex;justify-content:flex-end;gap:8px">
-      <button class="btn btn--ghost btn--sm" onclick="closeExceptionModal()">Cancel</button>
-      <button class="btn btn--primary btn--sm" onclick="submitException()">Approve</button>
-    </div>
-  </div>
-</div>
 {% endblock %}
 
 {% block extra_scripts %}
@@ -189,7 +162,14 @@ async function fetchJson(url, opts) {
 async function loadCompliance() {
   try {
     const d = await fetchJson(`${API}/compliance`);
-    document.getElementById('compliance-row').innerHTML = d.frameworks.map(f => `
+    const row = document.getElementById('compliance-row');
+    if (row.dataset.src === 'assessment') return;   // the assessment's results are the better picture
+    const live = d.frameworks.filter(f => f.total && (f.passed || f.partial));
+    if (!live.length) { row.dataset.empty = '1'; row.innerHTML = ''; row.style.display = 'none'; return; }
+    const head = document.getElementById('compliance-head');
+    head.textContent = 'Requirements marked implemented in FairTPRM';
+    head.hidden = false;
+    row.innerHTML = live.map(f => `
       <div class="panel" style="margin:0;padding:14px 16px">
         <div class="text-muted text-sm" style="margin-bottom:6px;font-weight:700;text-transform:uppercase;letter-spacing:.04em">${esc(f.name)}</div>
         <div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden;margin-bottom:6px">
@@ -206,23 +186,21 @@ async function loadCompliance() {
 }
 
 async function loadExceptions() {
-  try {
-    const d = await fetchJson(`${API}/exceptions`);
-    document.getElementById('exc-count').textContent = `${d.total} active`;
-    const rows = d.exceptions;
-    if (!rows.length) {
-      document.getElementById('exceptions-tbody').innerHTML = '<tr><td colspan="5" class="text-muted text-sm" style="text-align:center;padding:16px">No active exceptions</td></tr>';
-      return;
-    }
-    document.getElementById('exceptions-tbody').innerHTML = rows.map(e => `
-      <tr>
-        <td class="text-sm">${esc(e.cve_id || (e.finding_id ? e.finding_id.substring(0,8)+'...' : '--'))}</td>
-        <td class="text-muted text-sm" style="max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(e.reason)}">${esc(e.reason)}</td>
-        <td class="text-sm">${e.is_permanent ? '<span class="chip chip--info">Permanent</span>' : (e.expires_at ? new Date(e.expires_at).toLocaleDateString() : '--')}</td>
-        <td class="text-muted text-sm">${esc(e.approved_by)}</td>
-        <td><button class="btn btn--ghost btn--sm" style="padding:2px 8px;font-size:.75rem" onclick="revokeException('${esc(e.id)}')">Revoke</button></td>
-      </tr>`).join('');
-  } catch (_) {}
+  const tb = document.getElementById('exceptions-tbody');
+  const res = await fetch('/api/v1/exceptions?tab=active&limit=10', { headers: { Accept: 'application/json' } }).catch(() => null);
+  if (!res || !res.ok) {   // only admin, cyber and IT users use exceptions
+    tb.innerHTML = '<tr><td colspan="4" class="text-muted text-sm" style="text-align:center;padding:16px">Exceptions are managed by cyber and admin</td></tr>';
+    return;
+  }
+  const d = await res.json();
+  document.getElementById('exc-count').textContent = `${d.total} active`;
+  tb.innerHTML = (d.exceptions || []).map(e => `
+      <tr data-href="/exceptions?id=${encodeURIComponent(e.id)}" style="cursor:pointer">
+        <td class="text-sm"><a class="dt-link" href="/exceptions?id=${encodeURIComponent(e.id)}">${e.cve_id ? `<b>${esc(e.cve_id)}</b> ` : ''}${esc((e.title || '').slice(0, 60))}</a></td>
+        <td class="text-sm">${esc(e.covers)}</td>
+        <td class="text-sm">${esc(new Date(e.expires_at).toLocaleDateString())}</td>
+        <td class="text-muted text-sm">${esc(e.decided_by || '')}</td>
+      </tr>`).join('') || '<tr><td colspan="4" class="text-muted text-sm" style="text-align:center;padding:16px">No active exceptions</td></tr>';
 }
 
 async function loadSuppliers() {
@@ -249,53 +227,6 @@ async function loadSuppliers() {
   } catch (_) {
     document.getElementById('suppliers-tbody').innerHTML = '<tr><td colspan="5" class="text-muted text-sm" style="text-align:center;padding:16px">Supplier data unavailable</td></tr>';
   }
-}
-
-function openExceptionModal() {
-  const m = document.getElementById('exc-modal');
-  m.style.display = 'flex';
-  document.getElementById('exc-error').style.display = 'none';
-  document.getElementById('exc-cve').value = '';
-  document.getElementById('exc-reason').value = '';
-  document.getElementById('exc-expires').value = '';
-  document.getElementById('exc-permanent').checked = false;
-  document.getElementById('exc-expires').disabled = false;
-}
-
-function closeExceptionModal() {
-  document.getElementById('exc-modal').style.display = 'none';
-}
-
-async function submitException() {
-  const errEl = document.getElementById('exc-error');
-  errEl.style.display = 'none';
-  const perm = document.getElementById('exc-permanent').checked;
-  const exp = document.getElementById('exc-expires').value;
-  if (!perm && !exp) { errEl.textContent = 'Set an expiry date or mark as Permanent'; errEl.style.display = 'block'; return; }
-  try {
-    await fetchJson(`${API}/exceptions`, {
-      method: 'POST',
-      body: JSON.stringify({
-        cve_id: document.getElementById('exc-cve').value.trim() || null,
-        reason: document.getElementById('exc-reason').value.trim(),
-        expires_at: perm ? null : new Date(exp).toISOString(),
-        is_permanent: perm,
-      }),
-    });
-    closeExceptionModal();
-    loadExceptions();
-  } catch (e) {
-    errEl.textContent = e.message;
-    errEl.style.display = 'block';
-  }
-}
-
-async function revokeException(id) {
-  if (!confirm('Revoke this exception? The finding will no longer be accepted.')) return;
-  try {
-    await fetchJson(`${API}/exceptions/${encodeURIComponent(id)}`, { method: 'DELETE' });
-    loadExceptions();
-  } catch (e) { toast(e.message, 'error'); }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
