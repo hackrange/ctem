@@ -200,14 +200,18 @@ def grade_counts_query(filtered):
     return select(sub.c.risk_grade, func.count(), func.count().filter(sub.c.kev_findings > 0)).group_by(sub.c.risk_grade)
 
 
-def env_breakdown_query(filtered):
-    """Per env:* tag: device count, average score, grade-F count. Untagged devices land under None."""
+def env_breakdown_query(filtered, rules=(("prefix", "env:"),)):
+    """Per environment tag (the Environment role's rules in Tag mapping): device count, average score,
+    grade-F count. Untagged devices land under None."""
     from sqlalchemy import case
 
     from api.models.tag import Tag
+    from api.rules.apply import _like
+    name = func.lower(Tag.name)
+    conds = [name.like(f"{_like(v)}%", escape="\\") if kind == "prefix" else name == v.lower() for kind, v in rules]
     sub = filtered.order_by(None).with_only_columns(Device.id, Device.risk_score, Device.risk_grade).subquery()
     env = (select(DeviceTag.device_id, Tag.name.label("env")).join(Tag, Tag.id == DeviceTag.tag_id)
-           .where(Tag.name.like("env:%")).subquery())
+           .where(or_(*conds) if conds else Tag.name.is_(None)).subquery())
     return (select(env.c.env, func.count(sub.c.id), func.avg(sub.c.risk_score),
                    func.sum(case((sub.c.risk_grade == RiskGrade.F, 1), else_=0)))
             .select_from(sub).outerjoin(env, env.c.device_id == sub.c.id).group_by(env.c.env))

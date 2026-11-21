@@ -47,7 +47,7 @@
     <p class="summary-card__value" id="count-c">--</p>
     <p class="summary-card__label">Grade C devices</p>
   </div>
-  <div class="summary-card summary-card--low">
+  <div class="summary-card summary-card--critical" id="card-kev">
     <p class="summary-card__eyebrow">KEV Exposed</p>
     <p class="summary-card__value" id="count-kev">--</p>
     <p class="summary-card__label">Known exploited</p>
@@ -78,7 +78,7 @@
 </div>
 
 <!-- Two-column layout -->
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
+<div class="cols-2">
 
   <!-- Top at-risk devices -->
   <div class="panel">
@@ -129,7 +129,7 @@
 <!-- KEV and attack chain panel -->
 <div class="panel">
   <div class="panel__header">
-    <h2 class="panel__title">Active Exploits &amp; Attack Chains</h2>
+    <h2 class="panel__title">Known exploited vulnerabilities (CISA KEV)</h2>
     <span class="chip chip--critical">Prioritize these now</span>
   </div>
   <div class="panel__body" style="padding:0">
@@ -137,17 +137,16 @@
       <thead>
         <tr>
           <th>CVE</th>
+          <th>Title</th>
           <th>CVSS</th>
           <th>EPSS %</th>
           <th>KEV</th>
-          <th>In Chain</th>
-          <th>Affected Devices</th>
-          <th>Score</th>
-          <th>Actions</th>
+          <th>Affected devices</th>
+          <th></th>
         </tr>
       </thead>
       <tbody id="kev-tbody">
-        <tr><td colspan="8" class="text-muted text-sm" style="text-align:center;padding:20px">Loading...</td></tr>
+        <tr><td colspan="7" class="text-muted text-sm" style="text-align:center;padding:20px">Loading...</td></tr>
       </tbody>
     </table>
   </div>
@@ -215,6 +214,10 @@ async function loadSummary() {
     setCard('count-d', sum.grades.D, link({ grade: 'D' }));
     setCard('count-c', sum.grades.C, link({ grade: 'C' }));
     setCard('count-kev', sum.kev_devices, link({ sort: 'kev_findings', order: 'desc' }));
+    // Known-exploited exposure is red while any device has it; green only when there's none
+    const kevCard = document.getElementById('card-kev');
+    kevCard.classList.toggle('summary-card--critical', Number(sum.kev_devices) > 0);
+    kevCard.classList.toggle('summary-card--low', !(Number(sum.kev_devices) > 0));
     setCard('count-total', sum.total, link({}));
 
     const devices = top.devices || [];
@@ -260,27 +263,31 @@ async function loadSummary() {
 
 async function loadKEV() {
   try {
-    const data = await fetchJson(`${API}/vulns?is_kev=true&affected_only=true&sort=affected&order=desc&limit=20`);
-    const vulns = data.vulns || [];
-    document.getElementById('kev-tbody').innerHTML = vulns.map(v => `
-      <tr>
-        <td class="text-mono text-sm"><a class="dt-link" href="/vulns/${encodeURIComponent(v.id)}">${esc(v.cve_id || 'N/A')}</a></td>
+    const data = await fetchJson(`${API}/vulns?is_kev=true&affected_only=true&sort=affected&order=desc&limit=60`);
+    // A CVE can be found by several scanner checks: show it once (the check on the most devices) and say so
+    const byCve = new Map();
+    (data.vulns || []).forEach(v => {
+      const key = v.cve_id || v.id;
+      const have = byCve.get(key);
+      if (have) have.checks += 1; else byCve.set(key, { ...v, checks: 1 });
+    });
+    const rows = [...byCve.values()].slice(0, 20);
+    document.getElementById('kev-tbody').innerHTML = rows.map(v => {
+      const link = v.checks > 1 ? `/vulns?q=${encodeURIComponent(v.cve_id)}` : `/vulns/${encodeURIComponent(v.id)}`;
+      return `<tr>
+        <td class="text-mono text-sm nowrap"><a class="dt-link" href="${link}">${esc(v.cve_id || 'N/A')}</a></td>
+        <td class="text-sm" style="max-width:420px">${esc((v.title || '').slice(0, 110))}${v.checks > 1
+          ? ` <span class="text-muted" title="Found by ${v.checks} scanner checks; the count is the check on the most devices">(${v.checks} checks)</span>` : ''}</td>
         <td>${v.cvss_base ? v.cvss_base.toFixed(1) : '--'}</td>
         <td>${v.epss_score ? (v.epss_score * 100).toFixed(1) + '%' : '--'}</td>
-        <td>${v.is_kev ? '<span class="chip chip--critical">KEV</span>' : ''}</td>
-        <td>${v.in_chain ? '<span class="chip chip--high">Chain</span>' : ''}</td>
-        <td>${v.affected_devices || '--'}</td>
-        <td>${v.composite_score ? v.composite_score.toFixed(1) : '--'}</td>
-        <td>
-          <button class="btn btn--ghost btn--sm"
+        <td><span class="chip chip--critical">KEV</span></td>
+        <td>${(v.affected_devices || 0).toLocaleString()}</td>
+        <td><button class="btn btn--ghost btn--sm"
             onclick="openTicketModal(${esc(JSON.stringify(v.id))}, ${esc(JSON.stringify(v.cve_id || v.title || ''))})"
-            title="Create ServiceNow ticket">
-            &#127916; Ticket
-          </button>
-        </td>
-      </tr>
-    `).join('') || '<tr><td colspan="8" class="text-muted text-sm" style="text-align:center;padding:16px">No KEV findings -- nice work</td></tr>';
-  } catch (e) { /* silent */ }
+            title="Create a ServiceNow ticket">Ticket</button></td>
+      </tr>`;
+    }).join('') || '<tr><td colspan="7" class="text-muted text-sm" style="text-align:center;padding:16px">No KEV findings on any device</td></tr>';
+  } catch (e) { /* the panel keeps its loading text */ }
 }
 
 

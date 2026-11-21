@@ -9,8 +9,8 @@
     <h1 class="page-header__title">Discovered Users</h1>
     <p class="page-header__sub">Identity exposure, AD group memberships, and risk scores from CTEM integrations. These are <em>not</em> app login accounts (see Admin)</p>
   </div>
-  <div style="display:flex;align-items:center;gap:10px">
-    <div class="search-bar-wrap">
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-width:0">
+    <div class="search-bar-wrap" style="flex:1 1 220px;min-width:0">
       <svg class="search-icon" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
         <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
       </svg>
@@ -75,6 +75,9 @@
 
 {% block extra_scripts %}
 <script>
+// AD groups arrive as full DNs (CN=Domain Admins,OU=...,DC=...); show the group's own name
+const groupName = g => { const m = /^CN=((?:\\,|[^,])+)/i.exec(String(g || '')); return m ? m[1].replace(/\\,/g, ',') : String(g || ''); };
+
 const API = '/api/v1';
 let _userSearchTimer = null;
 const PAGE = 50;
@@ -130,7 +133,7 @@ async function loadUsers(offset = 0) {
     }
 
     tb.innerHTML = users.map(u => {
-      const groups = (u.ad_groups || []).slice(0, 3).map(esc).join(', ');
+      const groups = (u.ad_groups || []).slice(0, 3).map(g => esc(groupName(g))).join(', ');
       const moreGroups = (u.ad_groups || []).length > 3 ? ` +${(u.ad_groups.length - 3)} more` : '';
       return `
         <tr>
@@ -144,7 +147,7 @@ async function loadUsers(offset = 0) {
           <td class="text-sm text-center">${u.totp_enabled ? '<span style="color:var(--severity-low)">&#10003;</span>' : '<span class="text-muted">&#8722;</span>'}</td>
           <td class="text-sm text-center">${u.is_service_account ? '<span class="chip chip--info">SVC</span>' : '<span class="text-muted">--</span>'}</td>
           <td class="text-sm" title="Assigned by a person / detected from sign-ins">${u.devices_assigned || u.devices_detected ? `<span style="color:var(--severity-low)">&#10003;</span> ${esc(u.devices_assigned)} <span class="text-muted">+ ${esc(u.devices_detected)} seen</span>` : '<span class="text-muted">--</span>'}</td>
-          <td class="text-sm text-muted" title="${esc((u.ad_groups||[]).join(', '))}">${groups}${moreGroups ? `<span class="text-muted"> ${moreGroups}</span>` : ''}</td>
+          <td class="text-sm text-muted" style="max-width:320px" title="${esc((u.ad_groups||[]).join('\n'))}">${groups}${moreGroups ? `<span class="text-muted"> ${moreGroups}</span>` : ''}</td>
           <td>${adStatus(u.ad)}</td>
           <td class="text-sm">${u.ad ? fmt(u.ad.last_logon) : '<span class="text-muted">--</span>'}</td>
           <td class="text-sm" title="${u.ad && u.ad.pwd_expires ? 'Expires ' + esc(new Date(u.ad.pwd_expires).toLocaleDateString()) : ''}">${u.ad ? fmt(u.ad.pwd_last_set) : '<span class="text-muted">--</span>'}</td>
@@ -171,7 +174,7 @@ function updateTiles(users) {
   const highRisk = users.filter(u => u.risk_grade === 'F' || u.risk_grade === 'D').length;
   const noMfa  = users.filter(u => !u.totp_enabled).length;
   const privGroups = new Set(['domain admins','enterprise admins','schema admins','administrators']);
-  const privileged = users.filter(u => (u.ad_groups||[]).some(g => privGroups.has(g.toLowerCase()))).length;
+  const privileged = users.filter(u => (u.ad_groups||[]).some(g => privGroups.has(groupName(g).toLowerCase()) || privGroups.has(g.toLowerCase()))).length;
   const svcAcct    = users.filter(u => u.is_service_account).length;
 
   document.getElementById('tile-total').innerHTML     = `${total}<br><small>Total Users</small>`;

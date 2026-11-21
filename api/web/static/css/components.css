@@ -381,3 +381,6 @@ a.dw-kpi:hover .dw-kpi__value { color: var(--accent); }
 .dd-more-tags > summary::-webkit-details-marker { display: none; }
 .dd-more-tags .dd-less, .dd-more-tags[open] .dd-more { display: none; }
 .dd-more-tags[open] .dd-less { display: inline; }
+
+/* Device detail tags: one line each, long ones cut with an ellipsis (the full tag is the hover text) */
+.dd-tag { font-size: .7rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; margin: 2px 0; }

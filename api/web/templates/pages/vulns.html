@@ -85,7 +85,7 @@ table = DataTable.create({
   columns: [
     ...(canExcept ? [{ label: 'Select', head: CtemFindings.PICK_HEAD,
       render: v => `<input type="checkbox" data-pick="${esc(v.id)}" aria-label="Select ${esc(v.cve_id || v.title)}"${picked.has(v.id) ? ' checked' : ''}>` }] : []),
-    { label: 'CVE', sort: 'cve_id', render: v => v.cve_id ? R.link(href(v), v.cve_id) : muted },
+    { label: 'CVE', sort: 'cve_id', render: v => v.cve_id ? `<span class="nowrap">${R.link(href(v), v.cve_id)}</span>` : muted },
     { label: 'Title', sort: 'title', render: v => R.link(href(v), v.title) },
     { label: 'CVSS', sort: 'cvss_base', firstOrder: 'desc', render: v => v.cvss_base == null ? muted : esc(v.cvss_base) },
     { label: 'EPSS', sort: 'epss_score', firstOrder: 'desc', render: v => v.epss_score == null ? muted : esc((v.epss_score * 100).toFixed(1) + '%') },

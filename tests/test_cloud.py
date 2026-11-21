@@ -77,7 +77,11 @@ def test_oci_rules_and_signing():
         serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()).decode()
     cfg = {"tenancy_ocid": "ocid1.tenancy.oc1..aaaaaaaaexampleexampleexample", "user_ocid": "ocid1.user.oc1..aaaaaaaaexampleexampleexample",
            "fingerprint": ":".join(["ab"] * 16), "private_key": pem, "regions": "us-ashburn-1"}
+    with pytest.raises(ValueError, match="doesn't belong to this private key"):
+        oci.check(cfg)
+    cfg["fingerprint"] = oci.key_fingerprint(oci.load_key(cfg))
     oci.check(cfg)
+    oci.check({**cfg, "key_passphrase": "not-needed"})   # a passphrase for an unencrypted key is ignored
     h = oci._Api(cfg, None)._sign("GET", "https://iaas.us-ashburn-1.oraclecloud.com/20160918/instances?compartmentId=x")
     assert h["authorization"].startswith('Signature version="1",keyId="ocid1.tenancy') and 'headers="date (request-target) host"' in h["authorization"]
     with pytest.raises(ValueError):
