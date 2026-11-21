@@ -34,6 +34,7 @@
     <label class="text-sm" style="display:flex;align-items:center;gap:6px">
       <input type="checkbox" id="filter-affected" checked> With affected devices
     </label>
+    <button type="button" id="ex-btn" class="btn btn--primary btn--sm" hidden disabled>Create exception</button>
   </div>
 </div>
 
@@ -42,6 +43,7 @@
 
 {% block extra_scripts %}
 <script src="{{ static('js/data_table.js') }}"></script>
+<script src="{{ static('js/exception_modal.js') }}"></script>
 <script>
 const R = DataTable.R;
 const $ = id => document.getElementById(id);
@@ -54,7 +56,15 @@ if (initial.has('affected_only')) $('filter-affected').checked = initial.get('af
 const href = v => `/vulns/${encodeURIComponent(v.id)}`;
 const muted = '<span class="text-muted">--</span>';
 
-const table = DataTable.create({
+// Admin and cyber tick vulnerabilities (picks survive paging and searches) and except them for all devices or a tag
+const picked = new Map();   // vuln id -> {vulnId, label}
+let table, syncPicks;
+function pickedLabel() {
+  $('ex-btn').disabled = !picked.size;
+  $('ex-btn').textContent = `Create exception${picked.size ? ` (${picked.size})` : ''}`;
+}
+function start(canExcept) {
+table = DataTable.create({
   mount: $('vulns-table'),
   endpoint: '/api/v1/vulns',
   exportUrl: '/api/v1/vulns/export',
@@ -68,7 +78,10 @@ const table = DataTable.create({
     q: $('search-input').value.trim(), is_kev: $('filter-kev').value, min_cvss: $('filter-cvss').value,
     source: $('filter-source').value, affected_only: $('filter-affected').checked ? 'true' : 'false',
   }),
+  onLoad: () => syncPicks && syncPicks(),
   columns: [
+    ...(canExcept ? [{ label: 'Select', head: CtemFindings.PICK_HEAD,
+      render: v => `<input type="checkbox" data-pick="${esc(v.id)}" aria-label="Select ${esc(v.cve_id || v.title)}"${picked.has(v.id) ? ' checked' : ''}>` }] : []),
     { label: 'CVE', sort: 'cve_id', render: v => v.cve_id ? R.link(href(v), v.cve_id) : muted },
     { label: 'Title', sort: 'title', render: v => R.link(href(v), v.title) },
     { label: 'CVSS', sort: 'cvss_base', firstOrder: 'desc', render: v => v.cvss_base == null ? muted : esc(v.cvss_base) },
@@ -79,9 +92,22 @@ const table = DataTable.create({
     { label: 'Source', sort: 'source', render: v => `<span class="text-sm text-muted">${esc(v.source)}</span>` },
   ],
 });
+}
+
+syncPicks = CtemFindings.picker({
+  mount: $('vulns-table'), rows: () => (table ? table.rows() : []), picked, onChange: pickedLabel,
+  entry: v => ({ vulnId: v.id, label: v.cve_id || v.title }),
+});
+$('ex-btn').addEventListener('click', () => CtemFindings.exceptionForm({
+  vulns: [...picked.values()], canDecide: true,
+  onDone: () => { picked.clear(); pickedLabel(); table && table.reload(false); },
+}));
 
 let timer;
-$('search-input').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => table.reload(), 300); });
-['filter-kev', 'filter-cvss', 'filter-source', 'filter-affected'].forEach(id => $(id).addEventListener('change', () => table.reload()));
+$('search-input').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => table && table.reload(), 300); });
+['filter-kev', 'filter-cvss', 'filter-source', 'filter-affected'].forEach(id => $(id).addEventListener('change', () => table && table.reload()));
+fetch('/api/v1/exceptions/summary', { headers: { Accept: 'application/json' } })
+  .then(r => (r.ok ? r.json() : {})).catch(() => ({}))
+  .then(s => { const can = !!s.can_decide; $('ex-btn').hidden = !can; start(can); });
 </script>
 {% endblock %}

@@ -20,7 +20,7 @@
       <div class="dt-pager dt-pager--top"></div>
       <div class="dt-scroll"><table class="data-table">
         <thead><tr>${opts.columns.map((c, i) =>
-          `<th data-i="${i}" ${c.sort ? 'class="dt-sortable" tabindex="0"' : ''}>${esc(c.label)}</th>`).join('')}</tr></thead>
+          `<th data-i="${i}" ${c.sort ? 'class="dt-sortable" tabindex="0"' : ''}>${c.head || esc(c.label)}</th>`).join('')}</tr></thead>
         <tbody><tr><td colspan="${opts.columns.length}" class="text-muted text-sm" style="text-align:center;padding:24px">Loading...</td></tr></tbody>
       </table></div>
       <div class="dt-pager dt-pager--bottom"></div>`;
