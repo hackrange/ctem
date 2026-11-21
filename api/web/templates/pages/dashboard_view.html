@@ -5,29 +5,42 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{{ static('vendor/gridstack-14.1.1/gridstack.min.css') }}">
+<link rel="stylesheet" href="{{ static('css/dashboards.css') }}">
 {% endblock %}
 
 {% block content %}
 <div class="page-header">
   <div style="min-width:0">
-    <h1 class="page-header__title" style="display:flex;align-items:center;gap:10px">
+    <h1 class="page-header__title" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
       <button type="button" id="db-star" class="db-star" aria-pressed="false" title="Add to Favorites" hidden>&#9734;</button>
       <span id="db-name">Loading...</span>
+      <span id="db-status" class="db-status" hidden></span>
     </h1>
     <p class="page-header__sub" id="db-sub"></p>
   </div>
   <div id="db-actions" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"></div>
 </div>
+<div id="db-banner" class="db-banner" hidden></div>
+<div id="db-ai" class="db-ai" hidden></div>
 <div id="db-explain" class="panel" hidden><div class="panel__body text-sm" id="db-explain-text"></div></div>
 <div id="db-empty" class="panel" hidden><div class="panel__body text-muted" style="text-align:center;padding:32px">
-  This dashboard has no widgets yet. Click <b>Edit</b>, then <b>Add widget</b>, or describe one for the AI.</div></div>
-<div class="grid-stack" id="db-grid"></div>
+  This dashboard has no widgets yet. Click <b>Edit</b>, then drag widgets in from the library, or describe one for the AI.</div></div>
+<div id="db-wrap" class="db-wrap">
+  <aside id="db-palette" class="db-palette" hidden aria-label="Widget library"></aside>
+  <div class="db-canvas">
+    <div id="db-drop-hint" class="db-drop-hint" hidden>Drag widgets here from the library, or click one to add it.</div>
+    <div class="grid-stack" id="db-grid"></div>
+  </div>
+</div>
 {% endblock %}
 
 {% block extra_scripts %}
 <script src="{{ static('vendor/echarts-6.1.0/echarts.min.js') }}"></script>
 <script src="{{ static('vendor/gridstack-14.1.1/gridstack-all.js') }}"></script>
+<script src="{{ static('js/dash_charts.js') }}"></script>
 <script src="{{ static('js/dash_render.js') }}"></script>
+<script src="{{ static('js/dash_palette.js') }}"></script>
+<script src="{{ static('js/dash_filters.js') }}"></script>
 <script src="{{ static('js/dash_editor.js') }}"></script>
 <script src="{{ static('js/dash_builder.js') }}"></script>
 {% endblock %}

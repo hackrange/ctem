@@ -1,14 +1,9 @@
-// Draws one dashboard widget from its data: a number tile, an ECharts chart, or a table. Also a small dialog helper.
+// Draws one dashboard widget from its data: a number card (with its change and a sparkline), a gauge, a chart
+// (dash_charts.js), or a table. Also a small dialog helper and the API call wrapper.
 // Text from the server goes through esc() in HTML, or into ECharts as data (ECharts draws text, it doesn't parse HTML).
 (function () {
-  const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  const color = c => (c && c.startsWith('--') ? css(c) : c) || undefined;
   const n = v => (v == null ? '--' : typeof v === 'number' ? v.toLocaleString() : String(v));
-  const charts = new WeakMap();
-  // A widget's own color (from its style) and its number-card thresholds
-  const NAMED = { blue: '#3b82f6', green: '#22c55e', red: '#ef4444', orange: '#f97316', yellow: '#eab308',
-                  purple: '#a855f7', teal: '#14b8a6', gray: '#64748b' };
-  const own = w => (w && w.style && NAMED[w.style.color]) || null;
+  const C = () => window.DashCharts;
   function level(w, v) {
     const s = (w && w.style) || {};
     if (typeof v !== 'number' || (s.warn_at == null && s.bad_at == null)) return null;
@@ -18,109 +13,62 @@
     return 'low';
   }
 
-  function theme() {
-    return { fg: css('--fg'), muted: css('--fg-muted'), border: css('--border'), surface: css('--surface'),
-             palette: ['--severity-info', '--accent', '--severity-low', '--severity-high', '--severity-medium', '--fg-muted', '--severity-critical'].map(css) };
-  }
-
-  function axisBase(t) {
-    return {
-      textStyle: { color: t.fg, fontFamily: 'inherit' }, color: t.palette,
-      grid: { left: 6, right: 12, top: 30, bottom: 6, containLabel: true },
-      legend: { top: 0, type: 'scroll', textStyle: { color: t.muted }, icon: 'roundRect', itemWidth: 10, itemHeight: 7 },
-      tooltip: { trigger: 'axis', backgroundColor: t.surface, borderColor: t.border, textStyle: { color: t.fg }, valueFormatter: n },
-      xAxis: { axisLine: { lineStyle: { color: t.border } }, axisLabel: { color: t.muted } },
-      yAxis: { axisLabel: { color: t.muted, formatter: v => (v >= 1e6 ? `${v / 1e6}M` : v >= 1e3 ? `${v / 1e3}k` : v) },
-               splitLine: { lineStyle: { color: t.border, type: 'dashed' } } },
-    };
-  }
-
-  function chartIn(el) {
-    let c = charts.get(el);
-    if (!c) {
-      c = echarts.init(el, null, { renderer: 'canvas' });
-      charts.set(el, c);
-      new ResizeObserver(() => c.resize()).observe(el);
-    }
-    return c;
-  }
-
-  function dispose(el) {
-    const c = charts.get(el);
-    if (c) { c.dispose(); charts.delete(el); }
-  }
-
-  function series(el, w, d) {
-    const t = theme(), o = axisBase(t), viz = w.viz;
-    const many = (d.x || []).length > 40;
-    chartIn(el).setOption({
-      ...o, xAxis: { ...o.xAxis, type: 'category', data: d.x || [], boundaryGap: viz === 'bar' },
-      yAxis: { ...o.yAxis, type: 'value', name: d.y_unit || '', nameTextStyle: { color: t.muted } },
-      dataZoom: many ? [{ type: 'inside' }] : [],
-      series: (d.series || []).map((s, i) => ({
-        name: s.name, data: s.data, color: (i === 0 && own(w)) || color(s.color), stack: viz === 'line' ? undefined : s.stack,
-        type: viz === 'bar' ? 'bar' : 'line', symbol: 'none', smooth: 0.2, connectNulls: true, barMaxWidth: 28,
-        areaStyle: viz === 'area' ? { opacity: 0.35 } : undefined,
-      })),
-    }, true);
-  }
-
-  function parts(el, w, d, nav) {
-    const t = theme(), items = d.items || [];
-    const c = chartIn(el);
-    if (w.viz === 'bar') {
-      const o = axisBase(t);
-      c.setOption({ ...o, legend: { show: false }, tooltip: { ...o.tooltip, axisPointer: { type: 'shadow' } },
-        grid: { ...o.grid, top: 8 }, xAxis: { ...o.xAxis, type: 'value', axisLabel: o.yAxis.axisLabel, splitLine: o.yAxis.splitLine },
-        yAxis: { type: 'category', inverse: true, data: items.map(i => i.name), axisLabel: { color: t.muted, width: 120, overflow: 'truncate' },
-                 axisLine: { lineStyle: { color: t.border } } },
-        series: [{ type: 'bar', barMaxWidth: 22, data: items.map(i => ({ value: i.value, href: i.href, itemStyle: { color: own(w) || color(i.color) } })),
-                   label: { show: true, position: 'right', color: t.muted, formatter: p => n(p.value) + (d.unit || '') } }],
-      }, true);
-    } else {
-      c.setOption({ textStyle: { color: t.fg }, color: t.palette,
-        tooltip: { trigger: 'item', backgroundColor: t.surface, borderColor: t.border, textStyle: { color: t.fg },
-                   valueFormatter: v => n(v) + (d.unit || '') },
-        legend: { type: 'scroll', orient: 'vertical', right: 4, top: 'middle', textStyle: { color: t.muted } },
-        series: [{ type: 'pie', radius: ['45%', '74%'], center: ['36%', '52%'], label: { show: false },
-                   itemStyle: { borderColor: t.surface, borderWidth: 2, borderRadius: 4 },
-                   data: items.map(i => ({ name: i.name, value: i.value, href: i.href, itemStyle: { color: color(i.color) } })) }],
-      }, true);
-    }
-    c.off('click');
-    if (nav) c.on('click', p => { if (p.data && p.data.href) location.href = p.data.href; });
-  }
-
   function table(el, cols, rows, hrefs) {
-    el.innerHTML = `<div style="overflow:auto;height:100%"><table class="data-table data-table--striped" style="font-size:.85rem">
+    el.innerHTML = `<div class="dw-table"><table class="data-table data-table--striped">
       <thead><tr>${cols.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead>
       <tbody>${rows.map((r, i) => `<tr${hrefs && hrefs[i] ? ` data-href="${esc(hrefs[i])}" style="cursor:pointer"` : ''}>${r.map((v, j) =>
         `<td>${j === 0 && hrefs && hrefs[i] ? `<a class="dt-link" href="${esc(hrefs[i])}">${esc(n(v))}</a>` : esc(n(v))}</td>`).join('')}</tr>`).join('')
         || `<tr><td colspan="${cols.length}" class="text-muted" style="text-align:center;padding:14px">Nothing here</td></tr>`}</tbody></table></div>`;
   }
 
+  // "↑ 3.9%" in green when the change is good news, red when it isn't
+  function deltaChip(dl) {
+    if (!dl || typeof dl.pct !== 'number') return '';
+    const good = dl.pct === 0 ? null : (dl.pct < 0) === (dl.better !== 'up');
+    const arrow = dl.pct > 0 ? '&#9650;' : dl.pct < 0 ? '&#9660;' : '=';
+    return `<span class="dw-delta ${good == null ? '' : good ? 'is-good' : 'is-bad'}" title="Was ${esc(n(dl.was))}">${arrow} ${esc(Math.abs(dl.pct).toLocaleString())}%</span>`;
+  }
+
+  function kpi(el, w, d, nav) {
+    const v = d.value == null ? '--' : n(d.value) + (d.unit || '');
+    const lv = level(w, d.value), tint = lv ? `var(--severity-${lv})` : C().own(w);
+    const sc = C().own(w) || C().color('--accent');
+    const tag = nav && d.href ? 'a' : 'div';
+    el.innerHTML = `<${tag} class="dw-kpi${lv === 'critical' ? ' dw-kpi--alert' : ''}"${tag === 'a' ? ` href="${esc(d.href)}" title="Show these"` : ''}>
+      <span class="dw-kpi__row"><span class="dw-kpi__value"${tint ? ` style="color:${tint}"` : ''}>${esc(v)}</span>${deltaChip(d.delta)}</span>
+      ${d.note ? `<span class="dw-kpi__note">${esc(d.note)}</span>` : ''}${C().spark(d.spark, sc)}</${tag}>`;
+  }
+
   // el: the widget body. w: widget config. d: its data. nav: clicks navigate (off while editing).
   function render(el, w, d, nav = true) {
-    if (!d) { dispose(el); el.innerHTML = '<div class="dw-msg text-muted">Loading...</div>'; return; }
-    if (d.error) { dispose(el); el.innerHTML = `<div class="dw-msg text-muted">${esc(d.error)}</div>`; return; }
+    C().dispose(el);
+    el.title = '';
+    if (!d) { el.innerHTML = '<div class="dw-msg"><span class="dw-skeleton"></span></div>'; return; }
+    if (d.error) { el.innerHTML = `<div class="dw-msg text-muted">${esc(d.error)}</div>`; return; }
     if (d.shape === 'value') {
-      dispose(el);
-      const v = d.value == null ? '--' : n(d.value) + (d.unit || '');
-      const lv = level(w, d.value), tint = lv ? `var(--severity-${lv})` : own(w);
-      el.innerHTML = `${nav && d.href ? `<a class="dw-kpi" href="${esc(d.href)}" title="Show these">` : '<div class="dw-kpi">'}
-        <span class="dw-kpi__value"${tint ? ` style="color:${tint}"` : ''}>${esc(v)}</span>${d.note ? `<span class="dw-kpi__note">${esc(d.note)}</span>` : ''}
-        ${nav && d.href ? '</a>' : '</div>'}`;
+      if (w.viz === 'gauge' && d.value != null) {
+        const lv = level(w, d.value);
+        const foot = `<div class="dw-gauge-foot">${deltaChip(d.delta)}${d.note ? `<span>${esc(d.note)}</span>` : ''}</div>`;
+        C().gauge(el, w, d, lv ? getComputedStyle(document.documentElement).getPropertyValue(`--severity-${lv}`).trim() : null, foot);
+        if (nav && d.href) { el.style.cursor = 'pointer'; el.onclick = e => { if (!e.target.closest('a')) location.href = d.href; }; }
+        return;
+      }
+      el.onclick = null;
+      el.style.cursor = '';
+      kpi(el, w, d, nav);
       return;
     }
+    el.onclick = null;
+    el.style.cursor = '';
     if (d.shape === 'table' || (d.shape === 'parts' && w.viz === 'table')) {
-      dispose(el);
       if (d.shape === 'parts') table(el, ['', 'Count'], (d.items || []).map(i => [i.name, i.value]), (d.items || []).map(i => (nav ? i.href : null)));
       else table(el, d.columns || [], d.rows || [], nav ? d.hrefs : null);
+      if (d.headline) el.insertAdjacentHTML('afterbegin', `<div class="dw-headline">${esc(d.headline)}</div>`);
       return;
     }
-    el.innerHTML = '';
-    if (d.shape === 'series') series(el, w, d);
-    else parts(el, w, d, nav);
+    if (d.shape === 'series') C().series(el, w, d);
+    else if (d.shape === 'points') C().points(el, w, d, nav);
+    else C().parts(el, w, d, nav);
     if (d.note) el.title = d.note;
   }
 
@@ -150,6 +98,21 @@
     };
   }
 
+  // The AI asked back instead of guessing: show its question with its suggested answers and a box for your own.
+  // onAnswer gets "question -> answer", which goes back with the original request.
+  function clarify(box, q, onAnswer) {
+    box.hidden = false;
+    box.innerHTML = `<div class="ai-q"><div class="ai-q__text"><b>The AI asks:</b> ${esc(q.question)}</div>
+      <div class="ai-q__opts">${(q.options || []).map((o, i) => `<button type="button" class="btn btn--ghost btn--sm" data-opt="${i}">${esc(o)}</button>`).join('')}</div>
+      <div class="ai-q__own"><input class="form-input" maxlength="400" placeholder="Or type your own answer" aria-label="Your answer">
+        <button type="button" class="btn btn--primary btn--sm">Answer</button></div></div>`;
+    const send = a => { if (!a) return; box.innerHTML = ''; box.hidden = true; onAnswer(`${q.question} -> ${a}`.slice(0, 600)); };
+    box.querySelectorAll('[data-opt]').forEach(b => { b.onclick = () => send(q.options[Number(b.dataset.opt)]); });
+    const inp = box.querySelector('input');
+    box.querySelector('.ai-q__own .btn').onclick = () => send(inp.value.trim());
+    inp.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); send(inp.value.trim()); } };
+  }
+
   async function api(method, url, body) {
     const res = await fetch(url, { method, headers: { Accept: 'application/json', ...(body ? { 'Content-Type': 'application/json' } : {}) },
                                    body: body ? JSON.stringify(body) : undefined });
@@ -158,5 +121,5 @@
     return res.json();
   }
 
-  window.DashRender = { render, dispose, dialog, api };
+  window.DashRender = { render, dispose: el => C().dispose(el), dialog, api, clarify };
 })();

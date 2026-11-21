@@ -4,7 +4,7 @@ from __future__ import annotations
 import enum
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, Enum, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, DateTime, Enum, ForeignKey, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from api.models.base import Base, TimestampMixin, UUIDPrimaryKey
@@ -27,7 +27,13 @@ class Dashboard(Base, UUIDPrimaryKey, TimestampMixin):
     owner_name: Mapped[str] = mapped_column(String(255), nullable=False)
     visibility: Mapped[Visibility] = mapped_column(Enum(Visibility), nullable=False, default=Visibility.private)
     share_roles: Mapped[list | None] = mapped_column(JSON)
-    widgets: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    widgets: Mapped[list] = mapped_column(JSON, nullable=False, default=list)   # what viewers see once published
+    theme: Mapped[str] = mapped_column(String(24), nullable=False, default="default", server_default=text("'default'"))
+    # A new dashboard is a draft only its owner (and admins) see. Once published, edits are saved to `draft`
+    # ({"widgets", "theme"}) and viewers keep seeing the published version until the owner publishes again.
+    published: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("true"))
+    draft: Mapped[dict | None] = mapped_column(JSON)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Favorite(Base, UUIDPrimaryKey):

@@ -43,8 +43,11 @@ def _admin(u: User) -> bool:
 
 
 def can_view(d: Dashboard, u: User) -> bool:
-    return (_admin(u) or d.owner_id == str(u.id) or d.visibility == Visibility.everyone
-            or (d.visibility == Visibility.roles and bool(set(d.share_roles or []) & set(u.role_names))))
+    """Owners and admins always; anyone else only once it's published and shared with them."""
+    if _admin(u) or d.owner_id == str(u.id):
+        return True
+    return d.published is not False and (d.visibility == Visibility.everyone
+                                         or (d.visibility == Visibility.roles and bool(set(d.share_roles or []) & set(u.role_names))))
 
 
 def can_edit(d: Dashboard, u: User) -> bool:
@@ -58,6 +61,8 @@ class DashBody(BaseModel):
     visibility: Literal["private", "roles", "everyone"] = "private"
     share_roles: list[Literal[ROLES]] = Field(default_factory=list, max_length=len(ROLES))
     widgets: list[dict] = Field(default_factory=list, max_length=cat.MAX_WIDGETS)
+    theme: Literal[cat.THEMES] = "default"
+    template: Annotated[str, StringConstraints(pattern=r"^[a-z_]{1,40}$")] | None = None   # start from a starter dashboard
 
 
 def _widgets(raw: list) -> list[dict]:
@@ -84,7 +89,16 @@ def _summary(d: Dashboard, u: User, starred: set[str]) -> dict:
     return {"id": str(d.id), "name": d.name, "description": d.description, "owner": d.owner_name,
             "mine": d.owner_id == str(u.id), "visibility": d.visibility.value, "share_roles": d.share_roles or [],
             "widgets": len(d.widgets or []), "updated_at": (d.updated_at or d.created_at).isoformat() + "Z",
-            "can_edit": can_edit(d, u), "starred": str(d.id) in starred}
+            "can_edit": can_edit(d, u), "starred": str(d.id) in starred, "theme": d.theme or "default",
+            "published": d.published is not False, "has_draft": bool(d.draft) and can_edit(d, u),
+            "published_at": d.published_at.isoformat() if d.published_at else None}
+
+
+def _editing(d: Dashboard) -> dict:
+    """What the owner is working on: the draft if there is one, else the published version."""
+    if d.draft:
+        return {"widgets": d.draft.get("widgets") or [], "theme": d.draft.get("theme") or d.theme or "default"}
+    return {"widgets": d.widgets or [], "theme": d.theme or "default"}
 
 
 async def _get(db, u: User, dash_id: uuid.UUID) -> Dashboard:
@@ -98,8 +112,25 @@ async def _get(db, u: User, dash_id: uuid.UUID) -> Dashboard:
 async def catalog(u: User = Depends(_member), db: AsyncSession = Depends(get_session)):
     """The metrics this person may put on a dashboard."""
     ctx = await cat.context(db, u)
+    from api.dashboards import presets
     return {"metrics": [m.spec() for m in cat.REGISTRY.values() if cat.allowed(m, ctx)],
-            "roles": list(ROLES), "grid_cols": cat.GRID_COLS, "max_widgets": cat.MAX_WIDGETS}
+            "roles": list(ROLES), "grid_cols": cat.GRID_COLS, "max_widgets": cat.MAX_WIDGETS, "themes": list(cat.THEMES),
+            **presets.for_viewer(ctx), "filter_options": await _filter_options(db)}
+
+
+async def _filter_options(db) -> dict:
+    """What the widget filter editor offers: tag-mapping roles with the values in use, sources and the fixed lists."""
+    from api.core import tag_roles
+    from api.core.device_match import SOURCE_CODES
+    from api.dashboards import fleet
+    from api.models.device import DeviceType, RiskGrade
+    roles = await tag_roles.ensure(db)
+    opts = await tag_roles.options(db, roles)
+    return {"roles": [{"key": r.key, "name": r.name, "values": sorted({o["value"] for o in opts.get(r.key, [])}, key=str.lower)[:500]}
+                      for r in roles],
+            "sources": [{"value": k, "label": f"{k.replace('_', ' ')} ({v})"} for k, v in SOURCE_CODES.items()],
+            "device_types": list(DeviceType.__members__), "os_families": [{"value": k, "label": v} for k, v in fleet.OS_LABEL.items()],
+            "grades": [g.value for g in RiskGrade]}
 
 
 @router.get("")
@@ -126,9 +157,18 @@ async def list_dashboards(u: User = Depends(_member), db: AsyncSession = Depends
 
 @router.post("")
 async def create(body: DashBody, u: User = Depends(_member), db: AsyncSession = Depends(get_session)):
+    """New dashboards start as drafts: only the owner (and admins) see them until they're published."""
+    widgets, theme = _widgets(body.widgets), body.theme
+    if body.template and not widgets:
+        from api.dashboards import presets
+        t = next((t for t in presets.TEMPLATES if t["key"] == body.template), None)
+        if t is None:
+            raise HTTPException(422, "No such starter dashboard")
+        widgets = _widgets(presets.pack(t["rows"], await cat.context(db, u)))
+        theme = t["theme"] if body.theme == "default" else body.theme
     d = Dashboard(name=body.name, description=body.description or None, owner_id=str(u.id), owner_name=u.username,
                   visibility=Visibility(body.visibility), share_roles=list(dict.fromkeys(body.share_roles)) or None,
-                  widgets=_widgets(body.widgets))
+                  widgets=widgets, theme=theme, published=False)
     db.add(d)
     await db.flush()
     _audit(db, u, "dashboard.create", d)
@@ -139,7 +179,11 @@ async def create(body: DashBody, u: User = Depends(_member), db: AsyncSession = 
 @router.get("/{dash_id}")
 async def get_dashboard(dash_id: uuid.UUID, u: User = Depends(_member), db: AsyncSession = Depends(get_session)):
     d = await _get(db, u, dash_id)
-    return {**_summary(d, u, await _starred(db, u)), "widgets": [w for w in map(cat.clean_widget, d.widgets or []) if w]}
+    out = {**_summary(d, u, await _starred(db, u)), "widgets": [w for w in map(cat.clean_widget, d.widgets or []) if w]}
+    if can_edit(d, u) and d.draft:
+        e = _editing(d)
+        out["draft"] = {"widgets": [w for w in map(cat.clean_widget, e["widgets"]) if w], "theme": e["theme"]}
+    return out
 
 
 @router.put("/{dash_id}")
@@ -149,8 +193,54 @@ async def update(dash_id: uuid.UUID, body: DashBody, u: User = Depends(_member),
         raise HTTPException(404)
     d.name, d.description = body.name, body.description or None
     d.visibility, d.share_roles = Visibility(body.visibility), list(dict.fromkeys(body.share_roles)) or None
-    d.widgets = _widgets(body.widgets)
+    widgets = _widgets(body.widgets)
+    if d.published is False:   # still a draft: nobody else sees it, so save in place
+        d.widgets, d.theme, d.draft = widgets, body.theme, None
+    elif widgets != (d.widgets or []) or body.theme != (d.theme or "default"):
+        d.draft = {"widgets": widgets, "theme": body.theme}   # viewers keep the published version until Publish
+    else:
+        d.draft = None
     _audit(db, u, "dashboard.update", d)
+    await db.commit()
+    return {"ok": True, "draft": bool(d.draft) or d.published is False}
+
+
+@router.post("/{dash_id}/publish")
+async def publish(dash_id: uuid.UUID, u: User = Depends(_member), db: AsyncSession = Depends(get_session)):
+    """Make the draft what everyone it's shared with sees."""
+    d = await _get(db, u, dash_id)
+    if not can_edit(d, u):
+        raise HTTPException(404)
+    if d.draft:
+        d.widgets, d.theme = _widgets(d.draft.get("widgets") or []), d.draft.get("theme") or d.theme
+    d.draft, d.published, d.published_at = None, True, datetime.now(timezone.utc)
+    _audit(db, u, "dashboard.publish", d)
+    await db.commit()
+    return {"ok": True}
+
+
+@router.post("/{dash_id}/discard")
+async def discard(dash_id: uuid.UUID, u: User = Depends(_member), db: AsyncSession = Depends(get_session)):
+    """Throw away unpublished changes."""
+    d = await _get(db, u, dash_id)
+    if not can_edit(d, u):
+        raise HTTPException(404)
+    d.draft = None
+    _audit(db, u, "dashboard.discard_draft", d)
+    await db.commit()
+    return {"ok": True}
+
+
+@router.post("/{dash_id}/unpublish")
+async def unpublish(dash_id: uuid.UUID, u: User = Depends(_member), db: AsyncSession = Depends(get_session)):
+    """Back to a draft: only the owner and admins see it until it's published again."""
+    d = await _get(db, u, dash_id)
+    if not can_edit(d, u):
+        raise HTTPException(404)
+    if d.draft:
+        d.widgets, d.theme, d.draft = _widgets(d.draft.get("widgets") or []), d.draft.get("theme") or d.theme, None
+    d.published = False
+    _audit(db, u, "dashboard.unpublish", d)
     await db.commit()
     return {"ok": True}
 
@@ -171,8 +261,9 @@ async def delete(dash_id: uuid.UUID, u: User = Depends(_member), db: AsyncSessio
 async def copy(dash_id: uuid.UUID, u: User = Depends(_member), db: AsyncSession = Depends(get_session)):
     """Your own private copy to change as you like."""
     src = await _get(db, u, dash_id)
+    e = _editing(src) if can_edit(src, u) else {"widgets": src.widgets or [], "theme": src.theme or "default"}
     d = Dashboard(name=f"{src.name} (copy)"[:120], description=src.description, owner_id=str(u.id), owner_name=u.username,
-                  visibility=Visibility.private, widgets=_widgets(src.widgets or []))
+                  visibility=Visibility.private, widgets=_widgets(e["widgets"]), theme=e["theme"], published=False)
     db.add(d)
     await db.flush()
     _audit(db, u, "dashboard.copy", d)
@@ -195,6 +286,44 @@ async def widget_data(body: DataBody, u: User = Depends(_member), db: AsyncSessi
         if w:
             out[w["id"] or w["metric"]] = await cat.evaluate(ctx, w)
     return {"data": out}
+
+
+class ExportBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    widget: dict
+
+
+def _table_of(w: dict, out: dict) -> tuple[list[str], list[list]]:
+    """A widget's data as rows: tables as shown, slices as name and count, charts as one row per point."""
+    shape = out.get("shape")
+    if shape == "table":
+        return list(out.get("columns") or []), [list(r) for r in out.get("rows") or []]
+    if shape == "parts":
+        return ["Name", "Value"], [[i.get("name"), i.get("value")] for i in out.get("items") or []]
+    if shape == "series":
+        ser = out.get("series") or []
+        x = out.get("x") or []
+        return ["", *[s.get("name") for s in ser]], [[d, *[(s.get("data") or [None] * len(x))[i] if i < len(s.get("data") or []) else None
+                                                            for s in ser]] for i, d in enumerate(x)]
+    if shape == "points":
+        return ["Group", "Name", out.get("x_label") or "x", out.get("y_label") or "y", out.get("size_label") or "Size"], \
+            [[g.get("name"), p[3], p[0], p[1], p[2]] for g in out.get("groups") or [] for p in g.get("points") or []]
+    return ["Value"], [[out.get("value")]]
+
+
+@router.post("/export")
+async def export_widget(body: ExportBody, u: User = Depends(_member), db: AsyncSession = Depends(get_session)):
+    """One widget's data as CSV, computed for the person exporting (their access and the widget's filters) and
+    safe to open in a spreadsheet."""
+    from api.core.csv_export import csv_response
+    w = cat.clean_widget(body.widget)
+    if w is None:
+        raise HTTPException(422, "Unknown widget")
+    out = await cat.evaluate(await cat.context(db, u), w)
+    if out.get("error"):
+        raise HTTPException(422, "This widget has no data to export right now")
+    header, rows = _table_of(w, out)
+    return csv_response(w["title"] or w["metric"], [str(h) for h in header], rows)
 
 
 @fav_router.get("")

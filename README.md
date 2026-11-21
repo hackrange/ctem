@@ -147,7 +147,14 @@ A **generic installer** (no code inside) is also available: the box signs in onc
 - **Each viewer sees their own numbers.** Widgets store a metric id and allow-listed options, never a query, and are computed for whoever is looking: an IT user sees only their devices, cyber the whole fleet. Threat widgets are for admin and cyber; GRC widgets for people with GRC access.
 - **Sharing:** private, shared with chosen roles, or with everyone. Only the owner and admins change a dashboard; others can view, star or copy it. Admins have an *All dashboards* view.
 - **Favorites:** star a dashboard to keep it in the menu's Favorites section and the Favorites tab.
-- **Style:** each widget can pick a color (blue, green, red, orange, yellow, purple, teal or gray); number cards can set amber and red thresholds.
+- **Building:** in edit mode, drag stock widgets (about 50, grouped by topic) or any catalog metric from the library onto the grid, then move, resize and duplicate them. Switch a widget's chart type (number, gauge, line, area, bars, stacked bars, columns, donut, pie, table, scatter, bubble), color and transparency right on the widget.
+- **Starter dashboards:** Risk overview, Remediation progress, Environment trends, Asset coverage, Asset inventory and Vulnerability trends.
+- **Themes:** Default, Ocean glass, Sunset, Forest, Violet glass, Slate outline and Neon glass. They work in light and dark mode, and severity colors keep their meaning.
+- **Filters:** any device-based widget can count only devices matching conditions on tags, tag-mapping roles (Executive owner, Application...), sources, device type, OS family, criticality or grade (all or any), or only the devices the viewer has access to. Every widget already shows each viewer only what they may see.
+- **CSV export:** tables and charts download their data as formula-safe CSV.
+- **AI follow-ups:** keep refining a dashboard in the "Ask the AI" box while editing; when a request is unclear, the AI asks a short question with suggested answers instead of guessing.
+- **Draft and publish:** new dashboards are private drafts. Edits to a published dashboard stay a draft until you publish, so viewers never see half-finished changes.
+- **Style:** each widget can pick a color (blue, green, red, orange, yellow, purple, teal or gray) and a transparency; number cards can set amber and red thresholds.
 - **AI help** (with an AI integration): describe a widget and it opens in the editor to check; describe a dashboard and it drafts one to edit, reusing a widget with different options where that fits; *Edit with AI* changes an existing dashboard on request ("make the trend blue", "add a 14-day card") and shows the result in edit mode, saved only when you click Save; *Explain* summarizes what a dashboard shows. The AI only picks from your own catalog, and Explain sends numbers only, never hostnames or people.
 - Widget results are cached for 15 minutes per viewer scope; dashboards refresh every 5 minutes while open.
 

@@ -1,6 +1,7 @@
 // The widget editor (pick a metric, chart type and options, with a live preview) and the AI "describe a widget" box.
 (function () {
-  const VIZ = { kpi: 'Number', line: 'Line', area: 'Area', bar: 'Bars', donut: 'Donut', table: 'Table' };
+  const VIZ = { kpi: 'Number', gauge: 'Gauge', line: 'Line', area: 'Area', bar: 'Bars', stacked: 'Stacked bars', column: 'Columns',
+               donut: 'Donut', pie: 'Pie', table: 'Table', bubble: 'Bubbles', scatter: 'Scatter' };
   const COLORS = ['blue', 'green', 'red', 'orange', 'yellow', 'purple', 'teal', 'gray'];
   const uid = () => Math.random().toString(36).slice(2, 14);
 
@@ -28,12 +29,15 @@
         <label class="form-label" for="dwe-viz" style="margin-top:8px">Show as</label>
         <select id="dwe-viz" class="form-input"></select>
         <div id="dwe-params"></div>
+        <div id="dwe-filters" style="margin-top:12px"></div>
         <label class="form-label" for="dwe-title" style="margin-top:8px">Title</label>
         <input id="dwe-title" class="form-input" maxlength="120">
         <div class="form-label" style="margin-top:12px">Style</div>
         <label class="form-label text-sm" for="dwe-color" style="margin-top:4px">Color</label>
         <select id="dwe-color" class="form-input"><option value="">Automatic</option>${COLORS.map(c =>
           `<option value="${c}">${c[0].toUpperCase() + c.slice(1)}</option>`).join('')}</select>
+        <label class="form-label text-sm" for="dwe-op" style="margin-top:6px">Transparency</label>
+        <select id="dwe-op" class="form-input">${[100, 85, 70, 55, 40, 25].map(o => `<option value="${o}">${o === 100 ? 'Solid' : `${o}% (see-through)`}</option>`).join('')}</select>
         <div id="dwe-thresholds" style="margin-top:6px">
           <div style="display:flex;gap:8px">
             <div style="flex:1"><label class="form-label text-sm" for="dwe-warn">Amber at</label><input id="dwe-warn" type="number" class="form-input" placeholder="e.g. 10"></div>
@@ -70,6 +74,7 @@
       }).join('');
       if (!titleTouched) $('dwe-title').value = m.label;
       $('dwe-thresholds').hidden = m.shape !== 'value';
+      $('dwe-filters').hidden = m.filterable === false;
       refresh();
     }
     function current() {
@@ -82,25 +87,30 @@
       const small = m.shape === 'value';
       const style = {};
       if ($('dwe-color').value) style.color = $('dwe-color').value;
+      if (Number($('dwe-op').value) < 100) style.opacity = Number($('dwe-op').value);
       if (small) {
         if ($('dwe-warn').value !== '') style.warn_at = Number($('dwe-warn').value);
         if ($('dwe-bad').value !== '') style.bad_at = Number($('dwe-bad').value);
         if (style.warn_at != null || style.bad_at != null) style.higher_is_worse = $('dwe-higher').checked;
       }
-      return { id: w ? w.id : uid(), metric: m.id, viz: $('dwe-viz').value, title: $('dwe-title').value.trim() || m.label, params, style,
+      const fl = m.filterable === false ? { filters: [], filter_match: 'all' } : filt.get();
+      return { id: w ? w.id : uid(), metric: m.id, viz: $('dwe-viz').value, title: $('dwe-title').value.trim() || m.label, params, style, ...fl,
                x: w ? w.x : 0, y: w ? w.y : 0, w: w ? w.w : (small ? 3 : 6), h: w ? w.h : (small ? 2 : 4) };
     }
     let t;
     function refresh() { clearTimeout(t); t = setTimeout(() => preview($('dwe-preview'), current()), 250); }
 
+    const filt = DashFilters.mount($('dwe-filters'), opts.filterOptions, { filters: (w && w.filters) || [], match: w && w.filter_match },
+                                   () => refresh());
     $('dwe-cat').onchange = () => fillMetrics();
     $('dwe-metric').onchange = () => fillMetric();
     $('dwe-viz').onchange = refresh;
     $('dwe-params').addEventListener('change', refresh);
     $('dwe-title').addEventListener('input', () => { titleTouched = true; });
-    ['dwe-color', 'dwe-warn', 'dwe-bad', 'dwe-higher'].forEach(id => $(id).addEventListener('change', refresh));
+    ['dwe-color', 'dwe-op', 'dwe-warn', 'dwe-bad', 'dwe-higher'].forEach(id => $(id).addEventListener('change', refresh));
     const st = (w && w.style) || {};
     $('dwe-color').value = st.color || '';
+    $('dwe-op').value = String(st.opacity || 100);
     $('dwe-warn').value = st.warn_at != null ? st.warn_at : '';
     $('dwe-bad').value = st.bad_at != null ? st.bad_at : '';
     $('dwe-higher').checked = st.higher_is_worse !== false;
@@ -125,19 +135,22 @@
     const d = DashRender.dialog('dw-ai', 'Describe a widget', 560);
     d.body.innerHTML = `<p class="text-sm text-muted" style="margin-top:0">For example: "critical KEV findings on servers over the last 90 days" or
       "how many devices are hidden in Falcon".</p>
-      <textarea id="dwa-text" class="form-input" rows="3" maxlength="1000"></textarea>`;
+      <textarea id="dwa-text" class="form-input" rows="3" maxlength="1000"></textarea><div id="dwa-q" hidden></div>`;
+    let answers = [];
+    document.getElementById('dwa-text').addEventListener('input', () => { answers = []; document.getElementById('dwa-q').hidden = true; });
     d.button('Cancel', 'btn--ghost', d.close);
     const go = d.button('Draft it', 'btn--primary', async () => {
       const text = document.getElementById('dwa-text').value.trim();
       if (text.length < 5) return d.msg('Describe the widget first.', true);
       go.disabled = true;
       d.msg('Asking the AI...');
-      const r = await DashRender.api('POST', '/api/v1/dashboards/ai/widget', { text });
+      const r = await DashRender.api('POST', '/api/v1/dashboards/ai/widget', { text, answers });
       go.disabled = false;
+      if (r.question) { d.msg(''); DashRender.clarify(document.getElementById('dwa-q'), r, a => { answers.push(a); go.click(); }); return; }
       if (r.available === false) return d.msg('No AI integration is set up. Use Add widget instead, or add one under Integrations.', true);
       if (!r.widget) return d.msg(r.error || 'The AI had no suggestion. Try rewording it.', true);
       d.close();
-      open({ catalog: opts.catalog, widget: r.widget, onSave: opts.onSave, note: r.note, isNew: true });
+      open({ catalog: opts.catalog, filterOptions: opts.filterOptions, widget: r.widget, onSave: opts.onSave, note: r.note, isNew: true });
     });
   }
 

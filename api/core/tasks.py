@@ -368,6 +368,8 @@ def record_snapshots():
 
 async def _record_snapshots():
     from api.core.db import get_session
+    from api.dashboards import snapshots
     from api.dashboards.m_directory import record_snapshots as rec
     async for db in get_session():
         await rec(db)
+        await snapshots.record(db)

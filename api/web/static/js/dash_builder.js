@@ -1,32 +1,72 @@
-// One dashboard: view it, or (owner and admins) edit it on a drag-and-resize grid. Data is the viewer's own.
+// One dashboard: view it, or (owner and admins) edit it on a drag-and-resize grid with a widget library to drag
+// from, chart types and colors switched right on each widget, and a theme. Edits save as a draft that only the
+// owner and admins see; Publish makes it what everyone it's shared with sees. Data is always the viewer's own.
 (() => {
   const $ = id => document.getElementById(id);
   const API = '/api/v1/dashboards';
   const id = location.pathname.split('/').filter(Boolean).pop();
   const ROLE_LABEL = { admin: 'Admins', cyber: 'Cyber', grc: 'GRC', it_user: 'IT users', read_only: 'Read-only',
                        inventory: 'Inventory', business_stakeholder: 'Business stakeholders' };
-  let dash, catalog = [], roles = [], grid, editing = false, widgets = [], data = {}, timer;
+  const COLORS = ['blue', 'green', 'red', 'orange', 'yellow', 'purple', 'teal', 'gray'];
+  const OPACITY = [100, 85, 70, 55, 40, 25];
+  let dash, catalog = [], presets = [], roles = [], filterOptions = null, grid, editing = false, widgets = [], data = {}, timer, theme = 'default';
+  let showing = 'published';   // or 'draft': what the owner is looking at
+  const byMetric = () => Object.fromEntries(catalog.map(m => [m.id, m]));
 
   const body = wid => document.querySelector(`.grid-stack-item[gs-id="${CSS.escape(wid)}"] .dw-body`);
 
+  function bar(w) {   // quick controls while editing: chart type, color, transparency
+    const m = byMetric()[w.metric];
+    if (!m) return '';
+    const st = w.style || {};
+    return `<div class="dw-bar">
+      <span class="dw-bar__viz">${m.viz.map(v => `<button type="button" class="dw-vbtn${v === w.viz ? ' is-on' : ''}" data-viz="${esc(v)}" data-w="${esc(w.id)}"
+        title="${esc(DashPalette.VIZ[v] || v)}" aria-label="${esc(DashPalette.VIZ[v] || v)}">${DashPalette.icon(v, m.shape)}</button>`).join('')}</span>
+      <span class="dw-bar__colors"><button type="button" class="dw-dot dw-dot--auto${st.color ? '' : ' is-on'}" data-color="" data-w="${esc(w.id)}" title="Automatic" aria-label="Automatic color"></button>${COLORS.map(c =>
+        `<button type="button" class="dw-dot${st.color === c ? ' is-on' : ''}" style="background:${DashCharts.NAMED[c]}" data-color="${c}" data-w="${esc(w.id)}" title="${c}" aria-label="${c}"></button>`).join('')}</span>
+      ${m.shape === 'table' ? '' : `<select class="dw-op" data-w="${esc(w.id)}" title="Transparency" aria-label="Transparency">${OPACITY.map(o =>
+        `<option value="${o}"${(st.opacity || 100) === o ? ' selected' : ''}>${o === 100 ? 'Solid' : `${o}%`}</option>`).join('')}</select>`}</div>`;
+  }
+
   function item(w) {
-    return `<div class="dw"><div class="dw-head"><span class="dw-title">${esc(w.title)}</span>
-      <span class="dw-tools" ${editing ? '' : 'hidden'}><button type="button" class="dw-tool" data-edit="${esc(w.id)}" title="Edit widget" aria-label="Edit widget">&#9998;</button>
-      <button type="button" class="dw-tool" data-remove="${esc(w.id)}" title="Remove widget" aria-label="Remove widget">&#10005;</button></span></div>
-      <div class="dw-body"></div></div>`;
+    const fd = DashFilters.describe(w, filterOptions);
+    return `<div class="dw"><div class="dw-head"><span class="dw-title" title="${esc(w.title)}">${esc(w.title)}${fd
+      ? ` <span class="dw-filter" title="Filtered: ${esc(fd)}" aria-label="Filtered: ${esc(fd)}">&#9881; ${esc(String(w.filters.length))}</span>` : ''}</span>
+      ${!editing && (byMetric()[w.metric] || {}).shape !== 'value' ? `<button type="button" class="dw-tool dw-csv" data-csv="${esc(w.id)}"
+        title="Download the data as CSV" aria-label="Download ${esc(w.title)} as CSV">CSV</button>` : ''}
+      <span class="dw-tools" ${editing ? '' : 'hidden'}><button type="button" class="dw-tool" data-edit="${esc(w.id)}" title="All settings" aria-label="Edit widget">&#9998;</button>
+      <button type="button" class="dw-tool" data-dup="${esc(w.id)}" title="Duplicate" aria-label="Duplicate widget">&#10697;</button>
+      <button type="button" class="dw-tool" data-remove="${esc(w.id)}" title="Remove" aria-label="Remove widget">&#10005;</button></span></div>
+      ${editing ? bar(w) : ''}<div class="dw-body"></div></div>`;
+  }
+
+  function applyTheme() {
+    const t = DashCharts.setTheme(theme);
+    $('db-wrap').className = `db-wrap db-theme--${t.card}${t.palette ? ` db-theme-${theme}` : ''}${editing ? ' is-editing' : ''}`;
   }
 
   function build() {
-    if (grid) { grid.removeAll(true); } else {
-      grid = GridStack.init({ column: 12, cellHeight: 70, margin: 8, float: false, staticGrid: true,
-                              resizable: { handles: 'se' }, draggable: { handle: '.dw-head' } }, $('db-grid'));
+    applyTheme();
+    if (grid) grid.removeAll(true);
+    else {
+      grid = GridStack.init({ column: 12, cellHeight: 72, margin: 8, float: false, staticGrid: true, acceptWidgets: true,
+                              columnOpts: { breakpoints: [{ w: 640, c: 1 }, { w: 1000, c: 6 }] },
+                              resizable: { handles: 'se,e,s' }, draggable: { handle: '.dw-head' } }, $('db-grid'));
+      grid.on('dropped', (_e, _prev, node) => {   // a widget dragged in from the library
+        const w = palette && palette.take(node.el && node.el.dataset.key);
+        grid.removeWidget(node.el, true, false);
+        if (w) { layout(); add({ ...w, x: node.x, y: node.y }, true); }
+      });
+      grid.on('change', () => layout());
     }
     widgets.forEach(w => {
       const el = grid.addWidget({ id: w.id, x: w.x, y: w.y, w: w.w, h: w.h, minW: 2, minH: 2 });
       el.querySelector('.grid-stack-item-content').innerHTML = item(w);
       DashRender.render(body(w.id), w, data[w.id], !editing);
     });
-    $('db-empty').hidden = widgets.length > 0;
+    grid.setStatic(!editing);
+    $('db-empty').hidden = widgets.length > 0 || editing;
+    $('db-drop-hint').hidden = !(editing && !widgets.length);
   }
 
   async function load(only) {
@@ -35,12 +75,30 @@
     list.forEach(w => DashRender.render(body(w.id), w, null, !editing));
     const r = await DashRender.api('POST', `${API}/data`, { widgets: list });
     Object.assign(data, r.data || {});
-    list.forEach(w => DashRender.render(body(w.id), w, data[w.id] || { error: r.error || 'No data' }, !editing));
+    list.forEach(w => { const b = body(w.id); if (b) DashRender.render(b, w, data[w.id] || { error: r.error || 'No data' }, !editing); });
   }
 
-  function layout() {
+  function layout() {   // positions only count from the full 12-column grid (not the phone layout)
+    if (!grid || grid.getColumn() !== 12) return;
     const pos = Object.fromEntries(grid.save(false).map(n => [n.id, n]));
     widgets = widgets.map(w => ({ ...w, ...(pos[w.id] ? { x: pos[w.id].x, y: pos[w.id].y, w: pos[w.id].w, h: pos[w.id].h } : {}) }));
+  }
+
+  function status() {
+    const s = $('db-status');
+    if (!dash.can_edit) { s.hidden = true; return; }
+    s.hidden = false;
+    s.className = `db-status ${!dash.published ? 'is-draft' : dash.has_draft ? 'is-changed' : 'is-live'}`;
+    s.textContent = !dash.published ? 'Draft' : dash.has_draft ? 'Unpublished changes' : 'Published';
+    const b = $('db-banner');
+    b.hidden = editing || !(dash.has_draft || !dash.published);
+    if (!b.hidden) {
+      b.innerHTML = !dash.published
+        ? '<span>This dashboard is a <b>draft</b>: only you and admins can see it. Publish it to share it.</span>'
+        : `<span>${showing === 'draft' ? "You're looking at your <b>draft</b>. Others still see the published version."
+                                       : "You're looking at the <b>published</b> version. You have unpublished changes."}</span>
+           <button type="button" class="btn btn--ghost btn--sm" id="db-toggle">${showing === 'draft' ? 'View published' : 'View draft'}</button>`;
+    }
   }
 
   function header() {
@@ -53,51 +111,92 @@
     $('db-star').innerHTML = dash.starred ? '&#9733;' : '&#9734;';
     $('db-star').setAttribute('aria-pressed', String(dash.starred));
     $('db-star').title = dash.starred ? 'Remove from Favorites' : 'Add to Favorites';
+    status();
     const a = $('db-actions');
     a.innerHTML = '';
     const btn = (label, cls, fn, title) => { const b = document.createElement('button'); b.type = 'button'; b.className = `btn ${cls} btn--sm`;
                                              b.textContent = label; if (title) b.title = title; b.onclick = fn; a.appendChild(b); return b; };
     if (editing) {
-      btn('Add widget', 'btn--primary', () => DashEditor.open({ catalog, onSave: add }));
-      btn('Edit with AI', 'btn--ghost', aiEdit, 'Describe a change, e.g. "make the trend blue" or "add a 14-day card"');
-      btn('Describe a widget (AI)', 'btn--ghost', () => DashEditor.describe({ catalog, onSave: add }));
-      btn('Cancel', 'btn--ghost', () => { editing = false; $('db-explain').hidden = true; open(); });
-      btn('Save', 'btn--primary', save);
+      btn('Describe a widget (AI)', 'btn--ghost', () => DashEditor.describe({ catalog, filterOptions, onSave: w => add(w) }));
+      btn('Cancel', 'btn--ghost', () => { editing = false; $('db-explain').hidden = true; open(); }, 'Throw away changes since the last save');
+      btn('Save draft', 'btn--ghost', () => save(false), 'Only you and admins see it until you publish');
+      btn('Save and publish', 'btn--primary', () => save(true));
       return;
     }
-    btn('Refresh', 'btn--ghost', () => load());
+    btn('Refresh', 'btn--ghost', () => { data = {}; load(); });
     btn('Explain (AI)', 'btn--ghost', explain, 'A plain-English summary of what this dashboard shows right now');
     btn('Copy', 'btn--ghost', copy, 'Make your own copy to change');
     if (dash.can_edit) {
-      btn('Edit with AI', 'btn--ghost', aiEdit, 'Describe a change, e.g. "make the trend blue" or "add a 14-day card"');
+      btn('Edit with AI', 'btn--ghost', aiEdit, 'Describe changes and keep refining them');
       btn('Share', 'btn--ghost', settings);
+      if (dash.has_draft) btn('Discard draft', 'btn--ghost', discard);
+      if (dash.published) btn('Unpublish', 'btn--ghost', unpublish, 'Back to a draft only you and admins see');
       btn('Delete', 'btn--ghost', remove);
-      btn('Edit', 'btn--primary', () => { editing = true; header(); grid.setStatic(false); build(); });
+      if (!dash.published || dash.has_draft) btn('Publish', 'btn--primary', publish);
+      btn('Edit', 'btn--primary', startEdit);
     }
   }
 
-  function add(w) {
-    if (editing) layout();
+  let palette = null;
+  function startEdit() {
+    if (dash.draft) { widgets = dash.draft.widgets; theme = dash.draft.theme; showing = 'draft'; }
+    editing = true;
+    header();
+    $('db-palette').hidden = false;
+    palette = DashPalette.mount({ el: $('db-palette'), presets, catalog, theme,
+      onAdd: w => add(w, true), onCustom: () => DashEditor.open({ catalog, filterOptions, onSave: w => add(w, true) }),
+      onTheme: k => { layout(); theme = k; build(); } });
+    data = {};
+    build();
+    load();
+    aiBar();
+  }
+
+  function add(w, isNew) {
+    layout();
     const i = widgets.findIndex(x => x.id === w.id);
-    if (i >= 0) widgets[i] = w; else { w.y = 1000; widgets.push(w); }   // new ones go to the bottom
+    if (i >= 0) widgets[i] = w;
+    else { if (!isNew || w.y == null) w.y = 1000; widgets.push(w); }
     delete data[w.id];
     build();
     load([w]);
+    const el = document.querySelector(`.grid-stack-item[gs-id="${CSS.escape(w.id)}"]`);
+    if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }
 
-  async function save() {
+  async function save(andPublish) {
     layout();
     const r = await DashRender.api('PUT', `${API}/${id}`, { name: dash.name, description: dash.description,
-      visibility: dash.visibility, share_roles: dash.share_roles, widgets });
+      visibility: dash.visibility, share_roles: dash.share_roles, widgets, theme });
     if (!r.ok) { alert(r.error || 'Could not save'); return; }
+    if (andPublish) await DashRender.api('POST', `${API}/${id}/publish`);
     editing = false;
     $('db-explain').hidden = true;
-    open();
+    open(andPublish ? 'published' : 'draft');
+  }
+
+  async function publish() {
+    const r = await DashRender.api('POST', `${API}/${id}/publish`);
+    if (r.ok) open('published'); else alert(r.error || 'Could not publish');
+  }
+  function discard() {
+    const d = DashRender.dialog('db-discard', 'Discard your draft?', 460);
+    d.body.innerHTML = '<p>Your unpublished changes will be thrown away. The published version stays as it is.</p>';
+    d.button('Cancel', 'btn--ghost', d.close);
+    d.button('Discard', 'btn--primary', async () => { const r = await DashRender.api('POST', `${API}/${id}/discard`); d.close(); if (r.ok) open('published'); });
+  }
+  function unpublish() {
+    const d = DashRender.dialog('db-unpub', 'Unpublish this dashboard?', 460);
+    d.body.innerHTML = '<p>It goes back to a draft. Only you and admins will see it until you publish it again.</p>';
+    d.button('Cancel', 'btn--ghost', d.close);
+    d.button('Unpublish', 'btn--primary', async () => { const r = await DashRender.api('POST', `${API}/${id}/unpublish`); d.close(); if (r.ok) open('draft'); });
   }
 
   function settings() {
-    const d = DashRender.dialog('db-share', 'Name and sharing', 560);
-    d.body.innerHTML = `<label class="form-label" for="dbs-name">Name</label>
+    const d = DashRender.dialog('db-share', 'Share', 580);
+    const link = `${location.origin}/dashboards/${id}`;
+    d.body.innerHTML = `${dash.published ? '' : '<div class="tk-note" style="margin-bottom:10px">This is still a draft. People you share with will see it once you publish.</div>'}
+      <label class="form-label" for="dbs-name">Name</label>
       <input id="dbs-name" class="form-input" maxlength="120" value="${esc(dash.name)}">
       <label class="form-label" for="dbs-desc" style="margin-top:8px">Description <span class="text-muted">(optional)</span></label>
       <textarea id="dbs-desc" class="form-input" rows="2" maxlength="1000">${esc(dash.description || '')}</textarea>
@@ -106,8 +205,13 @@
         `<label class="tk-radio" style="margin:4px 0"><input type="radio" name="dbs-vis" value="${v}"${dash.visibility === v ? ' checked' : ''}> ${l}</label>`).join('')}
       <div id="dbs-roles" style="display:flex;flex-wrap:wrap;gap:10px;margin:6px 0 0 22px">${roles.map(r =>
         `<label class="tk-radio"><input type="checkbox" value="${esc(r)}"${dash.share_roles.includes(r) ? ' checked' : ''}> ${esc(ROLE_LABEL[r] || r)}</label>`).join('')}</div>
+      <label class="form-label" for="dbs-link" style="margin-top:12px">Link</label>
+      <div style="display:flex;gap:8px"><input id="dbs-link" class="form-input" readonly value="${esc(link)}"><button type="button" class="btn btn--ghost btn--sm" id="dbs-copy">Copy link</button></div>
       <p class="text-sm text-muted">People you share with can view, star and copy it; only you and admins can change it.
         Everyone sees only the data they're allowed to see.</p>`;
+    $('dbs-copy').onclick = async () => {
+      try { await navigator.clipboard.writeText(link); d.msg('Link copied.'); } catch (e) { $('dbs-link').select(); d.msg('Press Ctrl+C to copy.'); }
+    };
     d.button('Cancel', 'btn--ghost', d.close);
     d.button('Save', 'btn--primary', async () => {
       const vis = document.querySelector('input[name="dbs-vis"]:checked').value;
@@ -115,41 +219,61 @@
       const name = $('dbs-name').value.trim(), desc = $('dbs-desc').value.trim();
       if (!name || /[<>]/.test(name + desc)) return d.msg('Give it a name, without < or >.', true);
       if (vis === 'roles' && !share.length) return d.msg('Pick at least one role.', true);
-      const r = await DashRender.api('PUT', `${API}/${id}`, { name, description: desc || null, visibility: vis, share_roles: share, widgets });
+      const cur = dash.draft || { widgets: dash.widgets, theme: dash.theme };
+      const r = await DashRender.api('PUT', `${API}/${id}`, { name, description: desc || null, visibility: vis, share_roles: share,
+                                                             widgets: cur.widgets, theme: cur.theme });
       if (!r.ok) return d.msg(r.error || 'Could not save', true);
       d.close();
-      open();
+      open(showing);
     });
   }
 
-  // Describe a change; the AI's version is shown in edit mode to review. Nothing is saved until Save.
-  function aiEdit() {
-    const d = DashRender.dialog('db-ai-edit', 'Edit with AI', 600);
-    d.body.innerHTML = `<p class="text-sm text-muted" style="margin-top:0">For example: "make the stale trend blue", "add a card for
-      14 days", "turn the donut into bars", "make the 90-day card red above 100".</p>
-      <textarea id="dbe-text" class="form-input" rows="3" maxlength="1000"></textarea>`;
-    d.button('Cancel', 'btn--ghost', d.close);
-    const go = d.button('Apply', 'btn--primary', async () => {
-      const text = $('dbe-text').value.trim();
-      if (text.length < 5) return d.msg('Describe the change first.', true);
-      go.disabled = true;
-      d.msg('Asking the AI...');
-      const r = await DashRender.api('POST', `${API}/ai/edit/${id}`, { text });
-      go.disabled = false;
-      if (r.available === false) return d.msg('No AI integration is set up. Use Edit instead.', true);
-      if (!r.widgets) return d.msg(r.error || 'The AI had no change. Try rewording it.', true);
-      d.close();
-      editing = true;
+  // Talk to the AI while editing: each request builds on what's on screen (unsaved work included) and on what was
+  // asked before, so people can keep clarifying. Nothing is saved until Save draft or Save and publish.
+  let aiAsked = [];
+  function aiBar() {
+    const box = $('db-ai');
+    box.hidden = !editing;
+    if (!editing) return;
+    box.innerHTML = `<div class="db-ai__row"><span class="db-ai__label">Ask the AI</span>
+      <input id="db-ai-text" class="form-input" maxlength="1000" placeholder='e.g. "make the 44-day card red above 50", "add a trend line", "turn the donut into a pie"'>
+      <button type="button" class="btn btn--primary btn--sm" id="db-ai-go">Apply</button></div>
+      <div class="db-ai__log" id="db-ai-log">${aiAsked.map(a => `<span class="db-ai__ask" title="Already applied">${esc(a)}</span>`).join('')}</div>
+      <div id="db-ai-q" hidden></div><div class="text-sm" id="db-ai-msg"></div>`;
+    let answers = [];
+    const go = async () => {
+      const text = $('db-ai-text').value.trim();
+      if (text.length < 5) { $('db-ai-msg').textContent = 'Describe the change in a few more words.'; return; }
+      $('db-ai-go').disabled = true;
+      $('db-ai-msg').textContent = 'Asking the AI...';
+      layout();
+      const r = await DashRender.api('POST', `${API}/ai/edit/${id}`, { text, widgets, history: aiAsked.slice(-8), answers });
+      $('db-ai-go').disabled = false;
+      if (r.available === false) { $('db-ai-msg').textContent = 'No AI integration is set up. Use the widget library instead.'; return; }
+      if (r.question) {   // it wasn't sure: answer, and the same request goes again with the answer
+        $('db-ai-msg').textContent = '';
+        DashRender.clarify($('db-ai-q'), r, a => { answers.push(a); go(); });
+        return;
+      }
+      if (!r.widgets) { $('db-ai-msg').textContent = r.error || 'The AI had no change. Try rewording it.'; return; }
+      aiAsked.push((answers.length ? `${text} (${answers.map(x => x.split(' -> ').pop()).join('; ')})` : text).slice(0, 1000));
+      answers = [];
       widgets = r.widgets;
       data = {};
-      header();
-      grid.setStatic(false);
       build();
       load();
-      $('db-explain').hidden = false;
-      $('db-explain-text').textContent = `AI change, not saved yet: ${r.note || 'see the widgets below'}. Review it, then Save, or Cancel to discard.`;
-    });
-    $('dbe-text').focus();
+      aiBar();
+      $('db-ai-msg').textContent = `${r.note || 'Changed.'} Not saved yet: keep refining, or Save.`;
+      $('db-ai-text').focus();
+    };
+    $('db-ai-go').onclick = go;
+    $('db-ai-text').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); go(); } };
+    $('db-ai-text').addEventListener('input', () => { answers = []; $('db-ai-q').hidden = true; });
+  }
+  function aiEdit() {
+    if (!editing) startEdit();
+    aiBar();
+    $('db-ai-text').focus();
   }
 
   async function copy() {
@@ -175,30 +299,79 @@
       : r.summary || r.error || 'No summary this time.';
   }
 
+  function patch(wid, change) {   // a quick control changed one widget: redraw it from the data it already has
+    layout();
+    const w = widgets.find(x => x.id === wid);
+    if (!w) return;
+    change(w);
+    const el = document.querySelector(`.grid-stack-item[gs-id="${CSS.escape(wid)}"] .grid-stack-item-content`);
+    el.innerHTML = item(w);
+    if (data[wid]) DashRender.render(body(wid), w, data[wid], false); else load([w]);
+  }
+
+  async function csv(w, button) {   // the server builds the file for this viewer, formula-safe
+    if (!w) return;
+    button.disabled = true;
+    try {
+      const r = await fetch(`${API}/export`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ widget: w }) });
+      if (!r.ok) { alert('That widget has no data to export right now.'); return; }
+      const name = (/filename="([^"]+)"/.exec(r.headers.get('Content-Disposition') || '') || [, 'widget.csv'])[1];
+      const url = URL.createObjectURL(await r.blob());
+      const a = document.createElement('a');
+      a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    } finally { button.disabled = false; }
+  }
+
   $('db-star').addEventListener('click', async () => {
     const r = await DashRender.api(dash.starred ? 'DELETE' : 'PUT', `/api/v1/favorites/dashboard/${id}`);
     if (r.ok) { dash.starred = r.starred; header(); window.dispatchEvent(new Event('favorites-changed')); }
   });
+  $('db-banner').addEventListener('click', e => { if (e.target.closest('#db-toggle')) open(showing === 'draft' ? 'published' : 'draft'); });
   $('db-grid').addEventListener('click', e => {
-    const ed = e.target.closest('[data-edit]'), rm = e.target.closest('[data-remove]');
-    if (ed) { layout(); DashEditor.open({ catalog, widget: widgets.find(w => w.id === ed.dataset.edit), onSave: add }); }
-    if (rm) { layout(); widgets = widgets.filter(w => w.id !== rm.dataset.remove); build(); }
+    const t = e.target.closest('[data-edit],[data-remove],[data-dup],[data-viz],[data-color]');
+    if (t && editing) {
+      if (t.dataset.edit) { layout(); DashEditor.open({ catalog, filterOptions, widget: widgets.find(w => w.id === t.dataset.edit), onSave: w => add(w) }); }
+      else if (t.dataset.remove) { layout(); widgets = widgets.filter(w => w.id !== t.dataset.remove); build(); }
+      else if (t.dataset.dup) {
+        const src = widgets.find(w => w.id === t.dataset.dup);
+        if (src) { const c = { ...JSON.parse(JSON.stringify(src)), id: Math.random().toString(36).slice(2, 14), y: src.y + src.h }; data[c.id] = data[src.id]; add(c, true); }
+      } else if (t.dataset.viz) patch(t.dataset.w, w => { w.viz = t.dataset.viz; });
+      else if (t.dataset.color != null) patch(t.dataset.w, w => { w.style = { ...(w.style || {}) }; if (t.dataset.color) w.style.color = t.dataset.color; else delete w.style.color; });
+      return;
+    }
+    const dl = !editing && e.target.closest('[data-csv]');
+    if (dl) { csv(widgets.find(w => w.id === dl.dataset.csv), dl); return; }
     const tr = !editing && e.target.closest('tr[data-href]');
     if (tr && !e.target.closest('a')) location.href = tr.dataset.href;
   });
-  // charts take their colors from the theme when drawn
-  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => build());
+  $('db-grid').addEventListener('change', e => {
+    const s = e.target.closest('select.dw-op');
+    if (s) patch(s.dataset.w, w => { w.style = { ...(w.style || {}) }; const v = Number(s.value); if (v >= 100) delete w.style.opacity; else w.style.opacity = v; });
+  });
+  // charts take their colors from the light or dark theme when drawn, so redraw when it changes
+  const redraw = () => { if (grid) { layout(); build(); } };
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', redraw);
+  new MutationObserver(redraw).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
-  async function open() {
+  async function open(view) {
     const [d, c] = await Promise.all([DashRender.api('GET', `${API}/${id}`), catalog.length ? null : DashRender.api('GET', `${API}/catalog`)]);
     if (!d.id) { $('db-name').textContent = 'Dashboard not found'; $('db-sub').textContent = "It may have been deleted, or it isn't shared with you."; return; }
-    if (c) { catalog = c.metrics || []; roles = c.roles || []; }
+    if (c) { catalog = c.metrics || []; roles = c.roles || []; presets = c.presets || []; filterOptions = c.filter_options || null; }
     dash = d;
-    widgets = d.widgets;
     if (editing && !dash.can_edit) editing = false;
+    showing = view || (dash.draft ? 'draft' : 'published');
+    const shown = showing === 'draft' && dash.draft ? dash.draft : { widgets: dash.widgets, theme: dash.theme };
+    widgets = shown.widgets;
+    theme = shown.theme || 'default';
+    $('db-palette').hidden = true;
+    $('db-ai').hidden = true;
+    aiAsked = [];
+    palette = null;
+    data = {};
+    if (editing) { startEdit(); return; }
     header();
     build();
-    grid.setStatic(!editing);
     load();
     clearInterval(timer);
     timer = setInterval(() => { if (!editing && !document.hidden) { data = {}; load(); } }, 5 * 60 * 1000);
@@ -206,7 +379,13 @@
 
   if (/^[0-9a-f-]{36}$/i.test(id)) {
     editing = new URLSearchParams(location.search).get('edit') === '1';
-    open();
+    open().then(() => {   // a dashboard the AI just drafted: its first request counts as already applied
+      try {
+        const first = sessionStorage.getItem(`ctem.dashAsk.${id}`);
+        if (first && editing) { aiAsked = [first]; aiBar(); }
+        sessionStorage.removeItem(`ctem.dashAsk.${id}`);
+      } catch (e) { /* no storage: nothing to carry over */ }
+    });
     if (editing) history.replaceState(null, '', location.pathname);
   } else $('db-name').textContent = 'Dashboard not found';
 })();

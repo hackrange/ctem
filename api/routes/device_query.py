@@ -84,15 +84,36 @@ def _like(q: str) -> str:
 INVENTORY_STATUSES = ("shipped", "lost", "stolen", "returned")
 
 
+def card_filters(card: dict) -> list:
+    """Same conditions the asset widgets count with, so a card and its list always agree."""
+    from datetime import timedelta
+
+    from api.dashboards import fleet
+    from api.dashboards.m_assets import where
+    out = where(type("V", (), {"scope": None})(), {"device_type": "compute" if card.get("compute") else "any",
+                                                   "os_family": card.get("os_family") or "any",
+                                                   "missing": card.get("missing") or "none"})
+    if card.get("active_days"):
+        out.append(fleet.active(int(card["active_days"])))
+    if card.get("new_days"):
+        out.append(Device.created_at >= fleet.now().replace(tzinfo=None) - timedelta(days=int(card["new_days"])))
+    return out
+
+
 def build_query(scope, q: str | None, grade: str | None, device_type: DeviceType | None,
-                source: str | None, tags: list[str] | None, status: str | None = None, ad_stale_days: int | None = None):
-    """Return a SELECT of Device (with owner joined) filtered by scope and the request filters."""
+                source: str | None, tags: list[str] | None, status: str | None = None, ad_stale_days: int | None = None,
+                card: dict | None = None):
+    """Return a SELECT of Device (with owner joined) filtered by scope and the request filters.
+    card: the allow-listed filters a dashboard card links with (os_family, missing, active_days, new_days, compute)."""
     stmt = select(Device).outerjoin(Owner, Owner.id == Device.owner_user_id)
     if scope is not None:
         stmt = stmt.where(scope)
+    if card:
+        stmt = stmt.where(*card_filters(card))
     if ad_stale_days:   # AD computer objects with no logon for this many days (or never)
         from api.dashboards.m_directory import stale_computers
-        stmt = stmt.where(*stale_computers(int(ad_stale_days)))
+        quiet = (card or {}).get("ad_tools_quiet_days")
+        stmt = stmt.where(*stale_computers(int(ad_stale_days), None, int(quiet) if quiet else None))
     if device_type:
         stmt = stmt.where(Device.device_type == device_type)
     if grade:

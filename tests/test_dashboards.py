@@ -23,6 +23,8 @@ async def test_private_until_shared_and_only_the_owner_edits(client_cyber, clien
     url = f"/api/v1/dashboards/{d['id']}"
     assert (await client_it_user.get(url)).status_code == 404          # not shared: looks absent
     assert (await client_cyber.put(url, json=_body(visibility="roles", share_roles=["it_user"]))).json()["ok"]
+    assert (await client_it_user.get(url)).status_code == 404          # shared, but still a draft
+    assert (await client_cyber.post(f"{url}/publish")).json()["ok"]
     got = (await client_it_user.get(url)).json()
     assert got["can_edit"] is False and got["widgets"][0]["metric"] == "devices.count"
     assert (await client_it_user.put(url, json=_body())).status_code == 404
@@ -44,6 +46,7 @@ async def test_admin_sees_every_dashboard_others_cannot_ask(client_it_user, clie
 @pytest.mark.asyncio
 async def test_favorites_follow_what_you_can_see(client_cyber, client_it_user):
     d = (await client_cyber.post("/api/v1/dashboards", json=_body(visibility="everyone"))).json()
+    await client_cyber.post(f"/api/v1/dashboards/{d['id']}/publish")
     assert (await client_it_user.put(f"/api/v1/favorites/dashboard/{d['id']}")).json()["starred"]
     favs = (await client_it_user.get("/api/v1/favorites")).json()["favorites"]
     assert [f["url"] for f in favs] == [f"/dashboards/{d['id']}"]

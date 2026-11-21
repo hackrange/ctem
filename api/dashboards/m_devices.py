@@ -65,7 +65,7 @@ async def _edr(ctx, p):
          or_(Device.last_seen >= cut, Device.edr_last_seen >= cut, Device.ad_last_logon >= cut)]
     total, on = (await ctx.db.execute(select(func.count(), func.count().filter(Device.edr_active.is_(True)))
                                       .select_from(Device).where(*w))).one()
-    return {"value": round(100 * on / total, 1) if total else None, "unit": "%",
+    return {"value": round(100 * on / total, 1) if total else None, "unit": "%", "max": 100, "better": "up",
             "note": f"{on:,} of {total:,} active workstations and servers", "href": "/grc/checks/ctem_edr_coverage"}
 
 

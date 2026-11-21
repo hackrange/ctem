@@ -146,17 +146,17 @@ OPEN = Param("open_only", "Open alerts only (not closed)", default=True)
 E, G, T = "Exceptions", "GRC", "Cyber Threats"
 metric(Metric("exceptions.counts", "Exceptions at a glance", E, "parts", (), _exc_counts,
               "Active, waiting, ending soon and recently rejected (your own requests unless you're admin or cyber).",
-              per_user=True))
-metric(Metric("exceptions.ending", "Exceptions ending soonest", E, "table", (LIMIT,), _exc_ending, per_user=True))
-metric(Metric("grc.check_status", "Control checks by result", G, "parts", (), _check_status, needs="grc"))
+              per_user=True, filterable=False))
+metric(Metric("exceptions.ending", "Exceptions ending soonest", E, "table", (LIMIT,), _exc_ending, per_user=True, filterable=False))
+metric(Metric("grc.check_status", "Control checks by result", G, "parts", (), _check_status, needs="grc", filterable=False))
 metric(Metric("grc.checks", "Control check results", G, "table",
               (Param("only", "Show", ("all", "problems"), labels={"all": "Every check", "problems": "Only warnings and failures"}),),
-              _check_table, needs="grc"))
+              _check_table, needs="grc", filterable=False))
 metric(Metric("grc.frameworks", "Compliance by framework", G, "parts", (), _frameworks,
-              "From the latest FairTPRM assessment.", needs="grc"))
-metric(Metric("threats.count", "Alert count", T, "value", (RANGE, OPEN), _t_count, needs="threats"))
-metric(Metric("threats.over_time", "Alerts over time", T, "series", (RANGE, OPEN), _t_time, needs="threats"))
-metric(Metric("threats.by_severity", "Alerts by severity", T, "parts", (RANGE, OPEN), _t_sev, needs="threats"))
-metric(Metric("threats.by_status", "Alerts by status", T, "parts", (RANGE,), _t_status, needs="threats"))
-metric(Metric("threats.by_tactic", "Alerts by MITRE tactic", T, "parts", (RANGE, OPEN), _t_tactic, needs="threats"))
-metric(Metric("threats.top_hosts", "Hosts with the most alerts", T, "table", (RANGE, OPEN, LIMIT), _t_hosts, needs="threats"))
+              "From the latest FairTPRM assessment.", needs="grc", filterable=False))
+metric(Metric("threats.count", "Alert count", T, "value", (RANGE, OPEN), _t_count, needs="threats", filterable=False))
+metric(Metric("threats.over_time", "Alerts over time", T, "series", (RANGE, OPEN), _t_time, needs="threats", filterable=False))
+metric(Metric("threats.by_severity", "Alerts by severity", T, "parts", (RANGE, OPEN), _t_sev, needs="threats", filterable=False))
+metric(Metric("threats.by_status", "Alerts by status", T, "parts", (RANGE,), _t_status, needs="threats", filterable=False))
+metric(Metric("threats.by_tactic", "Alerts by MITRE tactic", T, "parts", (RANGE, OPEN), _t_tactic, needs="threats", filterable=False))
+metric(Metric("threats.top_hosts", "Hosts with the most alerts", T, "table", (RANGE, OPEN, LIMIT), _t_hosts, needs="threats", filterable=False))

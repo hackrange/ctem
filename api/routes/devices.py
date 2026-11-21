@@ -38,8 +38,17 @@ _FINDING_SORTS = {
 }
 
 
-async def _filtered(user, db, q, grade, device_type, source, tag, status=None, ad_stale_days=None):
-    return dq.build_query(await device_scope(user, db), q, grade, device_type, source, tag, status, ad_stale_days)
+async def _filtered(user, db, q, grade, device_type, source, tag, status=None, ad_stale_days=None, card=None):
+    return dq.build_query(await device_scope(user, db), q, grade, device_type, source, tag, status, ad_stale_days, card)
+
+
+def _card(os_family: str | None = Query(None, pattern="^(windows|linux|macos|network|mobile|hypervisor|unix|other|unknown)$"),
+          missing: str | None = Query(None, pattern="^(edr|scanner|either)$"),
+          active_days: int | None = Query(None, ge=1, le=3650), new_days: int | None = Query(None, ge=1, le=3650),
+          compute: bool = Query(False), ad_tools_quiet_days: int | None = Query(None, ge=1, le=3650)) -> dict:
+    """Filters a dashboard card links with (see device_query.card_filters)."""
+    return {"os_family": os_family, "missing": missing, "active_days": active_days, "new_days": new_days, "compute": compute,
+            "ad_tools_quiet_days": ad_tools_quiet_days}
 
 
 _STATUS_FILTER = Query(None, pattern="^(assigned|shipped|lost|stolen|returned|contained|edr_hidden|out_of_scope)$")
@@ -60,12 +69,13 @@ async def list_devices(
     status: str | None = _STATUS_FILTER,
     tag: list[str] | None = _TAGS,
     ad_stale_days: int | None = _STALE,
+    card: dict = Depends(_card),
     sort: str | None = Query(None, max_length=32),
     order: str | None = Query(None, pattern="^(asc|desc)$"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0, le=1_000_000),
 ):
-    stmt = await _filtered(current_user, db, q, grade, device_type, source, tag, status, ad_stale_days)
+    stmt = await _filtered(current_user, db, q, grade, device_type, source, tag, status, ad_stale_days, card)
     total = (await db.execute(dq.count_query(stmt))).scalar_one()
     page = dq.with_relations(dq.sorted_query(stmt, sort, order)).limit(limit).offset(offset)
     devices = (await db.execute(page)).scalars().unique().all()
@@ -83,9 +93,10 @@ async def device_summary(
     status: str | None = _STATUS_FILTER,
     tag: list[str] | None = _TAGS,
     ad_stale_days: int | None = _STALE,
+    card: dict = Depends(_card),
 ):
     """Dashboard counts across every device the user can see (not one page of them)."""
-    stmt = await _filtered(current_user, db, q, grade, device_type, source, tag, status, ad_stale_days)
+    stmt = await _filtered(current_user, db, q, grade, device_type, source, tag, status, ad_stale_days, card)
     grades = {g: 0 for g in ("A", "B", "C", "D", "F")}
     ungraded = kev_devices = 0
     for g, n, kev in (await db.execute(dq.grade_counts_query(stmt))).all():
@@ -123,10 +134,11 @@ async def export_devices(
     status: str | None = _STATUS_FILTER,
     tag: list[str] | None = _TAGS,
     ad_stale_days: int | None = _STALE,
+    card: dict = Depends(_card),
     sort: str | None = Query(None, max_length=32),
     order: str | None = Query(None, pattern="^(asc|desc)$"),
 ):
-    stmt = dq.with_relations(dq.sorted_query(await _filtered(current_user, db, q, grade, device_type, source, tag, status, ad_stale_days),
+    stmt = dq.with_relations(dq.sorted_query(await _filtered(current_user, db, q, grade, device_type, source, tag, status, ad_stale_days, card),
                                              sort, order))
 
     async def fetch(offset: int, limit: int) -> list[list]:

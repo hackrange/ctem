@@ -58,7 +58,15 @@ async def _kpi(ctx, p):
     ready = await _ready(ctx, p)
     k = ready["kpis"] if ready else await vd._kpis(ctx.db, _w(ctx, p))
     m = p["measure"]
-    return {"value": k.get(m), "href": MEASURE_HREF.get(m), "note": MEASURE_LABEL[m]}
+    out = {"value": k.get(m), "href": MEASURE_HREF.get(m), "note": MEASURE_LABEL[m]}
+    if ready and m in ("open", "critical", "high", "kev") and p.get("severity", "any") == "any":
+        tr = ready["trend"]
+        daily = tr["kev"] if m == "kev" else tr[m] if m != "open" else [sum(v) for v in zip(*(tr[s] for s in vd.SEVERITIES))]
+        if daily:
+            out["spark"] = daily[-30:]
+            if len(daily) > 30 and daily[-31]:
+                out["delta"] = {"pct": round((daily[-1] - daily[-31]) / daily[-31] * 100, 1), "was": daily[-31], "better": "down"}
+    return out
 
 
 async def _trend_data(ctx, p) -> dict:
