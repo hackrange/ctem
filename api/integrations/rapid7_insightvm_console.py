@@ -10,6 +10,23 @@ from api.core.ssrf import safe_client
 log = logging.getLogger("open-ctem.rapid7-insightvm")
 
 
+def is_cloud_config(config: dict) -> bool:
+    """An Insight Platform key means the Cloud API; username/password or a shipper means the console."""
+    mode = config.get("mode")
+    return mode == "cloud" or (mode not in ("console", "collector") and bool(config.get("api_key")))
+
+
+async def cloud_feeds_tags(db: AsyncSession) -> bool:
+    """True when an enabled InsightVM Cloud integration exists, which then owns Rapid7 tags."""
+    from sqlalchemy import select
+
+    from api.models.integration import IntegrationConfig, Vendor
+    rows = (await db.execute(select(IntegrationConfig.config).where(
+        IntegrationConfig.vendor == Vendor.rapid7_insightvm,
+        IntegrationConfig.is_enabled == True))).scalars().all()  # noqa: E712
+    return any(is_cloud_config(c or {}) for c in rows)
+
+
 class ConsoleMixin:
     config: dict
 
@@ -58,6 +75,10 @@ class ConsoleMixin:
         from api.models.device import Device, DeviceType
 
         count, tag_cache = 0, {}
+        # Both feeds write the same Rapid7 tags, each replacing the device's set. The console's
+        # tag API misses most tags the Cloud API returns (owners, apps, criticality), so with a
+        # Cloud feed on, the console leaves tags and criticality to it instead of wiping them.
+        own_tags = not await cloud_feeds_tags(db)
         for a in assets:
             hostname = a.get("hostName") or a.get("ip")
             if not hostname:
@@ -69,7 +90,7 @@ class ConsoleMixin:
             add_source(dev, "rapid7_insightvm")
             remember_fqdn(dev, a.get("hostName"))
             dev.os = ((a.get("os") or "") if isinstance(a.get("os"), str) else (a.get("os") or {}).get("name") or "")[:128] or None
-            if a.get("tags") is not None:  # older shippers don't send tags; leave what's there
+            if own_tags and a.get("tags") is not None:  # older shippers don't send tags; leave what's there
                 names, crit = r7_tags(a["tags"])
                 dev.criticality = crit
                 await db.flush()
