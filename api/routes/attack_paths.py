@@ -15,9 +15,10 @@ from sqlalchemy.orm import selectinload
 from api.auth.middleware import get_current_user
 from api.auth.rbac import require_cyber_or_admin
 from api.core.db import get_session
+from api.core.device_scope_exempt import in_scope_findings
 from api.models.device import Device
 from api.models.user import User
-from api.models.vuln import Finding, FindingStatus
+from api.models.vuln import Finding, FindingStatus, Vulnerability
 
 router = APIRouter(prefix="/api/v1/attack-paths", tags=["attack-paths"])
 
@@ -43,6 +44,7 @@ async def list_attack_chains(
         .where(
             Finding.status.in_([FindingStatus.open, FindingStatus.in_progress]),
             Finding.is_reachable == True,  # noqa: E712
+            in_scope_findings(),
         )
     )
     findings = result.scalars().all()
@@ -94,6 +96,7 @@ async def list_pivot_points(
                 Finding.device_id == d.id,
                 Finding.status.in_([FindingStatus.open, FindingStatus.in_progress]),
                 Finding.is_reachable == True,  # noqa: E712
+                in_scope_findings(),
             )
         )
         reachable_findings = f_result.scalars().all()
@@ -126,7 +129,8 @@ async def attack_path_summary(
 
     total_reachable = (await db.execute(
         select(func.count(Finding.id))
-        .where(Finding.is_reachable == True, Finding.status.in_([FindingStatus.open, FindingStatus.in_progress]))  # noqa: E712
+        .where(Finding.is_reachable == True, Finding.status.in_([FindingStatus.open, FindingStatus.in_progress]),  # noqa: E712
+               in_scope_findings())
     )).scalar_one()
 
     kev_reachable = (await db.execute(
@@ -134,6 +138,8 @@ async def attack_path_summary(
         .join(Finding.vuln)
         .where(
             Finding.is_reachable == True,  # noqa: E712
+            Vulnerability.is_kev == True,  # noqa: E712
+            in_scope_findings(),
             Finding.status.in_([FindingStatus.open, FindingStatus.in_progress]),
         )
     )).scalar_one()

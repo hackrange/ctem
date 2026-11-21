@@ -43,7 +43,10 @@
     function query(withPaging) {
       const p = new URLSearchParams();
       const extra = opts.params ? opts.params() : {};
-      Object.entries(extra).forEach(([k, v]) => { if (v !== '' && v != null) p.set(k, v); });
+      Object.entries(extra).forEach(([k, v]) => {
+        if (Array.isArray(v)) v.filter(x => x !== '' && x != null).forEach(x => p.append(k, x));   // repeatable, e.g. tag
+        else if (v !== '' && v != null) p.set(k, v);
+      });
       if (st.sort) { p.set('sort', st.sort); p.set('order', st.order); }
       if (withPaging) { p.set('limit', st.size); p.set('offset', (st.page - 1) * st.size); }
       return p;

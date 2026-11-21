@@ -36,8 +36,10 @@ def _sev():
 
 
 def _where(source: str | None, device_type: str | None) -> list:
-    """Allow-listed filters only, so nothing a client sends reaches SQL as text."""
-    out = []
+    """Allow-listed filters only, so nothing a client sends reaches SQL as text.
+    Contained and Not In Scope devices never count (their findings can't be reached right now)."""
+    from api.core.device_scope_exempt import in_scope_findings
+    out = [in_scope_findings()]
     if source in SOURCES:
         out.append(Finding.source == source)
     if device_type in DeviceType.__members__:
@@ -161,16 +163,17 @@ async def _breakdowns(db, w) -> dict:
                                 .where(Finding.status.in_(OPEN), *w).group_by(Device.device_type)
                                 .order_by(func.count().desc()))).all()
     cols = (Vulnerability.id, Vulnerability.cve_id, Vulnerability.title, Vulnerability.cvss_base, Vulnerability.is_kev)
-    if w:   # one finding per device and vulnerability, so counting findings counts devices
+    filtered = len(w) > 1   # w[0] is always the "counts" condition from _where; the rest are real filters
+    if filtered:   # one finding per device and vulnerability, so counting findings counts devices
         n = func.count()
         top_v = (await db.execute(select(*cols, n).select_from(Finding).join(Vulnerability, Vulnerability.id == Finding.vuln_id)
                                   .where(Finding.status.in_(OPEN), *w).group_by(*cols).order_by(n.desc()).limit(10))).all()
-    else:   # the scoring engine keeps this count up to date already
+    else:   # the scoring engine keeps this count up to date already (it skips contained devices too)
         top_v = (await db.execute(select(*cols, Vulnerability.affected_devices).where(Vulnerability.affected_devices > 0)
                                   .order_by(Vulnerability.affected_devices.desc()).limit(10))).all()
     dev_w = [Device.open_findings > 0]
     top_d = (await db.execute(select(Device.id, Device.hostname, Device.risk_score, Device.risk_grade, Device.open_findings,
-                                     Device.kev_findings).where(*dev_w, *([Device.id.in_(select(Finding.device_id).where(*w))] if w else []))
+                                     Device.kev_findings).where(*dev_w, *([Device.id.in_(select(Finding.device_id).where(*w))] if filtered else []))
                               .order_by(Device.risk_score.desc().nulls_last()).limit(10))).all()
     from api.routes import device_query as dq
     return {"by_source": [{"source": s, "open": n} for s, n in by_source],
