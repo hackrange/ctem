@@ -64,6 +64,7 @@
 {% endblock %}
 
 {% block extra_scripts %}
+<script src="{{ static('js/integrations_ai.js') }}"></script>
 <script>
 const API = '/api/v1';
 let _editId = null;
@@ -72,28 +73,9 @@ let _integrations = [];  // cache for edit lookup
 // Per-vendor field definitions: [{key, label, type, placeholder, required, default}]
 // Vendors not listed get the generic base_url + api_key pair.
 // AI vendors are flagged so the sync schedule is hidden for them.
-const AI_VENDORS = new Set(['anthropic', 'openai', 'custom_ai', 'ai']);
 
 const VENDOR_FIELDS = {
-  // ── AI / LLM ───────────────────────────────────────────────────────────────
-  anthropic: [
-    {key:'base_url',   label:'API Base URL',    type:'text',     placeholder:'https://api.anthropic.com', default:'https://api.anthropic.com', required:true, readonly:true},
-    {key:'api_key',    label:'API Key',         type:'password', placeholder:'sk-ant-...', required:true},
-    {key:'model',      label:'Default Model',   type:'model_select', vendor:'anthropic', required:false,
-      options:['claude-opus-5-5','claude-sonnet-5-5','claude-haiku-5-5','claude-fable-5-2','claude-opus-5','claude-sonnet-5','claude-haiku-4-5','claude-sonnet-4-6']},
-  ],
-  openai: [
-    {key:'base_url',   label:'API Base URL',    type:'text',     placeholder:'https://api.openai.com', default:'https://api.openai.com', required:true, readonly:true},
-    {key:'api_key',    label:'API Key',         type:'password', placeholder:'sk-...', required:true},
-    {key:'model',      label:'Default Model',   type:'model_select', vendor:'openai', required:false,
-      options:['gpt-4o','gpt-4o-mini','o1','o1-mini','o3-mini','gpt-4-turbo','gpt-3.5-turbo']},
-  ],
-  custom_ai: [
-    {key:'base_url',   label:'API Base URL',    type:'text',     placeholder:'https://your-llm-provider.example.com', required:true},
-    {key:'api_key',    label:'API Key',         type:'password', placeholder:'', required:false},
-    {key:'model',      label:'Default Model',   type:'text',     placeholder:'', required:false},
-    {key:'extra_headers', label:'Extra Headers (JSON)',type:'text', placeholder:'{"X-Custom": "value"}', required:false},
-  ],
+  ...AI_VENDOR_FIELDS,   // static/js/integrations_ai.js
   // ── Identity / Directory ───────────────────────────────────────────────────
   ldap: [
     {key:'host',       label:'LDAP Host',      type:'text',     placeholder:'ldap.acme.example.com', required:true},
@@ -160,9 +142,8 @@ function _renderCards(list) {
     grid.innerHTML = '<div style="grid-column:1/-1;padding:40px;text-align:center;color:var(--text-muted)">No integrations configured. Click <b>+ Add Integration</b> to start syncing data.</div>';
     return;
   }
-  const AI_VENDOR_SET = new Set(['anthropic', 'openai', 'custom_ai', 'ai']);
   grid.innerHTML = list.map(i => {
-    const isAI = AI_VENDOR_SET.has(i.vendor);
+    const isAI = AI_VENDORS.has(i.vendor);
     const actionBtn = isAI
       ? `<button class="btn btn--ghost btn--sm" onclick="testConnection('${esc(i.id)}',this)">Test</button>`
       : `<button class="btn btn--ghost btn--sm" onclick="triggerSync('${esc(i.id)}',this)">Sync Now</button>`;
@@ -283,6 +264,7 @@ function editIntegration(id) {
       el.value = v ?? '';
     }
   }
+  aiFieldsShown(i.vendor);
   document.getElementById('int-modal').style.display = 'flex';
 }
 
@@ -291,11 +273,6 @@ function closeModal() {
   _editId = null;
 }
 
-const AI_VENDOR_META = [
-  { slug: 'anthropic',  label: 'Claude (Anthropic)' },
-  { slug: 'openai',     label: 'OpenAI' },
-  { slug: 'custom_ai',  label: 'Custom AI / LLM' },
-];
 
 async function loadVendorOptions() {
   try {
@@ -381,6 +358,7 @@ function updateVendorFields() {
       <input id="${id}" type="${f.type}" placeholder="${esc(f.placeholder)}"${val} autocomplete="off"${readonlyAttr}>
     </div>`;
   }).join('');
+  aiFieldsShown(vendor);
 }
 
 const _SENSITIVE_FIELD_TYPES = new Set(['password']);
@@ -431,7 +409,7 @@ function _collectConfig() {
   const cfg = {};
   for (const f of fields) {
     const el = document.getElementById(`cfg-${f.key}`);
-    if (!el) continue;
+    if (!el || el.closest('[hidden]')) continue;
     if (f.type === 'checkbox') {
       cfg[f.key] = el.checked;
     } else {

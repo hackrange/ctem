@@ -76,7 +76,9 @@ Every source is matched to the same device row by host name, however it spells i
 | Snyk | AppSec | Code and container findings |
 | GitHub Advanced Security | AppSec | SAST/secret scan findings |
 | ForgeRepo | SCM | Repository security findings |
-| AI (Anthropic) | Analysis | Risk narratives, threat analysis, hunt |
+| AI (Anthropic, Amazon Bedrock, OpenAI, custom) | Analysis | Risk narratives, threat analysis, hunt, curated rule drafts |
+
+**Claude on Amazon Bedrock:** add a *Claude on Amazon Bedrock* integration, pick the AWS region and model (Bedrock IDs such as `anthropic.claude-sonnet-5-5`), and sign in with an IAM access key, a Bedrock API key, or the server's own AWS credentials (instance role). The endpoint is always `bedrock-mantle.<region>.api.aws`, so there is no URL to enter. Give the IAM principal only permission to invoke the chosen Claude models. **Test** sends a tiny real message. When more than one AI integration is enabled, the oldest one is used, so disable the Anthropic one to switch every AI feature (hunt, rule drafts, threat analysis) to Bedrock. Usage is metered like any other provider; enter your Bedrock prices under Admin > AI Usage, or CTEM estimates with Anthropic list prices.
 
 ### Rapid7 endpoints
 
@@ -302,7 +304,7 @@ Use an API token (`Authorization: Bearer ...`) owned by an admin or inventory us
 
 The executive dashboard filters by tag category: **Executive Owner**, **Technical Owner**, **Application**, **Environment**, **Severity** -- all driven by the tag system. Each filter narrows the entire view to assets matching that tag combination.
 
-**AI usage** (Admin > AI Usage): month-to-date AI cost and tokens against optional monthly limits (dollars and/or tokens), with a forecast and per-model / per-feature breakdowns. Claude models are priced from Anthropic list prices; custom or OpenAI-compatible providers use the input/output/cache prices you enter there.
+**AI usage** (Admin > AI Usage): month-to-date AI cost and tokens against optional monthly limits (dollars and/or tokens), with a forecast and per-model / per-feature breakdowns. Claude models are priced from Anthropic list prices; custom, OpenAI-compatible and Amazon Bedrock providers use the input/output/cache prices you enter there (Bedrock falls back to Anthropic list prices as an estimate).
 
 Counts are server-side totals across every device you can see. Click a risk card (Critical, High, Medium, KEV, Total) to open the device list with that filter applied. Scores refresh after every integration sync and every two hours.
 

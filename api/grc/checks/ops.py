@@ -10,7 +10,7 @@ from api.grc.checks import Check, Outcome, Threshold, aware, grade_low, now, reg
 from api.models.collector import CollectorProfile, CollectorToken
 from api.models.integration import IntegrationConfig, SyncJob, SyncStatus
 
-_NOT_TELEMETRY = {"ai", "anthropic", "openai", "custom_ai", "servicenow"}
+_NOT_TELEMETRY = {"ai", "anthropic", "openai", "custom_ai", "bedrock", "servicenow"}
 
 
 async def _health(db: AsyncSession, t: dict, detail: bool) -> Outcome:

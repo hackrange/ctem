@@ -38,6 +38,7 @@ _CLAUDE = {
     "claude-haiku-4-5": ("1", "5", None),
 }
 _DATE_SUFFIX = re.compile(r"-\d{8}$")
+_BEDROCK_PREFIX = re.compile(r"^(?:[a-z]{2,4}\.)?anthropic\.")  # anthropic.claude-..., us.anthropic.claude-...
 _PRICE_RE = re.compile(r"^(\d{1,6}(\.\d{1,6})?|\.\d{1,6})$")
 _MILLION = Decimal(1_000_000)
 
@@ -62,7 +63,7 @@ class AIBudgetExceeded(RuntimeError):
 def claude_rates(model: str | None) -> Rates | None:
     if not model:
         return None
-    m = _DATE_SUFFIX.sub("", model.strip().lower())
+    m = _DATE_SUFFIX.sub("", _BEDROCK_PREFIX.sub("", model.strip().lower()))
     row = _CLAUDE.get(m)
     if row is None:
         return None
@@ -99,7 +100,7 @@ def custom_rates(settings: dict) -> Rates | None:
 
 def rates_for(provider: str | None, model: str | None, settings: dict) -> Rates | None:
     """Anthropic: Claude list prices (custom prices for an unknown model).
-    Custom / OpenAI-compatible: the admin's prices (Claude list prices only if none are set)."""
+    Custom / OpenAI-compatible / Bedrock: the admin's prices (Claude list prices, as an estimate, if none are set)."""
     if provider in (None, "anthropic", "ai"):
         return claude_rates(model) or custom_rates(settings)
     return custom_rates(settings) or claude_rates(model)

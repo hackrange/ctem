@@ -59,8 +59,13 @@ def _why(exc: Exception) -> str:
     from api.core.ai_usage import AIBudgetExceeded
     if isinstance(exc, AIBudgetExceeded):
         return "This month's AI budget in CTEM is used up (Settings > AI)." + _HAND
+    import anthropic
+    code = None
     if isinstance(exc, httpx.HTTPStatusError):
         code = exc.response.status_code
+    elif isinstance(exc, anthropic.APIStatusError):   # Bedrock goes through the SDK
+        code = exc.status_code
+    if code is not None:
         try:
             body = exc.response.text.lower()
         except Exception:  # noqa: BLE001
@@ -68,7 +73,8 @@ def _why(exc: Exception) -> str:
         if "credit balance" in body or "billing" in body or "quota" in body or code == 402:
             return "The AI provider refused the request: the account is out of credit. Add credit with the provider." + _HAND
         if code in (401, 403):
-            return "The AI provider rejected the API key. Check it under Integrations." + _HAND
+            return ("The AI provider rejected the API key or AWS credentials, or they can't use the model. "
+                    "Check them under Integrations." + _HAND)
         if code == 404 or (code == 400 and "model" in body):
             return "The AI provider doesn't recognize the configured model. Check it under Integrations." + _HAND
         if code == 429:
@@ -76,7 +82,7 @@ def _why(exc: Exception) -> str:
         if code >= 500:
             return "The AI provider is having trouble right now. Try again shortly." + _HAND
         return f"The AI provider refused the request (HTTP {code})." + _HAND
-    if isinstance(exc, (httpx.TimeoutException, httpx.TransportError)):
+    if isinstance(exc, (httpx.TimeoutException, httpx.TransportError, anthropic.APIConnectionError)):
         return "Couldn't reach the AI provider." + _HAND
     return "Couldn't reach the AI." + _HAND
 

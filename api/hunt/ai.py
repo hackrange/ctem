@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 log = logging.getLogger("open-ctem.hunt")
 
-_AI_VENDORS = ("anthropic", "openai", "custom_ai", "ai")
+_AI_VENDORS = ("anthropic", "openai", "custom_ai", "ai", "bedrock")
 SEVERITIES = ("critical", "high", "medium", "low")
 
 _SYSTEM = (
@@ -24,14 +24,17 @@ _SYSTEM = (
 async def get_ai(db: AsyncSession):
     """The first enabled AI integration, else the env key, else None."""
     from api.core.config import get_settings
+    from api.integrations.ai_bedrock import ready
     from api.integrations.base import get_connector
     from api.models.integration import IntegrationConfig, Vendor
     rows = (await db.execute(select(IntegrationConfig).where(
         IntegrationConfig.is_enabled == True,  # noqa: E712
-        IntegrationConfig.vendor.in_([Vendor(v) for v in _AI_VENDORS])))).scalars().all()
+        IntegrationConfig.vendor.in_([Vendor(v) for v in _AI_VENDORS]))
+        .order_by(IntegrationConfig.created_at))).scalars().all()
     for cfg in rows:
-        if (cfg.config or {}).get("api_key"):
-            return get_connector(cfg.vendor.value, cfg.config)
+        conf = cfg.config or {}
+        if ready(conf) if cfg.vendor == Vendor.bedrock else conf.get("api_key"):
+            return get_connector(cfg.vendor.value, conf)
     s = get_settings()
     if s.ai_api_key:
         return get_connector("anthropic", {"api_key": s.ai_api_key, "model": s.ai_model})
