@@ -10,7 +10,7 @@ import time
 import collector_common as cc
 import collector_crypto as crypto
 
-AGENT_VERSION = "1.0.8"
+AGENT_VERSION = "1.0.9"
 CONF_DIR = os.environ.get("OCTEM_CONF_DIR", "/etc/open-ctem-collector")
 STATE_DIR = os.environ.get("STATE_DIRECTORY", "/var/lib/open-ctem-collector")
 MODULES = {"ldap": "collector_ldap", "rapid7_console": "collector_rapid7",

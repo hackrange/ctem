@@ -210,6 +210,7 @@ def test():
 
 def main(argv=None):
     p = argparse.ArgumentParser(prog="open-ctem-collector")
+    p.add_argument("--version", action="version", version=f"open-ctem shipper {core.AGENT_VERSION}")
     sub = p.add_subparsers(dest="cmd", required=True)
     w = sub.add_parser("setup")
     w.add_argument("--url", default="")
@@ -217,6 +218,10 @@ def main(argv=None):
     w.add_argument("--name", default="")
     w.add_argument("--out-dir", required=True)
     sub.add_parser("approve")
+    u = sub.add_parser("set-url", help="point this shipper at CTEM's new address (same CTEM, new hostname)")
+    u.add_argument("url", nargs="?", default="")
+    u.add_argument("--ca-file", default=None, help="CA bundle for the new address ('' to drop the saved one)")
+    u.add_argument("--yes", action="store_true", help="don't ask before checking in at the new address")
     sub.add_parser("secrets").add_argument("--all", action="store_true", help="re-enter even the ones already set")
     t = sub.add_parser("test-ctem")
     t.add_argument("--url", default="")
@@ -225,10 +230,13 @@ def main(argv=None):
     sub.add_parser("run").add_argument("--force", action="store_true")
     sub.add_parser("daemon")
     args = p.parse_args(argv)
-    if args.cmd in ("setup", "approve", "secrets"):
+    cc.say(f"open-ctem shipper {core.AGENT_VERSION}")   # first line of every command, run and log
+    if args.cmd in ("setup", "approve", "secrets", "set-url"):
         import collector_setup as setup
         if args.cmd == "setup":
             return setup.setup(args) or 0
+        if args.cmd == "set-url":
+            return setup.set_url(args)
         return setup.approve() if args.cmd == "approve" else setup.enter_secrets(only_missing=not args.all)
     if args.cmd == "test-ctem":
         url, ca = args.url, args.ca_file

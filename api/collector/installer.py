@@ -40,6 +40,17 @@ def _embed(name: str) -> str:
     return f"  cat > \"$STAGE/{name}\" <<'{tag}'\n{body.rstrip()}\n{tag}"
 
 
+_VERSION_RE = re.compile(r'^AGENT_VERSION = "(\d{1,3}\.\d{1,3}\.\d{1,3})"$', re.M)
+
+
+def agent_version() -> str:
+    """The shipper version the embedded code reports, so the installer can say it too."""
+    m = _VERSION_RE.search((AGENT_DIR / "collector_core.py").read_text())
+    if not m:
+        raise RuntimeError("collector_core.py has no AGENT_VERSION")
+    return m.group(1)
+
+
 def render_installer(url: str = "", code: str = "", name: str = "") -> str:
     # Values land inside single quotes in bash, so they must be boring
     if url and not _URL_RE.match(url):
@@ -49,4 +60,5 @@ def render_installer(url: str = "", code: str = "", name: str = "") -> str:
     script = (AGENT_DIR / "install.sh").read_text()
     files = "\n".join(_embed(f) for f in AGENT_FILES)
     return (script.replace("@@CTEM_URL@@", url).replace("@@ENROLL_CODE@@", code)
-            .replace("@@COLLECTOR_NAME@@", name).replace("@@EMBEDDED_FILES@@", files))
+            .replace("@@COLLECTOR_NAME@@", name).replace("@@AGENT_VERSION@@", agent_version())
+            .replace("@@EMBEDDED_FILES@@", files))

@@ -72,8 +72,9 @@ async def recalculate_device(device: Device, db: AsyncSession) -> RiskScore:
         f.raw_score, f.raw_grade = round(fs, 1), device_grade(fs)
         f.composite_score = 0.0 if contained else f.raw_score
         f.risk_grade = "A" if contained else f.raw_grade
-    device.open_findings = 0 if exempt else len(findings)
-    device.kev_findings = 0 if exempt else sum(1 for f in findings if f.vuln and f.vuln.is_kev)
+    # Contained or Not In Scope: the findings stay stored and shown, but none of them count
+    device.open_findings = 0 if contained else len(findings)
+    device.kev_findings = 0 if contained else sum(1 for f in findings if f.vuln and f.vuln.is_kev)
 
     # Upsert the current score
     result = await db.execute(

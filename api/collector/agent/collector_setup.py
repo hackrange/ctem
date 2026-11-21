@@ -174,3 +174,49 @@ def enter_secrets(conf_dir=core.CONF_DIR, only_missing=False):
             cc.say(f"  sealed and stored in CTEM: {kind}.{field}")
             break
     return 0
+
+
+def set_url(args, conf_dir=core.CONF_DIR):
+    """Point this shipper at CTEM's new address, keeping its enrollment, key, approvals and secrets.
+
+    Only switches when the new address is the same CTEM: it must answer as open-ctem over verified
+    HTTPS, accept this shipper's own token, and hand back this shipper's own profile. A different
+    CTEM install doesn't know the token, so that needs a fresh 'setup' there instead."""
+    conf = core.load_conf(conf_dir)
+    old = conf["ctem_url"]
+    url = (args.url or cc.ask("New CTEM URL", validate=lambda v: None if core.URL_RE.match(v.rstrip("/"))
+                              else "use https://host[:port] with nothing after it")).rstrip("/")
+    if not core.URL_RE.match(url):
+        raise SystemExit("CTEM URL must be https://host[:port] with nothing after it")
+    cafile = conf.get("ctem_ca_file") if args.ca_file is None else (args.ca_file or None)
+    if cafile and not os.path.isfile(cafile):
+        raise SystemExit(f"CA bundle not found: {cafile}")
+    if url == old and cafile == conf.get("ctem_ca_file"):
+        cc.say(f"Already pointed at {url}; nothing to change.")
+        return 0
+    cc.say(f"  now: {old}\n  new: {url}")
+    try:
+        core.test_ctem(url, cafile)
+    except Exception as e:
+        raise SystemExit(f"new address failed: {core.explain(e)}") from None
+    if not args.yes and not cc.yes_no("Check in there with this shipper's token to confirm it's the same CTEM?", True):
+        raise SystemExit("cancelled")
+    ident, pins = core.load_identity(conf_dir), core.load_pins(conf_dir)
+    approved = {k: v["digest"] for k, v in pins.items() if v.get("digest")}
+    try:
+        cfg = core.Ctem(url, ident["token"], cafile).call(
+            "POST", "/api/v1/collector/checkin", core.hello({"approved": approved, "errors": {}, "ran": False}))
+    except cc.HttpError as e:
+        if e.status in (401, 409):
+            raise SystemExit("that CTEM doesn't know this shipper: it's a different CTEM install, or the shipper "
+                             "was revoked. Nothing changed. To ship there instead, enroll with the installer from it.") from None
+        raise SystemExit(f"check-in at the new address failed: {core.explain(e)}") from None
+    except Exception as e:
+        raise SystemExit(f"check-in at the new address failed: {core.explain(e)}") from None
+    if not isinstance(cfg, dict) or cfg.get("profile_id") != conf.get("profile_id"):
+        raise SystemExit("the new address answered with a different shipper profile; nothing changed")
+    path = os.path.join(conf_dir, "collector.json")
+    core.write_json(path, {**conf, "ctem_url": url, "ctem_ca_file": cafile}, 0o640)
+    _share_with_service(path)
+    cc.say(f"Switched to {url}. Enrollment, approvals and secrets are unchanged; the next run ships there.")
+    return 0

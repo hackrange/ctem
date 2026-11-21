@@ -56,6 +56,7 @@
   </div>
 </div>
 
+<div id="tag-filters" class="filter-bar" hidden style="margin-bottom:8px"></div>
 <div class="panel" style="padding:0" id="devices-table"></div>
 {% endblock %}
 
@@ -90,6 +91,23 @@ const FILTERS = { q: 'search-input', grade: 'filter-grade', device_type: 'filter
 // Prefill from the URL so dashboard cards and shared links land on a filtered view
 const initial = new URLSearchParams(location.search);
 Object.entries(FILTERS).forEach(([k, id]) => { if (initial.get(k)) $(id).value = initial.get(k); });
+// Tag filters (from dashboard cards: owner, application, environment) show as removable chips
+let tagFilter = [...new Set(initial.getAll('tag').filter(t => t && t.length <= 128))].slice(0, 10);
+
+function tagLabel(t) {
+  const m = t.match(/^owner:(E|T|A)-O:\s*(.*)$/);
+  const ROLE = { E: 'Executive owner', T: 'Technical owner', A: 'Application owner' };
+  if (m) return `${ROLE[m[1]]}: ${m[2]}`;
+  return t.replace(/^(r7|location):/, '');
+}
+
+function showTagFilters() {
+  const box = $('tag-filters');
+  box.hidden = !tagFilter.length;
+  box.innerHTML = tagFilter.length ? '<span class="filter-bar__label">Tag</span>' + tagFilter.map((t, i) =>
+    `<span class="chip chip--info">${esc(tagLabel(t).toUpperCase())}
+      <button type="button" class="btn btn--ghost btn--sm" data-untag="${i}" aria-label="Remove this tag filter" title="Remove">&#10005;</button></span>`).join(' ') : '';
+}
 
 function normalizeMac(input) {
   const raw = input.replace(/[:\-. ]/g, '').toUpperCase();
@@ -109,7 +127,8 @@ const table = DataTable.create({
   params: () => {
     const q = $('search-input').value.trim();
     return { q: normalizeMac(q) || q, grade: $('filter-grade').value,
-             device_type: $('filter-type').value, source: $('filter-source').value, status: $('filter-status').value };
+             device_type: $('filter-type').value, source: $('filter-source').value, status: $('filter-status').value,
+             tag: tagFilter };
   },
   columns: [
     { label: 'Hostname', sort: 'hostname', render: d => `<span title="${esc(d.fqdn || d.hostname)}">${R.link(`/devices/${encodeURIComponent(d.id)}`, d.hostname)}</span> ${DeviceAssign.statusChip(d.inventory_status)}${d.out_of_scope_until ? ' <span class="chip chip--medium" style="font-size:.7rem" title="Its vulnerabilities don\'t count">Not in scope</span>' : ''}` },
@@ -127,7 +146,7 @@ const table = DataTable.create({
     { label: 'FW', sort: 'firewall_enabled', render: d => d.firewall_enabled == null ? '<span class="text-muted" title="Unknown">--</span>' : R.bool(d.firewall_enabled) },
     { label: 'USB block', sort: 'usb_storage_blocked', render: d => d.usb_storage_blocked == null ? '<span class="text-muted" title="Unknown">--</span>' : R.bool(d.usb_storage_blocked) },
     { label: 'Sources', render: d => (d.sources || []).map(c => `<span class="chip chip--info" style="font-size:.7rem">${esc(c)}</span>`).join(' ') || '<span class="text-muted">--</span>' },
-    { label: 'Tags', render: d => (d.tags || []).slice(0, 3).map(t => `<span class="chip chip--info" style="font-size:.7rem">${esc(t.split(':').pop())}</span>`).join(' ')
+    { label: 'Tags', render: d => (d.tags || []).slice(0, 3).map(t => `<span class="chip chip--info" style="font-size:.7rem">${esc(t.split(':').pop().trim().toUpperCase())}</span>`).join(' ')
         + ((d.tags || []).length > 3 ? ` <span class="text-muted text-sm">+${d.tags.length - 3}</span>` : '') },
   ],
 });
@@ -135,5 +154,13 @@ const table = DataTable.create({
 let timer;
 $('search-input').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => table.reload(), 300); });
 ['filter-grade', 'filter-type', 'filter-source', 'filter-status'].forEach(id => $(id).addEventListener('change', () => table.reload()));
+$('tag-filters').addEventListener('click', e => {
+  const b = e.target.closest('button[data-untag]');
+  if (!b) return;
+  tagFilter.splice(Number(b.dataset.untag), 1);
+  showTagFilters();
+  table.reload();
+});
+showTagFilters();
 </script>
 {% endblock %}

@@ -18,6 +18,7 @@ umask 077
 CTEM_URL_DEFAULT='@@CTEM_URL@@'
 ENROLL_CODE='@@ENROLL_CODE@@'
 COLLECTOR_NAME='@@COLLECTOR_NAME@@'
+AGENT_VERSION='@@AGENT_VERSION@@'
 LDAP3_VERSION='2.9.1'
 CRYPTO_VERSION='50.0.2'
 
@@ -184,12 +185,13 @@ PY="$APP/venv/bin/python $APP/ctem_collector.py"
 case "\${1:-}" in
   run-now)   exec systemd-run --quiet --pipe --wait --collect $props \$PY run --force ;;
   approve)   exec \$PY approve ;;
+  set-url)   exec \$PY set-url "\${@:2}" ;;
   secrets)   exec \$PY secrets "\${@:2}" ;;
   test)      exec \$PY test ;;
   test-ctem) exec \$PY test-ctem ;;
   status)    systemctl status $UNIT.service --no-pager; exit 0 ;;
   logs)      exec journalctl -u $UNIT.service -n "\${2:-100}" --no-pager ;;
-  *) echo "usage: open-ctem-collector run-now|approve|secrets [--all]|test|test-ctem|status|logs [n]"; exit 2 ;;
+  *) echo "usage: open-ctem-collector run-now|approve|secrets [--all]|set-url URL|test|test-ctem|status|logs [n]"; exit 2 ;;
 esac
 HELP
   chmod 755 "$HELPER"
@@ -258,12 +260,13 @@ write_docker_helper() {
 case "\${1:-}" in
   run-now)   exec docker exec $CTR python /app/ctem_collector.py run --force ;;
   approve)   exec docker exec -it $CTR python /app/ctem_collector.py approve ;;
+  set-url)   exec docker exec -it $CTR python /app/ctem_collector.py set-url "\${@:2}" ;;
   secrets)   exec docker exec -it $CTR python /app/ctem_collector.py secrets "\${@:2}" ;;
   test)      exec docker exec $CTR python /app/ctem_collector.py test ;;
   test-ctem) exec docker exec $CTR python /app/ctem_collector.py test-ctem ;;
   status)    exec docker ps -a --filter name=^/$CTR\$ ;;
   logs)      exec docker logs --tail "\${2:-100}" $CTR ;;
-  *) echo "usage: open-ctem-collector run-now|approve|secrets [--all]|test|test-ctem|status|logs [n]"; exit 2 ;;
+  *) echo "usage: open-ctem-collector run-now|approve|secrets [--all]|set-url URL|test|test-ctem|status|logs [n]"; exit 2 ;;
 esac
 HELP
   chmod 755 "$HELPER"
@@ -344,6 +347,7 @@ choose_mode() {
 
 main() {
   local mode=""
+  say "open-ctem shipper installer, agent version $AGENT_VERSION"
   case "${1:-}" in
     --uninstall) [[ $EUID -eq 0 ]] || die "run as root"; uninstall; exit 0 ;;
     --upgrade) [[ $EUID -eq 0 ]] || die "run as root"; unpack; upgrade; exit 0 ;;
@@ -371,7 +375,7 @@ main() {
   [[ -n "$mode" ]] || mode=$(choose_mode)
   unpack
   if [[ "$mode" == docker ]]; then install_docker; else install_local; fi
-  say "Day-two: open-ctem-collector approve | secrets | run-now | test | status | logs"
+  say "Day-two: open-ctem-collector approve | secrets | set-url | run-now | test | status | logs"
   say "Passwords rotate in CTEM > Shippers; destination changes need 'open-ctem-collector approve' here."
 }
 

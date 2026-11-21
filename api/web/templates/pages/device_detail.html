@@ -217,7 +217,7 @@ async function loadDevice() {
     info('USB storage blocked', d.usb_storage_blocked == null ? txt(null) : R.bool(d.usb_storage_blocked)),
     info('Internet exposed', R.bool(d.is_internet_exposed)),
     info('AD joined', R.bool(d.ad_joined)),
-    info('Tags', (d.tags || []).map(t => `<span class="chip chip--info" style="font-size:.7rem">${esc(t)}</span>`).join(' ') || txt(null)),
+    info('Tags', (d.tags || []).map(t => `<span class="chip chip--info" style="font-size:.7rem">${esc(String(t).toUpperCase())}</span>`).join(' ') || txt(null)),
   ].join('');
   syncShipFields();
   if (!table) startFindings();  // reloading after an assignment shouldn't mount a second table

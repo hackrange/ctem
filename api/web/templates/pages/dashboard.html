@@ -326,7 +326,7 @@ async function loadTagFilters() {
       [...seen].sort((x, y) => x[1].localeCompare(y[1], undefined, { sensitivity: 'base' })).forEach(([name, label]) => {
         const o = document.createElement('option');
         o.value = name;
-        o.textContent = label;
+        o.textContent = label.toUpperCase();
         sel.appendChild(o);
       });
     } catch (e) { /* a filter with no tags just stays empty */ }

@@ -87,3 +87,38 @@ async def test_an_ended_exclusion_clears_and_counts_again(db):
     assert dev.open_findings == 1
     acts = (await db.execute(select(AuditLog.action).where(AuditLog.resource_id == str(dev.id)))).scalars().all()
     assert "device.scope_expired" in acts
+
+
+@pytest.mark.asyncio
+async def test_contained_device_counts_nothing_until_released(db, client_admin):
+    """EDR containment: reachability is 0, so open, KEV, affected counts, GRC KEV and the vuln dashboard drop it."""
+    from api.core import vuln_dashboard as vd
+    from api.core.device_scope_exempt import counts
+    from api.scoring.engine import recalculate_device, refresh_affected_counts
+    dev, v = await _device_with_kev(db)
+    vlist = lambda: client_admin.get("/api/v1/vulns", params={"q": v.cve_id, "affected_only": "true"})  # noqa: E731
+    before = await vd._kpis(db, vd._where(None, None))
+    assert before["open"] >= 1 and (await vlist()).json()["total"] == 1
+
+    dev.edr_contained = True
+    await db.commit()
+    assert counts(dev) is False
+    await recalculate_device(dev, db)
+    await db.commit()
+    await refresh_affected_counts(db)
+    d = (await client_admin.get(f"/api/v1/devices/{dev.id}")).json()
+    assert (d["open_findings"], d["kev_findings"], d["risk_score"]) == (0, 0, 0.0) and d["raw_risk_score"] > 0
+    await db.refresh(v)
+    assert v.affected_devices == 0
+    assert (await vlist()).json()["total"] == 0
+    after = await vd._kpis(db, vd._where(None, None))
+    assert after["open"] == before["open"] - 1 and after["kev"] == before["kev"] - 1
+    f = (await client_admin.get(f"/api/v1/devices/{dev.id}/findings")).json()
+    assert len(f["findings"]) == 1 and f["contained"] is True   # kept and shown, not counted
+
+    dev.edr_contained = False
+    await db.commit()
+    await recalculate_device(dev, db)
+    await db.commit()
+    d = (await client_admin.get(f"/api/v1/devices/{dev.id}")).json()
+    assert d["open_findings"] == 1 and d["kev_findings"] == 1 and d["risk_score"] > 0

@@ -1,6 +1,8 @@
 """Not In Scope: a device an admin or cyber analyst has excluded, with a justification, until a date.
+EDR containment works the same way: a host the EDR has network-isolated can't be reached, so while it
+is contained its vulnerabilities don't count either (reachability is 0).
 
-While the exclusion runs, the device's vulnerabilities don't count: its risk is 0, it has no open findings
+While the exclusion or containment runs, the device's vulnerabilities don't count: its risk is 0, it has no open findings
 in the rollups, and it is left out of vulnerability affected counts and the vulnerability GRC checks.
 The findings are still stored and shown (dimmed), so nothing is lost when the exclusion ends.
 """
@@ -8,7 +10,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import or_, select
+from sqlalchemy import and_, or_, select
 
 MAX_DAYS = 365   # an exclusion has to be renewed at least yearly
 
@@ -28,17 +30,29 @@ def is_exempt(device) -> bool:
     return until is not None and until > now()
 
 
+def is_contained(device) -> bool:
+    """Network-isolated by the EDR right now (Falcon "contained" or "lift containment pending")."""
+    return bool(getattr(device, "edr_contained", False))
+
+
+def counts(device) -> bool:
+    """Whether this device's vulnerabilities count: not excluded and not contained."""
+    return not (is_exempt(device) or is_contained(device))
+
+
 def in_scope():
-    """SQL condition on Device: no running exclusion."""
+    """SQL condition on Device: no running exclusion and not contained by the EDR."""
     from api.models.device import Device
-    return or_(Device.scope_exempt_until.is_(None), Device.scope_exempt_until <= now())
+    return and_(or_(Device.scope_exempt_until.is_(None), Device.scope_exempt_until <= now()),
+                Device.edr_contained.is_not(True))
 
 
 def in_scope_findings():
-    """SQL condition on Finding: its device has no running exclusion."""
+    """SQL condition on Finding: its device has no running exclusion and isn't contained by the EDR."""
     from api.models.device import Device
     from api.models.vuln import Finding
-    return Finding.device_id.not_in(select(Device.id).where(Device.scope_exempt_until > now()))
+    return Finding.device_id.not_in(select(Device.id).where(
+        or_(Device.scope_exempt_until > now(), Device.edr_contained.is_(True))))
 
 
 def view(device) -> dict | None:

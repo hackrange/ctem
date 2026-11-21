@@ -254,7 +254,7 @@ def _row(e: VulnException, hosts: dict, tags: dict, full: bool = False) -> dict:
     devs = e.device_ids or []
     covers = {"finding": hosts.get(devs[0], "1 device") if devs else "1 device",
               "devices": f"{len(devs)} devices" + (f": {', '.join(hosts[d] for d in devs[:3] if d in hosts)}" if devs else ""),
-              "all": "All devices", "tag": f"Tag: {tags.get(e.tag_id, 'removed tag')}"}[e.scope.value]
+              "all": "All devices", "tag": f"Tag: {tags[e.tag_id].upper() if e.tag_id in tags else 'removed tag'}"}[e.scope.value]
     out = {"id": str(e.id), "vuln_id": str(e.vuln_id), "cve_id": v.cve_id if v else None,
            "title": v.title if v else None, "scope": e.scope.value, "covers": covers,
            "status": "expired" if e.status == ExceptionStatus.approved and not vx.is_active(e) else e.status.value,

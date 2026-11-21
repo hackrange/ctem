@@ -37,8 +37,8 @@ def test_slice_cuts_every_series_to_the_range():
 
 
 def test_filters_are_allow_listed():
-    assert vd._where("'; drop table findings; --", "nope") == []
-    assert len(vd._where("rapid7_insightvm", "server")) == 2
+    assert len(vd._where("'; drop table findings; --", "nope")) == 1   # only the built-in "counts" condition
+    assert len(vd._where("rapid7_insightvm", "server")) == 3
 
 
 @pytest.mark.asyncio

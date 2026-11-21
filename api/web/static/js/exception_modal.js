@@ -124,9 +124,9 @@
       const wrap = $('ex-tag-wrap');
       wrap.hidden = scopeVal() !== 'tag';
       if (!wrap.hidden && $('ex-tag').options.length < 2) {
-        const t = await fetch(`${API}/tags?limit=500`, { headers: { Accept: 'application/json' } }).then(x => x.json()).catch(() => ({}));
+        const t = await fetch(`${API}/tags?limit=2000&in_use=true`, { headers: { Accept: 'application/json' } }).then(x => x.json()).catch(() => ({}));
         const tags = t.tags || t.items || [];
-        $('ex-tag').innerHTML = '<option value="">Pick a tag...</option>' + tags.map(x => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('');
+        $('ex-tag').innerHTML = '<option value="">Pick a tag...</option>' + tags.map(x => `<option value="${esc(x.id)}">${esc(String(x.name).toUpperCase())}</option>`).join('');
       }
     }));
     const msg = (t, bad) => { $('ex-msg').style.color = bad ? 'var(--severity-critical)' : 'var(--fg-muted)'; $('ex-msg').innerHTML = t; };
