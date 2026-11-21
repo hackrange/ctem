@@ -65,6 +65,7 @@
 
 {% block extra_scripts %}
 <script src="{{ static('js/integrations_ai.js') }}"></script>
+<script src="{{ static('js/integrations_cloud.js') }}"></script>
 <script>
 const API = '/api/v1';
 let _editId = null;
@@ -76,6 +77,7 @@ let _integrations = [];  // cache for edit lookup
 
 const VENDOR_FIELDS = {
   ...AI_VENDOR_FIELDS,   // static/js/integrations_ai.js
+  ...CLOUD_VENDOR_FIELDS, // static/js/integrations_cloud.js
   // ── Identity / Directory ───────────────────────────────────────────────────
   ldap: [
     {key:'host',       label:'LDAP Host',      type:'text',     placeholder:'ldap.acme.example.com', required:true},
@@ -337,6 +339,12 @@ function updateVendorFields() {
         <select id="${id}" style="${INPUT_STYLE}">${opts}</select>
       </div>`;
     }
+    if (f.type === 'secret_text') {   // a multi-line secret such as a PEM key; never shown again after saving
+      return `<div>
+        <label class="text-sm" style="font-weight:600;display:block;margin-bottom:4px">${esc(f.label)}${f.required ? ' <span style="color:var(--severity-critical)">*</span>' : ''}</label>
+        <textarea id="${id}" rows="6" placeholder="${esc(f.placeholder)}" autocomplete="off" spellcheck="false" style="${INPUT_STYLE};font-family:monospace;font-size:.78rem"></textarea>
+      </div>`;
+    }
     if (f.type === 'model_select') {
       const opts = (f.options || []).map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('');
       return `<div>
@@ -361,7 +369,7 @@ function updateVendorFields() {
   aiFieldsShown(vendor);
 }
 
-const _SENSITIVE_FIELD_TYPES = new Set(['password']);
+const _SENSITIVE_FIELD_TYPES = new Set(['password', 'secret_text']);
 
 async function fetchVendorModels(vendor, selectId) {
   const btn = document.getElementById(`fetch-models-${vendor}`);

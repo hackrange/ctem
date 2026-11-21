@@ -14,3 +14,4 @@ from api.integrations import (  # noqa: F401
     splunk,
     zscaler,
 )
+from api.cloud import aws, azure, oci  # noqa: F401,E402  -- cloud exposure connectors register here too

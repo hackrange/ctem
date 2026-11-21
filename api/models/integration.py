@@ -47,6 +47,9 @@ class Vendor(str, enum.Enum):
     bedrock = "bedrock"
     zscaler = "zscaler"
     fairtprm = "fairtprm"
+    aws = "aws"                 # cloud exposure (api/cloud/)
+    azure = "azure"
+    oci = "oci"
 
 
 class IntegrationConfig(Base, UUIDPrimaryKey, TimestampMixin):

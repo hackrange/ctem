@@ -29,6 +29,12 @@
   </div>
 </div>
 
+<div class="panel" id="dev-cloud-panel" style="margin-top:16px" hidden>
+  <div class="panel__header"><span class="panel__title">Cloud exposure</span>
+    <span class="text-sm text-muted">From the cloud firewall rules (security groups, NSGs, security lists)</span></div>
+  <div class="panel__body" id="dev-cloud"></div>
+</div>
+
 <div class="panel" style="padding:0;margin-top:16px">
   <div class="panel__header" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
     <span class="panel__title">Findings</span>
@@ -232,8 +238,30 @@ async function loadDevice() {
     info('AD joined', R.bool(d.ad_joined)),
     info('Tags', tagChips(d.tags || [])),
   ].join('');
+  cloudPanel(d.cloud || []);
   syncShipFields();
   if (!table) startFindings();  // reloading after an assignment shouldn't mount a second table
+}
+
+// Each cloud record: where it lives, its addresses, and every open port with who can reach it
+const REACH = { internet: ['critical', 'Internet'], any_internal: ['medium', 'Any address (no public IP)'], restricted: ['low', 'Listed sources only'] };
+function cloudPanel(list) {
+  $('dev-cloud-panel').hidden = !list.length;
+  if (!list.length) return;
+  $('dev-cloud').innerHTML = list.map(c => {
+    const rows = (c.ports || []).map(p => {
+      const [cls, label] = REACH[p.reach] || ['info', p.reach];
+      const rng = p.from == null ? 'all ports' : (p.from === p.to ? p.from : `${p.from}-${p.to}`);
+      return `<tr><td class="text-mono text-sm">${esc(rng)}/${esc(p.proto)}</td><td><span class="chip chip--${cls}" style="font-size:.7rem">${esc(label)}</span></td>
+        <td class="text-sm">${esc((p.sources || []).join(', '))}</td><td class="text-sm text-muted">${esc(p.via)}</td></tr>`;
+    }).join('') || '<tr><td colspan="4" class="text-sm text-muted">No inbound port is open.</td></tr>';
+    return `<div style="margin-bottom:12px">
+      <div><b>${esc(String(c.provider).toUpperCase())}</b> ${esc(c.name || '')} <span class="text-sm text-muted">${esc(c.account || '')} ${esc(c.region || '')}</span>
+        ${c.internet_exposed ? '<span class="chip chip--critical" style="font-size:.7rem">Internet exposed</span>' : ''}</div>
+      <div class="text-sm text-muted" style="margin:2px 0 6px">Public IP: ${esc((c.public_ips || []).join(', ') || 'none')} · Private: ${esc((c.private_ips || []).join(', ') || '--')}
+        · <span title="${esc(c.resource_id)}">${esc(String(c.resource_id).split('/').pop())}</span></div>
+      <table class="data-table"><thead><tr><th>Port</th><th>Who can reach it</th><th>Sources</th><th>Rule</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }).join('');
 }
 
 function notFound() {

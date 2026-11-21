@@ -53,6 +53,8 @@ async def init_db() -> None:
     import api.models.grc           # noqa: F401
     import api.models.rules         # noqa: F401
     import api.models.dashboard     # noqa: F401
+    import api.models.tag_role      # noqa: F401
+    import api.models.cloud         # noqa: F401
 
     # Enum values must be added outside any transaction (Postgres requirement)
     async with _engine.connect() as conn:
@@ -103,6 +105,10 @@ def _evolve_enums(conn, metadata) -> None:
                     log.exception("enum evolve failed for %s.%s", type_name, val)
 
 
+# NOT NULL columns the models made optional. Reviewed one by one; dropping NOT NULL never loses data.
+_RELAXED = {"vuln_exceptions": ("vuln_id",)}   # rule exceptions cover many vulnerabilities
+
+
 def _evolve(conn, metadata) -> None:  # noqa: ANN001
     """
     Safe forward-only DDL:
@@ -150,6 +156,19 @@ def _evolve(conn, metadata) -> None:  # noqa: ANN001
                 log.info("auto-migrate: added column %s.%s", table.name, col.name)
             except Exception as exc:
                 log.warning("auto-migrate: skipped column %s.%s -- %s", table.name, col.name, exc)
+
+        # ── Columns that became optional (an explicit, reviewed list) ─────────
+        for col_name in _RELAXED.get(table.name, ()):
+            col = table.columns.get(col_name)
+            live = next((c for c in inspector.get_columns(table.name) if c["name"] == col_name), None)
+            if col is None or not col.nullable or live is None or live.get("nullable", True) or conn.dialect.name != "postgresql":
+                continue
+            try:
+                with conn.begin_nested():
+                    conn.execute(text(f"ALTER TABLE {table.name} ALTER COLUMN {col_name} DROP NOT NULL"))  # nosec B608 -- names from _RELAXED
+                log.info("auto-migrate: %s.%s may now be NULL", table.name, col_name)
+            except Exception as exc:
+                log.warning("auto-migrate: couldn't relax %s.%s -- %s", table.name, col_name, exc)
 
         # ── New indexes ───────────────────────────────────────────────────────
         for idx in table.indexes:
@@ -204,6 +223,8 @@ def init_db_worker() -> None:
     import api.models.identity      # noqa: F401
     import api.models.rules         # noqa: F401
     import api.models.dashboard     # noqa: F401
+    import api.models.tag_role      # noqa: F401
+    import api.models.cloud         # noqa: F401
 
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:

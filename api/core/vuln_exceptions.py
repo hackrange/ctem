@@ -3,14 +3,15 @@
 An approved exception marks its open findings risk_accepted and links them (Finding.exception_id), so every
 count that already ignores accepted risk (device risk, open findings, SLA, KEV and exposure checks) leaves them
 out with no other change. When the exception ends, those findings go back to open. Scans keep adding findings,
-so sync_all() runs after every sync and covers new ones for the "all" and "tag" scopes too.
+so sync_all() runs after every sync and covers new ones for the "all", "tag" and "rule" scopes too; a rule
+also releases findings on devices that stopped matching.
 """
 from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import and_, func, select, update
+from sqlalchemy import and_, func, not_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.models.vuln import ExceptionScope, ExceptionStatus, Finding, FindingStatus, VulnException
@@ -42,6 +43,15 @@ def is_active(exc: VulnException) -> bool:
 def covers(exc: VulnException):
     """SQL condition on Finding: the findings this exception is about (any status)."""
     from api.models.device import DeviceTag
+    if exc.scope == ExceptionScope.rule:
+        from sqlalchemy import false
+
+        from api.core import exception_rules as er
+        try:
+            return er.covers(er.parse(exc.rule or {}))
+        except Exception:   # a rule that no longer validates covers nothing, rather than everything
+            log.warning("exception %s has a rule that doesn't validate; it covers nothing", exc.id)
+            return false()
     cond = Finding.vuln_id == exc.vuln_id
     if exc.scope in (ExceptionScope.finding, ExceptionScope.devices):
         return and_(cond, Finding.device_id.in_([str(d) for d in (exc.device_ids or [])][:MAX_DEVICES]))
@@ -54,8 +64,17 @@ async def apply(db: AsyncSession, exc: VulnException) -> list[str]:
     """Cover this exception's open findings. Returns the devices to rescore."""
     if not is_active(exc):
         return []
+    ids = []
+    if exc.scope == ExceptionScope.rule:
+        # Dynamic: findings on devices (or of vulnerabilities) that stopped matching count again
+        gone = and_(Finding.exception_id == exc.id, not_(covers(exc)))
+        ids += [r[0] for r in (await db.execute(select(Finding.device_id).where(gone).distinct())).all()]
+        if ids:
+            await db.execute(update(Finding).where(gone, Finding.status == FindingStatus.risk_accepted)
+                             .values(status=FindingStatus.open, exception_id=None).execution_options(synchronize_session=False))
+            await db.execute(update(Finding).where(gone).values(exception_id=None).execution_options(synchronize_session=False))
     todo = and_(covers(exc), Finding.status.in_(OPEN), Finding.exception_id.is_(None))
-    ids = [r[0] for r in (await db.execute(select(Finding.device_id).where(todo).distinct())).all()]
+    ids += [r[0] for r in (await db.execute(select(Finding.device_id).where(todo).distinct())).all()]
     if ids:
         await db.execute(update(Finding).where(todo).values(status=FindingStatus.risk_accepted, exception_id=exc.id)
                          .execution_options(synchronize_session=False))

@@ -16,9 +16,10 @@
     <div id="ex-tabs" role="tablist" style="display:flex;gap:6px;flex-wrap:wrap"></div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
     <button type="button" id="ex-revoke" class="btn btn--ghost btn--sm" hidden disabled>Revoke selected</button>
+    <button type="button" id="ex-rule" class="btn btn--primary btn--sm" hidden title="An exception for the devices and vulnerabilities a rule describes">+ Rule exception</button>
     <div class="search-bar-wrap">
       <svg class="search-icon" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-      <input id="ex-search" type="search" class="search-bar" placeholder="CVE, title or requester" aria-label="Search exceptions">
+      <input id="ex-search" type="search" class="search-bar" placeholder="CVE, title, rule or requester" aria-label="Search exceptions">
     </div>
     </div>
   </div>
@@ -29,5 +30,6 @@
 {% block extra_scripts %}
 <script src="{{ static('js/data_table.js') }}"></script>
 <script src="{{ static('js/exception_modal.js') }}"></script>
+<script src="{{ static('js/exception_rule.js') }}"></script>
 <script src="{{ static('js/exceptions.js') }}"></script>
 {% endblock %}

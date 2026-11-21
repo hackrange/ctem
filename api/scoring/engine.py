@@ -32,6 +32,9 @@ async def recalculate_device(device: Device, db: AsyncSession) -> RiskScore:
     findings = findings_result.scalars().all()
 
     # Build the per-finding context list
+    from api.cloud.exposure import for_device
+    cloud = await for_device(db, device.id)
+    cloud_ports = [p for a in cloud for p in a["ports"]] if cloud else None   # None: not a cloud instance
     findings_data = []
     days_offline = _days_since(device.last_seen)
     for f in findings:
@@ -43,7 +46,7 @@ async def recalculate_device(device: Device, db: AsyncSession) -> RiskScore:
             nodezero_confirmed_exploitable=bool(f.is_reachable and f.reachability_source == "horizon3"),
             nodezero_confirmed_not_exploitable=bool(f.is_reachable is False and f.reachability_source == "horizon3"),
             attack_vector=f.vuln.attack_vector if f.vuln else None,
-            exposure=f.exposure, ports=f.ports,
+            exposure=f.exposure, ports=f.ports, cloud_ports=cloud_ports,
         )
         findings_data.append({
             "cvss_base": f.vuln.cvss_base or 0.0,

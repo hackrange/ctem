@@ -5,7 +5,7 @@ let _auditCursor = null;
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 
-const PANES = ['users','tokens','roles','rules','branding','audit', 'ai'];
+const PANES = ['users','tokens','roles','rules','tags','branding','audit', 'ai'];
 function switchTab(name) {
   PANES.forEach(p => {
     document.getElementById('pane-'+p).style.display = p === name ? '' : 'none';
@@ -17,6 +17,7 @@ function switchTab(name) {
   if (name === 'branding') loadBranding();
   if (name === 'ai' && window.AIUsage) AIUsage.load();
   if (name === 'rules' && window.CuratedRules) CuratedRules.load();
+  if (name === 'tags' && window.TagRoles) TagRoles.load();
 }
 
 // Tabs are links (/admin#roles) so the SSO page and bookmarks can open one directly

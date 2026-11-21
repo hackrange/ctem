@@ -83,9 +83,11 @@ def create_app() -> FastAPI:
     from api.routes.grc_exceptions import router as grc_exceptions_router
     from api.routes.vuln_exceptions import proof_router as finding_proof_router
     from api.routes.vuln_exceptions import router as vuln_exceptions_router
+    from api.routes.exception_rules import router as exception_rules_router
     from api.routes.vuln_dashboard import router as vuln_dashboard_router
     from api.routes.dashboards import fav_router as favorites_router
     from api.routes.dashboards import router as dashboards_router
+    from api.routes.tag_roles import router as tag_roles_router
     from api.routes.dashboards_ai import router as dashboards_ai_router
     from api.routes.tags import router as tags_router
     from api.routes.collector_agent import router as collector_agent_router
@@ -126,10 +128,12 @@ def create_app() -> FastAPI:
     app.include_router(grc_assess_router)
     app.include_router(grc_risk_edit_router)
     app.include_router(curated_rules_router)
+    app.include_router(exception_rules_router)   # before /{exc_id} routes
     app.include_router(vuln_exceptions_router)
     app.include_router(vuln_dashboard_router)
     app.include_router(dashboards_ai_router)
     app.include_router(dashboards_router)
+    app.include_router(tag_roles_router)
     app.include_router(favorites_router)
     app.include_router(finding_proof_router)
     app.include_router(grc_service_token_router)

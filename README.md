@@ -20,6 +20,10 @@ score = (CVSS × 0.25) + (EPSS × 0.30) + (KEV × 0.20) + (asset_criticality × 
 
 Multipliers applied for: NodeZero-confirmed exploitability, internet exposure, no EDR, Zscaler/firewall segmentation, offline status.
 
+**Rule exceptions.** Admins can except whatever a rule describes (for example hostnames `can*` with an OS starting with `Cisco IOS`, all vulnerabilities or a filtered set), drafted from plain English by the AI and previewed before creation. They need a reason, compensating controls and an end date, and stay current as devices and findings change.
+
+**Tag mapping.** Admin > Tag mapping tells CTEM what your tags mean: map prefixes such as `owner:E-O:` to Executive owner or `env:` to Environment. Suggestions come from your own tags; the dashboard filters, tag-focus chips and CMDB owner and environment read the mapping.
+
 **Reachability (breachability = likelihood × reachability).** Reductions come only from facts, and each one shows its reason (hover the **Reach** chip on a finding). A finding's one reachability factor is the strongest that applies: CVSS physical access ×0.3, local access ×0.5, adjacent network ×0.8; otherwise found by a local check with no listening service tied to it ×0.75. Found on a listening port (Rapid7 records the port, for example `443/tcp`) is not discounted, and a NodeZero-confirmed exploitable finding never is. An EDR-contained or Not In Scope device counts nothing (reachability 0); its findings stay visible. The raw score is always kept alongside.
 
 ---
@@ -63,6 +67,9 @@ Every source is matched to the same device row by host name, however it spells i
 | Rapid7 InsightAppSec | Vulnerability | Web app findings with triage status |
 | Rapid7 InsightCloudSec | Cloud | Cloud posture findings |
 | Horizon3 NodeZero | Pentest | Reachability validation |
+| AWS | Cloud exposure | EC2 instances, public IPs, security groups and network ACLs (read-only) |
+| Azure | Cloud exposure | VMs, public IPs, NIC and subnet NSGs (Reader app registration) |
+| Oracle Cloud (OCI) | Cloud exposure | Instances, public IPs, security lists and NSGs (API signing key) |
 | CrowdStrike Falcon | EDR + Threat | Devices, alerts with full detail |
 | SentinelOne | EDR | Devices, threat data |
 | Tanium | Endpoint | Inventory, patch status, Comply findings |

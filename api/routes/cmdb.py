@@ -14,8 +14,8 @@ from api.auth.rbac import get_accessible_device_tag_ids, require_cyber_or_admin
 from api.core.db import get_session
 from api.models.device import Device, DeviceTag, DeviceType
 from api.models.user import User
-from api.routes.device_query import (ASSIGNMENT_LOAD, environment, full_name, owner_label, short_name,
-                                     source_codes, tag_value)
+from api.routes.device_query import (ASSIGNMENT_LOAD, environment, full_name, location, owner_label, short_name,
+                                     source_codes)
 
 log = logging.getLogger("open-ctem.cmdb")
 router = APIRouter(prefix="/api/v1/cmdb", tags=["cmdb"])
@@ -43,6 +43,8 @@ async def list_cmdb(
     offset: int = Query(0, ge=0, le=1_000_000),
 ):
     """CMDB record list for the UI table (server-side paged), with ServiceNow integration status."""
+    from api.core import tag_roles
+    await tag_roles.ensure(db)   # owner, environment and location come from the tag mapping
     from sqlalchemy import func, or_
 
     from api.models.integration import IntegrationConfig, Vendor
@@ -140,6 +142,8 @@ async def export_cmdb(
     Full CMDB export in ServiceNow import set format.
     Use this JSON as the source for a ServiceNow Import Set transform map.
     """
+    from api.core import tag_roles
+    await tag_roles.ensure(db)
     tag_ids = await get_accessible_device_tag_ids(current_user, db)
     stmt = select(Device).options(
         selectinload(Device.owner),
@@ -183,7 +187,7 @@ def _to_cmdb_record(d: Device) -> dict:
         "os_name":          d.os,
         "os_version":       d.os_version,
         "owner":            owner_label(d),
-        "location":         tag_value(d, "location"),
+        "location":         location(d),
         "criticality":      d.criticality,
         "environment":      environment(d),
         "servicenow_ci_id": None,   # populated after first ServiceNow sync
@@ -216,7 +220,7 @@ def _to_ci(d: Device) -> dict:
         "sources": source_codes(d),
         "owner": owner_label(d),
         "environment": environment(d),
-        "location": tag_value(d, "location"),
+        "location": location(d),
         "criticality": d.criticality,
         "firewall_enabled": d.firewall_enabled,
         "usb_storage_blocked": d.usb_storage_blocked,

@@ -39,7 +39,20 @@ def _validate_base_url(url: str) -> None:
 
 
 def _check_vendor_config(vendor: Vendor, config: dict) -> None:
-    """Per-vendor checks before a config is stored. Bedrock has no URL at all: the region picks the endpoint."""
+    """Per-vendor checks before a config is stored. Bedrock and the clouds have no URL at all: the region
+    (or cloud name) picks AWS's, Azure's or Oracle's own endpoint."""
+    if vendor in (Vendor.aws, Vendor.azure, Vendor.oci):
+        from api.cloud import aws, azure, oci
+        if config.get("base_url"):
+            raise HTTPException(400, "Cloud integrations don't take a base URL")
+        checker = {Vendor.aws: aws.check, Vendor.azure: azure.check, Vendor.oci: oci.check}[vendor]
+        if any(v == "__REDACTED__" for v in config.values()):
+            return   # an edit that keeps a saved secret; checked again when it syncs
+        try:
+            checker(config)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc).capitalize()) from exc
+        return
     if vendor != Vendor.bedrock:
         return
     from api.integrations.ai_bedrock import BedrockConfigError, validate_config
@@ -51,6 +64,7 @@ def _check_vendor_config(vendor: Vendor, config: dict) -> None:
         raise HTTPException(400, str(exc)) from exc
 
 router = APIRouter(prefix="/api/v1/integrations", tags=["integrations"])
+_VENDOR_LABELS = {"aws": "AWS (cloud exposure)", "azure": "Azure (cloud exposure)", "oci": "Oracle Cloud OCI (cloud exposure)"}
 
 
 @router.get("")
@@ -69,7 +83,7 @@ async def list_vendors(
     """All vendor slugs supported by this instance -- for the add-integration modal."""
     return {
         "vendors": [
-            {"slug": v.value, "label": v.value.replace("_", " ").title()}
+            {"slug": v.value, "label": _VENDOR_LABELS.get(v.value, v.value.replace("_", " ").title())}
             for v in Vendor
         ]
     }
@@ -324,7 +338,7 @@ async def _collector_recent(cfg: IntegrationConfig, db: AsyncSession) -> bool:
     return False
 
 
-_SECRET_RE = re.compile(r"(secret|passw|pass$|token|api_?key|private_?key|credential)", re.I)
+_SECRET_RE = re.compile(r"(secret|passw|pass$|passphrase|token|api_?key|private_?key|credential)", re.I)
 _ENDPOINT_KEYS = ("base_url", "url", "host", "server", "instance_url", "tenant_url", "endpoint")
 
 
