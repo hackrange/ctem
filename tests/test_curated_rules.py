@@ -246,3 +246,35 @@ async def test_exclude_blocks_need_every_condition_of_one_block(gdb):
     # only the stale scanner-only record goes; scanner-only but fresh, and stale but EDR-reported, stay
     assert "ghost" not in left and {"r7-fresh", "both-old"} <= left
     assert body["details"]["active_devices"] == 7
+
+
+@pytest.mark.asyncio
+async def test_os_starts_with_matches_only_the_start(gdb):
+    from api.grc.checks import REGISTRY, evaluate
+    from api.models.device import Device, DeviceType
+    await _fleet(gdb)
+    gdb.add_all([Device(hostname="esx001", device_type=DeviceType.server, os="VMware ESXi Server 8.0.3", last_seen=NOW),
+                 Device(hostname="lnx001", device_type=DeviceType.server, os="Ubuntu on VMware ESXi", last_seen=NOW)])
+    await gdb.commit()
+    rule = {**EDR_RULE, "scope": {"exclude": {"os_starts_with": ["vmware esxi"]}}}
+    body, _ = await evaluate(gdb, REGISTRY["ctem_edr_coverage"], {}, rules=[_row(rule)])
+    # esx001 is left out (case-insensitive start); lnx001 only contains the words, so it still counts
+    assert body["details"]["active_devices"] == 6
+
+
+@pytest.mark.asyncio
+async def test_ai_draft_note_is_shown_not_saved(client_admin, monkeypatch):
+    import json
+
+    import api.hunt.ai as hunt_ai
+
+    class FakeAI:
+        async def complete(self, *a, **kw):
+            return json.dumps({**EDR_RULE, "scope": {"exclude": {"os_starts_with": ["VMware ESXi"]}},
+                               "note": "Matched the OS name\nfrom its start."})
+
+    async def fake(_db):
+        return FakeAI()
+    monkeypatch.setattr(hunt_ai, "get_ai", fake)
+    d = (await client_admin.post("/api/v1/rules/draft", json={"text": "ESXi out of EDR coverage"})).json()
+    assert d["errors"] == [] and "note" not in d["document"] and d["note"] == "Matched the OS name from its start."

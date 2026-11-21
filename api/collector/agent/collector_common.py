@@ -23,8 +23,24 @@ class PinMismatch(Exception):
 
 class HttpError(Exception):
     def __init__(self, status, body=None):
-        super().__init__(f"HTTP {status}")
+        why = _reason(body)
+        super().__init__(f"HTTP {status}" + (f" ({why})" if why else ""))
         self.status, self.body = status, body
+
+
+def _reason(body):
+    """The API's own one-line reason (Falcon: errors[0].message, CTEM: detail), for the log. Never a secret."""
+    msg = None
+    if isinstance(body, dict):
+        errs = body.get("errors")
+        if isinstance(errs, list) and errs and isinstance(errs[0], dict):
+            msg = errs[0].get("message")
+        elif isinstance(body.get("detail"), str):
+            msg = body["detail"]
+    if not isinstance(msg, str):
+        return None
+    msg = "".join(ch if ord(ch) >= 32 else " " for ch in msg).strip()
+    return msg[:160] or None
 
 
 def say(msg=""):

@@ -91,8 +91,8 @@ def _hidden_ids(api):
         try:
             data = api.call("GET", f"/devices/queries/devices-hidden/v1?limit=5000&offset={offset}")
         except cc.HttpError as e:
-            if e.status in (403, 404):
-                why = "isn't available on this cloud" if e.status == 404 else "needs Hosts: Read"
+            if 400 <= e.status < 500 and e.status != 429:
+                why = {404: "isn't available on this cloud", 403: "needs Hosts: Read"}.get(e.status, f"refused ({e})")
                 cc.say(f"  CrowdStrike: hidden hosts API {why}; hidden hosts are skipped")
                 return ids
             raise
@@ -118,9 +118,10 @@ class _Policies:
             try:
                 rows = self.api.call("GET", f"{path}?{q}").get("resources") or []
             except cc.HttpError as e:
-                if e.status in (401, 403, 404):
+                if 400 <= e.status < 500 and e.status != 429:   # an extra: never worth failing the whole pull
                     if kind not in self.denied:
-                        why = "isn't available on this cloud" if e.status == 404 else "needs read access"
+                        why = {404: "isn't available on this cloud", 401: "needs read access",
+                               403: "needs read access"}.get(e.status, f"refused the request ({e})")
                         cc.say(f"  CrowdStrike: {kind} policy API {why}; that column stays blank")
                     self.denied.add(kind)
                     for x in todo:
@@ -186,14 +187,17 @@ class _Logins:
             try:
                 return self.api.call("POST", self.paths[0], {"ids": ids}).get("resources") or []
             except cc.HttpError as e:
-                if e.status == 404:  # older clouds only have v1
+                if e.status in (400, 404):  # older clouds only have v1; v1 may take a request v2 refuses
+                    cc.say(f"  CrowdStrike: login history {self.paths[0].rsplit('/', 1)[-1]} refused: {e}")
                     self.paths.pop(0)
                     continue
-                if e.status in (401, 403):
-                    cc.say("  CrowdStrike: no access to login history; using the last sign-in only")
+                if 400 <= e.status < 500 and e.status != 429:
+                    cc.say(f"  CrowdStrike: no access to login history ({e}); using the last sign-in only")
                     self.off = True
                     return []
                 raise
+        if not self.off:
+            cc.say("  CrowdStrike: login history unavailable; using the last sign-in only")
         self.off = True
         return []
 

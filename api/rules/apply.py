@@ -45,6 +45,9 @@ def filters_clause(f: Filters, any_of: bool = False):
     if f.os_contains:
         os_ = func.lower(func.coalesce(Device.os, ""))
         parts.append(or_(*(os_.like(f"%{_like(x)}%", escape="\\") for x in f.os_contains)))
+    if f.os_starts_with:
+        os_ = func.lower(func.coalesce(Device.os, ""))
+        parts.append(or_(*(os_.like(f"{_like(x)}%", escape="\\") for x in f.os_starts_with)))
     if f.hostname_patterns:
         host = func.lower(func.coalesce(Device.hostname, ""))
         parts.append(or_(*(host.like(_glob(p), escape="\\") for p in f.hostname_patterns)))

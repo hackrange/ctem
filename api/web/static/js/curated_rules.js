@@ -158,9 +158,11 @@
     say('Asking the AI...');
     const r = await call('POST', '/draft', { text });
     if (!r.available) { say('No AI integration is configured. Write the JSON below, or add one under Integrations.', true); return; }
-    if (!r.document) { say(esc(r.error || 'No draft.'), true); return; }
+    if (!r.document) { say(esc(r.error || 'The AI had no suggestion. Try rewording it.'), true); return; }
     document.getElementById('cr-json').value = JSON.stringify(r.document, null, 2);
-    say(r.errors && r.errors.length ? `Draft needs fixing:${list(r.errors)}` : 'Draft ready. Preview it, then save.', !!(r.errors && r.errors.length));
+    const note = r.note ? ` <span class="text-muted">The AI noted: ${esc(r.note)}</span>` : '';
+    say(r.errors && r.errors.length ? `Almost there. The draft needs a small fix:${list(r.errors)}${note}`
+      : `Draft ready below. Click Preview to see which devices it affects, then Save.${note}`, !!(r.errors && r.errors.length));
   }
 
   async function load() {

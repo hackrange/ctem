@@ -13,12 +13,17 @@ _SYSTEM = (
     "(open-ctem/curated-rule@1) that changes an existing check, or, when they ask to create or add a new check, "
     "a custom check (open-ctem/custom-check@1). Reply with a single JSON "
     "object that follows the matching JSON Schema exactly, nothing else. Use only fields and values the schema "
-    "allows. If the request can't be expressed with those fields, reply with "
-    '{"error": "<one sentence saying what can\'t be done>"}.'
+    "allows. Be helpful: when the fields can express the request closely, build that rule even if the wording "
+    "differs (for example 'begins with' is os_starts_with, 'includes' or 'has' is os_contains), and when you had "
+    'to assume or approximate something, add a top-level "note" with one plain sentence saying what. Only if '
+    'nothing close is possible, reply with {"error": "<one friendly sentence saying what can\'t be done and a '
+    'way to phrase it that would work>"}.'
 )
 
 
 _HAND = " Write the JSON by hand meanwhile."
+_REWORD = ("The AI couldn't turn that into a rule. Try naming the check and which devices to keep or leave out, "
+           "for example: 'EDR coverage: leave out devices whose OS starts with VMware ESXi'.")
 
 _NOT_CONTAINED = {
     "schema": "open-ctem/curated-rule@1", "name": "EDR coverage: workstations and servers, not contained",
@@ -141,12 +146,16 @@ async def draft(db: AsyncSession, text: str) -> dict:
                                   retries=1, purpose="curated_rules")
         doc = _extract_json(reply)
     except ValueError:
-        return {"available": True, "document": None, "error": "The AI didn't return a rule. Try rewording it."}
+        return {"available": True, "document": None, "error": _REWORD}
     except Exception as exc:
         log.exception("curated rule draft failed")
         return {"available": True, "document": None, "error": _why(exc)}
     if not isinstance(doc, dict):
-        return {"available": True, "document": None, "error": "The AI didn't return a rule. Try rewording it."}
+        return {"available": True, "document": None, "error": _REWORD}
     if "error" in doc and len(doc) == 1:
         return {"available": True, "document": None, "error": str(doc["error"])[:300]}
-    return {"available": True, "document": doc, "error": None}
+    note = doc.pop("note", None)
+    out = {"available": True, "document": doc, "error": None}
+    if isinstance(note, str) and note.strip():
+        out["note"] = " ".join(note.split())[:300]
+    return out

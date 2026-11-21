@@ -102,3 +102,33 @@ async def test_inventory_hidden_filter(client_admin, db):
     r = (await client_admin.get("/api/v1/devices", params={"status": "edr_hidden", "q": name})).json()
     rows = r.get("devices") or r.get("items") or []
     assert [d["hostname"].lower() for d in rows] == [name] and rows[0]["edr_hidden"] is True
+
+
+def test_a_refused_extra_never_stops_the_pull():
+    did = "f" * 32
+
+    class Api:
+        def __init__(self, bad):
+            self.bad, self.paths = bad, []
+
+        def call(self, method, path, body=None):
+            self.paths.append(path)
+            if any(b in path for b in self.bad):
+                raise cc.HttpError(400, {"errors": [{"code": 400, "message": "ids: too many\x1b[0m"}]})
+            return {"resources": [{"device_id": did, "recent_logins": [{"user_name": "jdoe", "login_time": "x"}]}]}
+
+    rows = [{"device_id": did}]
+    v1 = Api(["/v2"])                     # v2 refused: v1 answers
+    assert cs._Logins(v1).load(rows) == {did: ["jdoe"]} and v1.paths[-1].endswith("/v1")
+    both = cs._Logins(Api(["/v2", "/v1"]))  # both refused: the feature turns off, the pull goes on
+    assert both.load(rows) == {} and both.off
+    pol = cs._Policies(Api(["firewall"]))
+    pol._fetch("/policy/entities/firewall/v1", ["a" * 32], pol.fw, "firewall")
+    assert "firewall" in pol.denied
+
+
+def test_http_error_carries_the_api_reason_cleanly():
+    e = cc.HttpError(400, {"errors": [{"code": 400, "message": "Invalid filter\n\x07 value"}]})
+    assert str(e) == "HTTP 400 (Invalid filter   value)"
+    assert str(cc.HttpError(400, {"detail": "bad run"})) == "HTTP 400 (bad run)"
+    assert str(cc.HttpError(500, "<html>")) == "HTTP 500"
