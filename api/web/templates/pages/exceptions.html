@@ -14,9 +14,12 @@
 <div class="panel" style="padding:0">
   <div class="panel__header" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
     <div id="ex-tabs" role="tablist" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <button type="button" id="ex-revoke" class="btn btn--ghost btn--sm" hidden disabled>Revoke selected</button>
     <div class="search-bar-wrap">
       <svg class="search-icon" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
       <input id="ex-search" type="search" class="search-bar" placeholder="CVE, title or requester" aria-label="Search exceptions">
+    </div>
     </div>
   </div>
   <div id="ex-table"></div>

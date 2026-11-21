@@ -10,6 +10,16 @@
   const chip = s => `<span class="chip chip--${CHIP[s] || 'info'}" style="font-size:.7rem">${esc(LABEL[s] || s)}</span>`;
   const day = s => (s ? new Date(s).toLocaleDateString() : '--');
   let canDecide = false, tab = 'pending', table;
+  const picked = new Map();   // exception id -> label, for bulk revoke on the Active tab
+  const revocable = e => canDecide && e.status === 'approved';
+  const bulk = () => canDecide && tab === 'active';
+  function pickedLabel() {
+    $('ex-revoke').hidden = !bulk();
+    $('ex-revoke').disabled = !picked.size;
+    $('ex-revoke').textContent = `Revoke selected${picked.size ? ` (${picked.size})` : ''}`;
+  }
+  const syncPicks = CtemFindings.picker({ mount: $('ex-table'), rows: () => (table ? table.rows() : []), picked,
+                                          entry: e => e.cve_id || e.title, onChange: pickedLabel });
 
   function tabs(pending) {
     const list = canDecide
@@ -25,20 +35,26 @@
   }
 
   function start() {
+    picked.clear();
+    pickedLabel();
     table = DataTable.create({
       mount: $('ex-table'),
       endpoint: API,
       listKey: 'exceptions',
       emptyText: canDecide ? 'Nothing here' : "You haven't asked for any exceptions with this status",
       params: () => ({ tab, q: $('ex-search').value.trim() }),
+      onLoad: syncPicks,
       columns: [
+        ...(bulk() ? [{ label: 'Select', head: CtemFindings.PICK_HEAD,
+          render: e => (revocable(e) ? `<input type="checkbox" data-pick="${esc(e.id)}" aria-label="Select"${picked.has(e.id) ? ' checked' : ''}>` : '') }] : []),
         { label: 'Vulnerability', render: vulnCell },
         { label: 'Covers', render: e => `<span class="text-sm">${esc(e.covers)}</span>` },
         { label: 'Status', render: e => chip(e.status) },
         { label: 'Ends', render: e => esc(day(e.expires_at)) },
         { label: 'Requested by', render: e => `<span class="text-sm">${esc(e.requested_by)}</span><div class="text-sm text-muted">${esc(day(e.requested_at))}</div>` },
         { label: 'Decided by', render: e => (e.decided_by ? `<span class="text-sm">${esc(e.decided_by)}</span><div class="text-sm text-muted">${esc(day(e.decided_at))}</div>` : R.date(null)) },
-        { label: '', render: e => `<button type="button" class="btn btn--ghost btn--sm" data-open="${esc(e.id)}">Details</button>` },
+        { label: '', render: e => `<span style="display:flex;gap:4px"><button type="button" class="btn btn--ghost btn--sm" data-open="${esc(e.id)}">Details</button>${revocable(e)
+          ? `<button type="button" class="btn btn--ghost btn--sm" data-revoke="${esc(e.id)}" data-label="${esc(e.cve_id || e.title || '')}">Revoke</button>` : ''}</span>` },
       ],
     });
   }
@@ -99,6 +115,48 @@
     wrap.classList.add('is-open');
   }
 
+  // Revoke one or many: one note for all, required, shown to the requester and kept in the audit log
+  function revokeDialog(ids) {
+    let wrap = $('exr-modal');
+    if (!wrap) {
+      wrap = document.createElement('div');
+      wrap.id = 'exr-modal';
+      wrap.className = 'tk-backdrop';
+      wrap.setAttribute('role', 'dialog');
+      wrap.setAttribute('aria-modal', 'true');
+      document.body.appendChild(wrap);
+    }
+    const names = ids.map(([, l]) => l).filter(Boolean);
+    wrap.innerHTML = `<div class="tk-dialog" style="max-width:560px">
+      <h2 class="tk-title">Revoke ${ids.length === 1 ? 'this exception' : `${ids.length} exceptions`}</h2>
+      <p class="tk-sub">${esc(names.slice(0, 6).join(', '))}${names.length > 6 ? ` and ${names.length - 6} more` : ''}</p>
+      <div class="tk-note">Revoking ends it now: the findings count against risk and SLA again.</div>
+      <div class="form-group"><label class="form-label" for="exr-note">Why? <span style="color:var(--severity-critical)">*</span></label>
+        <textarea id="exr-note" class="form-input" rows="2" maxlength="1000" placeholder="e.g. Patch is now available"></textarea></div>
+      <div id="exr-msg" class="text-sm" style="min-height:1.2em;color:var(--severity-critical)"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+        <button type="button" class="btn btn--ghost btn--sm" id="exr-cancel">Cancel</button>
+        <button type="button" class="btn btn--primary btn--sm" id="exr-go">Revoke</button></div></div>`;
+    wrap.classList.add('is-open');
+    $('exr-cancel').onclick = () => wrap.classList.remove('is-open');
+    $('exr-go').onclick = async () => {
+      const note = $('exr-note').value.trim();
+      if (note.length < 3) { $('exr-msg').textContent = 'Add a short note saying why.'; return; }
+      if (/[<>]/.test(note)) { $('exr-msg').textContent = "Please don't use < or >."; return; }
+      $('exr-go').disabled = true;
+      const failed = [];
+      for (const [id] of ids) {
+        const r = await CtemFindings.post(`${API}/${encodeURIComponent(id)}/revoke`, { note });
+        if (!r.ok) failed.push(r.error);
+      }
+      $('exr-go').disabled = false;
+      if (failed.length === ids.length) { $('exr-msg').textContent = failed[0] || 'That did not work.'; return; }
+      wrap.classList.remove('is-open');
+      picked.clear();
+      refresh();
+    };
+  }
+
   async function refresh() {
     const s = await fetch(`${API}/summary`, { headers: { Accept: 'application/json' } }).then(r => (r.ok ? r.json() : {})).catch(() => ({}));
     canDecide = !!s.can_decide;
@@ -110,12 +168,16 @@
     const b = e.target.closest('button[data-tab]');
     if (!b) return;
     tab = b.dataset.tab;
+    table = null;
     refresh();
   });
   $('ex-table').addEventListener('click', e => {
     const b = e.target.closest('button[data-open]');
     if (b) open(b.dataset.open);
+    const r = e.target.closest('button[data-revoke]');
+    if (r) revokeDialog([[r.dataset.revoke, r.dataset.label]]);
   });
+  $('ex-revoke').addEventListener('click', () => revokeDialog([...picked.entries()]));
   let timer;
   $('ex-search').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => table && table.reload(), 300); });
 
