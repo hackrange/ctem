@@ -170,6 +170,24 @@
       const fmt = (g, n) => `${esc(g || '?')} ${n == null ? '--' : esc(Number(n).toFixed(n % 1 ? 1 : 0))}`;
       return `<span class="text-sm text-muted" title="Original score, then the score after containment">(${fmt(rawGrade, rawScore)} &rarr; ${fmt(grade, score)})</span>`;
     },
+    // "3 days ago (EDR)": the freshest sign of life from any tool; the hover lists each tool's own date
+    seenAgo(d) {
+      if (!d.last_seen) return '<span class="text-muted">Never</span>';
+      const days = Math.max(0, Math.floor((Date.now() - new Date(d.last_seen).getTime()) / 86400000));
+      const text = days === 0 ? 'Today' : days === 1 ? '1 day ago' : `${days.toLocaleString()} days ago`;
+      const each = Object.entries(d.seen_by || {}).map(([k, v]) => `${k}: ${new Date(v).toLocaleString()}`).join('\n');
+      return `<span title="${esc(each)}">${esc(text)}</span>${d.last_seen_by ? ` <span class="text-sm text-muted">${esc(d.last_seen_by)}</span>` : ''}`;
+    },
+    // Where the scanner found a finding and what its CVSS vector needs; the hover text is the score's reason
+    reach(f) {
+      const why = f.reach ? ` title="${esc(f.reach)}"` : '';
+      const chip = (cls, text) => `<span class="chip chip--${cls}" style="font-size:.7rem"${why}>${esc(text)}</span>`;
+      const av = { physical: 'PHYSICAL ACCESS', local: 'LOCAL ACCESS', adjacent: 'ADJACENT NETWORK' }[f.attack_vector];
+      if (f.exposure === 'listening' && !av) return chip('high', `LISTENING${f.ports ? ' ' + f.ports.toUpperCase() : ''}`);
+      if (av) return chip('low', av);
+      if (f.exposure === 'local') return chip('low', 'LOCAL CHECK');
+      return '<span class="text-muted" title="The scanner didn\'t say where it found this">--</span>';
+    },
     bool(v) {
       return v ? '<span style="color:var(--severity-low)">&#10003;</span>'
                : '<span style="color:var(--severity-critical)">&#10007;</span>';

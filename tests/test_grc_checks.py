@@ -49,7 +49,7 @@ def _device(**kw):
 
 
 def test_catalog_has_every_check_with_bounded_thresholds():
-    assert len(REGISTRY) == 16
+    assert len(REGISTRY) == 20
     for c in REGISTRY.values():
         assert c.check_type.startswith("ctem_") and c.controls and c.version >= 1
         for t in c.thresholds.values():
@@ -156,7 +156,7 @@ async def test_run_all_records_every_check_and_history_rolls_up(gdb):
 @pytest.mark.asyncio
 async def test_catalog_and_errors_over_http(client_cyber, client_it_user):
     r = await client_cyber.get("/api/v1/grc/checks")
-    assert r.status_code == 200 and len(r.json()["checks"]) == 16
+    assert r.status_code == 200 and len(r.json()["checks"]) == 20
     assert (await client_cyber.get("/api/v1/grc/checks/ctem_nope")).status_code == 404
     assert (await client_cyber.get("/api/v1/grc/checks/ctem_edr_coverage?pass_at=500")).status_code == 400
     assert (await client_cyber.get("/api/v1/grc/checks/ctem_edr_coverage?pass_at=90&pass_at=91")).status_code == 400
@@ -231,3 +231,78 @@ async def test_no_exposure_data_is_not_a_pass(gdb):
     await gdb.commit()
     body, _ = await evaluate(gdb, REGISTRY["ctem_exposed_criticals"], {})
     assert body["result"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_stale_tool_records_flags_machines_no_tool_has_seen(gdb):
+    await _source(gdb, "rapid7_insightvm")
+    old = NOW - timedelta(days=60)
+    gdb.add_all([_device(sources=",rapid7_insightvm,crowdstrike,", edr_last_seen=NOW) for _ in range(48)]
+                + [_device(hostname="ghost-r7", sources=",rapid7_insightvm,", last_seen=old),
+                   _device(hostname="ghost-cs-ad", sources=",crowdstrike,ldap,", last_seen=None, edr_last_seen=old,
+                           ad_last_logon=old),
+                   # an old scan but a fresh EDR heartbeat is alive, not stale
+                   _device(hostname="alive-edr", sources=",rapid7_insightvm,crowdstrike,", last_seen=old, edr_last_seen=NOW)])
+    await gdb.commit()
+    body, out = await evaluate(gdb, REGISTRY["ctem_stale_tool_records"], {}, detail=True)
+    d = body["details"]
+    assert (d["records"], d["stale"], d["stale_in_scanner"], d["stale_in_edr"], d["stale_in_directory"]) == (51, 2, 1, 1, 1)
+    assert body["result"] == "fail" and "scanner 1, EDR 1, directory 1" in body["summary"]   # 3.9% is over 2%
+    rows = {r["hostname"]: r for r in out.rows}
+    assert set(rows) == {"ghost-r7", "ghost-cs-ad"} and rows["ghost-cs-ad"]["still_in"] == "CS AD"
+    assert rows["ghost-cs-ad"]["scanner_last_seen"] == "never"
+    body, _ = await evaluate(gdb, REGISTRY["ctem_stale_tool_records"], {"fail_pct": "5"})
+    assert body["result"] == "warning"
+
+
+@pytest.mark.asyncio
+async def test_orphan_ad_computers_only_counts_ad_only_objects(gdb):
+    from api.models.device import DeviceType
+    await _source(gdb, "ldap")
+    old = NOW - timedelta(days=40)
+    gdb.add_all([_device(sources=",ldap,", ad_joined=True, ad_last_logon=NOW, last_seen=None) for _ in range(18)]
+                + [_device(hostname="orphan", sources=",ldap,", ad_joined=True, ad_last_logon=old, last_seen=None,
+                           ad_dn="CN=orphan,OU=Workstations,DC=acme,DC=example"),
+                   _device(hostname="in-r7-too", sources=",ldap,rapid7_insightvm,", ad_joined=True, ad_last_logon=old)])
+    for d in gdb.new:
+        d.device_type = DeviceType.workstation
+    await gdb.commit()
+    body, out = await evaluate(gdb, REGISTRY["ctem_orphan_ad_computers"], {}, detail=True)
+    assert (body["details"]["ad_computers"], body["details"]["orphaned"]) == (20, 1)
+    assert [r["hostname"] for r in out.rows] == ["orphan"] and out.rows[0]["ad_dn"].startswith("CN=orphan")
+    assert body["result"] == "fail"   # 5% is over the 2% default
+
+
+@pytest.mark.asyncio
+async def test_edr_silent_and_scan_gap(gdb):
+    await _source(gdb, "crowdstrike")
+    await _source(gdb, "rapid7_insightvm")
+    quiet = NOW - timedelta(days=30)
+    gdb.add_all([_device(edr_last_seen=NOW, last_seen=NOW) for _ in range(8)]
+                + [_device(hostname="edr-quiet", edr_last_seen=quiet, last_seen=NOW, edr_hidden=True),
+                   _device(hostname="never-edr", edr_last_seen=None, last_seen=NOW),        # EDR coverage's job, not this
+                   _device(hostname="scan-stale", edr_last_seen=NOW, last_seen=quiet),
+                   _device(hostname="never-scanned", ad_last_logon=NOW, last_seen=None)])
+    await gdb.commit()
+    body, out = await evaluate(gdb, REGISTRY["ctem_edr_silent_on_network"], {}, detail=True)
+    assert body["details"]["edr_silent"] == 1 and [r["hostname"] for r in out.rows] == ["edr-quiet"]
+    assert out.rows[0]["edr_hidden"] == "yes"
+    body, out = await evaluate(gdb, REGISTRY["ctem_scan_gap"], {}, detail=True)
+    d = body["details"]
+    assert (d["scan_gap"], d["never_scanned"]) == (2, 1)
+    assert {r["hostname"] for r in out.rows} == {"scan-stale", "never-scanned"}
+
+
+
+@pytest.mark.asyncio
+async def test_hygiene_checks_work_with_any_vendor(gdb):
+    """Written per tool category: SentinelOne for EDR and Qualys for scanning count like CrowdStrike and Rapid7."""
+    await _source(gdb, "sentinelone")
+    await _source(gdb, "qualys")
+    old = NOW - timedelta(days=40)
+    gdb.add_all([_device(sources=",qualys,sentinelone,", edr_last_seen=NOW) for _ in range(9)]
+                + [_device(hostname="ghost", sources=",qualys,sentinelone,", last_seen=old, edr_last_seen=old)])
+    await gdb.commit()
+    body, out = await evaluate(gdb, REGISTRY["ctem_stale_tool_records"], {}, detail=True)
+    assert body["details"]["stale"] == 1 and out.rows[0]["still_in"] == "QL S1"
+    assert body["result"] != "error"

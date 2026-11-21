@@ -67,6 +67,11 @@ class Finding(Base, UUIDPrimaryKey, TimestampMixin):
     is_reachable: Mapped[bool | None] = mapped_column(Boolean)                  # None = not yet validated
     reachability_source: Mapped[str | None] = mapped_column(String(64))
     reachability_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Where the scanner found it: "listening" = on a network service (ports below), "local" = by a local or
+    # authenticated check with no listening service tied to it. None = the scanner didn't say.
+    exposure: Mapped[str | None] = mapped_column(String(16))
+    ports: Mapped[str | None] = mapped_column(String(128))                       # "443/tcp 8443/tcp"
+    exposure_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     in_attack_chain: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     # Set while an approved exception covers this finding (status is then risk_accepted)
     exception_id: Mapped[str | None] = mapped_column(ForeignKey("vuln_exceptions.id", ondelete="SET NULL"), index=True)

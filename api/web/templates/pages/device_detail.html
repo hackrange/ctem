@@ -6,7 +6,8 @@
 {% block content %}
 <div class="page-header">
   <div>
-    <p class="text-sm"><a href="/devices" class="dt-link" style="color:var(--fg-muted)">&larr; Devices</a></p>
+    <p class="text-sm"><a href="/devices" data-tag-focus-link class="dt-link" style="color:var(--fg-muted)">&larr; Devices</a></p>
+    <div id="tag-focus" class="filter-bar" hidden style="margin:4px 0 8px"></div>
     <h1 class="page-header__title" id="dev-title">Loading...</h1>
     <p class="page-header__sub" id="dev-sub"></p>
   </div>
@@ -58,6 +59,18 @@
 <script src="{{ static('js/exception_modal.js') }}"></script>
 <script>
 const R = DataTable.R;
+TagFocus.chips(document.getElementById('tag-focus'), 'Viewing');
+
+// The first 5 tags, then the rest behind "+N more" (no script needed to open it)
+function tagChips(tags) {
+  if (!tags.length) return txt(null);
+  const chip = t => `<span class="chip chip--info" style="font-size:.7rem">${esc(String(t).toUpperCase())}</span>`;
+  const first = tags.slice(0, 5).map(chip).join(' ');
+  if (tags.length <= 5) return first;
+  return `${first} <details class="dd-more-tags" style="display:inline">
+    <summary class="text-sm" style="display:inline;cursor:pointer;color:var(--accent)"><span class="dd-more">+${tags.length - 5} more</span><span class="dd-less">Show fewer</span></summary>
+    ${tags.slice(5).map(chip).join(' ')}</details>`;
+}
 const $ = id => document.getElementById(id);
 const deviceId = location.pathname.split('/').filter(Boolean).pop();
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -209,7 +222,7 @@ async function loadDevice() {
     info('OS version', txt(d.os_version)),
     info('Criticality', txt(d.criticality)),
     info('Sources', (d.sources || []).map(c => `<span class="chip chip--info" style="font-size:.7rem">${esc(c)}</span>`).join(' ') || txt(null)),
-    info('Last seen', R.date(d.last_seen)),
+    info('Last seen', R.seenAgo(d)),
     info('Open findings', R.num(d.open_findings)),
     info('KEV findings', d.kev_findings ? `<span class="chip chip--critical">${R.num(d.kev_findings)}</span>` : '0'),
     info('EDR', `${R.bool(d.edr_active)} ${txt(d.edr_vendor)}${d.edr_contained ? ' <span class="chip chip--info">Contained</span>' : ''}${d.edr_hidden ? ' <span class="chip chip--medium" title="Hidden in the Falcon console: its detections may not show there">Hidden in Falcon</span>' : ''}`),
@@ -217,7 +230,7 @@ async function loadDevice() {
     info('USB storage blocked', d.usb_storage_blocked == null ? txt(null) : R.bool(d.usb_storage_blocked)),
     info('Internet exposed', R.bool(d.is_internet_exposed)),
     info('AD joined', R.bool(d.ad_joined)),
-    info('Tags', (d.tags || []).map(t => `<span class="chip chip--info" style="font-size:.7rem">${esc(String(t).toUpperCase())}</span>`).join(' ') || txt(null)),
+    info('Tags', tagChips(d.tags || [])),
   ].join('');
   syncShipFields();
   if (!table) startFindings();  // reloading after an assignment shouldn't mount a second table
@@ -259,6 +272,7 @@ function startFindings() {
       { label: 'CVSS', sort: 'cvss_base', firstOrder: 'desc', render: f => dim(f, txt(f.cvss_base)) },
       { label: 'EPSS', sort: 'epss_score', firstOrder: 'desc', render: f => dim(f, f.epss_score == null ? txt(null) : esc((f.epss_score * 100).toFixed(1) + '%')) },
       { label: 'KEV', sort: 'is_kev', firstOrder: 'desc', render: f => dim(f, f.is_kev ? '<span class="chip chip--critical">KEV</span>' : '') },
+      { label: 'Reach', render: f => dim(f, R.reach(f)) },
       { label: 'Score', sort: 'composite_score', firstOrder: 'desc', render: f => dim(f, R.score(f.composite_score)) },
       { label: 'Status', sort: 'status', render: f => dim(f, f.exception_id
         ? `<a class="chip chip--info" style="font-size:.7rem" href="/exceptions?id=${encodeURIComponent(f.exception_id)}">Excepted</a>`

@@ -3,10 +3,13 @@ from __future__ import annotations
 
 import ipaddress
 import re
+from datetime import datetime, timezone
 
 from sqlalchemy import func, or_, select
 from sqlalchemy import inspect as sa_inspect
+from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import aliased, selectinload
+from sqlalchemy.sql.functions import FunctionElement
 
 import api.models.tag  # noqa: F401  -- aliased() below configures mappers, so every related model must be loaded
 import api.models.vuln  # noqa: F401
@@ -16,6 +19,42 @@ from api.models.device import Device, DeviceAssignment, DeviceTag, DeviceType, R
 from api.models.user import User
 
 Owner = aliased(User)
+
+class greatest(FunctionElement):  # noqa: N801  -- reads like the SQL function it is
+    """GREATEST(...) in Postgres; SQLite (tests) spells it max(...) with several arguments."""
+    name = "greatest"
+    inherit_cache = True
+
+
+@compiles(greatest)
+def _greatest_default(element, compiler, **kw):
+    return f"GREATEST({compiler.process(element.clauses, **kw)})"
+
+
+@compiles(greatest, "sqlite")
+def _greatest_sqlite(element, compiler, **kw):
+    return f"max({compiler.process(element.clauses, **kw)})"
+
+
+# Every tool's sign of life for a device: a scan, an EDR heartbeat, an AD computer logon
+SEEN_BY = (("Scanner", "last_seen"), ("EDR", "edr_last_seen"), ("AD logon", "ad_last_logon"))
+_NEVER = datetime(1970, 1, 1, tzinfo=timezone.utc)
+LAST_SEEN_ANY = greatest(*(func.coalesce(getattr(Device, col), _NEVER) for _, col in SEEN_BY))
+
+
+def _aware(dt):
+    return dt if dt is None or dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def freshest(d: Device) -> tuple[datetime | None, str | None, dict]:
+    """(newest sign of life from any tool, which tool, each tool's own time) for a device."""
+    seen = {label: _aware(getattr(d, col, None)) for label, col in SEEN_BY}
+    have = {k: v for k, v in seen.items() if v}
+    if not have:
+        return None, None, {}
+    by = max(have, key=have.get)
+    return have[by], by, {k: v.isoformat() for k, v in have.items()}
+
 
 # Allow-listed sort keys -> columns. Anything else falls back to risk_score.
 SORTS = {
@@ -27,7 +66,7 @@ SORTS = {
     "risk_score": Device.risk_score,
     "open_findings": Device.open_findings,
     "kev_findings": Device.kev_findings,
-    "last_seen": Device.last_seen,
+    "last_seen": LAST_SEEN_ANY,   # the freshest of scanner, EDR and AD logon
     "edr_active": Device.edr_active,
     "source": Device.source,
     "firewall_enabled": Device.firewall_enabled,
@@ -281,7 +320,7 @@ def summary(d: Device) -> dict:
         "risk_grade": d.risk_grade.value if d.risk_grade else None,
         "open_findings": d.open_findings or 0,
         "kev_findings": d.kev_findings or 0,
-        "last_seen": d.last_seen.isoformat() if d.last_seen else None,
+        **_seen_fields(d),
         "edr_active": d.edr_active,
         "edr_vendor": d.edr_vendor,
         "edr_contained": bool(d.edr_contained),
@@ -299,6 +338,12 @@ def summary(d: Device) -> dict:
     }
 
 
+def _seen_fields(d: Device) -> dict:
+    at, by, each = freshest(d)
+    return {"last_seen": at.isoformat() if at else None, "last_seen_by": by, "seen_by": each,
+            "scan_last_seen": d.last_seen.isoformat() if d.last_seen else None}
+
+
 def export_row(d: Device) -> list:
     s = summary(d)
     a, st = s["assigned_user"], s["inventory_status"]
@@ -306,3 +351,24 @@ def export_row(d: Device) -> list:
             s["risk_score"], s["open_findings"], s["kev_findings"], s["last_seen"], s["edr_active"],
             s["edr_vendor"], s["firewall_enabled"], s["usb_storage_blocked"], s["is_internet_exposed"], " ".join(s["sources"]), "; ".join(s["tags"])]
 
+
+
+def tag_cond(tags: list[str] | None):
+    """Device condition: has every one of these tags (at most 10, each at most 128 chars), or None."""
+    from sqlalchemy import and_
+
+    from api.models.tag import Tag
+    wanted = [t[:128] for t in (tags or []) if t][:10]
+    if not wanted:
+        return None
+    return and_(*(Device.id.in_(select(DeviceTag.device_id).join(Tag, Tag.id == DeviceTag.tag_id).where(Tag.name == t))
+                  for t in wanted))
+
+
+def with_tags(scope, tags: list[str] | None):
+    """A viewer's device scope narrowed to a tag focus (dashboard owner filter and the like)."""
+    from sqlalchemy import and_
+    cond = tag_cond(tags)
+    if cond is None:
+        return scope
+    return cond if scope is None else and_(scope, cond)

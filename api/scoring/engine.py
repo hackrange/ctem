@@ -42,6 +42,8 @@ async def recalculate_device(device: Device, db: AsyncSession) -> RiskScore:
             device_offline_days=days_offline,
             nodezero_confirmed_exploitable=bool(f.is_reachable and f.reachability_source == "horizon3"),
             nodezero_confirmed_not_exploitable=bool(f.is_reachable is False and f.reachability_source == "horizon3"),
+            attack_vector=f.vuln.attack_vector if f.vuln else None,
+            exposure=f.exposure, ports=f.ports,
         )
         findings_data.append({
             "cvss_base": f.vuln.cvss_base or 0.0,
