@@ -42,6 +42,7 @@
       <option value="stolen">Stolen</option>
       <option value="returned">Returned</option>
       <option value="contained">Contained</option>
+      <option value="edr_hidden">Hidden in EDR</option>
       <option value="out_of_scope">Not in scope</option>
     </select>
     <select id="filter-source" class="filter-select" aria-label="Source">
@@ -121,7 +122,8 @@ const table = DataTable.create({
     { label: 'Open', sort: 'open_findings', firstOrder: 'desc', render: d => R.num(d.open_findings) },
     { label: 'KEV', sort: 'kev_findings', firstOrder: 'desc', render: d => d.kev_findings ? `<span class="chip chip--critical">${R.num(d.kev_findings)}</span>` : '0' },
     { label: 'Last seen', sort: 'last_seen', firstOrder: 'desc', render: d => R.date(d.last_seen) },
-    { label: 'EDR', sort: 'edr_active', render: d => R.bool(d.edr_active) + (d.edr_contained ? ' <span class="chip chip--info" style="font-size:.7rem">Contained</span>' : '') },
+    { label: 'EDR', sort: 'edr_active', render: d => R.bool(d.edr_active) + (d.edr_contained ? ' <span class="chip chip--info" style="font-size:.7rem">Contained</span>' : '')
+      + (d.edr_hidden ? ' <span class="chip chip--medium" style="font-size:.7rem" title="Hidden in the EDR console">Hidden</span>' : '') },
     { label: 'FW', sort: 'firewall_enabled', render: d => d.firewall_enabled == null ? '<span class="text-muted" title="Unknown">--</span>' : R.bool(d.firewall_enabled) },
     { label: 'USB block', sort: 'usb_storage_blocked', render: d => d.usb_storage_blocked == null ? '<span class="text-muted" title="Unknown">--</span>' : R.bool(d.usb_storage_blocked) },
     { label: 'Sources', render: d => (d.sources || []).map(c => `<span class="chip chip--info" style="font-size:.7rem">${esc(c)}</span>`).join(' ') || '<span class="text-muted">--</span>' },

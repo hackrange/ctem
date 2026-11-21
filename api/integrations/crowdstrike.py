@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import logging
+import re
+from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +18,34 @@ _API_BASE = "https://api.crowdstrike.com"
 _SENSOR_RUNNING = {"normal", "containment_pending", "contained", "lift_containment_pending"}
 # Isolated from the network until someone lifts it; pending only means it hasn't taken yet
 _CONTAINED = {"contained", "lift_containment_pending"}
+_AID = re.compile(r"^[0-9a-fA-F]{32}$")
+
+
+def falcon_time(v) -> datetime | None:
+    """Falcon's last_seen (ISO text from the API, a datetime from the shipper's checked batch), in UTC."""
+    if isinstance(v, str) and len(v) <= 40:
+        try:
+            v = datetime.fromisoformat(v.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if not isinstance(v, datetime):
+        return None
+    return v if v.tzinfo else v.replace(tzinfo=timezone.utc)
+
+
+def is_hidden(d: dict) -> bool:
+    return bool(d.get("hidden")) or str(d.get("host_hidden_status") or "").lower() == "hidden"
+
+
+def stale_duplicate(dev, aid: str | None, hidden: bool, seen: datetime | None) -> bool:
+    """A hidden Falcon record for a name a different, visible Falcon host already holds, and no newer
+    than it: usually the old copy left behind by a reimage. It mustn't overwrite the live host's EDR state."""
+    if not hidden or not aid or not dev.edr_device_id or dev.edr_device_id == aid or dev.edr_hidden:
+        return False
+    last = dev.edr_last_seen
+    if last is not None and last.tzinfo is None:
+        last = last.replace(tzinfo=timezone.utc)
+    return seen is None or last is None or seen <= last
 
 
 def detected_owner(people, last: str | None, history: list[str]) -> str | None:
@@ -61,22 +91,38 @@ class CrowdStrikeConnector(BaseConnector):
         return resp.json()["access_token"]
 
     async def _list_devices(self, token: str) -> list[dict]:
+        """Visible hosts, then hidden ones (the normal search leaves hidden hosts out), with their details."""
+        auth = {"Authorization": f"Bearer {token}"}
+        out: list[dict] = []
         async with safe_client() as client:
-            resp = await client.get(
-                f"{_API_BASE}/devices/queries/devices/v1",
-                headers={"Authorization": f"Bearer {token}"},
-                params={"limit": 5000},
-            )
-            resp.raise_for_status()
-            ids = resp.json().get("resources", [])
-            if not ids:
-                return []
-            detail = await client.post(
-                f"{_API_BASE}/devices/entities/devices/v2",
-                headers={"Authorization": f"Bearer {token}"},
-                json={"ids": ids[:500]},
-            )
-        return detail.json().get("resources", [])
+            async def ids_from(path: str, optional: bool) -> list[str]:
+                ids: list[str] = []
+                while len(ids) < 200_000:
+                    resp = await client.get(f"{_API_BASE}{path}", headers=auth, params={"limit": 5000, "offset": len(ids)})
+                    if optional and resp.status_code in (403, 404):
+                        log.warning("CrowdStrike hidden hosts API returned %s; hidden hosts skipped", resp.status_code)
+                        return ids
+                    resp.raise_for_status()
+                    data = resp.json()
+                    batch = [i for i in data.get("resources") or [] if isinstance(i, str) and _AID.match(i)]
+                    ids.extend(batch)
+                    total = ((data.get("meta") or {}).get("pagination") or {}).get("total")
+                    if not batch or (isinstance(total, int) and len(ids) >= total):
+                        break
+                return ids
+
+            visible = await ids_from("/devices/queries/devices/v1", False)
+            known = set(visible)
+            hidden = [i for i in await ids_from("/devices/queries/devices-hidden/v1", True) if i not in known]
+            for group, flag in ((visible, False), (hidden, True)):
+                for i in range(0, len(group), 500):
+                    detail = await client.post(f"{_API_BASE}/devices/entities/devices/v2", headers=auth,
+                                               json={"ids": group[i:i + 500]})
+                    detail.raise_for_status()
+                    for d in detail.json().get("resources") or []:
+                        if isinstance(d, dict):
+                            out.append({**d, "hidden": flag or is_hidden(d)})
+        return out
 
     async def _list_detections(self, token: str) -> list[dict]:
         """Alerts (API v2) from the last 30 days in any status, in the shipper's shape. The Detects API is retired."""
@@ -126,7 +172,18 @@ class CrowdStrikeConnector(BaseConnector):
                 dev = Device(hostname=hostname, device_type=DeviceType.workstation, source="crowdstrike")
                 db.add(dev)
             add_source(dev, "crowdstrike")
+            aid = d.get("device_id") if isinstance(d.get("device_id"), str) and _AID.match(d["device_id"]) else None
+            hidden = is_hidden(d)
+            now = datetime.now(timezone.utc)
+            seen = falcon_time(d.get("last_seen"))
+            seen = min(seen, now) if seen else None
+            if stale_duplicate(dev, aid, hidden, seen):
+                count += 1
+                continue
             dev.edr_vendor = "crowdstrike"
+            dev.edr_hidden = hidden
+            if aid:
+                dev.edr_device_id = aid
             dev.edr_active = d.get("status") in _SENSOR_RUNNING
             if d.get("status"):
                 dev.edr_contained = d["status"] in _CONTAINED
@@ -157,7 +214,7 @@ class CrowdStrikeConnector(BaseConnector):
                     dev.owner_user_id = owner
                     if dev.id and "owner" not in sa_inspect(dev).unloaded:
                         db.expire(dev, ["owner"])  # don't serve the previous person from the session cache
-            dev.edr_last_seen = __import__("datetime").datetime.utcnow()
+            dev.edr_last_seen = seen or now   # Falcon's own last contact, so a hidden, long-gone host looks old
             count += 1
 
         await db.commit()

@@ -57,6 +57,8 @@ class Device(Base, UUIDPrimaryKey, TimestampMixin):
     edr_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     edr_last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     edr_contained: Mapped[bool | None] = mapped_column(Boolean)  # network-isolated by the EDR
+    edr_hidden: Mapped[bool | None] = mapped_column(Boolean)     # hidden in the EDR console (Falcon "hide host")
+    edr_device_id: Mapped[str | None] = mapped_column(String(64))  # the EDR's own host id (Falcon aid)
     raw_risk_score: Mapped[float | None] = mapped_column(Float)  # score before the containment discount
     raw_risk_grade: Mapped[str | None] = mapped_column(String(1))
     # From the EDR's policies; None means the feed couldn't tell us

@@ -25,7 +25,7 @@ GOOD = {"aws_region": "us-east-1", "auth_mode": "access_key", "aws_access_key_id
     ({"aws_region": "us-east-1.evil.example"}, False),
     ({"auth_mode": "root"}, False),
     ({"model": "claude-sonnet-5-5"}, False),          # Bedrock IDs carry the anthropic. prefix
-    ({"model": "anthropic.claude/../x"}, False),
+    ({"model": "anthropic.sonnet/../x"}, False),
     ({"aws_access_key_id": "not a key"}, False),
     ({"api_key": {"k": 1}}, False),
     ({"rate_limit_rpm": "fast"}, False),

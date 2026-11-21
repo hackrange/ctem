@@ -210,7 +210,7 @@ async function loadDevice() {
     info('Last seen', R.date(d.last_seen)),
     info('Open findings', R.num(d.open_findings)),
     info('KEV findings', d.kev_findings ? `<span class="chip chip--critical">${R.num(d.kev_findings)}</span>` : '0'),
-    info('EDR', `${R.bool(d.edr_active)} ${txt(d.edr_vendor)}${d.edr_contained ? ' <span class="chip chip--info">Contained</span>' : ''}`),
+    info('EDR', `${R.bool(d.edr_active)} ${txt(d.edr_vendor)}${d.edr_contained ? ' <span class="chip chip--info">Contained</span>' : ''}${d.edr_hidden ? ' <span class="chip chip--medium" title="Hidden in the Falcon console: its detections may not show there">Hidden in Falcon</span>' : ''}`),
     info('Firewall (EDR policy)', d.firewall_enabled == null ? txt(null) : R.bool(d.firewall_enabled)),
     info('USB storage blocked', d.usb_storage_blocked == null ? txt(null) : R.bool(d.usb_storage_blocked)),
     info('Internet exposed', R.bool(d.is_internet_exposed)),

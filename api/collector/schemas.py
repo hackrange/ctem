@@ -100,12 +100,25 @@ class CsDevice(_Lax):
     device_id: Annotated[str, StringConstraints(pattern=r"^[0-9a-fA-F]{32}$")] | None = None
     hostname: Annotated[str, StringConstraints(strip_whitespace=True, max_length=253)] | None = None
     status: Annotated[str, StringConstraints(max_length=32)] | None = None
+    last_seen: datetime | None = None   # when Falcon last heard from the sensor
+    hidden: bool | None = None          # hidden in the Falcon console
     os_version: Annotated[str, StringConstraints(strip_whitespace=True, max_length=128)] | None = None
     last_login_user: Annotated[str, StringConstraints(strip_whitespace=True, max_length=256, pattern=r"^[^\x00-\x1f]+$")] | None = None
     product_type: Annotated[str, StringConstraints(strip_whitespace=True, max_length=64, pattern=r"^[^\x00-\x1f]+$")] | None = None
     firewall_enabled: bool | None = None
     usb_storage_blocked: bool | None = None
     recent_logins: list[Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=256, pattern=r"^[^\x00-\x1f]+$")]] | None = Field(None, max_length=20)
+
+    @field_validator("last_seen", mode="before")
+    @classmethod
+    def _seen(cls, v):
+        """An unreadable time is dropped, not a reason to refuse the whole batch."""
+        if not isinstance(v, str) or len(v) > 40:
+            return None
+        try:
+            return datetime.fromisoformat(v.replace("Z", "+00:00"))
+        except ValueError:
+            return None
 
 
 class CsHost(_Lax):
