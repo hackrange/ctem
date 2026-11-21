@@ -81,6 +81,8 @@ def create_app() -> FastAPI:
     from api.routes.identity import router as identity_router
     from api.routes.attack_paths import router as attack_paths_router
     from api.routes.grc_exceptions import router as grc_exceptions_router
+    from api.routes.vuln_exceptions import proof_router as finding_proof_router
+    from api.routes.vuln_exceptions import router as vuln_exceptions_router
     from api.routes.tags import router as tags_router
     from api.routes.collector_agent import router as collector_agent_router
     from api.routes.collectors_admin import router as collectors_admin_router
@@ -120,6 +122,8 @@ def create_app() -> FastAPI:
     app.include_router(grc_assess_router)
     app.include_router(grc_risk_edit_router)
     app.include_router(curated_rules_router)
+    app.include_router(vuln_exceptions_router)
+    app.include_router(finding_proof_router)
     app.include_router(grc_service_token_router)
     app.include_router(directory_users_router)
     app.include_router(admin_sso_router)
@@ -215,6 +219,7 @@ def _register_web_routes(app: FastAPI) -> None:
     app.get("/users", response_class=HTMLResponse, include_in_schema=False)(_render("pages/users.html", "/users"))
     app.get("/vulns", response_class=HTMLResponse, include_in_schema=False)(_render("pages/vulns.html", "/vulns"))
     app.get("/vulns/{vuln_id}", response_class=HTMLResponse, include_in_schema=False)(_render("pages/vuln_detail.html", "/vulns"))
+    app.get("/exceptions", response_class=HTMLResponse, include_in_schema=False)(_render("pages/exceptions.html", "/exceptions"))
 
     # ── Analysis ──────────────────────────────────────────────────────────────
     app.get("/threat", response_class=HTMLResponse, include_in_schema=False)(_render("pages/threat.html", "/threat"))

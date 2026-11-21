@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% set active_nav = 'exceptions' %}
+
+{% block title %}Exceptions -- open-ctem{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-header__title">Exceptions</h1>
+    <p class="page-header__sub" id="ex-sub">Vulnerabilities accepted for a time, with a reason and an end date</p>
+  </div>
+</div>
+
+<div class="panel" style="padding:0">
+  <div class="panel__header" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+    <div id="ex-tabs" role="tablist" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+    <div class="search-bar-wrap">
+      <svg class="search-icon" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+      <input id="ex-search" type="search" class="search-bar" placeholder="CVE, title or requester" aria-label="Search exceptions">
+    </div>
+  </div>
+  <div id="ex-table"></div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ static('js/data_table.js') }}"></script>
+<script src="{{ static('js/exception_modal.js') }}"></script>
+<script src="{{ static('js/exceptions.js') }}"></script>
+{% endblock %}

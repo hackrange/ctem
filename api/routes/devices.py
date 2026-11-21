@@ -253,6 +253,7 @@ def _finding_summary(f: Finding, contained: bool = False) -> dict:
         "raw_grade": f.raw_grade,
         "status": f.status.value,
         "source": f.source,
+        "exception_id": f.exception_id,
         "is_reachable": f.is_reachable,
         "reachability_source": f.reachability_source,
         "in_attack_chain": f.in_attack_chain,

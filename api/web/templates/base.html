@@ -63,6 +63,18 @@
       <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
       Vulnerabilities
     </a>
+    {% if 'admin' in user.role_names or 'cyber' in user.role_names or 'it_user' in user.role_names %}
+    <a href="/exceptions" class="sidebar__link {% if active_nav == 'exceptions' %}active{% endif %}">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
+      Exceptions <span id="nav-ex-badge" class="chip chip--medium" style="font-size:.65rem;margin-left:auto" hidden></span>
+    </a>
+    <script>
+      fetch('/api/v1/exceptions/summary', { headers: { Accept: 'application/json' } }).then(r => (r.ok ? r.json() : null))
+        .then(s => { const n = s && (s.can_decide ? s.pending : 0); const b = document.getElementById('nav-ex-badge');
+                     if (n) { b.textContent = n > 99 ? '99+' : String(n); b.hidden = false; b.title = n + ' waiting for approval'; } })
+        .catch(() => {});
+    </script>
+    {% endif %}
   </div>
 
   <div class="sidebar__section">

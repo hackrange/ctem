@@ -188,6 +188,8 @@ async def recalculate_all(db: AsyncSession) -> None:
     from api.models.user import User as UserModel
 
     await expire_scope_exemptions(db)
+    from api.core.vuln_exceptions import sync_all
+    await sync_all(db)   # expire exceptions and cover new findings before scoring
     devices_result = await db.execute(select(Device))
     for device in devices_result.scalars():
         try:
@@ -216,6 +218,9 @@ async def recalculate_changed(db: AsyncSession, since: datetime) -> int:
     )
     ids = [r[0] for r in (await db.execute(ids_q)).all()]
     ids += await expire_scope_exemptions(db)
+    from api.core.vuln_exceptions import sync_all
+    ids += await sync_all(db)
+    ids = list(dict.fromkeys(ids))
     for i in range(0, len(ids), 500):
         for device in (await db.execute(select(Device).where(Device.id.in_(ids[i:i + 500])))).scalars():
             try:
