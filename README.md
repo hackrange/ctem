@@ -20,6 +20,8 @@ score = (CVSS × 0.25) + (EPSS × 0.30) + (KEV × 0.20) + (asset_criticality × 
 
 Multipliers applied for: NodeZero-confirmed exploitability, internet exposure, no EDR, Zscaler/firewall segmentation, offline status.
 
+**Cloud Inventory.** The Cloud page lists every AWS, Azure and OCI instance with its internet reachability (ports and the firewall that allows them), scanner and EDR coverage and findings, and singles out the ones breachable now.
+
 **Utilization.** Admin > Utilization shows CPU, memory and disk live and over a year, where storage goes (databases, biggest tables, WAL, Redis), and warns before the disk fills.
 
 **Rule exceptions.** Admins can except whatever a rule describes (for example hostnames `can*` with an OS starting with `Cisco IOS`, all vulnerabilities or a filtered set), drafted from plain English by the AI and previewed before creation. They need a reason, compensating controls and an end date, and stay current as devices and findings change.

@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% set active_nav = 'cloud' %}
+
+{% block title %}Cloud -- open-ctem{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-header__title">Cloud Inventory</h1>
+    <p class="page-header__sub">Every cloud instance with what makes it breachable: internet reachability, the firewall that allows it, scanner and EDR coverage, and its findings</p>
+  </div>
+</div>
+
+<div class="summary-grid" id="cl-cards"></div>
+
+<div class="panel" style="padding:0">
+  <div class="panel__header" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+    <div class="search-bar-wrap" style="flex:1 1 220px;min-width:0">
+      <svg class="search-icon" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+      <input id="cl-search" type="search" class="search-bar" placeholder="Name, hostname, IP or resource ID" aria-label="Search cloud inventory">
+    </div>
+    <select id="cl-provider" class="filter-select" aria-label="Provider"><option value="">All providers</option></select>
+    <select id="cl-account" class="filter-select" aria-label="Account"><option value="">All accounts</option></select>
+    <select id="cl-region" class="filter-select" aria-label="Region"><option value="">All regions</option></select>
+    <select id="cl-show" class="filter-select" aria-label="Show">
+      <option value="">Everything</option>
+      <option value="breachable">Breachable now (internet + KEV or grade F)</option>
+      <option value="exposed">Internet exposed</option>
+      <option value="unscanned">Not scanned</option>
+      <option value="no_edr">No EDR</option>
+      <option value="kev">Has KEV findings</option>
+      <option value="unmatched">Not in any other tool</option>
+    </select>
+  </div>
+  <div id="cl-table"></div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ static('js/data_table.js') }}"></script>
+<script src="{{ static('js/cloud.js') }}"></script>
+{% endblock %}

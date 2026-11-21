@@ -89,6 +89,7 @@ def create_app() -> FastAPI:
     from api.routes.dashboards import router as dashboards_router
     from api.routes.tag_roles import router as tag_roles_router
     from api.routes.utilization import router as utilization_router
+    from api.routes.cloud import router as cloud_router
     from api.routes.dashboards_ai import router as dashboards_ai_router
     from api.routes.tags import router as tags_router
     from api.routes.collector_agent import router as collector_agent_router
@@ -136,6 +137,7 @@ def create_app() -> FastAPI:
     app.include_router(dashboards_router)
     app.include_router(tag_roles_router)
     app.include_router(utilization_router)
+    app.include_router(cloud_router)
     app.include_router(favorites_router)
     app.include_router(finding_proof_router)
     app.include_router(grc_service_token_router)
@@ -250,6 +252,7 @@ def _register_web_routes(app: FastAPI) -> None:
     app.get("/grc/checks/{check_type}", response_class=HTMLResponse, include_in_schema=False)(_render("pages/grc_check.html", "/grc"))
     app.get("/grc/assessments/{assessment_id}", response_class=HTMLResponse, include_in_schema=False)(_render("pages/grc_assessment.html", "/grc"))
     app.get("/cmdb", response_class=HTMLResponse, include_in_schema=False)(_render("pages/cmdb.html", "/cmdb"))
+    app.get("/cloud", response_class=HTMLResponse, include_in_schema=False)(_render("pages/cloud.html", "/cloud"))
 
     # ── Settings ──────────────────────────────────────────────────────────────
     app.get("/settings/integrations", response_class=HTMLResponse, include_in_schema=False)(_render("pages/integrations.html", "/settings/integrations"))

@@ -51,6 +51,7 @@ _PAGES: dict[str, PagePolicy] = {p.slug: p for p in [
                                    tags=["threat","vuln"]),
     PagePolicy("/grc",             allowed_roles=["admin","cyber","business_stakeholder","read_only"],
                                    tags=["grc","risk","compliance"]),
+    PagePolicy("/cloud",           allowed_roles=["admin","cyber"]),   # matches the API: the whole estate's exposure
     PagePolicy("/cmdb",            allowed_roles=["admin","cyber","it_user","read_only"],
                                    tags=["cmdb","devices"]),
     PagePolicy("/settings/integrations", allowed_roles=["admin"],
