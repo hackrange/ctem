@@ -46,6 +46,11 @@ celery_app.conf.update(
             "task": "api.core.tasks.run_grc_checks",
             "schedule": 86400.0,
         },
+        # The vulnerability dashboard's unfiltered view takes ~15s to build; keep it ready
+        "warm-vuln-dashboard": {
+            "task": "api.core.tasks.warm_vuln_dashboard",
+            "schedule": 900.0,
+        },
     },
 )
 
@@ -73,6 +78,18 @@ async def _check_pending_syncs():
 @celery_app.task(name="api.core.tasks.recalculate_all_risk_scores")
 def recalculate_all_risk_scores():
     asyncio.run(_recalculate_all())
+
+
+@celery_app.task(name="api.core.tasks.warm_vuln_dashboard", time_limit=600, soft_time_limit=540)
+def warm_vuln_dashboard():
+    asyncio.run(_warm_vuln_dashboard())
+
+
+async def _warm_vuln_dashboard():
+    from api.core.db import get_session
+    from api.core.vuln_dashboard import cached
+    async for db in get_session():
+        await cached(db, "90d", None, None, fresh=True)
 
 
 async def _recalculate_all():

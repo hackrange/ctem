@@ -6,6 +6,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 ## [Unreleased]
 
 ### Added
+- Vulnerability dashboard (*Vuln Dashboard*): headline tiles, open findings over time by severity with KEV, new vs fixed per day, aging against SLA, mean time to remediate, open findings by device type, and top vulnerabilities and devices, filterable by range, source and device type. Trends are rebuilt from finding dates (history from day one); the unfiltered view is rebuilt every 15 minutes. Charts use Apache ECharts 6.1.0, vendored and served locally.
 - Vulnerabilities list: admin and cyber can tick vulnerabilities (with select-all; picks survive paging and searches) and create exceptions for them in one go, for every device or for a tag. Exceptions page: a Revoke button on each active exception, and select-all with Revoke selected on the Active tab; one required note covers them all.
 - Device findings and a vulnerability's affected devices: a select-all box in the header of the selection column picks every row on the page (it shows partly checked when only some are); picks carry across pages and searches, and the exception button shows the running count.
 - Vulnerabilities: **Proof** on affected devices and device findings shows the scanner's evidence (what and where, port, fix), fetched live from Rapid7 for that finding, in a dialog that only closes from its own buttons.

@@ -63,6 +63,12 @@
       <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
       Vulnerabilities
     </a>
+    {% if 'admin' in user.role_names or 'cyber' in user.role_names or 'read_only' in user.role_names %}
+    <a href="/vulns/dashboard" class="sidebar__link {% if active_nav == 'vuln-dashboard' %}active{% endif %}">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/></svg>
+      Vuln Dashboard
+    </a>
+    {% endif %}
     {% if 'admin' in user.role_names or 'cyber' in user.role_names or 'it_user' in user.role_names %}
     <a href="/exceptions" class="sidebar__link {% if active_nav == 'exceptions' %}active{% endif %}">
       <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
