@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% set active_nav = 'dashboards' %}
+
+{% block title %}Dashboard -- open-ctem{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{{ static('vendor/gridstack-14.1.1/gridstack.min.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div style="min-width:0">
+    <h1 class="page-header__title" style="display:flex;align-items:center;gap:10px">
+      <button type="button" id="db-star" class="db-star" aria-pressed="false" title="Add to Favorites" hidden>&#9734;</button>
+      <span id="db-name">Loading...</span>
+    </h1>
+    <p class="page-header__sub" id="db-sub"></p>
+  </div>
+  <div id="db-actions" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"></div>
+</div>
+<div id="db-explain" class="panel" hidden><div class="panel__body text-sm" id="db-explain-text"></div></div>
+<div id="db-empty" class="panel" hidden><div class="panel__body text-muted" style="text-align:center;padding:32px">
+  This dashboard has no widgets yet. Click <b>Edit</b>, then <b>Add widget</b>, or describe one for the AI.</div></div>
+<div class="grid-stack" id="db-grid"></div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ static('vendor/echarts-6.1.0/echarts.min.js') }}"></script>
+<script src="{{ static('vendor/gridstack-14.1.1/gridstack-all.js') }}"></script>
+<script src="{{ static('js/dash_render.js') }}"></script>
+<script src="{{ static('js/dash_editor.js') }}"></script>
+<script src="{{ static('js/dash_builder.js') }}"></script>
+{% endblock %}

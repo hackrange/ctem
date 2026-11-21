@@ -11,7 +11,7 @@ from api.models.device import DeviceType
 from api.models.user import User
 
 router = APIRouter(prefix="/api/v1/vuln-dashboard", tags=["vulns"])
-_ROLES = {"admin", "cyber", "read_only"}   # the Vulnerabilities page's roles; the numbers cover every device
+_ROLES = {"admin", "cyber", "read_only"}   # the Vulnerabilities page's roles
 
 
 def _viewer(u: User = Depends(get_current_user)) -> User:
@@ -21,7 +21,7 @@ def _viewer(u: User = Depends(get_current_user)) -> User:
 
 
 @router.get("")
-async def dashboard(_: User = Depends(_viewer), db: AsyncSession = Depends(get_session),
+async def dashboard(u: User = Depends(_viewer), db: AsyncSession = Depends(get_session),
                     range: str = Query("90d", pattern="^(30d|90d|180d|365d|all)$"),  # noqa: A002
                     source: str | None = Query(None, max_length=64),
                     device_type: str | None = Query(None, max_length=32)):
@@ -29,5 +29,8 @@ async def dashboard(_: User = Depends(_viewer), db: AsyncSession = Depends(get_s
         raise HTTPException(422, detail="unknown source")
     if device_type and device_type not in DeviceType.__members__:
         raise HTTPException(422, detail="unknown device type")
-    out = await vd.cached(db, range, source or None, device_type or None)
-    return {**out, "filters": {"sources": list(vd.SOURCES), "device_types": list(DeviceType.__members__)}}
+    from api.auth.device_scope import device_scope
+    scope = await device_scope(u, db)   # None for fleet-wide roles; otherwise only the devices this person may see
+    out = await vd.cached(db, range, source or None, device_type or None, scope=scope, viewer=str(u.id))
+    return {**out, "scoped": scope is not None,
+            "filters": {"sources": list(vd.SOURCES), "device_types": list(DeviceType.__members__)}}

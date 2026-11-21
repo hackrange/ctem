@@ -43,7 +43,7 @@ def test_filters_are_allow_listed():
 
 @pytest.mark.asyncio
 async def test_only_fleet_wide_roles_see_it(client_it_user, client_admin, monkeypatch):
-    async def fake(db, range_key, source, device_type, fresh=False):
+    async def fake(db, range_key, source, device_type, fresh=False, scope=None, viewer=None):
         return {"range": range_key, "kpis": {"open": 1}, "trend": {}, "source": source}
     monkeypatch.setattr(vd, "cached", fake)
     assert (await client_it_user.get("/api/v1/vuln-dashboard")).status_code == 404
@@ -51,3 +51,15 @@ async def test_only_fleet_wide_roles_see_it(client_it_user, client_admin, monkey
     assert r["range"] == "30d" and r["source"] == "rapid7_insightvm" and "server" in r["filters"]["device_types"]
     assert (await client_admin.get("/api/v1/vuln-dashboard", params={"source": "evil"})).status_code == 422
     assert (await client_admin.get("/api/v1/vuln-dashboard", params={"range": "7y"})).status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_read_only_numbers_are_limited_to_their_devices(client_read_only, monkeypatch):
+    seen = {}
+
+    async def fake(db, range_key, source, device_type, fresh=False, scope=None, viewer=None):
+        seen["scope"] = scope
+        return {"kpis": {}, "trend": {}}
+    monkeypatch.setattr(vd, "cached", fake)
+    r = (await client_read_only.get("/api/v1/vuln-dashboard")).json()
+    assert r["scoped"] is True and seen["scope"] is not None

@@ -127,11 +127,21 @@ A **generic installer** (no code inside) is also available: the box signs in onc
 
 ---
 
+## Dashboards you build
+
+*Dashboards* lets anyone build dashboards from a catalog of ready-made widgets: single numbers, charts (line, area, bars, donut) and tables, drawn with ECharts on a drag-and-resize grid (GridStack.js). The catalog covers vulnerabilities (counts, trends, aging, mean time to remediate, top lists, by source or device type, with severity, KEV, source and device-type options), devices and EDR (counts by status such as contained or hidden in Falcon, EDR coverage, by type, grade and inventory status, riskiest devices), exceptions, GRC (control check results, compliance by framework from the latest FairTPRM assessment) and Cyber Threats (alerts over time, by severity, status, MITRE tactic and host).
+
+- **Each viewer sees their own numbers.** Widgets store a metric id and allow-listed options, never a query, and are computed for whoever is looking: an IT user sees only their devices, cyber the whole fleet. Threat widgets are for admin and cyber; GRC widgets for people with GRC access.
+- **Sharing:** private, shared with chosen roles, or with everyone. Only the owner and admins change a dashboard; others can view, star or copy it. Admins have an *All dashboards* view.
+- **Favorites:** star a dashboard to keep it in the menu's Favorites section and the Favorites tab.
+- **AI help** (with an AI integration): describe a widget and it opens in the editor to check; describe a dashboard and it drafts one to edit; *Explain* summarizes what a dashboard shows. The AI only picks from your own catalog, and Explain sends numbers only, never hostnames or people.
+- Widget results are cached for 15 minutes per viewer scope; dashboards refresh every 5 minutes while open.
+
 ## Vulnerability dashboard
 
 *Vuln Dashboard* (admin, cyber, read-only) shows the whole fleet: headline tiles (open, critical, high, KEV, exploit available, past SLA, devices affected, new and fixed in the last week, exceptions), open findings over time by severity with a KEV line (zoomable), new versus fixed per day, the age of open findings against the SLA, mean days to remediate by month, open findings by device type, and the most widespread vulnerabilities and riskiest devices. Filter by range, source and device type; tiles, slices and rows click through to the matching list. Trends are rebuilt from each finding's first-detected and fixed dates, so there is history from day one; findings fixed before CTEM started tracking aren't in the data, so the chart marks where fix tracking began. The unfiltered view is rebuilt every 15 minutes in the background; filtered views are cached for 30 minutes.
 
-Charts use [Apache ECharts](https://echarts.apache.org/) 6.1.0 (Apache-2.0), served from CTEM itself (`api/web/static/vendor/`, with its license and checksum), never from a CDN.
+Charts use [Apache ECharts](https://echarts.apache.org/) 6.1.0 (Apache-2.0) and the dashboard grid [GridStack.js](https://gridstackjs.com/) 14.1.1 (MIT), served from CTEM itself (`api/web/static/vendor/`, with licenses and checksums), never from a CDN. Read-only and other scoped viewers see the Vuln Dashboard for their own devices only.
 
 ## Vulnerability exceptions and proof
 
