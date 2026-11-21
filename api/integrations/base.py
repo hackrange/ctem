@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from croniter import croniter
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.models.integration import IntegrationConfig, SyncJob, SyncStatus, Vendor
@@ -159,24 +159,29 @@ async def _sync_by_id(db: AsyncSession, integration_id: str) -> bool:
     )
     db.add(job)
     await db.commit()
+    job_id, cfg_id, vendor, config = job.id, str(cfg.id), cfg.vendor.value, cfg.config or {}
 
+    # The outcome is written by id, not through the ORM objects above: a connector may
+    # expunge the session between pages (InsightVM does), which detaches them, and then
+    # changes to them are silently never saved. That left jobs "running" forever.
+    job_vals: dict = {"status": SyncStatus.failed}
+    cfg_vals: dict = {"last_sync_status": SyncStatus.failed}
     try:
-        connector = get_connector(cfg.vendor.value, cfg.config or {})
-        connector.integration_id = str(cfg.id)
+        connector = get_connector(vendor, config)
+        connector.integration_id = cfg_id
         count = await connector.sync(db)
-        job.status = SyncStatus.success
-        job.records_imported = count
-        cfg.last_sync_status = SyncStatus.success
-        cfg.last_sync_error = None
+        job_vals = {"status": SyncStatus.success, "records_imported": count}
+        cfg_vals = {"last_sync_status": SyncStatus.success, "last_sync_error": None}
         ok = True
     except Exception as e:
-        job.status = SyncStatus.failed
-        job.error_message = str(e)[:1000]
-        cfg.last_sync_status = SyncStatus.failed
-        cfg.last_sync_error = str(e)[:500]
+        await db.rollback()
+        job_vals = {"status": SyncStatus.failed, "error_message": str(e)[:1000]}
+        cfg_vals = {"last_sync_status": SyncStatus.failed, "last_sync_error": str(e)[:500]}
     finally:
-        job.finished_at = datetime.now(timezone.utc)
-        cfg.last_sync_at = job.finished_at
+        done = datetime.now(timezone.utc)
+        await db.execute(update(SyncJob).where(SyncJob.id == job_id).values(finished_at=done, **job_vals))
+        await db.execute(update(IntegrationConfig).where(IntegrationConfig.id == cfg_id)
+                         .values(last_sync_at=done, **cfg_vals))
         await db.commit()
     return ok
 

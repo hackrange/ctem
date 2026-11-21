@@ -15,7 +15,7 @@
   </div>
 </div>
 
-<!-- Tag-based filters (Executive Owner, Technical Owner, Application, Environment, Severity) -->
+<!-- Tag-based filters (Executive Owner, Technical Owner, Application Owner, Application, Environment, Severity) -->
 <div class="filter-bar" id="filter-bar">
   <span class="filter-bar__label">Filter by</span>
   <select id="filter-exec-owner" onchange="applyFilters()" title="Executive Owner">
@@ -23,6 +23,9 @@
   </select>
   <select id="filter-tech-owner" onchange="applyFilters()" title="Technical Owner">
     <option value="">Technical Owner</option>
+  </select>
+  <select id="filter-app-owner" onchange="applyFilters()" title="Application Owner">
+    <option value="">Application Owner</option>
   </select>
   <select id="filter-application" onchange="applyFilters()" title="Application">
     <option value="">Application</option>
@@ -296,29 +299,43 @@ async function loadKEV() {
 
 
 
+// Each filter lists the tags starting with any of its prefixes. Rapid7 tags arrive as
+// "owner:E-O: Name", "owner:T-O: Name", "owner:A-O: Name", "r7:app: Name" and "location:ENV: Name"; the short
+// forms are for tags made in CTEM itself.
+const TAG_FILTERS = {
+  'filter-exec-owner': ['owner:E-O:', 'exec_owner:'],
+  'filter-tech-owner': ['owner:T-O:', 'tech_owner:'],
+  'filter-app-owner': ['owner:A-O:', 'app_owner:'],
+  'filter-application': ['r7:app:', 'app:'],
+  'filter-environment': ['location:ENV:', 'env:'],
+};
+
 async function loadTagFilters() {
-  try {
-    const data = await fetchJson(`${API}/tags`);
-    const tags = data.tags || [];
-    const fill = (id, prefix) => {
+  await Promise.all(Object.entries(TAG_FILTERS).map(async ([id, prefixes]) => {
+    try {
+      const q = new URLSearchParams({ in_use: 'true', limit: '1000' });
+      prefixes.forEach(p => q.append('prefix', p));
+      const data = await fetchJson(`${API}/tags?${q}`);
       const sel = document.getElementById(id);
-      tags.filter(t => t.name.startsWith(prefix)).forEach(t => {
+      const seen = new Map();
+      (data.tags || []).forEach(t => {
+        const pre = prefixes.find(p => t.name.startsWith(p));
+        const label = t.name.slice(pre.length).trim();
+        if (label && !seen.has(t.name)) seen.set(t.name, label);
+      });
+      [...seen].sort((x, y) => x[1].localeCompare(y[1], undefined, { sensitivity: 'base' })).forEach(([name, label]) => {
         const o = document.createElement('option');
-        o.value = t.name;
-        o.textContent = t.name.replace(prefix, '');
+        o.value = name;
+        o.textContent = label;
         sel.appendChild(o);
       });
-    };
-    fill('filter-exec-owner', 'exec_owner:');
-    fill('filter-tech-owner', 'tech_owner:');
-    fill('filter-application', 'app:');
-    fill('filter-environment', 'env:');
-  } catch (e) { /* tags endpoint may not exist yet -- no crash */ }
+    } catch (e) { /* a filter with no tags just stays empty */ }
+  }));
 }
 
 function applyFilters() {
   activeFilters = {};
-  ['filter-exec-owner', 'filter-tech-owner', 'filter-application', 'filter-environment', 'filter-grade']
+  ['filter-exec-owner', 'filter-tech-owner', 'filter-app-owner', 'filter-application', 'filter-environment', 'filter-grade']
     .forEach(id => {
       const v = document.getElementById(id)?.value;
       if (v) activeFilters[id.replace('filter-', '')] = v;
@@ -327,7 +344,7 @@ function applyFilters() {
 }
 
 function clearFilters() {
-  ['filter-exec-owner', 'filter-tech-owner', 'filter-application', 'filter-environment', 'filter-grade']
+  ['filter-exec-owner', 'filter-tech-owner', 'filter-app-owner', 'filter-application', 'filter-environment', 'filter-grade']
     .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   activeFilters = {};
   loadSummary();
