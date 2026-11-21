@@ -135,6 +135,7 @@ class ExceptionScope(str, enum.Enum):
     devices = "devices"        # one vulnerability on chosen devices
     all = "all"                # one vulnerability everywhere, including devices found later
     tag = "tag"                # one vulnerability on every device with a tag, including ones tagged later
+    rule = "rule"              # a rule: which devices and which vulnerabilities (api/core/exception_rules.py)
 
 
 class VulnException(Base, UUIDPrimaryKey, TimestampMixin):
@@ -142,8 +143,11 @@ class VulnException(Base, UUIDPrimaryKey, TimestampMixin):
     so they don't count toward risk, open counts, SLA or the GRC checks."""
     __tablename__ = "vuln_exceptions"
 
-    vuln_id: Mapped[str] = mapped_column(ForeignKey("vulnerabilities.id", ondelete="CASCADE"), nullable=False, index=True)
+    # None for a rule exception, which can cover many vulnerabilities
+    vuln_id: Mapped[str | None] = mapped_column(ForeignKey("vulnerabilities.id", ondelete="CASCADE"), nullable=True, index=True)
     scope: Mapped[ExceptionScope] = mapped_column(Enum(ExceptionScope), nullable=False)
+    name: Mapped[str | None] = mapped_column(String(120))            # rule exceptions
+    rule: Mapped[dict | None] = mapped_column(JSON)                  # open-ctem/exception-rule@1
     device_ids: Mapped[list | None] = mapped_column(JSON)            # finding / devices scopes
     tag_id: Mapped[str | None] = mapped_column(ForeignKey("tags.id", ondelete="SET NULL"))
     reason: Mapped[str] = mapped_column(EncryptedString, nullable=False)

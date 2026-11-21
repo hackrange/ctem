@@ -249,21 +249,32 @@ async def _names(db, excs: list[VulnException]) -> tuple[dict, dict]:
     return hosts, tags
 
 
+def _rule_text(e: VulnException) -> str:
+    from api.core import exception_rules as er
+    try:
+        return er.describe(er.parse(e.rule or {}))
+    except Exception:
+        return f"Rule: {e.name or 'unnamed'} (no longer valid; covers nothing)"
+
+
 def _row(e: VulnException, hosts: dict, tags: dict, full: bool = False) -> dict:
     v = e.vuln
     devs = e.device_ids or []
-    covers = {"finding": hosts.get(devs[0], "1 device") if devs else "1 device",
-              "devices": f"{len(devs)} devices" + (f": {', '.join(hosts[d] for d in devs[:3] if d in hosts)}" if devs else ""),
-              "all": "All devices", "tag": f"Tag: {tags[e.tag_id].upper() if e.tag_id in tags else 'removed tag'}"}[e.scope.value]
-    out = {"id": str(e.id), "vuln_id": str(e.vuln_id), "cve_id": v.cve_id if v else None,
-           "title": v.title if v else None, "scope": e.scope.value, "covers": covers,
+    if e.scope == ExceptionScope.rule:
+        covers = _rule_text(e)
+    else:
+        covers = {"finding": hosts.get(devs[0], "1 device") if devs else "1 device",
+                  "devices": f"{len(devs)} devices" + (f": {', '.join(hosts[d] for d in devs[:3] if d in hosts)}" if devs else ""),
+                  "all": "All devices", "tag": f"Tag: {tags[e.tag_id].upper() if e.tag_id in tags else 'removed tag'}"}[e.scope.value]
+    out = {"id": str(e.id), "vuln_id": str(e.vuln_id) if e.vuln_id else None, "cve_id": v.cve_id if v else None,
+           "title": v.title if v else e.name, "name": e.name, "scope": e.scope.value, "covers": covers,
            "status": "expired" if e.status == ExceptionStatus.approved and not vx.is_active(e) else e.status.value,
            "expires_at": vx._aware(e.expires_at).isoformat(), "requested_by": e.requested_by,
            "requested_at": vx._aware(e.requested_at).isoformat(), "decided_by": e.decided_by,
            "decided_at": vx._aware(e.decided_at).isoformat() if e.decided_at else None,
            "findings_covered": e.findings_covered, "reason": e.reason}
     if full:
-        out.update({"compensating_controls": e.compensating_controls, "decision_note": e.decision_note,
+        out.update({"compensating_controls": e.compensating_controls, "decision_note": e.decision_note, "rule": e.rule,
                     "device_ids": devs, "devices": [{"id": d, "hostname": hosts.get(d)} for d in devs]})
     return out
 
@@ -273,7 +284,7 @@ async def list_exceptions(u: User = Depends(_requester), db: AsyncSession = Depe
                           tab: str = Query("all", pattern="^(" + "|".join(TABS) + ")$"),
                           q: str | None = Query(None, max_length=200),
                           limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0, le=100_000)):
-    stmt = select(VulnException).join(Vulnerability, Vulnerability.id == VulnException.vuln_id)
+    stmt = select(VulnException).outerjoin(Vulnerability, Vulnerability.id == VulnException.vuln_id)   # rules have none
     if not _decider(u):   # IT users only ever see their own
         stmt = stmt.where(VulnException.requested_by_id == str(u.id))
     cond = _tab_filter(tab, u)
@@ -281,7 +292,8 @@ async def list_exceptions(u: User = Depends(_requester), db: AsyncSession = Depe
         stmt = stmt.where(cond)
     if q and q.strip():
         like = "%" + q.strip().lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
-        stmt = stmt.where(or_(func.lower(Vulnerability.title).like(like, escape="\\"),
+        stmt = stmt.where(or_(func.lower(func.coalesce(Vulnerability.title, "")).like(like, escape="\\"),
+                              func.lower(func.coalesce(VulnException.name, "")).like(like, escape="\\"),
                               func.lower(func.coalesce(Vulnerability.cve_id, "")).like(like, escape="\\"),
                               func.lower(VulnException.requested_by).like(like, escape="\\")))
     total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
@@ -298,7 +310,7 @@ async def summary(u: User = Depends(_requester), db: AsyncSession = Depends(get_
     if _decider(u):
         n = (await db.execute(select(func.count()).select_from(VulnException)
                               .where(VulnException.status == ExceptionStatus.pending))).scalar_one()
-        return {"pending": n, "can_decide": True}
+        return {"pending": n, "can_decide": True, "is_admin": "admin" in u.role_names}
     since = vx.now() - timedelta(days=7)
     mine = (await db.execute(select(VulnException.status, func.count()).where(
         VulnException.requested_by_id == str(u.id),

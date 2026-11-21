@@ -30,6 +30,7 @@
   }
 
   function vulnCell(e) {
+    if (e.scope === 'rule') return `<span class="chip chip--info" style="font-size:.7rem">Rule</span> <b>${esc(e.name || '')}</b>`;
     const text = `${e.cve_id ? `<b>${esc(e.cve_id)}</b> ` : ''}${esc((e.title || '').slice(0, 90))}`;
     return canDecide ? `<a class="dt-link" href="/vulns/${encodeURIComponent(e.vuln_id)}">${text}</a>` : text;
   }
@@ -184,6 +185,10 @@
   (async () => {
     const s = await fetch(`${API}/summary`, { headers: { Accept: 'application/json' } }).then(r => (r.ok ? r.json() : {})).catch(() => ({}));
     canDecide = !!s.can_decide;
+    if (s.is_admin && window.ExceptionRule) {   // admins: an exception for whatever a rule describes
+      $('ex-rule').hidden = false;
+      $('ex-rule').onclick = () => ExceptionRule.open(() => { tab = 'active'; table = null; refresh(); });
+    }
     tab = canDecide ? (s.pending ? 'pending' : 'active') : 'all';
     $('ex-sub').textContent = canDecide ? 'Approve or reject requests, and create or revoke exceptions'
       : 'Your exception requests and how they were decided';

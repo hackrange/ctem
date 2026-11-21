@@ -20,6 +20,7 @@ class ControlContext:
     attack_vector: str | None = None        # CVSS: network, adjacent, local, physical
     exposure: str | None = None             # scanner: "listening" (on a network service) or "local" (local check)
     ports: str | None = None                # the listening ports, for the reason text
+    cloud_ports: list | None = None         # the instance's cloud firewall openings (api/cloud), None = not a cloud instance
 
 
 def apply_multipliers(base_score: float, ctx: ControlContext) -> tuple[float, list[str]]:
@@ -76,14 +77,14 @@ _AV_FACTOR = {"physical": (0.3, "Needs physical access (CVSS AV:P) (-70%)"),
 LOCAL_CHECK = (0.75, "Found by a local check; no listening service tied to it (-25%)")
 
 
-def reach_view(finding, contained: bool = False, attack_vector: str | None = None) -> dict:
+def reach_view(finding, contained: bool = False, attack_vector: str | None = None, cloud_ports: list | None = None) -> dict:
     """What the finding lists show about reachability, from the same facts the score uses.
     attack_vector comes from the caller's vulnerability row, so nothing is lazy-loaded here."""
     av = attack_vector
     if contained:
         return {"exposure": finding.exposure, "ports": finding.ports, "attack_vector": av,
                 "reach": "Contained or not in scope: not reachable"}
-    _, why = reachability(ControlContext(attack_vector=av, exposure=finding.exposure, ports=finding.ports,
+    _, why = reachability(ControlContext(attack_vector=av, exposure=finding.exposure, ports=finding.ports, cloud_ports=cloud_ports,
                                          nodezero_confirmed_exploitable=bool(
                                              finding.is_reachable and finding.reachability_source == "horizon3")))
     return {"exposure": finding.exposure, "ports": finding.ports, "attack_vector": av, "reach": why or None}
@@ -96,8 +97,32 @@ def reachability(ctx: ControlContext) -> tuple[float, str]:
     av = (ctx.attack_vector or "").lower()
     if av in _AV_FACTOR:
         return _AV_FACTOR[av]
+    if ctx.exposure == "listening" and ctx.ports and ctx.cloud_ports is not None:
+        return _cloud_reach(ctx.ports, ctx.cloud_ports)
     if ctx.exposure == "local":
         return LOCAL_CHECK
     if ctx.exposure == "listening":
         return 1.0, f"Listening service {ctx.ports}" if ctx.ports else "Listening service"
     return 1.0, ""
+
+
+def _cloud_reach(ports: str, cloud_ports: list) -> tuple[float, str]:
+    """A listening finding on a cloud instance: what its security groups / NSGs / security lists let reach the port."""
+    from api.cloud.exposure import RANK, describe_port, reach_of
+    best, rule, which = "closed", None, None
+    for spec in ports.split():
+        num, _, pr = spec.partition("/")
+        if not num.isdigit():
+            continue
+        r, why = reach_of(cloud_ports, int(num), pr or "tcp")
+        if which is None or RANK.get(r, 0) > RANK.get(best, 0):
+            best, rule, which = r, why, spec
+    via = f" ({rule['via']})" if rule else ""
+    if best == "internet":
+        return 1.0, f"Open to the internet on {which}{via}"
+    if best == "any_internal":
+        return 1.0, f"Open to any address on {which}, but the instance has no public IP{via}"
+    if best == "restricted":
+        src = ", ".join(rule.get("sources", [])[:3]) if rule else ""
+        return 0.6, f"Reachable on {describe_port(rule)} only from {src}{via} (-40%)"
+    return 0.4, f"No cloud firewall rule allows {ports} (-60%)"

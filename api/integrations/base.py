@@ -167,6 +167,8 @@ async def _sync_by_id(db: AsyncSession, integration_id: str) -> bool:
     job_vals: dict = {"status": SyncStatus.failed}
     cfg_vals: dict = {"last_sync_status": SyncStatus.failed}
     try:
+        from api.core import tag_roles
+        await tag_roles.ensure(db)   # connectors that export owners or environments read the tag mapping
         connector = get_connector(vendor, config)
         connector.integration_id = cfg_id
         count = await connector.sync(db)

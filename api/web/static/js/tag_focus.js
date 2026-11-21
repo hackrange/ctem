@@ -14,11 +14,26 @@
     linkDevices();
     return v;
   }
+  // Labels come from Admin > Tag mapping ("Executive owner: Jeffrey Davis"); cached for the tab
+  const LABELS = 'ctem.tagLabels';
+  function labels() {
+    try { return JSON.parse(sessionStorage.getItem(LABELS) || '{}') || {}; } catch (e) { return {}; }
+  }
   function label(t) {
-    const m = t.match(/^owner:(E|T|A)-O:\s*(.*)$/);
-    const ROLE = { E: 'Executive owner', T: 'Technical owner', A: 'Application owner' };
-    if (m) return `${ROLE[m[1]]}: ${m[2]}`;
-    return t.replace(/^(r7|location):/, '');
+    const known = labels()[t];
+    return known || t.replace(/^[a-z0-9]+:/i, '');
+  }
+  async function resolve(tags) {
+    const have = labels(), todo = tags.filter(t => !(t in have));
+    if (!todo.length) return false;
+    try {
+      const r = await fetch('/api/v1/tag-roles/resolve', { method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify({ tags: todo }) });
+      const d = await r.json();
+      (d.tags || []).forEach(x => { have[x.tag] = x.role_name ? `${x.role_name}: ${x.value}` : x.value; });
+      try { sessionStorage.setItem(LABELS, JSON.stringify(have)); } catch (e) { /* private mode */ }
+      return true;
+    } catch (e) { return false; }
   }
   function devicesUrl(extra) {
     const p = new URLSearchParams(extra || {});
@@ -36,6 +51,10 @@
     box.innerHTML = tags.length ? `<span class="filter-bar__label">${esc(lead || 'Tag')}</span>` + tags.map((t, i) =>
       `<span class="chip chip--info">${esc(label(t).toUpperCase())}
         <button type="button" class="btn btn--ghost btn--sm" data-untag="${i}" aria-label="Remove this tag filter" title="Remove">&#10005;</button></span>`).join(' ') : '';
+    if (tags.length && !box.dataset.resolving) {
+      box.dataset.resolving = '1';
+      resolve(tags).then(changed => { delete box.dataset.resolving; if (changed) chips(box, lead); });
+    }
     if (!box.dataset.wired) {
       box.dataset.wired = '1';
       box.addEventListener('click', e => {

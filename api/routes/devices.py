@@ -146,7 +146,9 @@ async def get_device(
 ):
     device = await _visible_device(device_id, current_user, db)
     base = dq.summary(device)
+    from api.cloud.exposure import for_device
     base.update({
+        "cloud": await for_device(db, device.id),   # instances, public IPs and open ports from AWS / Azure / OCI
         "fqdn": dq.full_name(device),
         "mac_address": device.mac_address,
         "os_version": device.os_version,
@@ -201,7 +203,10 @@ async def get_device_findings(
     total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
     rows = (await db.execute(_sorted_findings(stmt, sort, order).limit(limit).offset(offset))).scalars().all()
     contained = bool(device.edr_contained) or is_exempt(device)   # Not In Scope reads like contained: nothing counts
-    return {"findings": [_finding_summary(f, contained) for f in rows], "total": total, "limit": limit,
+    from api.cloud.exposure import for_device
+    cloud = await for_device(db, device.id)
+    cloud_ports = [p for a in cloud for p in a["ports"]] if cloud else None
+    return {"findings": [_finding_summary(f, contained, cloud_ports) for f in rows], "total": total, "limit": limit,
             "offset": offset, "contained": contained}
 
 
@@ -236,7 +241,7 @@ def _iso(dt):
     return dt.isoformat() if dt else None
 
 
-def _finding_summary(f: Finding, contained: bool = False) -> dict:
+def _finding_summary(f: Finding, contained: bool = False, cloud_ports: list | None = None) -> dict:
     v = f.vuln
     return {
         "id": str(f.id),
@@ -258,7 +263,7 @@ def _finding_summary(f: Finding, contained: bool = False) -> dict:
         "is_reachable": f.is_reachable,
         "reachability_source": f.reachability_source,
         "in_attack_chain": f.in_attack_chain,
-        **reach_view(f, contained, v.attack_vector if v else None),
+        **reach_view(f, contained, v.attack_vector if v else None, cloud_ports),
         "first_detected": _iso(f.first_detected),
         "last_seen": _iso(f.last_seen),
     }

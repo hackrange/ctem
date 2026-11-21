@@ -15,24 +15,10 @@
   </div>
 </div>
 
-<!-- Tag-based filters (Executive Owner, Technical Owner, Application Owner, Application, Environment, Severity) -->
+<!-- Tag filters come from Admin > Tag mapping (executive owner, application, environment...), then risk grade -->
 <div class="filter-bar" id="filter-bar">
   <span class="filter-bar__label">Filter by</span>
-  <select id="filter-exec-owner" onchange="applyFilters()" title="Executive Owner">
-    <option value="">Executive Owner</option>
-  </select>
-  <select id="filter-tech-owner" onchange="applyFilters()" title="Technical Owner">
-    <option value="">Technical Owner</option>
-  </select>
-  <select id="filter-app-owner" onchange="applyFilters()" title="Application Owner">
-    <option value="">Application Owner</option>
-  </select>
-  <select id="filter-application" onchange="applyFilters()" title="Application">
-    <option value="">Application</option>
-  </select>
-  <select id="filter-environment" onchange="applyFilters()" title="Environment">
-    <option value="">Environment</option>
-  </select>
+  <span id="role-filters" style="display:contents"></span>
   <select id="filter-grade" onchange="applyFilters()" title="Risk Grade">
     <option value="">All Grades</option>
     <option value="F">F: Critical</option>
@@ -299,38 +285,27 @@ async function loadKEV() {
 
 
 
-// Each filter lists the tags starting with any of its prefixes. Rapid7 tags arrive as
-// "owner:E-O: Name", "owner:T-O: Name", "owner:A-O: Name", "r7:app: Name" and "location:ENV: Name"; the short
-// forms are for tags made in CTEM itself.
-const TAG_FILTERS = {
-  'filter-exec-owner': ['owner:E-O:', 'exec_owner:'],
-  'filter-tech-owner': ['owner:T-O:', 'tech_owner:'],
-  'filter-app-owner': ['owner:A-O:', 'app_owner:'],
-  'filter-application': ['r7:app:', 'app:'],
-  'filter-environment': ['location:ENV:', 'env:'],
-};
+// One dropdown per tag role marked as a filter in Admin > Tag mapping; each option is a tag in use,
+// shown by its value (the tag without the role's prefix).
+let TAG_SELECTS = [];
 
 async function loadTagFilters() {
-  await Promise.all(Object.entries(TAG_FILTERS).map(async ([id, prefixes]) => {
-    try {
-      const q = new URLSearchParams({ in_use: 'true', limit: '1000' });
-      prefixes.forEach(p => q.append('prefix', p));
-      const data = await fetchJson(`${API}/tags?${q}`);
-      const sel = document.getElementById(id);
-      const seen = new Map();
-      (data.tags || []).forEach(t => {
-        const pre = prefixes.find(p => t.name.startsWith(p));
-        const label = t.name.slice(pre.length).trim();
-        if (label && !seen.has(t.name)) seen.set(t.name, label);
-      });
-      [...seen].sort((x, y) => x[1].localeCompare(y[1], undefined, { sensitivity: 'base' })).forEach(([name, label]) => {
-        const o = document.createElement('option');
-        o.value = name;
-        o.textContent = label.toUpperCase();
-        sel.appendChild(o);
-      });
-    } catch (e) { /* a filter with no tags just stays empty */ }
-  }));
+  let data = {};
+  try { data = await fetchJson(`${API}/tag-roles/filters`); } catch (e) { /* no filters then */ }
+  const box = document.getElementById('role-filters');
+  box.innerHTML = '';
+  TAG_SELECTS = [];
+  (data.filters || []).forEach(f => {
+    if (!/^[a-z0-9_]+$/.test(f.key)) return;
+    const sel = document.createElement('select');
+    sel.id = `filter-role-${f.key}`;
+    sel.title = f.name;
+    sel.addEventListener('change', applyFilters);
+    sel.innerHTML = `<option value="">${esc(f.name)}</option>` +
+      (f.options || []).map(o => `<option value="${esc(o.tag)}">${esc(String(o.value).toUpperCase())}</option>`).join('');
+    box.appendChild(sel);
+    TAG_SELECTS.push(sel.id);
+  });
   // Bring back the tag focus from the device pages
   const focus = TagFocus.get();
   let any = false;
@@ -342,23 +317,19 @@ async function loadTagFilters() {
   if (any) applyFilters();
 }
 
-const TAG_SELECTS = Object.keys(TAG_FILTERS);
-
 function applyFilters() {
   activeFilters = {};
   // Owner, application and environment choices follow you into the device pages (this tab only)
   TagFocus.set(TAG_SELECTS.map(id => document.getElementById(id)?.value).filter(Boolean));
-  ['filter-exec-owner', 'filter-tech-owner', 'filter-app-owner', 'filter-application', 'filter-environment', 'filter-grade']
-    .forEach(id => {
-      const v = document.getElementById(id)?.value;
-      if (v) activeFilters[id.replace('filter-', '')] = v;
-    });
+  [...TAG_SELECTS, 'filter-grade'].forEach(id => {
+    const v = document.getElementById(id)?.value;
+    if (v) activeFilters[id === 'filter-grade' ? 'grade' : id] = v;
+  });
   loadSummary();
 }
 
 function clearFilters() {
-  ['filter-exec-owner', 'filter-tech-owner', 'filter-app-owner', 'filter-application', 'filter-environment', 'filter-grade']
-    .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  [...TAG_SELECTS, 'filter-grade'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   activeFilters = {};
   TagFocus.set([]);
   loadSummary();

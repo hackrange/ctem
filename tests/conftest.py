@@ -43,6 +43,8 @@ import api.models.collector   # noqa: F401, E402
 import api.models.grc         # noqa: F401, E402
 import api.models.rules       # noqa: F401, E402
 import api.models.dashboard   # noqa: F401, E402
+import api.models.tag_role    # noqa: F401, E402
+import api.models.cloud       # noqa: F401, E402
 
 _TEST_DB_URL = os.environ["DATABASE_URL"]
 

@@ -247,8 +247,21 @@ _ENV_WORDS = {"prod": "Production", "production": "Production", "prd": "Producti
               "uat": "UAT", "test": "Test", "tst": "Test", "sandbox": "Sandbox", "dr": "DR"}
 
 
+def role_value(d: Device, key: str) -> str | None:
+    """The first value a device's tags give for a tag role (Admin > Tag mapping)."""
+    from api.core import tag_roles
+    return tag_roles.first(tag_names(d), (key,))
+
+
+def location(d: Device) -> str | None:
+    return role_value(d, "location") or tag_value(d, "location")
+
+
 def environment(d: Device) -> str | None:
-    """An env: tag wins; otherwise the nearest AD OU that names an environment (OU=Prod, OU=DE Test)."""
+    """The Environment tag role wins; then an env-like tag word; then the nearest AD OU naming one (OU=Prod)."""
+    mapped = role_value(d, "environment")
+    if mapped:
+        return _ENV_WORDS.get(mapped.lower(), mapped)
     for name in tag_names(d):
         name = name.lower()
         if name.startswith("env:") and name[4:]:
@@ -274,11 +287,14 @@ def tag_value(d: Device, prefix: str) -> str | None:
 
 
 def owner_label(d: Device) -> str | None:
-    """Explicit owner, then the scanner's owner tag, then whoever signed in last."""
+    """Explicit owner; then the technical, application or executive owner tag role; then any scanner owner tag;
+    then whoever signed in last."""
+    from api.core import tag_roles
     a = assigned_user(d)
     if a:
         return a["name"]
-    return tag_value(d, "owner") or _person(d.owner) or d.last_login_user
+    return (tag_roles.first(tag_names(d), tag_roles.OWNER_ROLES) or tag_value(d, "owner")
+            or _person(d.owner) or d.last_login_user)
 
 
 def source_codes(d: Device) -> list[str]:

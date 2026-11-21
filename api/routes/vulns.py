@@ -197,7 +197,9 @@ async def list_vuln_findings(
     stmt = _affected_query(str(vuln_id), dq.with_tags(await device_scope(current_user, db), tag), status, q)
     total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
     rows = (await db.execute(_sorted_affected(stmt, sort, order).limit(limit).offset(offset))).scalars().all()
-    return {"findings": [_affected_row(f, vuln.cvss_base, vuln.attack_vector) for f in rows], "total": total, "limit": limit, "offset": offset}
+    cloud = await _cloud_ports(db, {str(f.device_id) for f in rows})
+    return {"findings": [_affected_row(f, vuln.cvss_base, vuln.attack_vector, cloud.get(str(f.device_id))) for f in rows],
+            "total": total, "limit": limit, "offset": offset}
 
 
 @router.get("/{vuln_id}/findings/export")
@@ -282,7 +284,20 @@ def _iso(dt):
     return dt.isoformat() if dt else None
 
 
-def _affected_row(f: Finding, cvss: float | None = None, attack_vector: str | None = None) -> dict:
+async def _cloud_ports(db, device_ids: set[str]) -> dict[str, list]:
+    """Cloud firewall openings per device for one page of rows (devices with no cloud record are absent)."""
+    from api.models.cloud import CloudAsset
+    if not device_ids:
+        return {}
+    out: dict[str, list] = {}
+    for dev, ports in (await db.execute(select(CloudAsset.device_id, CloudAsset.ports)
+                                        .where(CloudAsset.device_id.in_(list(device_ids))))).all():
+        out.setdefault(str(dev), []).extend(ports or [])
+    return out
+
+
+def _affected_row(f: Finding, cvss: float | None = None, attack_vector: str | None = None,
+                  cloud_ports: list | None = None) -> dict:
     d = f.device
     return {
         "id": str(f.id),
@@ -304,7 +319,7 @@ def _affected_row(f: Finding, cvss: float | None = None, attack_vector: str | No
         "composite_score": f.composite_score,
         "risk_grade": f.risk_grade,
         "is_reachable": f.is_reachable,
-        **reach_view(f, bool(d and (d.edr_contained or is_exempt(d))), attack_vector),
+        **reach_view(f, bool(d and (d.edr_contained or is_exempt(d))), attack_vector, cloud_ports),
         "first_detected": _iso(f.first_detected),
         "last_seen": _iso(f.last_seen),
     }

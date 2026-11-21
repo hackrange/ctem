@@ -50,7 +50,7 @@ async def _exc_ending(ctx, p):
         VulnException.status == ExceptionStatus.approved, VulnException.expires_at > now, *_mine(ctx))
         .order_by(VulnException.expires_at).limit(p["limit"]))).scalars().all()
     return {"columns": ["Vulnerability", "Covers", "Ends", "Requested by"],
-            "rows": [[(e.vuln.cve_id or e.vuln.title[:60]) if e.vuln else "--", e.scope.value.replace("_", " "),
+            "rows": [[(e.vuln.cve_id or e.vuln.title[:60]) if e.vuln else f"Rule: {(e.name or '')[:56]}", e.scope.value.replace("_", " "),
                       e.expires_at.date().isoformat(), e.requested_by] for e in rows],
             "hrefs": [f"/exceptions?id={e.id}" for e in rows]}
 
