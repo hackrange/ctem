@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% set active_nav = 'vuln-dashboard' %}
+
+{% block title %}Vulnerability Dashboard -- open-ctem{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-header__title">Vulnerability Dashboard</h1>
+    <p class="page-header__sub" id="vd-sub">Posture and trends across every device</p>
+  </div>
+  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+    <select id="vd-range" class="filter-select" aria-label="Range">
+      <option value="30d">Last 30 days</option>
+      <option value="90d" selected>Last 90 days</option>
+      <option value="180d">Last 180 days</option>
+      <option value="365d">Last year</option>
+      <option value="all">All time</option>
+    </select>
+    <select id="vd-source" class="filter-select" aria-label="Source"><option value="">All sources</option></select>
+    <select id="vd-type" class="filter-select" aria-label="Device type"><option value="">All device types</option></select>
+    <a class="btn btn--ghost btn--sm" href="/vulns">Vulnerability list</a>
+  </div>
+</div>
+
+<div id="vd-kpis" class="vd-kpis" aria-live="polite"></div>
+
+<div class="vd-grid">
+  <div class="panel vd-wide"><div class="panel__header"><h2 class="panel__title">Open findings over time</h2>
+    <span class="text-muted text-sm" id="vd-trend-note"></span></div><div class="vd-chart vd-chart--tall" id="c-trend"></div></div>
+  <div class="panel"><div class="panel__header"><h2 class="panel__title">New vs fixed per day</h2></div><div class="vd-chart" id="c-flow"></div></div>
+  <div class="panel"><div class="panel__header"><h2 class="panel__title">Age of open findings</h2>
+    <span class="text-muted text-sm" id="vd-sla-note"></span></div><div class="vd-chart" id="c-aging"></div></div>
+  <div class="panel"><div class="panel__header"><h2 class="panel__title">Mean days to remediate</h2></div><div class="vd-chart" id="c-mttr"></div></div>
+  <div class="panel"><div class="panel__header"><h2 class="panel__title">Open findings by device type</h2></div><div class="vd-chart" id="c-types"></div></div>
+  <div class="panel" style="padding:0"><div class="panel__header"><h2 class="panel__title">Most widespread vulnerabilities</h2></div>
+    <table class="data-table"><thead><tr><th>Vulnerability</th><th>CVSS</th><th>Devices</th></tr></thead><tbody id="vd-topv"></tbody></table></div>
+  <div class="panel" style="padding:0"><div class="panel__header"><h2 class="panel__title">Riskiest devices</h2></div>
+    <table class="data-table"><thead><tr><th>Device</th><th>Grade</th><th>Score</th><th>Open</th><th>KEV</th></tr></thead><tbody id="vd-topd"></tbody></table></div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ static('vendor/echarts-6.1.0/echarts.min.js') }}"></script>
+<script src="{{ static('js/vuln_dashboard.js') }}"></script>
+{% endblock %}

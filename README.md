@@ -127,6 +127,12 @@ A **generic installer** (no code inside) is also available: the box signs in onc
 
 ---
 
+## Vulnerability dashboard
+
+*Vuln Dashboard* (admin, cyber, read-only) shows the whole fleet: headline tiles (open, critical, high, KEV, exploit available, past SLA, devices affected, new and fixed in the last week, exceptions), open findings over time by severity with a KEV line (zoomable), new versus fixed per day, the age of open findings against the SLA, mean days to remediate by month, open findings by device type, and the most widespread vulnerabilities and riskiest devices. Filter by range, source and device type; tiles, slices and rows click through to the matching list. Trends are rebuilt from each finding's first-detected and fixed dates, so there is history from day one; findings fixed before CTEM started tracking aren't in the data, so the chart marks where fix tracking began. The unfiltered view is rebuilt every 15 minutes in the background; filtered views are cached for 30 minutes.
+
+Charts use [Apache ECharts](https://echarts.apache.org/) 6.1.0 (Apache-2.0), served from CTEM itself (`api/web/static/vendor/`, with its license and checksum), never from a CDN.
+
 ## Vulnerability exceptions and proof
 
 **Proof:** on a vulnerability's affected devices, and on a device's findings, **Proof** shows what the scanner found and where (for example the path of a vulnerable PHP install), the port and the fix. It is fetched live from Rapid7 InsightVM for that one finding when you click, so nothing extra is stored; the scanner's HTML is turned into plain text first. Rapid7 findings only for now.
