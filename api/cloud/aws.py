@@ -114,13 +114,18 @@ def _collect(config: dict) -> list[Instance]:
                     continue
                 tags = {t.get("Key"): t.get("Value") for t in i.get("Tags", [])}
                 inst = Instance("aws", i["InstanceId"], name=tags.get("Name") or i["InstanceId"], account=account,
-                                region=region, hostname=(i.get("PrivateDnsName") or None))
+                                region=region, hostname=(i.get("PrivateDnsName") or None), tags=tags)
                 for e in enis.get(i["InstanceId"], []) or [{"PrivateIpAddresses": [{"PrivateIpAddress": i.get("PrivateIpAddress")}],
                                                              "Groups": i.get("SecurityGroups", []), "SubnetId": i.get("SubnetId")}]:
                     inst.private_ips += [p.get("PrivateIpAddress") for p in e.get("PrivateIpAddresses", []) if p.get("PrivateIpAddress")]
                     inst.public_ips += [p["Association"]["PublicIp"] for p in e.get("PrivateIpAddresses", [])
                                         if (p.get("Association") or {}).get("PublicIp")]
                     nacl = nacls.get(e.get("SubnetId"))
+                    for g in e.get("Groups", []):
+                        inst.add_firewall("AWS security group", g.get("GroupId"), (sgs.get(g.get("GroupId")) or {}).get("GroupName"))
+                    if nacl:
+                        inst.add_firewall("AWS network ACL", nacl.get("NetworkAclId"),
+                                          "default (allows everything)" if nacl.get("IsDefault") else None)
                     for g in e.get("Groups", []):
                         for op in _sg_openings(sgs.get(g.get("GroupId"), {})):
                             if any(is_any(x) for x in op.sources) and _nacl_blocks_internet(nacl, op):

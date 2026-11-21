@@ -234,15 +234,102 @@ async function loadDevice() {
     info('Open findings', R.num(d.open_findings)),
     info('KEV findings', d.kev_findings ? `<span class="chip chip--critical">${R.num(d.kev_findings)}</span>` : '0'),
     info('EDR', `${R.bool(d.edr_active)} ${txt(d.edr_vendor)}${d.edr_contained ? ' <span class="chip chip--info">Contained</span>' : ''}${d.edr_hidden ? ' <span class="chip chip--medium" title="Hidden in the Falcon console: its detections may not show there">Hidden in Falcon</span>' : ''}`),
-    info('Firewall (EDR policy)', d.firewall_enabled == null ? txt(null) : R.bool(d.firewall_enabled)),
+    info('Public IP', publicIps(d)),
+    info('Host firewall', hostFirewall(d)),
+    info('Cloud firewall', cloudFirewall(d.cloud || [])),
     info('USB storage blocked', d.usb_storage_blocked == null ? txt(null) : R.bool(d.usb_storage_blocked)),
     info('Internet exposed', R.bool(d.is_internet_exposed)),
     info('AD joined', R.bool(d.ad_joined)),
     info('Tags', tagChips(d.tags || [])),
   ].join('');
   cloudPanel(d.cloud || []);
+  document.querySelectorAll('[data-fw-rules]').forEach(b => { b.onclick = () => firewallDialog(d.cloud || []); });
   syncShipFields();
   if (!table) startFindings();  // reloading after an assignment shouldn't mount a second table
+}
+
+// Public addresses seen for the device (cloud integrations today), each with its source
+function publicIps(d) {
+  const list = d.public_ips || [];
+  return list.length ? list.map(p => `<span class="text-mono">${esc(p.ip)}</span> <span class="text-sm text-muted">(${esc(p.source)})</span>`).join('<br>')
+    : '<span class="text-muted" title="No cloud integration reports a public address for this device">None observed</span>';
+}
+
+// Host firewall: the OS firewall as the EDR's policy reports it
+function hostFirewall(d) {
+  const src = d.edr_vendor ? ` <span class="text-sm text-muted">(${esc(d.edr_vendor)} policy)</span>` : '';
+  if (d.firewall_enabled === true) return `<span class="chip chip--low">Active</span>${src}`;
+  if (d.firewall_enabled === false) return `<span class="chip chip--critical">Off</span>${src}`;
+  return '<span class="text-muted" title="No EDR reports a host firewall policy for this device">Unknown</span>';
+}
+
+// Cloud firewall: the security groups / NSGs / security lists attached, and what they let in
+function cloudFirewall(list) {
+  if (!list.length) return '<span class="text-muted" title="Not a cloud instance CTEM reads">Not a cloud instance</span>';
+  const fws = list.flatMap(c => c.firewalls || []);
+  const ports = list.flatMap(c => c.ports || []);
+  const rng = p => p.from == null ? 'all' : (p.from === p.to ? p.from : `${p.from}-${p.to}`);
+  const open = ports.filter(p => p.reach === 'internet').map(p => `${rng(p)}/${p.proto}`);
+  const limited = ports.filter(p => p.reach !== 'internet').length;
+  const names = fws.map(f => `<div class="text-sm"><b>${esc(f.type)}</b> <span class="text-mono">${esc(f.id)}</span>${f.name ? ` ${esc(f.name)}` : ''}</div>`).join('');
+  const verdict = open.length
+    ? `<span class="chip chip--critical">Open to the internet</span> <span class="text-sm">${esc(open.join(', '))}</span>`
+    : (ports.length ? '<span class="chip chip--low">No internet access</span>' : '<span class="chip chip--low">Nothing allowed in</span>');
+  return `${verdict}${limited ? `<div class="text-sm text-muted">${limited} more rule${limited === 1 ? '' : 's'} limited to specific sources</div>` : ''}
+    ${names || '<div class="text-sm text-muted">No firewall attached</div>'}
+    <button type="button" class="btn btn--ghost btn--sm" data-fw-rules style="margin-top:4px">View effective rules</button>`;
+}
+
+// How each cloud's rules were combined, so the verdict can be checked by hand
+const HOW = {
+  aws: 'Security groups only allow; a port is open if any attached group allows it. The subnet network ACL is checked too: if it denies the internet on a port, that port is shown as not reachable from the internet. Everything not listed is denied.',
+  azure: 'Network security group rules are read in priority order, and the first match wins. When both the network interface and the subnet have an NSG, the internet must be allowed by both. Everything not listed is denied.',
+  oci: 'Security lists and network security groups only allow; a port is open if any of them allows it. Everything not listed is denied.',
+};
+
+// Effective inbound rules, per cloud record, in a dialog that only closes from its own button
+function firewallDialog(list) {
+  let wrap = $('fw-modal');
+  if (!wrap) {
+    wrap = document.createElement('div');
+    wrap.id = 'fw-modal';
+    wrap.className = 'tk-backdrop';
+    wrap.setAttribute('role', 'dialog');
+    wrap.setAttribute('aria-modal', 'true');
+    wrap.setAttribute('aria-labelledby', 'fw-title');
+    document.body.appendChild(wrap);
+  }
+  const rng = p => p.from == null ? 'All ports' : (p.from === p.to ? String(p.from) : `${p.from}-${p.to}`);
+  const body = list.map(c => {
+    const rows = (c.ports || []).map(p => {
+      const [cls, label] = REACH[p.reach] || ['info', p.reach];
+      return `<tr><td class="text-mono nowrap">${esc(rng(p))}/${esc(p.proto)}</td>
+        <td><span class="chip chip--${cls}">${esc(label)}</span></td>
+        <td class="text-sm text-mono" style="max-width:260px">${(p.sources || []).map(esc).join('<br>')}</td>
+        <td class="text-sm">${esc(p.via)}</td></tr>`;
+    }).join('') || '<tr><td colspan="4" class="text-sm text-muted">No inbound rule allows anything.</td></tr>';
+    const fws = (c.firewalls || []).map(f => `<li><b>${esc(f.type)}</b> <span class="text-mono">${esc(f.id)}</span>${f.name ? ` (${esc(f.name)})` : ''}</li>`).join('');
+    return `<section style="margin-bottom:18px">
+      <h3 style="margin:0 0 4px;font-size:15px">${esc(String(c.provider).toUpperCase())} ${esc(c.name || '')}
+        <span class="text-sm text-muted">${esc(c.account || '')} ${esc(c.region || '')}</span></h3>
+      <div class="text-sm" style="margin-bottom:6px">Public IP: <span class="text-mono">${esc((c.public_ips || []).join(', ') || 'none')}</span>
+        · Private: <span class="text-mono">${esc((c.private_ips || []).join(', ') || '--')}</span></div>
+      <div class="text-sm" style="font-weight:600">Firewalls attached</div>
+      <ul class="text-sm" style="margin:4px 0 10px 18px;padding:0">${fws || '<li class="text-muted">None</li>'}</ul>
+      <div class="text-sm" style="font-weight:600;margin-bottom:4px">Effective inbound rules</div>
+      <div class="dt-scroll"><table class="data-table"><thead><tr><th>Port</th><th>Who can reach it</th><th>Sources</th><th>Allowed by</th></tr></thead>
+        <tbody>${rows}<tr><td class="text-mono">Everything else</td><td><span class="chip chip--info">Denied</span></td><td></td><td class="text-sm text-muted">default</td></tr></tbody></table></div>
+      <p class="text-sm text-muted" style="margin:8px 0 0">${esc(HOW[c.provider] || '')} Last read ${esc(c.seen_at ? new Date(c.seen_at).toLocaleString() : '--')}.</p>
+    </section>`;
+  }).join('');
+  wrap.innerHTML = `<div class="tk-dialog" style="max-width:900px;max-height:88vh;overflow:auto">
+    <h2 class="tk-title" id="fw-title">Effective cloud firewall rules</h2>
+    <p class="tk-sub">What the cloud lets in to this device, from its security groups, NSGs and security lists. A finding on a port nobody can reach scores lower; one open to the internet doesn't.</p>
+    ${body}
+    <div style="display:flex;justify-content:flex-end;margin-top:12px"><button type="button" class="btn btn--primary btn--sm" id="fw-close">Close</button></div></div>`;
+  wrap.classList.add('is-open');
+  $('fw-close').onclick = () => wrap.classList.remove('is-open');
+  $('fw-close').focus();
 }
 
 // Each cloud record: where it lives, its addresses, and every open port with who can reach it
@@ -260,6 +347,7 @@ function cloudPanel(list) {
     return `<div style="margin-bottom:12px">
       <div><b>${esc(String(c.provider).toUpperCase())}</b> ${esc(c.name || '')} <span class="text-sm text-muted">${esc(c.account || '')} ${esc(c.region || '')}</span>
         ${c.internet_exposed ? '<span class="chip chip--critical" style="font-size:.7rem">Internet exposed</span>' : ''}</div>
+      ${(c.firewalls || []).length ? `<div class="text-sm" style="margin:2px 0">Firewalls: ${(c.firewalls || []).map(f => `${esc(f.type)} <span class="text-mono">${esc(f.id)}</span>${f.name ? ` (${esc(f.name)})` : ''}`).join(' · ')}</div>` : ''}
       <div class="text-sm text-muted" style="margin:2px 0 6px">Public IP: ${esc((c.public_ips || []).join(', ') || 'none')} · Private: ${esc((c.private_ips || []).join(', ') || '--')}
         · <span title="${esc(c.resource_id)}">${esc(String(c.resource_id).split('/').pop())}</span></div>
       <table class="data-table"><thead><tr><th>Port</th><th>Who can reach it</th><th>Sources</th><th>Rule</th></tr></thead><tbody>${rows}</tbody></table></div>`;

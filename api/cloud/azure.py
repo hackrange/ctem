@@ -170,7 +170,8 @@ async def collect(config: dict) -> list[Instance]:
             for vm in vms:
                 props = vm.get("properties", {})
                 os_name = (props.get("osProfile") or {}).get("computerName")
-                inst = Instance("azure", vm["id"], name=vm.get("name"), account=sub, region=vm.get("location"), hostname=os_name)
+                inst = Instance("azure", vm["id"], name=vm.get("name"), account=sub, region=vm.get("location"), hostname=os_name,
+                                tags=dict(vm.get("tags") or {}))
                 for ref in (props.get("networkProfile") or {}).get("networkInterfaces", []):
                     nic = nics.get(str(ref.get("id", "")).lower())
                     if not nic:
@@ -185,6 +186,11 @@ async def collect(config: dict) -> list[Instance]:
                         if pip and pip.get("properties", {}).get("ipAddress"):
                             inst.public_ips.append(pip["properties"]["ipAddress"])
                         sn = subnet_nsg.get(str((ip.get("subnet") or {}).get("id", "")).lower())
+                        for g, where in ((nic_nsg, "network interface"), (sn, "subnet")):
+                            if g:
+                                inst.add_firewall(f"Azure NSG ({where})", g.get("id"), g.get("name"))
+                        if not nic_nsg and not sn:
+                            inst.add_firewall("Azure NSG", "none", "no network security group: everything is allowed in")
                         inst.openings += openings(nic_nsg, sn)
                 out.append(inst)
         return out

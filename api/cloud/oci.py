@@ -135,7 +135,7 @@ async def collect(config: dict) -> list[Instance]:
             comps = [tenancy] + [c["id"] for c in await api.list(
                 f"{ident}/compartments?compartmentId={quote(tenancy)}&compartmentIdInSubtree=true&accessLevel=ACCESSIBLE&lifecycleState=ACTIVE")
                 if _ID.match(c.get("id", ""))]
-            seclists, nsgrules, subnets = {}, {}, {}
+            seclists, nsgrules, subnets, seclist_names = {}, {}, {}, {}
             for comp in comps:
                 q = quote(comp)
                 instances = [i for i in await api.list(f"{iaas}/instances?compartmentId={q}")
@@ -148,7 +148,10 @@ async def collect(config: dict) -> list[Instance]:
                     if a.get("lifecycleState") == "ATTACHED" and _ID.match(a.get("vnicId", "")):
                         by_inst.setdefault(a.get("instanceId"), []).append(a["vnicId"])
                 for i in instances:
-                    inst = Instance("oci", i["id"], name=i.get("displayName"), account=tenancy, region=region)
+                    tags = dict(i.get("freeformTags") or {})
+                    for ns, kv in (i.get("definedTags") or {}).items():   # defined tags: namespace.key
+                        tags.update({f"{ns}.{k}": v for k, v in (kv or {}).items()})
+                    inst = Instance("oci", i["id"], name=i.get("displayName"), account=tenancy, region=region, tags=tags)
                     for vid in by_inst.get(i["id"], [])[:8]:
                         v = (await api.get(f"{iaas}/vnics/{vid}")).json()
                         inst.hostname = inst.hostname or v.get("hostnameLabel")
@@ -160,13 +163,16 @@ async def collect(config: dict) -> list[Instance]:
                         for sl in (subnets.get(sid) or {}).get("securityListIds", []):
                             if _ID.match(sl) and sl not in seclists:
                                 body = (await api.get(f"{iaas}/securityLists/{sl}")).json()
+                                seclist_names[sl] = body.get("displayName")
                                 seclists[sl] = rule_openings(body.get("ingressSecurityRules", []),
                                                              f"security list {body.get('displayName', sl[-8:])}")
+                            inst.add_firewall("OCI security list", sl, seclist_names.get(sl))
                             inst.openings += seclists.get(sl, [])
                         for nsg in v.get("nsgIds") or []:
                             if _ID.match(nsg) and nsg not in nsgrules:
                                 rules = await api.list(f"{iaas}/networkSecurityGroups/{nsg}/securityRules?direction=INGRESS")
                                 nsgrules[nsg] = rule_openings(rules, f"NSG {nsg[-8:]}")
+                            inst.add_firewall("OCI network security group", nsg)
                             inst.openings += nsgrules.get(nsg, [])
                     out.append(inst)
         return out
