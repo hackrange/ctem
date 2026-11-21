@@ -52,6 +52,11 @@ celery_app.conf.update(
             "schedule": 900.0,
         },
         # Admin > Utilization: a row a minute, rolled into hours
+        # Stale AD counts for dashboard trends (today's row is overwritten, so hourly keeps it current)
+        "record-snapshots": {
+            "task": "api.core.tasks.record_snapshots",
+            "schedule": 3600.0,
+        },
         "record-utilization": {
             "task": "api.core.tasks.record_utilization",
             "schedule": 60.0,
@@ -354,3 +359,15 @@ async def _record_utilization():
     from api.core.utilization import record
     async for db in get_session():
         await record(db)
+
+
+@celery_app.task(name="api.core.tasks.record_snapshots", ignore_result=True)
+def record_snapshots():
+    asyncio.run(_record_snapshots())
+
+
+async def _record_snapshots():
+    from api.core.db import get_session
+    from api.dashboards.m_directory import record_snapshots as rec
+    async for db in get_session():
+        await rec(db)

@@ -85,11 +85,14 @@ INVENTORY_STATUSES = ("shipped", "lost", "stolen", "returned")
 
 
 def build_query(scope, q: str | None, grade: str | None, device_type: DeviceType | None,
-                source: str | None, tags: list[str] | None, status: str | None = None):
+                source: str | None, tags: list[str] | None, status: str | None = None, ad_stale_days: int | None = None):
     """Return a SELECT of Device (with owner joined) filtered by scope and the request filters."""
     stmt = select(Device).outerjoin(Owner, Owner.id == Device.owner_user_id)
     if scope is not None:
         stmt = stmt.where(scope)
+    if ad_stale_days:   # AD computer objects with no logon for this many days (or never)
+        from api.dashboards.m_directory import stale_computers
+        stmt = stmt.where(*stale_computers(int(ad_stale_days)))
     if device_type:
         stmt = stmt.where(Device.device_type == device_type)
     if grade:

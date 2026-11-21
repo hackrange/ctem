@@ -5,6 +5,18 @@
   const color = c => (c && c.startsWith('--') ? css(c) : c) || undefined;
   const n = v => (v == null ? '--' : typeof v === 'number' ? v.toLocaleString() : String(v));
   const charts = new WeakMap();
+  // A widget's own color (from its style) and its number-card thresholds
+  const NAMED = { blue: '#3b82f6', green: '#22c55e', red: '#ef4444', orange: '#f97316', yellow: '#eab308',
+                  purple: '#a855f7', teal: '#14b8a6', gray: '#64748b' };
+  const own = w => (w && w.style && NAMED[w.style.color]) || null;
+  function level(w, v) {
+    const s = (w && w.style) || {};
+    if (typeof v !== 'number' || (s.warn_at == null && s.bad_at == null)) return null;
+    const worse = (a, b) => (s.higher_is_worse === false ? a <= b : a >= b);
+    if (s.bad_at != null && worse(v, s.bad_at)) return 'critical';
+    if (s.warn_at != null && worse(v, s.warn_at)) return 'medium';
+    return 'low';
+  }
 
   function theme() {
     return { fg: css('--fg'), muted: css('--fg-muted'), border: css('--border'), surface: css('--surface'),
@@ -45,8 +57,8 @@
       ...o, xAxis: { ...o.xAxis, type: 'category', data: d.x || [], boundaryGap: viz === 'bar' },
       yAxis: { ...o.yAxis, type: 'value', name: d.y_unit || '', nameTextStyle: { color: t.muted } },
       dataZoom: many ? [{ type: 'inside' }] : [],
-      series: (d.series || []).map(s => ({
-        name: s.name, data: s.data, color: color(s.color), stack: viz === 'line' ? undefined : s.stack,
+      series: (d.series || []).map((s, i) => ({
+        name: s.name, data: s.data, color: (i === 0 && own(w)) || color(s.color), stack: viz === 'line' ? undefined : s.stack,
         type: viz === 'bar' ? 'bar' : 'line', symbol: 'none', smooth: 0.2, connectNulls: true, barMaxWidth: 28,
         areaStyle: viz === 'area' ? { opacity: 0.35 } : undefined,
       })),
@@ -62,7 +74,7 @@
         grid: { ...o.grid, top: 8 }, xAxis: { ...o.xAxis, type: 'value', axisLabel: o.yAxis.axisLabel, splitLine: o.yAxis.splitLine },
         yAxis: { type: 'category', inverse: true, data: items.map(i => i.name), axisLabel: { color: t.muted, width: 120, overflow: 'truncate' },
                  axisLine: { lineStyle: { color: t.border } } },
-        series: [{ type: 'bar', barMaxWidth: 22, data: items.map(i => ({ value: i.value, href: i.href, itemStyle: { color: color(i.color) } })),
+        series: [{ type: 'bar', barMaxWidth: 22, data: items.map(i => ({ value: i.value, href: i.href, itemStyle: { color: own(w) || color(i.color) } })),
                    label: { show: true, position: 'right', color: t.muted, formatter: p => n(p.value) + (d.unit || '') } }],
       }, true);
     } else {
@@ -94,8 +106,9 @@
     if (d.shape === 'value') {
       dispose(el);
       const v = d.value == null ? '--' : n(d.value) + (d.unit || '');
-      el.innerHTML = `${nav && d.href ? `<a class="dw-kpi" href="${esc(d.href)}">` : '<div class="dw-kpi">'}
-        <span class="dw-kpi__value">${esc(v)}</span>${d.note ? `<span class="dw-kpi__note">${esc(d.note)}</span>` : ''}
+      const lv = level(w, d.value), tint = lv ? `var(--severity-${lv})` : own(w);
+      el.innerHTML = `${nav && d.href ? `<a class="dw-kpi" href="${esc(d.href)}" title="Show these">` : '<div class="dw-kpi">'}
+        <span class="dw-kpi__value"${tint ? ` style="color:${tint}"` : ''}>${esc(v)}</span>${d.note ? `<span class="dw-kpi__note">${esc(d.note)}</span>` : ''}
         ${nav && d.href ? '</a>' : '</div>'}`;
       return;
     }

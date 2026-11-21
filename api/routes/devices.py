@@ -38,14 +38,15 @@ _FINDING_SORTS = {
 }
 
 
-async def _filtered(user, db, q, grade, device_type, source, tag, status=None):
-    return dq.build_query(await device_scope(user, db), q, grade, device_type, source, tag, status)
+async def _filtered(user, db, q, grade, device_type, source, tag, status=None, ad_stale_days=None):
+    return dq.build_query(await device_scope(user, db), q, grade, device_type, source, tag, status, ad_stale_days)
 
 
 _STATUS_FILTER = Query(None, pattern="^(assigned|shipped|lost|stolen|returned|contained|edr_hidden|out_of_scope)$")
 
 
 _TAGS = Query(None, max_length=128, description="Tag name; repeat to require several")
+_STALE = Query(None, ge=1, le=3650, description="AD computer objects with no logon for this many days")
 
 
 @router.get("")
@@ -58,12 +59,13 @@ async def list_devices(
     source: str | None = Query(None, max_length=64),
     status: str | None = _STATUS_FILTER,
     tag: list[str] | None = _TAGS,
+    ad_stale_days: int | None = _STALE,
     sort: str | None = Query(None, max_length=32),
     order: str | None = Query(None, pattern="^(asc|desc)$"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0, le=1_000_000),
 ):
-    stmt = await _filtered(current_user, db, q, grade, device_type, source, tag, status)
+    stmt = await _filtered(current_user, db, q, grade, device_type, source, tag, status, ad_stale_days)
     total = (await db.execute(dq.count_query(stmt))).scalar_one()
     page = dq.with_relations(dq.sorted_query(stmt, sort, order)).limit(limit).offset(offset)
     devices = (await db.execute(page)).scalars().unique().all()
@@ -80,9 +82,10 @@ async def device_summary(
     source: str | None = Query(None, max_length=64),
     status: str | None = _STATUS_FILTER,
     tag: list[str] | None = _TAGS,
+    ad_stale_days: int | None = _STALE,
 ):
     """Dashboard counts across every device the user can see (not one page of them)."""
-    stmt = await _filtered(current_user, db, q, grade, device_type, source, tag, status)
+    stmt = await _filtered(current_user, db, q, grade, device_type, source, tag, status, ad_stale_days)
     grades = {g: 0 for g in ("A", "B", "C", "D", "F")}
     ungraded = kev_devices = 0
     for g, n, kev in (await db.execute(dq.grade_counts_query(stmt))).all():
@@ -119,10 +122,11 @@ async def export_devices(
     source: str | None = Query(None, max_length=64),
     status: str | None = _STATUS_FILTER,
     tag: list[str] | None = _TAGS,
+    ad_stale_days: int | None = _STALE,
     sort: str | None = Query(None, max_length=32),
     order: str | None = Query(None, pattern="^(asc|desc)$"),
 ):
-    stmt = dq.with_relations(dq.sorted_query(await _filtered(current_user, db, q, grade, device_type, source, tag, status),
+    stmt = dq.with_relations(dq.sorted_query(await _filtered(current_user, db, q, grade, device_type, source, tag, status, ad_stale_days),
                                              sort, order))
 
     async def fetch(offset: int, limit: int) -> list[list]:

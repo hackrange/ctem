@@ -1,6 +1,7 @@
 // The widget editor (pick a metric, chart type and options, with a live preview) and the AI "describe a widget" box.
 (function () {
   const VIZ = { kpi: 'Number', line: 'Line', area: 'Area', bar: 'Bars', donut: 'Donut', table: 'Table' };
+  const COLORS = ['blue', 'green', 'red', 'orange', 'yellow', 'purple', 'teal', 'gray'];
   const uid = () => Math.random().toString(36).slice(2, 14);
 
   async function preview(el, w) {
@@ -29,6 +30,17 @@
         <div id="dwe-params"></div>
         <label class="form-label" for="dwe-title" style="margin-top:8px">Title</label>
         <input id="dwe-title" class="form-input" maxlength="120">
+        <div class="form-label" style="margin-top:12px">Style</div>
+        <label class="form-label text-sm" for="dwe-color" style="margin-top:4px">Color</label>
+        <select id="dwe-color" class="form-input"><option value="">Automatic</option>${COLORS.map(c =>
+          `<option value="${c}">${c[0].toUpperCase() + c.slice(1)}</option>`).join('')}</select>
+        <div id="dwe-thresholds" style="margin-top:6px">
+          <div style="display:flex;gap:8px">
+            <div style="flex:1"><label class="form-label text-sm" for="dwe-warn">Amber at</label><input id="dwe-warn" type="number" class="form-input" placeholder="e.g. 10"></div>
+            <div style="flex:1"><label class="form-label text-sm" for="dwe-bad">Red at</label><input id="dwe-bad" type="number" class="form-input" placeholder="e.g. 50"></div>
+          </div>
+          <label class="tk-radio" style="margin-top:6px"><input type="checkbox" id="dwe-higher" checked> Higher is worse</label>
+        </div>
       </div>
       <div class="dw-edit__preview"><div class="text-sm text-muted" style="margin-bottom:4px">Preview (your data)</div>
         <div id="dwe-preview" class="dw-body" style="height:260px;border:1px solid var(--border);border-radius:8px"></div></div>
@@ -57,6 +69,7 @@
         return `<label class="tk-radio" style="margin-top:10px"><input id="${id}" type="checkbox" data-p="${esc(p.key)}"${cur ? ' checked' : ''}> ${esc(p.label)}</label>`;
       }).join('');
       if (!titleTouched) $('dwe-title').value = m.label;
+      $('dwe-thresholds').hidden = m.shape !== 'value';
       refresh();
     }
     function current() {
@@ -67,7 +80,14 @@
         params[p.key] = el.type === 'checkbox' ? el.checked : p.type === 'int' ? Number(el.value) : el.value;
       });
       const small = m.shape === 'value';
-      return { id: w ? w.id : uid(), metric: m.id, viz: $('dwe-viz').value, title: $('dwe-title').value.trim() || m.label, params,
+      const style = {};
+      if ($('dwe-color').value) style.color = $('dwe-color').value;
+      if (small) {
+        if ($('dwe-warn').value !== '') style.warn_at = Number($('dwe-warn').value);
+        if ($('dwe-bad').value !== '') style.bad_at = Number($('dwe-bad').value);
+        if (style.warn_at != null || style.bad_at != null) style.higher_is_worse = $('dwe-higher').checked;
+      }
+      return { id: w ? w.id : uid(), metric: m.id, viz: $('dwe-viz').value, title: $('dwe-title').value.trim() || m.label, params, style,
                x: w ? w.x : 0, y: w ? w.y : 0, w: w ? w.w : (small ? 3 : 6), h: w ? w.h : (small ? 2 : 4) };
     }
     let t;
@@ -78,6 +98,12 @@
     $('dwe-viz').onchange = refresh;
     $('dwe-params').addEventListener('change', refresh);
     $('dwe-title').addEventListener('input', () => { titleTouched = true; });
+    ['dwe-color', 'dwe-warn', 'dwe-bad', 'dwe-higher'].forEach(id => $(id).addEventListener('change', refresh));
+    const st = (w && w.style) || {};
+    $('dwe-color').value = st.color || '';
+    $('dwe-warn').value = st.warn_at != null ? st.warn_at : '';
+    $('dwe-bad').value = st.bad_at != null ? st.bad_at : '';
+    $('dwe-higher').checked = st.higher_is_worse !== false;
     if (w && byId[w.metric]) {
       $('dwe-cat').value = byId[w.metric].category;
       fillMetrics(w.metric);

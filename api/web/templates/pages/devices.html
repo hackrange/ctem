@@ -57,6 +57,7 @@
 </div>
 
 <div id="tag-filters" class="filter-bar" hidden style="margin-bottom:8px"></div>
+<div id="stale-filter" class="filter-bar" hidden style="margin-bottom:8px"></div>
 <div class="panel" style="padding:0" id="devices-table"></div>
 {% endblock %}
 
@@ -91,6 +92,15 @@ const FILTERS = { q: 'search-input', grade: 'filter-grade', device_type: 'filter
 // Prefill from the URL so dashboard cards and shared links land on a filtered view
 const initial = new URLSearchParams(location.search);
 Object.entries(FILTERS).forEach(([k, id]) => { if (initial.get(k)) $(id).value = initial.get(k); });
+// From a dashboard card: AD computer objects with no logon for N days, shown as a removable chip
+let staleDays = /^\d{1,4}$/.test(initial.get('ad_stale_days') || '') ? Number(initial.get('ad_stale_days')) : null;
+function showStale() {
+  const box = $('stale-filter');
+  box.hidden = !staleDays;
+  box.innerHTML = staleDays ? `<span class="filter-bar__label">AD</span><span class="chip chip--medium">NO AD LOGON IN ${staleDays} DAYS
+    <button type="button" class="btn btn--ghost btn--sm" id="stale-clear" aria-label="Remove this filter" title="Remove">&#10005;</button></span>` : '';
+}
+
 // Tag filters (owner, application, environment) come from the link or the tab's tag focus, and stay with you
 if (initial.getAll('tag').length) TagFocus.set(initial.getAll('tag'));
 
@@ -113,7 +123,7 @@ const table = DataTable.create({
     const q = $('search-input').value.trim();
     return { q: normalizeMac(q) || q, grade: $('filter-grade').value,
              device_type: $('filter-type').value, source: $('filter-source').value, status: $('filter-status').value,
-             tag: TagFocus.get() };
+             tag: TagFocus.get(), ad_stale_days: staleDays || '' };
   },
   columns: [
     { label: 'Hostname', sort: 'hostname', render: d => `<span title="${esc(d.fqdn || d.hostname)}">${R.link(`/devices/${encodeURIComponent(d.id)}`, d.hostname)}</span> ${DeviceAssign.statusChip(d.inventory_status)}${d.out_of_scope_until ? ' <span class="chip chip--medium" style="font-size:.7rem" title="Its vulnerabilities don\'t count">Not in scope</span>' : ''}` },
@@ -141,5 +151,7 @@ $('search-input').addEventListener('input', () => { clearTimeout(timer); timer =
 ['filter-grade', 'filter-type', 'filter-source', 'filter-status'].forEach(id => $(id).addEventListener('change', () => table.reload()));
 TagFocus.chips($('tag-filters'), 'Tag');
 window.addEventListener('tag-focus-changed', () => table.reload());
+showStale();
+$('stale-filter').addEventListener('click', e => { if (e.target.closest('#stale-clear')) { staleDays = null; showStale(); table.reload(); } });
 </script>
 {% endblock %}

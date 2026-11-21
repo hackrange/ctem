@@ -22,6 +22,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 log = logging.getLogger("open-ctem.dashboards")
 
 VIZ_FOR = {"value": ("kpi",), "series": ("line", "area", "bar"), "parts": ("donut", "bar", "table"), "table": ("table",)}
+# Colors a widget may use, by name (the renderer maps them; nothing else is accepted)
+COLORS = {"blue": "#3b82f6", "green": "#22c55e", "red": "#ef4444", "orange": "#f97316", "yellow": "#eab308",
+          "purple": "#a855f7", "teal": "#14b8a6", "gray": "#64748b"}
 GRID_COLS = 12
 MAX_WIDGETS = 40
 CACHE_SECONDS = 900
@@ -134,9 +137,29 @@ def clean_widget(w) -> dict | None:
             return d
     wid = str(w.get("id") or "")
     wid = wid if wid.replace("-", "").isalnum() and len(wid) <= 40 else ""
-    return {"id": wid, "metric": m.id, "viz": viz, "title": title, "params": params,
+    return {"id": wid, "metric": m.id, "viz": viz, "title": title, "params": params, "style": clean_style(w.get("style"), m.shape),
             "x": num("x", 0, GRID_COLS - 1, 0), "y": num("y", 0, 500, 0),
             "w": num("w", 1, GRID_COLS, 4 if m.shape != "value" else 3), "h": num("h", 1, 12, 4 if m.shape != "value" else 2)}
+
+
+def clean_style(s, shape: str) -> dict:
+    """How a widget looks: a color from COLORS, and for single numbers the amber and red thresholds (and whether
+    higher is worse). Anything else is dropped."""
+    s = s if isinstance(s, dict) else {}
+    out = {}
+    if s.get("color") in COLORS:
+        out["color"] = s["color"]
+    if shape == "value":
+        for k in ("warn_at", "bad_at"):
+            try:
+                v = float(s.get(k))
+                if -1e12 < v < 1e12:
+                    out[k] = int(v) if v.is_integer() else round(v, 2)
+            except (TypeError, ValueError):
+                pass
+        if out.get("warn_at") is not None or out.get("bad_at") is not None:
+            out["higher_is_worse"] = s.get("higher_is_worse") is not False
+    return out
 
 
 async def evaluate(ctx: Ctx, widget: dict) -> dict:
@@ -176,4 +199,4 @@ async def evaluate(ctx: Ctx, widget: dict) -> dict:
 
 def load_metrics() -> None:
     """Importing the metric modules is what registers them."""
-    from api.dashboards import m_devices, m_other, m_vulns  # noqa: F401
+    from api.dashboards import m_devices, m_directory, m_other, m_vulns  # noqa: F401

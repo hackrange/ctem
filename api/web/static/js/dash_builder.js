@@ -59,8 +59,9 @@
                                              b.textContent = label; if (title) b.title = title; b.onclick = fn; a.appendChild(b); return b; };
     if (editing) {
       btn('Add widget', 'btn--primary', () => DashEditor.open({ catalog, onSave: add }));
+      btn('Edit with AI', 'btn--ghost', aiEdit, 'Describe a change, e.g. "make the trend blue" or "add a 14-day card"');
       btn('Describe a widget (AI)', 'btn--ghost', () => DashEditor.describe({ catalog, onSave: add }));
-      btn('Cancel', 'btn--ghost', () => { editing = false; open(); });
+      btn('Cancel', 'btn--ghost', () => { editing = false; $('db-explain').hidden = true; open(); });
       btn('Save', 'btn--primary', save);
       return;
     }
@@ -68,6 +69,7 @@
     btn('Explain (AI)', 'btn--ghost', explain, 'A plain-English summary of what this dashboard shows right now');
     btn('Copy', 'btn--ghost', copy, 'Make your own copy to change');
     if (dash.can_edit) {
+      btn('Edit with AI', 'btn--ghost', aiEdit, 'Describe a change, e.g. "make the trend blue" or "add a 14-day card"');
       btn('Share', 'btn--ghost', settings);
       btn('Delete', 'btn--ghost', remove);
       btn('Edit', 'btn--primary', () => { editing = true; header(); grid.setStatic(false); build(); });
@@ -89,6 +91,7 @@
       visibility: dash.visibility, share_roles: dash.share_roles, widgets });
     if (!r.ok) { alert(r.error || 'Could not save'); return; }
     editing = false;
+    $('db-explain').hidden = true;
     open();
   }
 
@@ -117,6 +120,36 @@
       d.close();
       open();
     });
+  }
+
+  // Describe a change; the AI's version is shown in edit mode to review. Nothing is saved until Save.
+  function aiEdit() {
+    const d = DashRender.dialog('db-ai-edit', 'Edit with AI', 600);
+    d.body.innerHTML = `<p class="text-sm text-muted" style="margin-top:0">For example: "make the stale trend blue", "add a card for
+      14 days", "turn the donut into bars", "make the 90-day card red above 100".</p>
+      <textarea id="dbe-text" class="form-input" rows="3" maxlength="1000"></textarea>`;
+    d.button('Cancel', 'btn--ghost', d.close);
+    const go = d.button('Apply', 'btn--primary', async () => {
+      const text = $('dbe-text').value.trim();
+      if (text.length < 5) return d.msg('Describe the change first.', true);
+      go.disabled = true;
+      d.msg('Asking the AI...');
+      const r = await DashRender.api('POST', `${API}/ai/edit/${id}`, { text });
+      go.disabled = false;
+      if (r.available === false) return d.msg('No AI integration is set up. Use Edit instead.', true);
+      if (!r.widgets) return d.msg(r.error || 'The AI had no change. Try rewording it.', true);
+      d.close();
+      editing = true;
+      widgets = r.widgets;
+      data = {};
+      header();
+      grid.setStatic(false);
+      build();
+      load();
+      $('db-explain').hidden = false;
+      $('db-explain-text').textContent = `AI change, not saved yet: ${r.note || 'see the widgets below'}. Review it, then Save, or Cancel to discard.`;
+    });
+    $('dbe-text').focus();
   }
 
   async function copy() {

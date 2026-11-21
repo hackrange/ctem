@@ -56,6 +56,7 @@ async def init_db() -> None:
     import api.models.tag_role      # noqa: F401
     import api.models.cloud         # noqa: F401
     import api.models.utilization   # noqa: F401
+    import api.models.snapshot      # noqa: F401
 
     # Enum values must be added outside any transaction (Postgres requirement)
     async with _engine.connect() as conn:
@@ -228,6 +229,7 @@ def init_db_worker() -> None:
     import api.models.tag_role      # noqa: F401
     import api.models.cloud         # noqa: F401
     import api.models.utilization   # noqa: F401
+    import api.models.snapshot      # noqa: F401
 
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
