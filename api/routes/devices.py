@@ -157,8 +157,11 @@ async def get_device(
     device = await _visible_device(device_id, current_user, db)
     base = dq.summary(device)
     from api.cloud.exposure import for_device
+    cloud = await for_device(db, device.id)   # instances, public IPs, attached firewalls and open ports
     base.update({
-        "cloud": await for_device(db, device.id),   # instances, public IPs and open ports from AWS / Azure / OCI
+        "cloud": cloud,
+        # Every public address observed for the device, with where it was seen
+        "public_ips": [{"ip": ip, "source": c["provider"].upper()} for c in cloud for ip in c["public_ips"]],
         "fqdn": dq.full_name(device),
         "mac_address": device.mac_address,
         "os_version": device.os_version,

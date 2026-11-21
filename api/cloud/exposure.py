@@ -52,6 +52,12 @@ class Instance:
     private_ips: list[str] = field(default_factory=list)
     public_ips: list[str] = field(default_factory=list)
     openings: list[Opening] = field(default_factory=list)
+    firewalls: list[dict] = field(default_factory=list)   # {"type", "id", "name"} of each attached cloud firewall
+    tags: dict = field(default_factory=dict)              # the cloud's own key/value tags, kept as device tags
+
+    def add_firewall(self, kind: str, fid: str | None, name: str | None = None) -> None:
+        if fid and not any(f["id"] == fid for f in self.firewalls):
+            self.firewalls.append({"type": kind, "id": str(fid)[:200], "name": (str(name)[:120] if name else None)})
 
 
 def ports(inst: Instance) -> list[dict]:
@@ -125,7 +131,7 @@ async def store(db: AsyncSession, integration_id: str, instances: list[Instance]
     from api.core.encryption import search_hash
     from api.models.cloud import CloudAsset
     from api.models.device import Device, DeviceType
-    started, count = datetime.now(timezone.utc), 0
+    started, count, tag_cache = datetime.now(timezone.utc), 0, {}
     for inst in instances:
         inst.private_ips = [ip for ip in (_ip_ok(x) for x in inst.private_ips) if ip][:20]
         inst.public_ips = [ip for ip in (_ip_ok(x) for x in inst.public_ips) if ip][:20]
@@ -148,9 +154,11 @@ async def store(db: AsyncSession, integration_id: str, instances: list[Instance]
         if dev is not None:
             add_source(dev, inst.provider)
             dev.is_internet_exposed = exposed
+            await _sync_cloud_tags(db, dev, inst, tag_cache)
         row.integration_id, row.account, row.region = integration_id, (inst.account or "")[:128] or None, (inst.region or "")[:64] or None
         row.name = (inst.name or "")[:255] or None
         row.private_ips, row.public_ips, row.ports, row.internet_exposed = inst.private_ips, inst.public_ips, port_list, exposed
+        row.firewalls = inst.firewalls[:50]
         row.device_id, row.seen_at = (str(dev.id) if dev is not None else None), started
         count += 1
         if count % 200 == 0:
@@ -169,10 +177,32 @@ async def store(db: AsyncSession, integration_id: str, instances: list[Instance]
     return count
 
 
+def tag_names(inst: Instance) -> set[str]:
+    """The instance's cloud tags as CTEM tag names, "aws:ITOwner:Jeff Davis", for Tag mapping to read."""
+    from api.core.device_tags import clean
+    out = set()
+    for k, v in list((inst.tags or {}).items())[:60]:
+        key, val = clean(str(k)), clean(str(v)) if v not in (None, "") else None
+        if not key or key.lower().startswith("aws:"):   # AWS's own reserved keys (CloudFormation ids...) are noise
+            continue
+        name = clean(f"{inst.provider}:{key}:{val}" if val else f"{inst.provider}:{key}")
+        if name:
+            out.add(name)
+    return out
+
+
+async def _sync_cloud_tags(db: AsyncSession, dev, inst: Instance, cache: dict) -> None:
+    """Make the device's tags under this provider's prefix exactly the instance's current tags."""
+    from api.core.device_tags import sync_tags
+    await db.flush()
+    await sync_tags(db, dev.id, tag_names(inst), (f"{inst.provider}:",), inst.provider, cache)
+
+
 async def for_device(db: AsyncSession, device_id: str) -> list[dict]:
     """Every cloud record for a device, for the device page and for scoring."""
     from api.models.cloud import CloudAsset
     rows = (await db.execute(select(CloudAsset).where(CloudAsset.device_id == str(device_id)))).scalars().all()
     return [{"provider": r.provider, "account": r.account, "region": r.region, "resource_id": r.resource_id,
              "name": r.name, "private_ips": r.private_ips, "public_ips": r.public_ips, "ports": r.ports,
+             "firewalls": r.firewalls or [],
              "internet_exposed": r.internet_exposed, "seen_at": r.seen_at.isoformat() if r.seen_at else None} for r in rows]

@@ -28,6 +28,8 @@ class CloudAsset(Base, UUIDPrimaryKey, TimestampMixin):
     # [{"proto": "tcp", "from": 443, "to": 443, "reach": "internet"|"any_internal"|"restricted",
     #   "sources": ["0.0.0.0/0"], "via": "sg-0abc (web)"}]
     ports: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    # The cloud firewalls attached: [{"type": "AWS security group", "id": "sg-0abc", "name": "web"}]
+    firewalls: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     internet_exposed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     device_id: Mapped[str | None] = mapped_column(ForeignKey("devices.id", ondelete="SET NULL"), index=True)
     seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

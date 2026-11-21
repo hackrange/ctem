@@ -74,7 +74,7 @@ SORTS = {
 }
 
 EXPORT_HEADER = ["Hostname", "FQDN", "User", "Assigned to", "Status", "IP", "MAC", "Type", "OS", "Grade", "Score", "Open findings",
-                 "KEV findings", "Last seen", "EDR", "EDR vendor", "Firewall", "USB storage blocked", "Internet exposed", "Sources", "Tags"]
+                 "KEV findings", "Last seen", "EDR", "EDR vendor", "Host firewall", "USB storage blocked", "Internet exposed", "Sources", "Tags"]
 
 
 def _like(q: str) -> str:

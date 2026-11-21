@@ -101,10 +101,16 @@ async def test_store_matches_devices_sets_exposure_and_forgets_terminated(db):
     iid = f"int-{n}"
     web = Instance("aws", f"i-{n}", name="revproxy", private_ips=[ip], public_ips=["203.0.113.9"],
                    openings=[Opening("tcp", 443, 443, ["0.0.0.0/0"], "sg-web")])
+    web.add_firewall("AWS security group", "sg-web", "web")
+    web.add_firewall("AWS security group", "sg-web", "web")   # attached twice through two interfaces: listed once
     new = Instance("aws", f"i-new-{n}", name=f"newbox-{n}", private_ips=["192.0.2.77"], openings=[])
     assert await store(db, iid, [web, new]) == 2
     await db.refresh(dev)
     assert dev.is_internet_exposed and ",aws," in dev.sources
+    from api.cloud.exposure import for_device
+    rec = (await for_device(db, dev.id))[0]
+    assert rec["firewalls"] == [{"type": "AWS security group", "id": "sg-web", "name": "web"}]
+    assert rec["public_ips"] == ["203.0.113.9"]
     made = (await db.execute(select(Device).where(Device.hostname == f"newbox-{n}"))).scalar_one()
     assert made.device_type == DeviceType.cloud_instance and not made.is_internet_exposed
     # Next sync: the web instance is gone (terminated), so its device is no longer exposed through AWS
@@ -145,3 +151,59 @@ def test_every_cloud_secret_is_redacted_on_read():
         assert _SECRET_RE.search(k), k
     for k in ("access_key_id", "tenant_id", "client_id", "tenancy_ocid", "fingerprint", "regions"):
         assert not _SECRET_RE.search(k), k
+
+
+
+@pytest.mark.asyncio
+async def test_device_detail_shows_public_ips_and_firewalls(db, client_admin):
+    from api.core.encryption import search_hash
+    from api.models.device import Device, DeviceType
+    n = uuid.uuid4().hex[:6]
+    ip = f"10.{int(n[:2], 16)}.{int(n[2:4], 16)}.{int(n[4:6], 16)}"
+    dev = Device(hostname=f"pub-{n}.acme.example", device_type=DeviceType.server, ip=ip, ip_hash=search_hash(ip),
+                 edr_vendor="crowdstrike", firewall_enabled=True)
+    db.add(dev)
+    await db.commit()
+    inst = Instance("aws", f"i-pub-{n}", name="pub", private_ips=[ip], public_ips=["198.51.100.20"],
+                    openings=[Opening("tcp", 443, 443, ["0.0.0.0/0"], "sg-web (web)")])
+    inst.add_firewall("AWS security group", "sg-web", "web")
+    await store(db, f"int-pub-{n}", [inst])
+    d = (await client_admin.get(f"/api/v1/devices/{dev.id}")).json()
+    assert d["public_ips"] == [{"ip": "198.51.100.20", "source": "AWS"}]
+    assert d["cloud"][0]["firewalls"][0]["id"] == "sg-web" and d["firewall_enabled"] is True
+
+
+@pytest.mark.asyncio
+async def test_cloud_tags_become_device_tags_and_follow_the_cloud(db):
+    from sqlalchemy import select as sel
+
+    from api.cloud.exposure import tag_names
+    from api.models.device import Device, DeviceTag
+    from api.models.tag import Tag
+    inst = Instance("aws", "i-t", tags={"ITOwner": "Jeff Davis", "Environment": "prod", "aws:cloudformation:stack-id": "arn:x",
+                                        "Flag": "", "Bad\x07Key": "v"})
+    assert tag_names(inst) == {"aws:ITOwner:Jeff Davis", "aws:Environment:prod", "aws:Flag", "aws:BadKey:v"}
+    n = uuid.uuid4().hex[:6]
+    inst = Instance("aws", f"i-tag-{n}", name=f"tagbox-{n}", private_ips=["192.0.2.99"], tags={"ITOwner": "Pat", "App": "web"})
+    await store(db, f"int-tag-{n}", [inst])
+    dev = (await db.execute(sel(Device).where(Device.hostname == f"tagbox-{n}"))).scalar_one()
+    names = lambda: db.execute(sel(Tag.name).join(DeviceTag, DeviceTag.tag_id == Tag.id).where(DeviceTag.device_id == dev.id))  # noqa: E731
+    assert set((await names()).scalars()) == {"aws:ITOwner:Pat", "aws:App:web"}
+    inst.tags = {"ITOwner": "Lee"}   # changed and removed in AWS: CTEM follows
+    await store(db, f"int-tag-{n}", [inst])
+    assert set((await names()).scalars()) == {"aws:ITOwner:Lee"}
+
+
+def test_auto_migrate_skips_python_side_defaults():
+    """A column with default=list must be added without a DEFAULT clause, not 'DEFAULT <function list>'."""
+    from sqlalchemy import JSON, Column, Integer, MetaData, Table, create_engine, text
+
+    from api.core.db import _evolve
+    eng = create_engine("sqlite://")
+    with eng.begin() as conn:
+        conn.execute(text("CREATE TABLE t_mig (id INTEGER PRIMARY KEY)"))
+        md = MetaData()
+        Table("t_mig", md, Column("id", Integer, primary_key=True), Column("items", JSON, default=list, nullable=False))
+        _evolve(conn, md)
+        cols = [r[1] for r in conn.execute(text("PRAGMA table_info(t_mig)"))]
+    assert "items" in cols

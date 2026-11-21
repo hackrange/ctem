@@ -138,7 +138,8 @@ def _evolve(conn, metadata) -> None:  # noqa: ANN001
             default  = ""
             if col.server_default is not None:
                 default = f" DEFAULT {col.server_default.arg}"
-            elif col.default is not None and hasattr(col.default, "arg"):
+            elif col.default is not None and hasattr(col.default, "arg") and not callable(col.default.arg):
+                # a Python-side default such as `list` or a lambda has no SQL form; the app fills it on insert
                 raw = col.default.arg
                 default = f" DEFAULT {raw!r}" if isinstance(raw, str) else f" DEFAULT {raw}"
             # Boolean/integer NOT NULL without a default would reject existing rows.
