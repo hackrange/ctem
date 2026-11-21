@@ -45,7 +45,7 @@ class AIUsage(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(_uuid.uuid4()))
     at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     purpose: Mapped[str] = mapped_column(String(32), nullable=False, index=True)   # hunt, threat_analysis, test...
-    provider: Mapped[str] = mapped_column(String(32), nullable=False)              # anthropic, openai, custom_ai
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)              # anthropic, openai, custom_ai, bedrock
     model: Mapped[str | None] = mapped_column(String(128), index=True)
     ok: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     finish: Mapped[str | None] = mapped_column(String(32))                         # end_turn, max_tokens, error...

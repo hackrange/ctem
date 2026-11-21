@@ -143,9 +143,6 @@ def analyze_threat_alerts(alert_ids: list[str], device_id: str | None = None) ->
 
 async def _ai_analyze(alert_ids: list[str], device_id: str | None) -> dict:
     cfg = get_settings()
-    if not cfg.ai_api_key:
-        return {"error": "AI integration not configured"}
-
     cache_key = f"ai_analysis:{':'.join(sorted(alert_ids))}"
     # Check Redis cache first
     import redis
@@ -158,8 +155,14 @@ async def _ai_analyze(alert_ids: list[str], device_id: str | None) -> dict:
     from api.models.settings import AppSetting
     from sqlalchemy import select
 
+    from api.hunt.ai import get_ai
+
     alert_data = []
+    ai = None
     async for db in get_session():
+        ai = await get_ai(db)   # whichever AI integration is enabled: Anthropic, Bedrock, OpenAI, custom
+        if ai is None:
+            return {"error": "AI integration not configured"}
         for aid in alert_ids[:50]:  # cap to avoid runaway tokens
             result = await db.execute(
                 select(AppSetting).where(AppSetting.key == f"threat_alert_{aid}")
@@ -178,10 +181,11 @@ async def _ai_analyze(alert_ids: list[str], device_id: str | None) -> dict:
         return {"findings": [], "message": "No alert data found for given IDs"}
 
     prompt = _build_ai_prompt(alert_data, device_id)
-    result = await _call_ai(cfg.ai_api_key, cfg.ai_model, prompt)
+    result = await _call_ai(ai, prompt)
 
-    # Cache for 24h
-    r.setex(cache_key, 86400, json.dumps(result))
+    # Cache for 24h (not failures, so a retry after fixing the integration works)
+    if "error" not in result:
+        r.setex(cache_key, 86400, json.dumps(result))
     return result
 
 
@@ -278,41 +282,17 @@ def _build_ai_prompt(alerts: list[dict], device_id: str | None) -> str:
     )
 
 
-async def _call_ai(api_key: str, model: str, prompt: str) -> dict:
-    import time
-
+async def _call_ai(ai, prompt: str) -> dict:
+    """One analysis call through the shared connector (rate limit, monthly budget, metering)."""
     from api.core import ai_usage
-    from api.core.ssrf import safe_client
     try:
-        await ai_usage.guard()
+        text = await ai.complete(prompt, max_tokens=1024, timeout=60.0, retries=2, purpose="threat_analysis")
     except ai_usage.AIBudgetExceeded as exc:
         return {"error": str(exc)}
-    started = time.monotonic()
-    async with safe_client() as client:
-        resp = await client.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={
-                "x-api-key": api_key,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            json={
-                "model": model or "claude-haiku-5-5",
-                "max_tokens": 1024,
-                "messages": [{"role": "user", "content": prompt}],
-            },
-            timeout=60.0,
-        )
-    elapsed = int((time.monotonic() - started) * 1000)
-    if resp.status_code != 200:
-        await ai_usage.record("threat_analysis", "anthropic", None, False, elapsed, model)
-        return {"error": f"AI API returned {resp.status_code}"}
-    data = resp.json()
-    await ai_usage.record("threat_analysis", "anthropic", ai_usage.usage_from_response(data, openai_style=False),
-                          True, elapsed, model)
-    text = "".join(b.get("text", "") for b in data.get("content", [])
-                   if isinstance(b, dict) and b.get("type") == "text")
-    return {"analysis": text, "model": data.get("model")}
+    except Exception as exc:  # noqa: BLE001 -- logged; the caller only sees a generic reason
+        log.warning("threat analysis AI call failed: %s", type(exc).__name__)
+        return {"error": "The AI provider could not complete the analysis"}
+    return {"analysis": text, "model": ai.config.get("model") or None}
 
 
 @celery_app.task(name="api.core.tasks.push_siem_context")

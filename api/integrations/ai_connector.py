@@ -49,6 +49,7 @@ _DEFAULT_RPM = {
     "anthropic": 50,   # conservative -- well below tier 1 limits
     "openai":    50,
     "custom_ai": 20,
+    "bedrock":   50,
     "ai":        50,
 }
 
@@ -240,6 +241,7 @@ def _default_model(vendor: str) -> str:
         "anthropic": "claude-haiku-5-5",
         "openai":    "gpt-4o-mini",
         "ai":        "claude-haiku-5-5",
+        "bedrock":   "anthropic.claude-opus-5-5",
     }.get(vendor, "")
 
 

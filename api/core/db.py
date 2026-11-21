@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import AsyncGenerator
 
 from sqlalchemy import inspect, text
@@ -69,22 +70,36 @@ async def init_db() -> None:
 
 # ── Schema evolution (forward-only, non-destructive) ─────────────────────────
 
+_ENUM_WORD = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
+
+
 def _evolve_enums(conn, metadata) -> None:
-    """Add any new enum values to existing Postgres ENUM types (autocommit required)."""
+    """Add any new enum values to existing Postgres ENUM types (autocommit required).
+
+    ALTER TYPE takes no bind parameters, so the type and value are written into the statement. Both come
+    from the models in this codebase, never from a request, and must still match a plain lowercase word."""
+    if conn.dialect.name != "postgresql":
+        return
+    existing = {(t, v) for t, v in conn.execute(text(
+        "SELECT t.typname, e.enumlabel FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid"))}
+    known_types = {t for t, _ in existing}
     for table in metadata.sorted_tables:
         for col in table.columns:
-            if not hasattr(col.type, "enums"):
-                continue
             type_name = getattr(col.type, "name", None)
-            if not type_name:
-                continue
+            if not hasattr(col.type, "enums") or type_name not in known_types:
+                continue   # create_all makes brand-new types with every value
             for val in col.type.enums:
+                if (type_name, val) in existing:
+                    continue
+                if not (_ENUM_WORD.match(type_name) and _ENUM_WORD.match(val)):
+                    log.error("enum evolve refused %r.%r: not a plain identifier", type_name, val)
+                    continue
                 try:
-                    conn.execute(text(
-                        f"ALTER TYPE {type_name} ADD VALUE IF NOT EXISTS :v"
-                    ), {"v": val})
-                except Exception as exc:
-                    log.debug("enum evolve skip %s.%s: %s", type_name, val, exc)
+                    conn.execute(text(f"ALTER TYPE {type_name} ADD VALUE IF NOT EXISTS '{val}'"))  # nosec B608 -- allow-listed above
+                    existing.add((type_name, val))
+                    log.info("enum %s: added value %s", type_name, val)
+                except Exception:
+                    log.exception("enum evolve failed for %s.%s", type_name, val)
 
 
 def _evolve(conn, metadata) -> None:  # noqa: ANN001

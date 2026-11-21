@@ -100,7 +100,7 @@
           <p class="text-sm text-muted" style="margin-top:0">When a limit is reached, AI features stop until the 1st (UTC): hunts fall back to keyword searches and alert analysis is skipped. Blank means no limit; 0 turns AI off.</p>
           <div class="ai-form-grid">${field('monthly_cost_limit', 'Monthly cost limit (USD)', 'e.g. 50')}${field('monthly_token_limit', 'Monthly token limit', 'e.g. 5000000')}</div>
           <p class="text-sm" style="margin:12px 0 4px"><strong>Custom API prices</strong> <span class="text-muted">(USD per million tokens)</span></p>
-          <p class="text-sm text-muted" style="margin-top:0">Used for custom and OpenAI-compatible providers, and any model not in the Claude price list. Claude models use Anthropic list prices automatically.</p>
+          <p class="text-sm text-muted" style="margin-top:0">Used for custom and OpenAI-compatible providers, Amazon Bedrock (whose prices are set by AWS), and any model not in the Claude price list. Without them, Claude models use Anthropic list prices.</p>
           <div class="ai-form-grid">${field('price_input', 'Input', 'e.g. 3')}${field('price_output', 'Output', 'e.g. 15')}${field('price_cache_read', 'Cache read', 'optional')}${field('price_cache_write', 'Cache write', 'optional')}</div>
           <div style="display:flex;align-items:center;gap:10px;margin-top:8px">
             <button class="btn btn--primary btn--sm" type="submit">Save</button><span id="ai-save-status" class="text-sm" role="status"></span></div>

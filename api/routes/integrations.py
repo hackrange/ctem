@@ -37,6 +37,19 @@ def _validate_base_url(url: str) -> None:
         log.warning("rejected base_url: %s", exc)
         raise HTTPException(400, "base_url is not an allowed destination") from exc
 
+
+def _check_vendor_config(vendor: Vendor, config: dict) -> None:
+    """Per-vendor checks before a config is stored. Bedrock has no URL at all: the region picks the endpoint."""
+    if vendor != Vendor.bedrock:
+        return
+    from api.integrations.ai_bedrock import BedrockConfigError, validate_config
+    if config.get("base_url"):
+        raise HTTPException(400, "Bedrock doesn't take a base URL; pick the AWS region instead")
+    try:
+        validate_config(config)
+    except BedrockConfigError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
 router = APIRouter(prefix="/api/v1/integrations", tags=["integrations"])
 
 
@@ -146,6 +159,7 @@ async def create_integration(
 ):
     if body.config.get("base_url"):
         _validate_base_url(body.config["base_url"])
+    _check_vendor_config(body.vendor, body.config)
     cfg = IntegrationConfig(
         vendor=body.vendor,
         name=body.name,
@@ -202,6 +216,7 @@ async def update_integration(
             for k, v in body.config.items()
             if v not in ("", None)
         }
+        _check_vendor_config(cfg.vendor, merged)
         if existing.get("mode") == "collector":
             # Collector wiring is server-owned; the edit form doesn't know about it
             merged["mode"], merged["collector"] = "collector", existing.get("collector")

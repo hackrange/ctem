@@ -44,6 +44,7 @@ class Vendor(str, enum.Enum):
     anthropic = "anthropic"
     openai = "openai"
     custom_ai = "custom_ai"
+    bedrock = "bedrock"
     zscaler = "zscaler"
     fairtprm = "fairtprm"
 
