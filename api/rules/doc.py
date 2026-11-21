@@ -32,6 +32,8 @@ class Filters(BaseModel):
 
     device_types: list[Literal[DEVICE_TYPES]] | None = Field(None, max_length=5)
     os_contains: list[Text] | None = Field(None, max_length=20, description="case-insensitive text in the OS name")
+    os_starts_with: list[Text] | None = Field(None, max_length=20,
+                                              description="case-insensitive start of the OS name, e.g. 'VMware ESXi'")
     hostname_patterns: list[Glob] | None = Field(None, max_length=50, description="* and ? wildcards, case-insensitive")
     tags: list[TagName] | None = Field(None, max_length=50, description="device has any of these tags")
     sources: list[str] | None = Field(None, max_length=20, description="reported by any of these sources")
