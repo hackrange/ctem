@@ -170,7 +170,7 @@ class InsightVMConnector(ConsoleMixin, BaseConnector):
             vuln.description = v.get("description")
             vuln.cvss_base = float(v.get("cvss_v3_score") or v.get("cvss_v2_score") or 0.0)
             vuln.cvss_vector = (v.get("cvss_v3_vector") or v.get("cvss_v2_vector") or "")[:256] or None
-            vuln.attack_vector = (v.get("cvss_v3_attack_vector") or "").lower()[:32] or None
+            vuln.attack_vector = _attack_vector(v)
             vuln.exploit_available = bool(v.get("exploits"))
         await db.flush()
         for row in (await db.execute(select(Vulnerability.source_vuln_id, Vulnerability.id).where(
@@ -223,10 +223,15 @@ class InsightVMConnector(ConsoleMixin, BaseConnector):
 
             existing = {f.vuln_id: f for f in (await db.execute(select(Finding).where(
                 Finding.device_id == dev.id, Finding.source == "rapid7_insightvm"))).scalars()}
+            seen_now: dict[str, set[str]] = {}   # vuln id -> ports it was found on in this answer
             for f in a.get("same", []) + a.get("new", []):
                 vuln_id = vuln_ids.get(f.get("vulnerability_id"))
                 if vuln_id is None:
                     continue
+                port = _port(f)
+                ports = seen_now.setdefault(vuln_id, set())
+                if port:
+                    ports.add(port)
                 finding = existing.get(vuln_id)
                 if finding is None:
                     finding = Finding(device_id=dev.id, vuln_id=vuln_id, source="rapid7_insightvm",
@@ -237,6 +242,12 @@ class InsightVMConnector(ConsoleMixin, BaseConnector):
                     finding.status = FindingStatus.open  # it came back, sadly
                 finding.first_detected = r7.parse_dt(f.get("first_found"))
                 finding.last_seen = r7.parse_dt(f.get("last_found"))
+                # Found on a listening port, or by a local check with none tied to it (a fact from this scan)
+                if getattr(self, "last_mode", "full") == "incremental" and finding.ports:
+                    ports |= set(finding.ports.split())   # an incremental answer has only the new entries
+                finding.exposure = "listening" if ports else "local"
+                finding.ports = " ".join(sorted(ports, key=_port_key))[:128] or None
+                finding.exposure_at = finding.last_seen or datetime.now(timezone.utc)
                 count += 1
             for f in a.get("remediated", []):
                 vuln_id = vuln_ids.get(f.get("vulnerability_id"))
@@ -244,6 +255,26 @@ class InsightVMConnector(ConsoleMixin, BaseConnector):
                     existing[vuln_id].status = FindingStatus.remediated
             await db.commit()
         return count
+
+
+def _attack_vector(v: dict) -> str | None:
+    """CVSS v3 attack vector, else the v2 access vector (network, adjacent, local, physical)."""
+    raw = str(v.get("cvss_v3_attack_vector") or v.get("cvss_v2_access_vector") or "").lower().replace("_", " ")
+    if "adjacent" in raw:
+        return "adjacent"
+    return raw if raw in ("network", "local", "physical") else None
+
+
+def _port(f: dict) -> str | None:
+    """'443/tcp' when Rapid7 found the finding on a network port, else None."""
+    port, proto = f.get("port"), str(f.get("protocol") or "").lower()
+    if not isinstance(port, int) or isinstance(port, bool) or not 0 < port < 65536:
+        return None
+    return f"{port}/{proto}" if proto in ("tcp", "udp") else str(port)
+
+
+def _port_key(p: str) -> int:
+    return int(p.split("/")[0])
 
 
 def _device_type(asset: dict, DeviceType):

@@ -19,6 +19,7 @@ from api.models.device import Device, DeviceTag, DeviceType
 from api.models.user import User
 from api.models.vuln import Finding, FindingStatus, Vulnerability
 from api.routes import device_query as dq
+from api.scoring.compensating import reach_view
 
 router = APIRouter(prefix="/api/v1/devices", tags=["devices"])
 log = logging.getLogger("open-ctem.devices")
@@ -257,6 +258,7 @@ def _finding_summary(f: Finding, contained: bool = False) -> dict:
         "is_reachable": f.is_reachable,
         "reachability_source": f.reachability_source,
         "in_attack_chain": f.in_attack_chain,
+        **reach_view(f, contained, v.attack_vector if v else None),
         "first_detected": _iso(f.first_detected),
         "last_seen": _iso(f.last_seen),
     }

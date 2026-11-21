@@ -19,11 +19,13 @@ from api.models.device import Device, DeviceAssignment, DeviceTag
 from api.models.user import User
 from api.models.vuln import Finding, FindingStatus, Vulnerability
 from api.routes import device_query as dq
+from api.scoring.compensating import reach_view
 
 router = APIRouter(prefix="/api/v1/vulns", tags=["vulns"])
 log = logging.getLogger("open-ctem.vulns")
 
 _OPEN = (FindingStatus.open, FindingStatus.in_progress)
+_TAGS = Query(None, max_length=10, description="Tag name; repeat to require several (a dashboard tag focus)")
 _STATUS_PATTERN = "^(active|all|" + "|".join(s.value for s in FindingStatus) + ")$"
 
 
@@ -88,12 +90,13 @@ async def list_vulns(
     min_cvss: float | None = Query(None, ge=0, le=10),
     source: str | None = Query(None, max_length=64),
     affected_only: bool = False,
+    tag: list[str] | None = _TAGS,
     sort: str | None = Query(None, max_length=32),
     order: str | None = Query(None, pattern="^(asc|desc)$"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0, le=1_000_000),
 ):
-    scope = await device_scope(current_user, db)
+    scope = dq.with_tags(await device_scope(current_user, db), tag)
     stmt, affected = _vuln_query(scope, q or cve_id, is_kev, min_cvss, source, affected_only)
     total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
     rows = (await db.execute(_sorted_vulns(stmt, affected, sort, order).limit(limit).offset(offset))).all()
@@ -109,10 +112,11 @@ async def export_vulns(
     min_cvss: float | None = Query(None, ge=0, le=10),
     source: str | None = Query(None, max_length=64),
     affected_only: bool = False,
+    tag: list[str] | None = _TAGS,
     sort: str | None = Query(None, max_length=32),
     order: str | None = Query(None, pattern="^(asc|desc)$"),
 ):
-    scope = await device_scope(current_user, db)
+    scope = dq.with_tags(await device_scope(current_user, db), tag)
     stmt, affected = _vuln_query(scope, q, is_kev, min_cvss, source, affected_only)
     stmt = _sorted_vulns(stmt, affected, sort, order)
     header = ["CVE", "Title", "CVSS", "EPSS", "KEV", "KEV added", "Exploit available", "Affected devices",
@@ -182,6 +186,7 @@ async def list_vuln_findings(
     db: AsyncSession = Depends(get_session),
     status: str | None = Query(None, pattern=_STATUS_PATTERN),
     q: str | None = Query(None, max_length=200),
+    tag: list[str] | None = _TAGS,
     sort: str | None = Query(None, max_length=32),
     order: str | None = Query(None, pattern="^(asc|desc)$"),
     limit: int = Query(50, ge=1, le=500),
@@ -189,10 +194,10 @@ async def list_vuln_findings(
 ):
     """Devices affected by a vulnerability, limited in SQL to devices this user can access."""
     vuln = await _vuln_or_404(vuln_id, db)
-    stmt = _affected_query(str(vuln_id), await device_scope(current_user, db), status, q)
+    stmt = _affected_query(str(vuln_id), dq.with_tags(await device_scope(current_user, db), tag), status, q)
     total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
     rows = (await db.execute(_sorted_affected(stmt, sort, order).limit(limit).offset(offset))).scalars().all()
-    return {"findings": [_affected_row(f, vuln.cvss_base) for f in rows], "total": total, "limit": limit, "offset": offset}
+    return {"findings": [_affected_row(f, vuln.cvss_base, vuln.attack_vector) for f in rows], "total": total, "limit": limit, "offset": offset}
 
 
 @router.get("/{vuln_id}/findings/export")
@@ -202,19 +207,21 @@ async def export_vuln_findings(
     db: AsyncSession = Depends(get_session),
     status: str | None = Query(None, pattern=_STATUS_PATTERN),
     q: str | None = Query(None, max_length=200),
+    tag: list[str] | None = _TAGS,
     sort: str | None = Query(None, max_length=32),
     order: str | None = Query(None, pattern="^(asc|desc)$"),
 ):
     vuln = await _vuln_or_404(vuln_id, db)
     cve, title, name = vuln.cve_id, vuln.title, f"affected-{vuln.cve_id or vuln.id}"
-    stmt = _sorted_affected(_affected_query(str(vuln_id), await device_scope(current_user, db), status, q), sort, order)
+    stmt = _sorted_affected(_affected_query(str(vuln_id), dq.with_tags(await device_scope(current_user, db), tag), status, q),
+                            sort, order)
     header = ["CVE", "Title", "Hostname", "User", "IP", "OS", "Grade", "Device score", "Status",
               "First detected", "Last seen"]
 
     async def fetch(offset: int, limit: int) -> list[list]:
         out = []
         for f in (await db.execute(stmt.limit(limit).offset(offset))).scalars().all():
-            r = _affected_row(f, vuln.cvss_base)
+            r = _affected_row(f, vuln.cvss_base, vuln.attack_vector)
             out.append([cve, title, r["hostname"], r["user"], r["ip"], r["os"], r["device_grade"],
                         r["device_score"], r["status"], r["first_detected"], r["last_seen"]])
         db.expunge_all()
@@ -228,9 +235,10 @@ async def get_vuln(
     vuln_id: uuid.UUID,
     current_user: User = Depends(require_permission("vulns", "read")),
     db: AsyncSession = Depends(get_session),
+    tag: list[str] | None = _TAGS,
 ):
     vuln = await _vuln_or_404(vuln_id, db)
-    affected = _affected_count(await device_scope(current_user, db))
+    affected = _affected_count(dq.with_tags(await device_scope(current_user, db), tag))
     n = (await db.execute(select(affected).select_from(Vulnerability).where(Vulnerability.id == vuln.id))).scalar_one()
     out = _vuln_summary(vuln, n)
     out.update({"source_vuln_id": vuln.source_vuln_id, "exploit_maturity": vuln.exploit_maturity,
@@ -274,7 +282,7 @@ def _iso(dt):
     return dt.isoformat() if dt else None
 
 
-def _affected_row(f: Finding, cvss: float | None = None) -> dict:
+def _affected_row(f: Finding, cvss: float | None = None, attack_vector: str | None = None) -> dict:
     d = f.device
     return {
         "id": str(f.id),
@@ -296,6 +304,7 @@ def _affected_row(f: Finding, cvss: float | None = None) -> dict:
         "composite_score": f.composite_score,
         "risk_grade": f.risk_grade,
         "is_reachable": f.is_reachable,
+        **reach_view(f, bool(d and (d.edr_contained or is_exempt(d))), attack_vector),
         "first_detected": _iso(f.first_detected),
         "last_seen": _iso(f.last_seen),
     }

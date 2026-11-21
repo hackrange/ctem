@@ -39,6 +39,7 @@
   </div>
 </div>
 
+<div id="tag-focus" class="filter-bar" hidden style="margin-bottom:8px"></div>
 <div class="panel" style="padding:0" id="vulns-table"></div>
 {% endblock %}
 
@@ -78,6 +79,7 @@ table = DataTable.create({
   params: () => ({
     q: $('search-input').value.trim(), is_kev: $('filter-kev').value, min_cvss: $('filter-cvss').value,
     source: $('filter-source').value, affected_only: $('filter-affected').checked ? 'true' : 'false',
+    tag: TagFocus.get(),
   }),
   onLoad: () => syncPicks && syncPicks(),
   columns: [
@@ -107,6 +109,9 @@ $('ex-btn').addEventListener('click', () => CtemFindings.exceptionForm({
 let timer;
 $('search-input').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => table && table.reload(), 300); });
 ['filter-kev', 'filter-cvss', 'filter-source', 'filter-affected'].forEach(id => $(id).addEventListener('change', () => table && table.reload()));
+// A tag focus (from the dashboard or device pages) counts and lists only those devices' vulnerabilities
+TagFocus.chips($('tag-focus'), 'Viewing');
+window.addEventListener('tag-focus-changed', () => table && table.reload());
 fetch('/api/v1/exceptions/summary', { headers: { Accept: 'application/json' } })
   .then(r => (r.ok ? r.json() : {})).catch(() => ({}))
   .then(s => { const can = !!s.can_decide; $('ex-btn').hidden = !can; start(can); });

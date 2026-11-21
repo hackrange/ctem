@@ -331,10 +331,23 @@ async function loadTagFilters() {
       });
     } catch (e) { /* a filter with no tags just stays empty */ }
   }));
+  // Bring back the tag focus from the device pages
+  const focus = TagFocus.get();
+  let any = false;
+  TAG_SELECTS.forEach(id => {
+    const sel = document.getElementById(id);
+    const hit = [...sel.options].find(o => o.value && focus.includes(o.value));
+    if (hit) { sel.value = hit.value; any = true; }
+  });
+  if (any) applyFilters();
 }
+
+const TAG_SELECTS = Object.keys(TAG_FILTERS);
 
 function applyFilters() {
   activeFilters = {};
+  // Owner, application and environment choices follow you into the device pages (this tab only)
+  TagFocus.set(TAG_SELECTS.map(id => document.getElementById(id)?.value).filter(Boolean));
   ['filter-exec-owner', 'filter-tech-owner', 'filter-app-owner', 'filter-application', 'filter-environment', 'filter-grade']
     .forEach(id => {
       const v = document.getElementById(id)?.value;
@@ -347,6 +360,7 @@ function clearFilters() {
   ['filter-exec-owner', 'filter-tech-owner', 'filter-app-owner', 'filter-application', 'filter-environment', 'filter-grade']
     .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   activeFilters = {};
+  TagFocus.set([]);
   loadSummary();
 }
 

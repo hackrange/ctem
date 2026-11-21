@@ -20,6 +20,8 @@ score = (CVSS × 0.25) + (EPSS × 0.30) + (KEV × 0.20) + (asset_criticality × 
 
 Multipliers applied for: NodeZero-confirmed exploitability, internet exposure, no EDR, Zscaler/firewall segmentation, offline status.
 
+**Reachability (breachability = likelihood × reachability).** Reductions come only from facts, and each one shows its reason (hover the **Reach** chip on a finding). A finding's one reachability factor is the strongest that applies: CVSS physical access ×0.3, local access ×0.5, adjacent network ×0.8; otherwise found by a local check with no listening service tied to it ×0.75. Found on a listening port (Rapid7 records the port, for example `443/tcp`) is not discounted, and a NodeZero-confirmed exploitable finding never is. An EDR-contained or Not In Scope device counts nothing (reachability 0); its findings stay visible. The raw score is always kept alongside.
+
 ---
 
 ## Features
