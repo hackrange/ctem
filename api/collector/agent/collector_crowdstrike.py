@@ -83,6 +83,28 @@ def _device_ids(api):
     return ids
 
 
+def _hidden_ids(api):
+    """Hosts hidden in the Falcon console. The normal host searches leave them out, but a hidden host can still
+    be contained or have a running sensor, so CTEM should know about it. Needs the same Hosts: Read scope."""
+    ids, offset = [], 0
+    while len(ids) < 2_000_000:
+        try:
+            data = api.call("GET", f"/devices/queries/devices-hidden/v1?limit=5000&offset={offset}")
+        except cc.HttpError as e:
+            if e.status in (403, 404):
+                why = "isn't available on this cloud" if e.status == 404 else "needs Hosts: Read"
+                cc.say(f"  CrowdStrike: hidden hosts API {why}; hidden hosts are skipped")
+                return ids
+            raise
+        batch = [i for i in (data.get("resources") or []) if isinstance(i, str) and _ID.match(i)]
+        ids.extend(batch)
+        offset += len(batch)
+        total = ((data.get("meta") or {}).get("pagination") or {}).get("total")
+        if not batch or (isinstance(total, int) and offset >= total):
+            return ids
+    return ids
+
+
 class _Policies:
     """Falcon firewall and device-control policies, fetched once per run and cached by id."""
 
@@ -208,11 +230,14 @@ def _policy_id(d, name):
     return pid if p.get("applied") and isinstance(pid, str) and _ID.match(pid) else None
 
 
-def _device(d, policies=None, logins=None):
+def _device(d, policies=None, logins=None, hidden=False):
     did = d.get("device_id")
+    seen = d.get("last_seen")
     return {"device_id": did if isinstance(did, str) and _ID.match(did) else None,
             "hostname": (d.get("hostname") or "")[:253] or None,
             "status": (d.get("status") or "")[:32] or None,
+            "last_seen": seen if isinstance(seen, str) and len(seen) <= 40 else None,
+            "hidden": bool(hidden or str(d.get("host_hidden_status") or "").lower() == "hidden"),
             "os_version": (d.get("os_version") or "")[:128] or None,
             "last_login_user": _user(d.get("last_login_user")),
             "product_type": (d.get("product_type_desc") or "")[:64] or None,
@@ -247,11 +272,17 @@ def collect(s, secret, state):
     api = _Falcon(s, secret)
     policies, history = _Policies(api), _Logins(api)
     ids = _device_ids(api)  # scroll cursors expire fast, so grab every id before shipping
-    for i in range(0, len(ids), 500):
-        rows = api.call("POST", "/devices/entities/devices/v2", {"ids": ids[i:i + 500]}).get("resources") or []
-        policies.load(rows)
-        logins = history.load(rows)
-        yield {"devices": [_device(d, policies, logins) for d in rows]}
+    seen = set(ids)
+    hidden = [i for i in _hidden_ids(api) if i not in seen]
+    # visible hosts first: CTEM lets a live host win over a stale hidden record with the same name
+    for group, is_hidden in ((ids, False), (hidden, True)):
+        for i in range(0, len(group), 500):
+            rows = api.call("POST", "/devices/entities/devices/v2", {"ids": group[i:i + 500]}).get("resources") or []
+            policies.load(rows)
+            logins = history.load(rows)
+            yield {"devices": [_device(d, policies, logins, is_hidden) for d in rows]}
+    if hidden:
+        cc.say(f"  CrowdStrike: {len(hidden)} hidden host(s) included")
     for offset in range(0, 10000, 1000):  # the alerts query endpoint stops at 10k
         found = api.call("GET", _alert_query(offset)).get("resources") or []
         if not found:

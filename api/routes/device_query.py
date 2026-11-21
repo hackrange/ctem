@@ -65,6 +65,8 @@ def build_query(scope, q: str | None, grade: str | None, device_type: DeviceType
         stmt = stmt.where(Device.id.in_(select(DeviceAssignment.device_id).where(DeviceAssignment.user_id.is_not(None))))
     elif status == "contained":  # network-isolated by the EDR
         stmt = stmt.where(Device.edr_contained.is_(True))
+    elif status == "edr_hidden":  # hidden in the EDR console
+        stmt = stmt.where(Device.edr_hidden.is_(True))
     elif status == "out_of_scope":  # Not In Scope, still running
         from api.core.device_scope_exempt import now
         stmt = stmt.where(Device.scope_exempt_until > now())
@@ -283,6 +285,7 @@ def summary(d: Device) -> dict:
         "edr_active": d.edr_active,
         "edr_vendor": d.edr_vendor,
         "edr_contained": bool(d.edr_contained),
+        "edr_hidden": bool(d.edr_hidden),
         "criticality": d.criticality,
         "raw_risk_score": d.raw_risk_score,
         "raw_risk_grade": d.raw_risk_grade,
