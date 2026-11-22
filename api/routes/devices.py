@@ -194,15 +194,16 @@ async def get_device(
         "out_of_scope": exempt_view(device),
         "can_set_scope": bool({"admin", "cyber"}.intersection(current_user.role_names)),
         "score_why": await _score_why(db, device.id),
-        "related_owners": await _related_owners(db, device.id),
+        "related_owners": await _related_owners(db, device.id, current_user),
     })
     return base
 
 
-async def _related_owners(db, device_id: str) -> dict:
+async def _related_owners(db, device_id: str, user) -> dict:
     """Owner roles this asset's own tags don't give, from other assets of the same application (for example a site
     whose scanner sends no application owner, while the application's repository has one). Read through the tag
-    mapping, so any tool's owner tags count. Only roles the asset lacks; at most 500 related assets are read."""
+    mapping, so any tool's owner tags count. Only roles the asset lacks; at most 500 related assets are read, and
+    only those the viewer may open themselves, so owners never leak from assets outside their scope."""
     from api.core import tag_roles
     from api.models.tag import Tag
     roles = await tag_roles.ensure(db)
@@ -214,8 +215,14 @@ async def _related_owners(db, device_id: str) -> dict:
     if not missing or not app_tags:
         return {}
     via = tag_roles.values(app_tags, "application", roles)[0]
-    others = select(DeviceTag.device_id).join(Tag, Tag.id == DeviceTag.tag_id).where(
-        Tag.name.in_(app_tags), DeviceTag.device_id != device_id).limit(500)
+    others = [i for (i,) in (await db.execute(select(DeviceTag.device_id).join(Tag, Tag.id == DeviceTag.tag_id).where(
+        Tag.name.in_(app_tags), DeviceTag.device_id != device_id).distinct().limit(500))).all()]
+    if others and not set(user.role_names) & {"admin", "cyber", "inventory"}:   # everyone else: per asset
+        rows = (await db.execute(select(Device).options(selectinload(Device.tags))
+                                 .where(Device.id.in_(others)))).scalars().all()
+        others = [d.id for d in rows if await can_access_device(user, d, db)]
+    if not others:
+        return {}
     names = [n for (n,) in (await db.execute(select(Tag.name).join(DeviceTag, DeviceTag.tag_id == Tag.id)
                                              .where(DeviceTag.device_id.in_(others)).distinct())).all()]
     out = {}

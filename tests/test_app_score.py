@@ -121,3 +121,24 @@ async def test_every_score_keeps_its_reason(db, client_admin):
     assert w["model"] == "web" and any("context" in r for r in w["worst"])
     f = (await client_admin.get(f"/api/v1/devices/{site.id}/findings")).json()["findings"][0]
     assert any("context" in r for r in f["details"]["score_why"])
+
+
+@pytest.mark.asyncio
+async def test_owners_are_not_borrowed_from_assets_the_viewer_cannot_open(db, client_it_user, it_user):
+    from api.core.device_tags import sync_tags
+    from api.models.device import Device, DeviceAssignment, DeviceType
+    n = uuid.uuid4().hex[:6]
+    site = Device(hostname=f"scoped-{n}.acme.example", device_type=DeviceType.website)
+    repo = Device(hostname=f"acme/scoped-{n}", device_type=DeviceType.code_repository)
+    db.add_all([site, repo])
+    await db.flush()
+    await sync_tags(db, site.id, {f"app:Scoped{n}"}, ("app:",), "manual", {})
+    await sync_tags(db, repo.id, {f"app:Scoped{n}", "app_owner:hidden@acme.example"}, ("app:", "app_owner:"), "manual", {})
+    db.add(DeviceAssignment(device_id=site.id, user_id=it_user.id))   # the site is theirs, the repository isn't
+    await db.commit()
+    d = (await client_it_user.get(f"/api/v1/devices/{site.id}")).json()
+    assert d["related_owners"] == {}
+    db.add(DeviceAssignment(device_id=repo.id, user_id=it_user.id))   # once they can open it, it counts
+    await db.commit()
+    d = (await client_it_user.get(f"/api/v1/devices/{site.id}")).json()
+    assert d["related_owners"]["application_owner"]["values"] == ["hidden@acme.example"]
