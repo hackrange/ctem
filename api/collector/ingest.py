@@ -156,6 +156,9 @@ async def apply_batch(db: AsyncSession, batch: LdapBatch | Rapid7Batch | CrowdSt
     conn = InsightVMConnector({})
     n = await conn._console_upsert_assets([a.model_dump(exclude_none=True) for a in batch.assets], db)
     n += await conn._console_upsert_vulns([v.model_dump(exclude_none=True) for v in batch.vulnerabilities], db)
+    if batch.software:
+        from api.core.software_ingest import upsert
+        n += await upsert(db, [s.model_dump(exclude_none=True) for s in batch.software], "rapid7_insightvm")
     return n
 
 

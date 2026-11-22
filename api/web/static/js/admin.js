@@ -156,6 +156,8 @@ async function loadBranding() {
     if (data.org_name) document.getElementById('brand-org').value = data.org_name;
     document.getElementById('brand-login-logo').value = data.login_logo_url || '';
     _setLogoPreview(data.login_logo_url || null, 'brand-login-logo');
+    document.getElementById('brand-favicon').value = data.favicon_url || '';
+    _setLogoPreview(data.favicon_url || null, 'brand-favicon');
   } catch (_) {}
 }
 
@@ -192,6 +194,24 @@ function handleLogoUpload(input, field = 'brand-logo') {
   reader.readAsDataURL(file);
 }
 
+// Favicon: PNG or ICO up to 128 KB (the server checks the bytes too)
+function handleFaviconUpload(input) {
+  const file = input.files[0];
+  if (!file) return;
+  if (file.size > 128 * 1024) { toast('A favicon must be under 128 KB', 'error'); return; }
+  const ico = /\.ico$/i.test(file.name);
+  if (!['image/png', 'image/x-icon', 'image/vnd.microsoft.icon'].includes(file.type) && !ico) { toast('Use a PNG or ICO file', 'error'); return; }
+  const reader = new FileReader();
+  reader.onload = e => {
+    let dataUrl = e.target.result;
+    if (ico && !/^data:image\/(x-icon|vnd\.microsoft\.icon);/.test(dataUrl)) dataUrl = dataUrl.replace(/^data:[^;,]*;/, 'data:image/x-icon;');
+    document.getElementById('brand-favicon').value = dataUrl;
+    _setLogoPreview(dataUrl, 'brand-favicon');
+    toast('Favicon ready. Click Save to use it.', 'success');
+  };
+  reader.readAsDataURL(file);
+}
+
 function syncColorPicker(val) {
   if (/^#[0-9a-fA-F]{6}$/.test(val)) {
     document.getElementById('brand-color').value = val;
@@ -212,6 +232,7 @@ async function saveBranding() {
     accent_color: document.getElementById('brand-color-hex').value.trim() || document.getElementById('brand-color').value,
     logo_url: document.getElementById('brand-logo').value.trim() || null,
     login_logo_url: document.getElementById('brand-login-logo').value.trim() || '',
+    favicon_url: document.getElementById('brand-favicon').value.trim() || '',
     org_name: document.getElementById('brand-org').value.trim() || null,
   };
   try {

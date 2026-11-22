@@ -11,7 +11,9 @@ from api.models.device import DeviceType
 from api.models.user import User
 
 router = APIRouter(prefix="/api/v1/vuln-dashboard", tags=["vulns"])
-_ROLES = {"admin", "cyber", "read_only"}   # the Vulnerabilities page's roles
+# The Vulnerabilities page's roles. Anyone who sees only some assets (IT users, scoped read-only) gets numbers for
+# those assets alone (device_scope below), never the fleet's
+_ROLES = {"admin", "cyber", "it_user", "read_only"}
 
 
 def _viewer(u: User = Depends(get_current_user)) -> User:

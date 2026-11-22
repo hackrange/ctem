@@ -162,3 +162,37 @@ async def test_wildcards_and_all_assets(db, client_admin, client_it_user, it_use
     assert [(await see(d)).status_code for d in (acme, other, appd, bare)] == [200, 200, 200, 200]
     await client_admin.put(url, json={"rules": []})
     user_access.forget()
+
+
+@pytest.mark.asyncio
+async def test_navigation_shows_only_pages_a_person_can_open(client_admin, client_it_user):
+    admin = (await client_admin.get("/devices")).text
+    assert 'href="/threat"' in admin and 'href="/admin"' in admin and "Analysis" in admin
+    it = (await client_it_user.get("/devices")).text
+    for page in ("/threat", "/identity", "/hunt", "/attack-paths", "/cloud", "/admin", "/settings/integrations"):
+        assert f'href="{page}" class="sidebar__link' not in it, page
+        assert (await client_it_user.get(page)).status_code == 404                     # and the page itself refuses
+    assert 'href="/devices" class="sidebar__link' in it and 'href="/profile"' in it
+
+
+@pytest.mark.asyncio
+async def test_scoped_people_see_only_vulnerabilities_on_their_assets(db, client_it_user, it_user, client_admin):
+    from api.models.device import DeviceAssignment
+    from api.models.vuln import Finding, Vulnerability
+    n = uuid.uuid4().hex[:6]
+    mine = await _tagged(db, f"mine-{n}", ["env:prod"])
+    theirs = await _tagged(db, f"theirs-{n}", ["env:prod"])
+    db.add(DeviceAssignment(device_id=mine.id, user_id=it_user.id))
+    vm = Vulnerability(source="test", source_vuln_id=f"m-{n}", title=f"Mine {n}", cvss_base=7.0, domain="web")
+    vt = Vulnerability(source="test", source_vuln_id=f"t-{n}", title=f"Theirs {n}", cvss_base=9.0, domain="web")
+    db.add_all([vm, vt])
+    await db.flush()
+    db.add_all([Finding(device_id=mine.id, vuln_id=vm.id, source="test", domain="web"),
+                Finding(device_id=theirs.id, vuln_id=vt.id, source="test", domain="web")])
+    await db.commit()
+    got = (await client_it_user.get("/api/v1/vulns", params={"q": n, "affected_only": "false", "type": "web"})).json()["vulns"]
+    assert [v["title"] for v in got] == [f"Mine {n}"]                                 # unchecked still means theirs only
+    one = (await client_it_user.get(f"/api/v1/vulns/{vt.id}")).json()
+    assert one["scoped"] is True and one["affected_devices"] == 0
+    everyone = (await client_admin.get("/api/v1/vulns", params={"q": n, "affected_only": "false"})).json()["vulns"]
+    assert len(everyone) == 2 and (await client_admin.get(f"/api/v1/vulns/{vt.id}")).json()["scoped"] is False

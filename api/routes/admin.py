@@ -421,7 +421,7 @@ async def update_user_page_tags(
 
 # ── Branding ──────────────────────────────────────────────────────────────────
 
-_BRAND_KEYS = {"title", "accent_color", "logo_url", "login_logo_url", "org_name"}
+_BRAND_KEYS = {"title", "accent_color", "logo_url", "login_logo_url", "favicon_url", "org_name"}
 
 @router.get("/branding")
 async def get_branding(db: AsyncSession = Depends(get_session)):
@@ -440,15 +440,18 @@ async def set_branding(
 ):
     from api.models.settings import AppSetting
     pairs = {k: v for k, v in body.model_dump().items() if k in _BRAND_KEYS and v is not None}
-    from api.core.branding_image import real_image
+    from api.core.branding_image import icon_bytes, real_image
     for k in ("logo_url", "login_logo_url"):
         if pairs.get(k, "").startswith("data:") and not real_image(pairs[k]):
             raise HTTPException(422, "A logo must be a real PNG, JPEG, WebP or GIF image under 512 KB")
-    if pairs.get("login_logo_url") == "":   # removed: the sign-in page goes back to the menu logo
-        pairs.pop("login_logo_url")
-        old = (await db.execute(select(AppSetting).where(AppSetting.key == "brand.login_logo_url"))).scalar_one_or_none()
-        if old:
-            await db.delete(old)
+    if pairs.get("favicon_url") and not icon_bytes(pairs["favicon_url"]):
+        raise HTTPException(422, "A favicon must be a real PNG or ICO image under 128 KB")
+    for k in ("login_logo_url", "favicon_url"):   # "" removes it (back to the menu logo, or the default icon)
+        if pairs.get(k) == "":
+            pairs.pop(k)
+            old = (await db.execute(select(AppSetting).where(AppSetting.key == f"brand.{k}"))).scalar_one_or_none()
+            if old:
+                await db.delete(old)
     for key, val in pairs.items():
         full_key = f"brand.{key}"
         result = await db.execute(select(AppSetting).where(AppSetting.key == full_key))
@@ -489,4 +492,6 @@ class BrandingRequest(BaseModel):
         None, max_length=700_000,
         pattern=r"^(|/[A-Za-z0-9._~/-]*|data:image/(png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+)$",
     )
+    favicon_url: str | None = Field(None, max_length=180_000,   # "" removes it; PNG or ICO only
+                                    pattern=r"^(|data:image/(png|x-icon|vnd\.microsoft\.icon);base64,[A-Za-z0-9+/=]+)$")
     org_name: str | None = Field(None, max_length=128)

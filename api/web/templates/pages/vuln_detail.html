@@ -30,6 +30,7 @@
 <div class="panel" style="padding:0;margin-top:16px" id="v-affected-panel">
   <div class="panel__header" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
     <span class="panel__title" id="v-affected-title">Affected devices</span>
+    <span id="v-none-mine" class="text-sm text-muted" style="flex-basis:100%;order:3" hidden role="status"></span>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <button type="button" id="fp-btn" class="btn btn--ghost btn--sm" hidden disabled>False positive</button>
       <button type="button" id="ex-btn" class="btn btn--primary btn--sm" hidden disabled>Create exception</button>
@@ -92,6 +93,13 @@ async function loadVuln() {
   vtitle = v.cve_id || v.title;
   vkev = !!v.is_kev;
   $('v-affected-title').textContent = AssetDetail.affectedLabel(v.domain);
+  // Someone who sees only some assets: say so plainly when none of theirs have it, rather than an empty table
+  const none = $('v-none-mine');
+  if (none) {
+    none.hidden = !(v.scoped && !v.affected_devices);
+    none.textContent = `None of the ${AssetDetail.affectedLabel(v.domain).replace(/^Affected /, '')} you have access to have this vulnerability open. `
+      + 'It may be on assets you can\'t see; ask cyber if you think one of yours should be here.';
+  }
   if (v.domain === 'code' || v.domain === 'web') $('a-search').placeholder = v.domain === 'code' ? 'Repository' : 'Site';
   if (!table) startAffected();
   if (v.domain === 'code' || v.domain === 'web') showFound(v);

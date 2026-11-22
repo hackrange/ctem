@@ -230,7 +230,13 @@ function setCard(id, value, href) {
   card.tabIndex = 0;
 }
 
+// Only the latest request for each part of the page counts: switching tabs quickly, an earlier tab's slower answer
+// must not land on top of the new tab (it looked like the page hadn't refreshed)
+const SEQ = { summary: 0, kev: 0, filters: 0 };
+const latest = (part, n) => n === SEQ[part];
+
 async function loadAllTypes() {
+  const n = ++SEQ.summary;
   const cols = await Promise.all(['infra', 'code', 'web'].map(async k => {
     const p = filterParams(k);
     const [sum, top] = await Promise.all([
@@ -239,12 +245,14 @@ async function loadAllTypes() {
     ]);
     return { k, sum, top };
   }));
+  if (!latest('summary', n) || OverviewTypes.kind() !== 'all') return;
   document.getElementById('overview-all').innerHTML = OverviewTypes.allView(cols);
   document.getElementById('last-updated').textContent = new Date().toLocaleTimeString();
 }
 
 async function loadSummary() {
   if (OverviewTypes.kind() === 'all') return loadAllTypes();
+  const n = ++SEQ.summary, kind = OverviewTypes.kind();
   try {
     const params = filterParams();
     const ot = OverviewTypes.t();
@@ -252,6 +260,7 @@ async function loadSummary() {
       fetchJson(`${API}/devices/summary?${params}&by=${ot.by}`),
       fetchJson(`${API}/devices?limit=10&sort=risk_score&order=desc&${params}`),
     ]);
+    if (!latest('summary', n) || OverviewTypes.kind() !== kind) return;   // a newer tab or filter is on its way
     const link = extra => { const p = filterParams(); Object.entries(extra).forEach(([k, v]) => p.set(k, v)); return `/devices?${p}`; };
     setCard('count-f', sum.grades.F, link({ grade: 'F' }));
     setCard('count-d', sum.grades.D, link({ grade: 'D' }));
@@ -308,9 +317,11 @@ async function loadSummary() {
 }
 
 async function loadKEV() {
+  const n = ++SEQ.kev, kind = OverviewTypes.kind();
   try {
-    if (OverviewTypes.kind() === 'all') return;
-    const data = await fetchJson(`${API}/vulns?is_kev=true&affected_only=true&sort=affected&order=desc&limit=60&type=${OverviewTypes.kind()}`);
+    if (kind === 'all') return;
+    const data = await fetchJson(`${API}/vulns?is_kev=true&affected_only=true&sort=affected&order=desc&limit=60&type=${kind}`);
+    if (!latest('kev', n) || OverviewTypes.kind() !== kind) return;
     // A CVE can be found by several scanner checks: show it once (the check on the most devices) and say so
     const byCve = new Map();
     (data.vulns || []).forEach(v => {
@@ -346,9 +357,11 @@ let TAG_SELECTS = [];
 async function loadTagFilters() {
   // Only the owners, applications and environments found on this tab's assets (hosts, repositories or sites)
   const kept = TAG_SELECTS.map(id => document.getElementById(id)?.value).filter(Boolean);
-  const t = OverviewTypes.T[OverviewTypes.kind()];
+  const n = ++SEQ.filters, kind = OverviewTypes.kind();
+  const t = OverviewTypes.T[kind];
   let data = {};
   try { data = await fetchJson(`${API}/tag-roles/filters${t ? `?asset=${t.asset}` : ''}`); } catch (e) { /* no filters then */ }
+  if (!latest('filters', n) || OverviewTypes.kind() !== kind) return true;   // a newer tab rebuilds them (and loads its data)
   const box = document.getElementById('role-filters');
   box.innerHTML = '';
   TAG_SELECTS = [];
@@ -416,7 +429,10 @@ function scoreColor(s) {
 document.addEventListener('DOMContentLoaded', () => {
   OverviewTypes.apply();
   // A new tab: its own filter values, then its data
-  const go = k => OverviewTypes.pick(k, async () => { if (!(await loadTagFilters())) refreshDashboard(); else loadKEV(); });
+  const go = k => OverviewTypes.pick(k, async () => {
+    loadKEV();
+    if (!(await loadTagFilters())) loadSummary();   // a kept filter reloads the summary itself
+  });
   document.getElementById('ov-kind').addEventListener('click', e => { const b = e.target.closest('[data-kind]'); if (b) go(b.dataset.kind); });
   document.getElementById('overview-all').addEventListener('click', e => { const b = e.target.closest('[data-open]'); if (b) go(b.dataset.open); });
   loadTagFilters();

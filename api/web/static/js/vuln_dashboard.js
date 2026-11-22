@@ -143,9 +143,20 @@
     c.on('click', p => { if (p.data && p.data.raw) location.href = `/devices?device_type=${encodeURIComponent(p.data.raw)}`; });
   }
 
+  // Sortable by any column; % of findings is each fix's share of the open findings in this view
+  let fixSort = { key: 'critical', dir: -1 };
   function fixTable(d) {
     $('vd-allfixes').href = `/vulns/fixes?kind=${kind}`;
-    const rows = (d.units || {}).top_fixes || [];
+    // % of the open findings that have a known fix (not of every finding: many have no fix named by their source yet)
+    const total = Math.max(0, ((d.kpis || {}).open || 0) - (((d.units || {}).fixes || {}).unassigned_findings || 0));
+    const rows = ((d.units || {}).top_fixes || []).map(f => ({ ...f, pct: total ? f.findings / total * 100 : 0 }));
+    const { key, dir } = fixSort;
+    rows.sort((a, b) => (key === 'title' ? a.title.localeCompare(b.title) : (a[key] || 0) - (b[key] || 0)) * dir
+                        || (b.findings - a.findings));
+    document.querySelectorAll('#vd-topf-head [data-fsort]').forEach(b =>
+      b.setAttribute('aria-sort', b.dataset.fsort === key ? (dir < 0 ? 'descending' : 'ascending') : 'none'));
+    const top = Math.max(0.0001, ...rows.map(f => f.pct));
+    const pct = v => (v >= 10 ? v.toFixed(0) : v >= 1 ? v.toFixed(1) : v > 0 ? v.toFixed(2) : '0');
     $('vd-topf').innerHTML = rows.map(f => {
       const href = `/vulns/fixes?kind=${kind}&key=${encodeURIComponent(f.key)}`;
       return `<tr data-href="${esc(href)}" style="cursor:pointer">
@@ -153,10 +164,19 @@
         <td class="text-sm">${esc(n(f.vulns))}</td>
         <td class="text-sm">${f.critical ? `<span class="chip chip--critical" style="font-size:.65rem">${esc(n(f.critical))}</span>` : '0'}</td>
         <td class="text-sm">${f.kev ? `<span class="chip chip--critical" style="font-size:.65rem">${esc(n(f.kev))}</span>` : '0'}</td>
-        <td class="text-sm">${esc(n(f.devices))}</td><td class="text-sm">${esc(n(f.findings))}</td></tr>`;
-    }).join('') || `<tr><td colspan="6" class="text-muted text-sm" style="text-align:center;padding:16px">${
+        <td class="text-sm">${esc(n(f.devices))}</td><td class="text-sm">${esc(n(f.findings))}</td>
+        <td class="text-sm"><span class="vd-pct"><span style="width:${(f.pct / top * 60).toFixed(1)}px" aria-hidden="true"></span>${esc(pct(f.pct))}%</span></td></tr>`;
+    }).join('') || `<tr><td colspan="7" class="text-muted text-sm" style="text-align:center;padding:16px">${
       kind === 'web' ? 'Web scanners name no shared fixes; each finding is its own.' : 'No fixes recorded yet. They arrive with each source\'s next full sync.'}</td></tr>`;
   }
+
+  $('vd-topf-head').addEventListener('click', e => {
+    const b = e.target.closest('[data-fsort]');
+    if (!b || !data) return;
+    const k = b.dataset.fsort;
+    fixSort = { key: k, dir: fixSort.key === k ? -fixSort.dir : (k === 'title' ? 1 : -1) };
+    fixTable(data);
+  });
 
   function tables(d) {
     fixTable(d);

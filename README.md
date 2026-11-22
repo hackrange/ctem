@@ -194,6 +194,9 @@ Charts use [Apache ECharts](https://echarts.apache.org/) 6.1.0 (Apache-2.0) and 
 | `ctem_kev_remediation` | Open CISA KEV findings past their deadline |
 | `ctem_vuln_sla` | Critical/high findings past SLA (optionally reachable only) |
 | `ctem_vuln_age` | Open findings older than allowed for Infrastructure, Code and Web apps: each severity's SLA from Change SLAs (or one ceiling), with the age profile |
+| `ctem_admin_local_logons` | Workstations and servers where an admin or service account (`adm*`, `svc_*`, `sulocal_*` by default) signed in interactively, from the EDR's sign-in history; rules can change the patterns and leave out jump servers |
+| `ctem_deprovisioning` | Leaver access left behind, from AD/LDAP: disabled accounts still in groups, enabled accounts in a Disabled/Terminated OU, and long-idle enabled accounts (suits controls like "Automated deprovision of account triggers") |
+| `ctem_unauthorized_software` | Assets running software marked Unauthorized in the software inventory (an error, never a pass, until some source reports software) |
 | `ctem_exposed_criticals` | Internet-facing devices with critical or KEV findings |
 | `ctem_attack_paths` | Open validated attack paths |
 | `ctem_risk_exceptions` | Expired or permanent risk exceptions |

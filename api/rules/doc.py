@@ -17,6 +17,8 @@ CRITICALITY = ("Very High", "High", "Medium", "Low", "Very Low")
 
 Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=64, pattern=r"^[^\x00-\x1f<>]+$")]
 Glob = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=253, pattern=r"^[A-Za-z0-9.*?_-]+$")]
+AccountGlob = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=104,
+                                              pattern=r"^[A-Za-z0-9.*?_$@-]+$")]
 TagName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=128, pattern=r"^[^\x00-\x1f<>]+$")]
 
 
@@ -94,6 +96,14 @@ class Scope(BaseModel):
         return [b for b in ([self.include] if self.include else []) + ex if b is not None]
 
 
+class AccountOverride(BaseModel):
+    """Different thresholds for some accounts, by name: for example svc_* accounts dormant after 365 days."""
+    model_config = ConfigDict(extra="forbid")
+    name_patterns: list[AccountGlob] = Field(min_length=1, max_length=20,
+                                             description="account names, * and ? wildcards, case-insensitive (svc_*)")
+    thresholds: dict[Annotated[str, StringConstraints(pattern=r"^[a-z_]{1,40}$")], int] = Field(min_length=1, max_length=5)
+
+
 class RuleDoc(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -103,6 +113,12 @@ class RuleDoc(BaseModel):
     check: Annotated[str, StringConstraints(pattern=r"^ctem_[a-z0-9_]{1,60}$")]
     scope: Scope = Field(default_factory=Scope)
     thresholds: dict[Annotated[str, StringConstraints(pattern=r"^[a-z_]{1,40}$")], int] = Field(default_factory=dict, max_length=10)
+    account_patterns: list[AccountGlob] | None = Field(
+        None, max_length=30, description="for checks that look for accounts by name (account_patterns in x-checks): "
+                                         "the names to look for, * and ? wildcards, replacing the check's defaults")
+    account_overrides: list[AccountOverride] | None = Field(
+        None, max_length=10, description="for account checks: accounts whose names match get these thresholds "
+                                         "instead (first match wins); every other account keeps the rule's thresholds")
 
     @model_validator(mode="after")
     def _fits_the_check(self):
@@ -113,9 +129,15 @@ class RuleDoc(BaseModel):
         has_scope = any(not f.empty() for f in self.scope.blocks())
         if has_scope and not check.device_scoped:
             raise ValueError(f"{self.check} doesn't count devices, so it can't be scoped by device")
-        if not has_scope and not self.thresholds:
-            raise ValueError("a rule needs a scope or a threshold change")
+        if self.account_overrides and not check.account_scoped:
+            raise ValueError(f"{self.check} doesn't count accounts, so it can't have account overrides")
+        if self.account_patterns and not check.account_patterns:
+            raise ValueError(f"{self.check} doesn't look for accounts by name, so it can't take account_patterns")
+        if not has_scope and not self.thresholds and not self.account_overrides and not self.account_patterns:
+            raise ValueError("a rule needs a scope, a threshold change or an account override")
         check.parse(self.thresholds)  # same bounds as the check itself; raises ValueError
+        for o in self.account_overrides or []:
+            check.parse(o.thresholds)
         return self
 
     def dump(self) -> dict:
@@ -128,7 +150,8 @@ def json_schema() -> dict:
     schema = RuleDoc.model_json_schema(by_alias=True)
     schema["$id"] = SCHEMA_ID
     schema["title"] = "open-ctem curated rule"
-    schema["x-checks"] = {k: {"name": c.name, "device_scoped": c.device_scoped,
+    schema["x-checks"] = {k: {"name": c.name, "device_scoped": c.device_scoped, "account_scoped": c.account_scoped,
+                              "account_patterns": list(c.account_patterns or []),
                               "thresholds": {n: {"default": t.default, "min": t.lo, "max": t.hi} for n, t in c.thresholds.items()}}
                           for k, c in sorted(REGISTRY.items())}
     from api.rules.custom import custom_json_schema

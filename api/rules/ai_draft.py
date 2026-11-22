@@ -57,6 +57,21 @@ _PRINTERS_OUT = {
 }
 
 
+_SVC_DORMANT = {
+    "schema": "open-ctem/curated-rule@1", "name": "Dormant accounts: 180 days, service accounts 365",
+    "description": "People accounts are dormant after 180 days without a logon; svc_ service accounts after 365.",
+    "check": "ctem_dormant_accounts", "thresholds": {"idle_days": 180},
+    "account_overrides": [{"name_patterns": ["svc_*"], "thresholds": {"idle_days": 365}}],
+}
+
+
+_ADMIN_JUMP = {
+    "schema": "open-ctem/curated-rule@1", "name": "Admin sign-ins: also adm_ accounts, not on jump servers",
+    "description": "Jump servers are where admins are meant to sign in.", "check": "ctem_admin_local_logons",
+    "account_patterns": ["adm*", "svc_*", "sulocal_*", "adm_*"], "scope": {"exclude": {"hostname_patterns": ["JUMP-*"]}},
+}
+
+
 def _why(exc: Exception) -> str:
     """A fixed, admin-actionable reason. The provider's own text is matched, never echoed."""
     import httpx
@@ -104,6 +119,14 @@ def _prompt(text: str, schema: dict) -> str:
         + json.dumps({"schema": "open-ctem/curated-rule@1", "name": "EDR coverage: workstations and servers only",
                       "description": "Network gear and cloud instances can't run the EDR agent.",
                       "check": "ctem_edr_coverage", "scope": {"include": {"device_types": ["workstation", "server"]}}})
+        + "\n\nChecks marked account_scoped can give some accounts, by name pattern, their own thresholds with "
+          "account_overrides (a conditional change: 'X for everyone, but Y for accounts starting with svc_'). Example: "
+          "'set dormant accounts to 180 days, and 365 days for accounts with the svc_ prefix' ->\n"
+        + json.dumps(_SVC_DORMANT)
+        + "\n\nChecks with account_patterns look for accounts by name; a rule's account_patterns replaces the "
+          "check's defaults (list the defaults too to add to them). Example: 'admin sign-ins should also catch adm_ "
+          "accounts, and leave out the JUMP servers' ->\n"
+        + json.dumps(_ADMIN_JUMP)
         + "\n\nScanners often type printers, firewalls and appliances as 'unknown' or even 'workstation', so to leave "
           "a kind of device out, exclude it by device_types AND by os_contains words. Example: 'EDR coverage should "
           "not consider printers or network devices' ->\n"

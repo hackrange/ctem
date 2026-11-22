@@ -87,7 +87,7 @@ async def test_exclude_keeps_devices_with_no_os_and_thresholds_move_within_bound
     ({**EDR_RULE, "scope": {"include": {"sql": "1=1"}}}, "Extra inputs"),
     ({**EDR_RULE, "scope": {"include": {"sources": ["evil'--"]}}}, "unknown source"),
     ({**EDR_RULE, "scope": {"include": {"hostname_patterns": ["a%b"]}}}, "hostname_patterns"),
-    ({**EDR_RULE, "scope": {}, "thresholds": {}}, "needs a scope or a threshold"),
+    ({**EDR_RULE, "scope": {}, "thresholds": {}}, "needs a scope, a threshold change or an account override"),
     ({**EDR_RULE, "thresholds": {"pass_at": 500}}, "between"),
     ({**EDR_RULE, "schema": "something-else"}, "schema"),
 ])

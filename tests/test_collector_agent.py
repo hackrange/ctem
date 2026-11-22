@@ -318,3 +318,26 @@ def test_crowdstrike_alert_details_and_recent_window():
     assert bad["technique_id"] is None and bad["link"] is None and bad["device"]["device_id"] is None and bad["title"] == "a b"  # control characters become spaces
     q = cs._alert_query(1000, dt.datetime(2026, 11, 20, tzinfo=dt.timezone.utc))
     assert "offset=1000" in q and "created_timestamp%3A%3E%272026-10-21T00%3A00%3A00Z%27" in q and "status" not in q
+
+
+def test_rapid7_console_software_maps_assets_and_batches(monkeypatch):
+    sw = [{"id": 1, "vendor": "Google LLC", "product": "Chrome", "family": "Chrome", "version": "120.0", "type": "Web Browser",
+           "cpe": {"v2.3": "cpe:2.3:a:google:chrome:120.0"}},
+          {"id": 2, "vendor": "Mozilla", "product": "Firefox", "version": "128.0"},
+          {"id": "bad"}]
+    monkeypatch.setattr(r7, "_pages", lambda s, secret, path: iter([sw]))
+
+    def get(s, secret, path):
+        return {"/api/3/software/1/assets": {"resources": [10, 11, 99]}, "/api/3/software/2/assets": {"resources": []}}[path]
+    monkeypatch.setattr(r7, "_get", get)
+    out = [b for b in r7._software({}, "x", {10: "ws-01", 11: "srv-02"})]
+    assert len(out) == 1 and len(out[0]) == 1                       # Firefox is on no known asset; "bad" has no id
+    item = out[0][0]
+    assert item["hosts"] == ["ws-01", "srv-02"] and item["vendor"] == "Google LLC" and item["cpe"].startswith("cpe:2.3:a:google")
+    assert item["version"] == "120.0" and item["family"] == "Chrome"
+
+    def denied(s, secret, path):
+        raise cc.HttpError(403, "no")
+        yield
+    monkeypatch.setattr(r7, "_pages", denied)
+    assert list(r7._software({}, "x", {})) == []                    # no access: skipped, never a failed run

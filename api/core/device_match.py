@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ipaddress
+import re
 from collections.abc import Iterable
 
 from sqlalchemy import select
@@ -116,12 +117,35 @@ def add_source(dev, name: str | None) -> None:
         dev.sources = "," + ",".join(sorted(have + [name])) + ","
 
 
+_GUEST_OS = re.compile(r"\b(wsl\s*\d*(\.\d+)*|windows subsystem for linux)\b", re.I)
+_CLIENT_OS = re.compile(r"\b(windows\s+(7|8(\.1)?|10|11)|mac\s*os|macos|os x)\b", re.I)
+
+
+def is_guest_os(os_name: str | None) -> bool:
+    """A subsystem a scanner fingerprinted inside the host (WSL), not the host's own OS."""
+    return bool(_GUEST_OS.search(os_name or ""))
+
+
+def host_os(current: str | None, reported: str | None) -> str | None:
+    """The OS to keep when a source reports one. A scanner that fingerprints WSL on a Windows machine reports
+    'WSL 2.0': that's a subsystem, so the host's own OS (from the EDR or the directory) stays."""
+    reported = (reported or "").strip()[:128] or None
+    if reported is None:
+        return current
+    if is_guest_os(reported):
+        return current if current and not is_guest_os(current) else "Windows"
+    return reported
+
+
 def type_from_os(os_name: str | None, current):
-    """Windows Server, Domain Controller and friends are servers whatever the feed assumed."""
+    """Windows Server, Domain Controller and friends are servers, and Windows 10/11 and macOS are workstations,
+    whatever the feed assumed."""
     from api.models.device import DeviceType
 
     text = (os_name or "").lower()
     if "server" in text or "domain controller" in text:
         return DeviceType.server
+    if _CLIENT_OS.search(text) and current in (DeviceType.server, DeviceType.unknown, None):
+        return DeviceType.workstation
     return current
 

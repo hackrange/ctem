@@ -56,8 +56,9 @@ tr.is-picked td{background:var(--accent-dim)}
       <th><button type="button" class="btn btn--ghost btn--sm" data-sort="risk">Critical</button></th>
       <th><button type="button" class="btn btn--ghost btn--sm" data-sort="devices">Assets</button></th>
       <th><button type="button" class="btn btn--ghost btn--sm" data-sort="findings">Findings resolved</button></th>
+      <th><button type="button" class="btn btn--ghost btn--sm" data-sort="pct" title="Share of the open findings with a known fix that this fix resolves">% of fixable findings</button></th>
     </tr></thead>
-    <tbody id="fx-rows"><tr><td colspan="6" class="text-muted text-sm" style="text-align:center;padding:16px">Loading...</td></tr></tbody>
+    <tbody id="fx-rows"><tr><td colspan="7" class="text-muted text-sm" style="text-align:center;padding:16px">Loading...</td></tr></tbody>
   </table>
   <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px" class="text-sm text-muted">
     <span id="fx-page"></span>

@@ -115,10 +115,54 @@ def _vuln(v):
             "description": {"text": str(text)[:20000]} if text else None}
 
 
+def _software(s, secret, names):
+    """The console's software list, each version with the assets it's on (by hostname or IP), in batches small
+    enough to upload. names: console asset id -> hostname or IP, from the asset pass."""
+    batch, refs = [], 0
+    try:
+        for rows in _pages(s, secret, "/api/3/software"):
+            for sw in rows:
+                sid = sw.get("id")
+                if not isinstance(sid, int):
+                    continue
+                ids = (_get(s, secret, f"/api/3/software/{sid}/assets") or {}).get("resources") or []
+                hosts = [names[i] for i in ids if isinstance(i, int) and names.get(i)][:5000]
+                if not hosts:
+                    continue
+                cpe = sw.get("cpe")
+                batch.append({k: (str(v)[:256] if v is not None else None) for k, v in (
+                    ("vendor", sw.get("vendor")), ("product", sw.get("product") or sw.get("description")),
+                    ("family", sw.get("family")), ("type", sw.get("type")),
+                    ("cpe", cpe.get("v2.3") or cpe.get("v2.2") if isinstance(cpe, dict) else cpe))} | {
+                    "version": str(sw.get("version") or "")[:128], "hosts": hosts})
+                refs += len(hosts)
+                if len(batch) >= 500 or refs >= 40000:
+                    yield batch
+                    batch, refs = [], 0
+    except cc.HttpError as e:
+        if e.status in (401, 403, 404):
+            cc.say("  Rapid7: this account can't read the software inventory; software is skipped")
+            return
+        raise
+    if batch:
+        yield batch
+
+
 def collect(s, secret, state):
     tags = _tag_map(s, secret)
+    names = {}   # console asset id -> hostname or IP, for the software pass
     for rows in _pages(s, secret, "/api/3/assets"):
+        for r in rows:
+            if isinstance(r.get("id"), int) and (r.get("hostName") or r.get("ip")):
+                names[r["id"]] = str(r.get("hostName") or r.get("ip"))[:253]
         yield {"assets": [a for a in (_asset(r, tags) for r in rows) if a]}
+    # Software: once a day by default (software_hours), after the assets so every install maps to one
+    skey = f"rapid7_software_at:{s['host']}"
+    if str(s.get("software", "on")).lower() not in ("off", "0", "false", "no") and \
+            time.time() - float(state.get(skey, 0)) >= float(s.get("software_hours", 24)) * 3600:
+        for part in _software(s, secret, names):
+            yield {"software": part}
+        state[skey] = time.time()
     # The vuln catalog is huge and barely changes; once a day is plenty
     key = f"rapid7_vulns_at:{s['host']}"
     if time.time() - float(state.get(key, 0)) < float(s.get("vuln_catalog_hours", 24)) * 3600:

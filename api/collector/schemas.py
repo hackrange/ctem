@@ -75,6 +75,22 @@ class R7Asset(_Lax):
     tags: list[R7Tag] | None = Field(None, max_length=100)  # None: an older shipper, keep existing tags
 
 
+class R7Software(_Lax):
+    """One software version the console found, and the assets it's on (hostnames or IPs)."""
+    vendor: Annotated[str, StringConstraints(strip_whitespace=True, max_length=256)] | None = None
+    product: Annotated[str, StringConstraints(strip_whitespace=True, max_length=256)] | None = None
+    family: Annotated[str, StringConstraints(strip_whitespace=True, max_length=256)] | None = None
+    version: Annotated[str, StringConstraints(strip_whitespace=True, max_length=128)] | None = None
+    type: Annotated[str, StringConstraints(strip_whitespace=True, max_length=64)] | None = None
+    cpe: Annotated[str, StringConstraints(strip_whitespace=True, max_length=256)] | None = None
+    publisher: Annotated[str, StringConstraints(strip_whitespace=True, max_length=256)] | None = None
+    install_path: Annotated[str, StringConstraints(strip_whitespace=True, max_length=512)] | None = None
+    sha256: Annotated[str, StringConstraints(strip_whitespace=True, pattern=r"^[A-Fa-f0-9]{64}$")] | None = None
+    md5: Annotated[str, StringConstraints(strip_whitespace=True, pattern=r"^[A-Fa-f0-9]{32}$")] | None = None
+    hosts: list[Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=253)]] = Field(
+        default_factory=list, max_length=5000)
+
+
 class R7Score(_Lax):
     score: float | None = Field(None, ge=0, le=10)
 
@@ -182,6 +198,7 @@ class Rapid7Batch(_Batch):
     kind: Literal["rapid7_console"]
     assets: list[R7Asset] = Field(default_factory=list, max_length=MAX_BATCH)
     vulnerabilities: list[R7Vuln] = Field(default_factory=list, max_length=MAX_BATCH)
+    software: list[R7Software] = Field(default_factory=list, max_length=MAX_BATCH)   # newer shippers
 
 
 class CrowdStrikeBatch(_Batch):

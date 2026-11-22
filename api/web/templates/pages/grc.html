@@ -87,7 +87,8 @@
 <div class="panel" style="padding:0;margin-bottom:20px">
   <div class="panel__header">
     <h2 class="panel__title">CTEM Control Checks</h2>
-    <span class="text-muted text-sm">Evidence for FairTPRM continuous monitors</span>
+    <span style="display:flex;gap:8px;align-items:center"><span class="text-muted text-sm" id="cs-note">Evidence for FairTPRM continuous monitors</span>
+      <button type="button" class="btn btn--ghost btn--sm" id="cs-btn" hidden>Run schedule</button></span>
   </div>
   <table class="data-table">
     <thead><tr><th>Check</th><th>Result</th><th>Measured</th><th>Used by FairTPRM</th><th>Evidence</th></tr></thead>
@@ -97,10 +98,12 @@
 
 <div class="cols-2">
   <div class="panel" style="padding:0">
-    <div class="panel__header"><h2 class="panel__title">Controls</h2><span class="text-muted text-sm" id="control-count"></span></div>
+    <div class="panel__header"><h2 class="panel__title">Controls</h2>
+      <span style="display:flex;gap:8px;align-items:center"><span class="text-muted text-sm" id="control-count"></span>
+        <button type="button" class="btn btn--ghost btn--sm" id="ct-rules-btn" hidden>Testing rules</button></span></div>
     <table class="data-table">
-      <thead><tr><th>Control</th><th>Effectiveness</th><th>Fed by CTEM</th></tr></thead>
-      <tbody id="controls-tbody" data-collapse="10"><tr><td colspan="3" class="text-muted text-sm" style="text-align:center;padding:20px">Loading...</td></tr></tbody>
+      <thead><tr><th>Control</th><th>Effectiveness</th><th>Testing</th><th>Fed by CTEM</th></tr></thead>
+      <tbody id="controls-tbody" data-collapse="10"><tr><td colspan="4" class="text-muted text-sm" style="text-align:center;padding:20px">Loading...</td></tr></tbody>
     </table>
   </div>
   <div class="panel" style="padding:0">
@@ -235,5 +238,6 @@ document.addEventListener('DOMContentLoaded', () => {
   loadSuppliers();
 });
 </script>
+<script src="{{ static('js/grc_tests.js') }}"></script>
 <script src="{{ static('js/grc_fairtprm.js') }}"></script>
 {% endblock %}

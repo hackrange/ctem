@@ -68,6 +68,7 @@ def create_app() -> FastAPI:
     from api.routes.api_docs import router as api_docs_router
     from api.routes.device_assign import router as device_assign_router
     from api.routes.devices import router as devices_router
+    from api.routes.device_trend import router as device_trend_router
     from api.routes.integrations import router as integrations_router
     from api.routes.cmdb import router as cmdb_router
     from api.routes.vulns import router as vulns_router
@@ -87,6 +88,8 @@ def create_app() -> FastAPI:
     from api.routes.exception_rules import router as exception_rules_router
     from api.routes.vuln_dashboard import router as vuln_dashboard_router
     from api.routes.fixes import router as fixes_router
+    from api.routes.software import router as software_router
+    from api.routes.software_exceptions import router as software_exc_router
     from api.routes.sla_settings import router as sla_router
     from api.routes.dashboards import fav_router as favorites_router
     from api.routes.dashboards import router as dashboards_router
@@ -99,6 +102,7 @@ def create_app() -> FastAPI:
     from api.routes.collectors_admin import router as collectors_admin_router
     from api.routes.grc_checks import router as grc_checks_router
     from api.routes.grc_data import router as grc_data_router
+    from api.routes.grc_tests import router as grc_tests_router
     from api.routes.grc_assess import router as grc_assess_router
     from api.routes.grc_risk_edit import router as grc_risk_edit_router
     from api.routes.curated_rules import router as curated_rules_router
@@ -112,6 +116,7 @@ def create_app() -> FastAPI:
     app.include_router(api_docs_router)
     app.include_router(device_assign_router)  # before devices so /assignable-users never hits /{device_id}
     app.include_router(devices_router)
+    app.include_router(device_trend_router)
     app.include_router(integrations_router)
     app.include_router(cmdb_router)
     app.include_router(vulns_router)
@@ -131,6 +136,7 @@ def create_app() -> FastAPI:
     app.include_router(collectors_admin_router)
     app.include_router(grc_checks_router)
     app.include_router(grc_data_router)
+    app.include_router(grc_tests_router)
     app.include_router(grc_assess_router)
     app.include_router(grc_risk_edit_router)
     app.include_router(curated_rules_router)
@@ -138,6 +144,8 @@ def create_app() -> FastAPI:
     app.include_router(vuln_exceptions_router)
     app.include_router(vuln_dashboard_router)
     app.include_router(fixes_router)
+    app.include_router(software_exc_router)
+    app.include_router(software_router)
     app.include_router(sla_router)
     app.include_router(dashboards_ai_router)
     app.include_router(dashboards_router)
@@ -205,6 +213,26 @@ def _register_web_routes(app: FastAPI) -> None:
 
     _install_assets(templates)
 
+    # The sidebar shows only the pages this person can open (the same rules that 404 the page itself)
+    def _can_see(user, slug: str) -> bool:
+        return bool(user) and can_access_page(slug, list(user.role_names), list(getattr(user, "allowed_page_tags", None) or []))
+    templates.env.globals["can_see"] = _can_see
+    templates.env.globals["can_see_any"] = lambda user, slugs: any(_can_see(user, s) for s in slugs)
+
+    from api.core.branding_image import icon_bytes, icon_version
+
+    @app.get("/brand/favicon", include_in_schema=False)
+    async def brand_favicon(db=Depends(get_session)):
+        """The organization's favicon (Admin > Branding). Public, like the sign-in page that shows it; only the
+        checked PNG or ICO bytes are ever served, as that type, never sniffed."""
+        from fastapi import HTTPException
+        from fastapi.responses import Response
+        got = icon_bytes((await _get_branding(db)).get("favicon_url"))
+        if got is None:
+            raise HTTPException(404)
+        return Response(got[0], media_type=got[1], headers={"X-Content-Type-Options": "nosniff",
+                                                            "Cache-Control": "public, max-age=86400"})
+
     def _render(template: str, slug: str):
         """Return a route handler with tag-aware page access control."""
         async def handler(request: Request, current_user=Depends(get_current_user), db=Depends(get_session)):
@@ -219,6 +247,7 @@ def _register_web_routes(app: FastAPI) -> None:
                 "accent_color": branding.get("accent_color", "#f5a623"),
                 "logo_url": branding.get("logo_url"),
                 "org_name": branding.get("org_name"),
+                "favicon_v": icon_version(branding.get("favicon_url")),
             }
             return templates.TemplateResponse(request, template, ctx)
         return handler
@@ -243,6 +272,7 @@ def _register_web_routes(app: FastAPI) -> None:
     # before /vulns/{vuln_id}, which would otherwise take "dashboard" as an id
     app.get("/vulns/dashboard", response_class=HTMLResponse, include_in_schema=False)(_render("pages/vuln_dashboard.html", "/vulns"))
     app.get("/vulns/fixes", response_class=HTMLResponse, include_in_schema=False)(_render("pages/fixes.html", "/vulns"))
+    app.get("/software", response_class=HTMLResponse, include_in_schema=False)(_render("pages/software.html", "/software"))
     app.get("/vulns/{vuln_id}", response_class=HTMLResponse, include_in_schema=False)(_render("pages/vuln_detail.html", "/vulns"))
     app.get("/exceptions", response_class=HTMLResponse, include_in_schema=False)(_render("pages/exceptions.html", "/exceptions"))
 

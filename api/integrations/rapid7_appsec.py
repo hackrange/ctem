@@ -201,7 +201,7 @@ class InsightAppSecConnector(BaseConnector):
                 dev = (await db.execute(select(Device).where(
                     Device.source == "rapid7_appsec", Device.source_id == app_id))).scalar_one_or_none()
                 if dev is None:
-                    dev = Device(hostname=str(apps.get(app_id, app_id))[:253], device_type=DeviceType.server,
+                    dev = Device(hostname=str(apps.get(app_id, app_id))[:253], device_type=DeviceType.website,   # a web app
                                  source="rapid7_appsec", source_id=app_id)
                     db.add(dev)
                     await db.flush()

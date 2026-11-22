@@ -1,0 +1,32 @@
+/* Asset page: the grade and why (header) and the 30-day trend in Details (asset_trend.js) */
+.dev-score{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:6px;max-width:420px;text-align:right}
+.dev-score__grade{display:flex;align-items:center;justify-content:flex-end;gap:10px}
+.dev-score__why{font-size:13px;line-height:1.45}
+.dev-score__why ul{list-style:none;margin:4px 0 0;padding:0;color:var(--fg-muted)}
+.dev-score__why li{margin:1px 0}
+@media (max-width:720px){.dev-score{margin-left:0;align-items:flex-start;text-align:left}.dev-score__grade{justify-content:flex-start}}
+/* the 30-day trend in the lower right of Details (asset_trend.js) */
+.dev-trend{display:flex;flex-direction:column;gap:3px;align-items:flex-start;justify-self:end;align-self:end;border:1px solid var(--border);
+  border-radius:8px;background:var(--surface);padding:8px 10px;cursor:pointer;color:inherit;width:auto;text-align:left}
+.dev-trend__label{white-space:nowrap}
+/* a fixed square: exactly as tall as it is wide */
+.dev-trend__chart{display:block;width:150px;height:150px;min-height:150px;flex:0 0 150px;margin-top:2px}
+.dev-trend:hover,.dev-trend:focus-visible{border-color:var(--accent);outline:none;box-shadow:0 0 0 2px var(--accent-dim)}
+.dev-trend--cell{grid-column-end:-1}
+.dev-trend--head{flex-direction:row;align-items:center;gap:8px;padding:2px 8px;width:auto}
+.dev-trend--head .dev-trend__chart{width:80px;height:22px;min-height:0;flex:0 0 80px;margin:0}
+.dev-trend__top{display:flex;gap:6px;align-items:baseline;white-space:nowrap}
+.dev-trend__up{color:var(--severity-critical)}
+.dev-trend__down{color:var(--severity-low)}
+#dev-info-panel .panel__header{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.dev-trend__ranges{display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.dev-trend__ranges button{border:0;background:transparent;color:var(--fg-muted);padding:5px 10px;font-size:12.5px;font-weight:600;cursor:pointer}
+.dev-trend__ranges button+button{border-left:1px solid var(--border)}
+.dev-trend__ranges button[aria-pressed="true"]{background:var(--accent-dim);color:var(--fg)}
+
+/* Findings | Software tabs on the asset page */
+.dev-tabs{display:flex;gap:2px;border-bottom:1px solid var(--border)}
+.dev-tabs button{border:1px solid transparent;border-bottom:0;background:none;color:var(--fg-muted);padding:8px 16px;font-weight:600;
+  font-size:14px;cursor:pointer;border-radius:8px 8px 0 0;margin-bottom:-1px}
+.dev-tabs button[aria-selected="true"]{color:var(--fg);background:var(--surface);border-color:var(--border);box-shadow:inset 0 2px 0 var(--accent)}
+.dev-tabs button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}

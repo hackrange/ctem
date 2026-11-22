@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.core.ssrf import safe_client
 from api.integrations.base import BaseConnector, register
 from api.models.integration import Vendor
-from api.core.device_match import add_source, find_device
+from api.core.device_match import add_source, find_device, host_os
 
 log = logging.getLogger("open-ctem.qualys")
 
@@ -80,7 +80,7 @@ class QualysConnector(BaseConnector):
                 dev = Device(hostname=hostname, device_type=DeviceType.workstation, source="qualys")
                 db.add(dev)
             add_source(dev, "qualys")
-            dev.os = h.get("os")
+            dev.os = host_os(dev.os, h.get("os"))   # WSL is a subsystem, not the host
             dev.fqdn = h.get("fqdn")
             count += 1
         await db.commit()

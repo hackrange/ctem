@@ -20,7 +20,7 @@ from api.routes.vuln_dashboard import _viewer
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/fixes", tags=["vulns"])
 _KEY = r"^[A-Za-z0-9._:@/+\-]{1,160}$"
-_SORTS = {"risk", "findings", "devices", "vulns", "kev"}
+_SORTS = {"risk", "findings", "devices", "vulns", "kev", "pct"}
 CACHE_SECONDS = 900
 
 
@@ -84,6 +84,8 @@ async def list_fixes(u: User = Depends(_viewer), db: AsyncSession = Depends(get_
         return {"ok": False, "error": "Unknown source"}
     scope = await device_scope(u, db)
     rows = await _ranked(db, kind, source, scope, str(u.id))
+    fixable = sum(r["findings"] for r in rows)   # open findings with a known fix, before search and filters
+    rows = [{**r, "pct": round(r["findings"] * 100.0 / fixable, 2) if fixable else 0.0} for r in rows]
     if q:
         needle = q.strip().lower()
         rows = [r for r in rows if needle in r["title"].lower() or needle in r["key"].lower()]
@@ -91,7 +93,7 @@ async def list_fixes(u: User = Depends(_viewer), db: AsyncSession = Depends(get_
         rows = [r for r in rows if r[severity] > 0]
     rows = sorted(rows, key=lambda r: r[sort if sort in _SORTS else "risk"], reverse=True)
     covered = sum(r["findings"] for r in rows)
-    return {"total": len(rows), "findings_covered": covered, "fixes": rows[offset:offset + limit],
+    return {"total": len(rows), "findings_covered": covered, "fixable_findings": fixable, "fixes": rows[offset:offset + limit],
             "scoped": scope is not None}
 
 

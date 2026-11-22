@@ -18,6 +18,11 @@
 .vd-col__row span{color:var(--fg-muted)}
 .vd-col__note{margin:0;font-size:13px;color:var(--fg-muted)}
 .vd-col svg{width:100%;height:70px}
+.vd-sort{border:0;background:none;padding:0;font:inherit;color:inherit;cursor:pointer;text-align:left;font-weight:inherit}
+.vd-sort[aria-sort="descending"]::after{content:" \2193"}
+.vd-sort[aria-sort="ascending"]::after{content:" \2191"}
+.vd-pct{display:flex;align-items:center;gap:6px}
+.vd-pct span{display:inline-block;height:6px;border-radius:3px;background:var(--accent);min-width:2px}
 </style>
 {% endblock %}
 
@@ -56,10 +61,6 @@
 <div id="vd-all" class="vd-all" hidden aria-live="polite"></div>
 
 <div class="vd-grid">
-  <div class="panel vd-wide" style="padding:0"><div class="panel__header"><h2 class="panel__title">Fixes that remove the most risk</h2>
-    <a class="btn btn--ghost btn--sm" id="vd-allfixes" href="/vulns/fixes">All fixes</a></div>
-    <table class="data-table"><thead><tr><th>Fix</th><th>Vulnerabilities</th><th>Critical findings</th><th>KEV findings</th><th>Assets</th><th>Findings resolved</th></tr></thead>
-    <tbody id="vd-topf"></tbody></table></div>
   <div class="panel vd-wide"><div class="panel__header"><h2 class="panel__title">Open findings over time</h2>
     <span class="text-muted text-sm" id="vd-trend-note"></span></div><div class="vd-chart vd-chart--tall" id="c-trend"></div></div>
   <div class="panel"><div class="panel__header"><h2 class="panel__title">New vs fixed per day</h2></div><div class="vd-chart" id="c-flow"></div></div>
@@ -67,6 +68,18 @@
     <span class="text-muted text-sm" id="vd-sla-note"></span></div><div class="vd-chart" id="c-aging"></div></div>
   <div class="panel"><div class="panel__header"><h2 class="panel__title">Mean days to remediate</h2></div><div class="vd-chart" id="c-mttr"></div></div>
   <div class="panel"><div class="panel__header"><h2 class="panel__title">Open findings by device type</h2></div><div class="vd-chart" id="c-types"></div></div>
+  <div class="panel vd-wide" style="padding:0"><div class="panel__header"><h2 class="panel__title">Fixes that remove the most risk</h2>
+    <a class="btn btn--ghost btn--sm" id="vd-allfixes" href="/vulns/fixes">All fixes</a></div>
+    <div style="overflow-x:auto"><table class="data-table"><thead><tr id="vd-topf-head">
+      <th><button type="button" class="vd-sort" data-fsort="title">Fix</button></th>
+      <th><button type="button" class="vd-sort" data-fsort="vulns">Vulnerabilities</button></th>
+      <th><button type="button" class="vd-sort" data-fsort="critical">Critical findings</button></th>
+      <th><button type="button" class="vd-sort" data-fsort="kev">KEV findings</button></th>
+      <th><button type="button" class="vd-sort" data-fsort="devices">Assets</button></th>
+      <th><button type="button" class="vd-sort" data-fsort="findings">Findings resolved</button></th>
+      <th><button type="button" class="vd-sort" data-fsort="pct" title="Share of the open findings with a known fix (in this view) that this fix resolves">% of fixable findings</button></th>
+    </tr></thead>
+    <tbody id="vd-topf"></tbody></table></div></div>
   <div class="panel" style="padding:0"><div class="panel__header"><h2 class="panel__title">Most widespread vulnerabilities</h2></div>
     <table class="data-table"><thead><tr><th>Vulnerability</th><th>CVSS</th><th>Devices</th></tr></thead><tbody id="vd-topv"></tbody></table></div>
   <div class="panel" style="padding:0"><div class="panel__header"><h2 class="panel__title">Riskiest devices</h2></div>

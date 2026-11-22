@@ -42,11 +42,11 @@ def test_filters_are_allow_listed():
 
 
 @pytest.mark.asyncio
-async def test_only_fleet_wide_roles_see_it(client_it_user, client_admin, monkeypatch):
+async def test_fleet_wide_roles_see_everything_and_it_users_their_own(client_it_user, client_admin, monkeypatch):
     async def fake(db, range_key, source, device_type, fresh=False, scope=None, viewer=None, kind="all"):
         return {"range": range_key, "kpis": {"open": 1}, "trend": {}, "source": source}
     monkeypatch.setattr(vd, "cached", fake)
-    assert (await client_it_user.get("/api/v1/vuln-dashboard")).status_code == 404
+    assert (await client_it_user.get("/api/v1/vuln-dashboard")).json()["scoped"] is True   # their own assets only
     r = (await client_admin.get("/api/v1/vuln-dashboard", params={"range": "30d", "source": "rapid7_insightvm"})).json()
     assert r["range"] == "30d" and r["source"] == "rapid7_insightvm" and "server" in r["filters"]["device_types"]
     assert (await client_admin.get("/api/v1/vuln-dashboard", params={"source": "evil"})).status_code == 422
@@ -163,7 +163,7 @@ async def test_after_a_sync_the_old_view_answers_at_once_and_rebuilds_in_the_bac
     _Redis.store["dashw:x"] = b"1"
     await vd.forget_cached()
     assert "dashw:x" not in _Redis.store
-    vd_key = next(k for k in _Redis.store if k.startswith("vulndash:v4:code"))
+    vd_key = next(k for k in _Redis.store if k.startswith("vulndash:v5:code"))
     assert vd_key   # the view is kept, only marked out of date
     _Redis.store[vd.DIRTY_KEY] = str(vd._now().timestamp() + 1).encode()
     again = await vd.cached(None, "90d", None, None, kind="code")

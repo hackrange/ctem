@@ -107,6 +107,9 @@ async def test_fixes_api_ranks_filters_and_scopes(db, client_admin, client_it_us
     monkeypatch.setattr(aioredis, "from_url", lambda *a, **k: NoRedis())
     d = (await client_admin.get("/api/v1/fixes", params={"kind": "infra"})).json()
     assert [f["title"] for f in d["fixes"]][:1] == [f"Big rollup {t}"] and d["total"] == 2 and d["findings_covered"] == 9
+    assert d["fixable_findings"] == 9 and [f["pct"] for f in d["fixes"]] == [66.67, 33.33]   # of the findings with a known fix
+    kev = (await client_admin.get("/api/v1/fixes", params={"severity": "kev"})).json()
+    assert kev["fixes"][0]["pct"] == 66.67 and kev["fixable_findings"] == 9                    # filters don't change the base
     assert (await client_admin.get("/api/v1/fixes", params={"severity": "kev"})).json()["total"] == 1
     assert (await client_admin.get("/api/v1/fixes", params={"q": "BIG ROLLUP"})).json()["total"] == 1
     assert (await client_admin.get("/api/v1/fixes", params={"sort": "nope; drop"})).status_code == 200   # unknown sort: risk
@@ -114,7 +117,8 @@ async def test_fixes_api_ranks_filters_and_scopes(db, client_admin, client_it_us
     assert one["ok"] and one["devices"] == 3 and [v["cve_id"] for v in one["vulns"]] == [None, None] and one["vulns"][0]["kev"]
     assert (await client_admin.get("/api/v1/fixes/detail", params={"key": "<script>"})).status_code == 422
     assert (await client_admin.get("/api/v1/fixes/detail", params={"key": f"rapid7_insightvm:none-{t}"})).json()["ok"] is False
-    assert (await client_it_user.get("/api/v1/fixes")).status_code == 404   # same viewers as the dashboard
+    assert (await client_it_user.get("/api/v1/fixes")).json()["scoped"] is True   # same viewers as the dashboard: theirs only
+    assert (await client_it_user.get("/api/v1/fixes")).json()["total"] == 0
     devs = (await client_admin.get("/api/v1/devices", params={"fix": f"rapid7_insightvm:big-{t}", "limit": 50})).json()["devices"]
     assert sorted(x["hostname"].lower() for x in devs) == sorted(h.hostname.lower() for h in hosts)
     assert (await client_admin.get("/api/v1/devices", params={"fix": "a b"})).status_code == 422

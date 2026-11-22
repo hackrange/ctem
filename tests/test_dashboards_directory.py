@@ -10,6 +10,8 @@ import pytest
 
 from api.dashboards import catalog as cat
 
+cat.load_metrics()   # so the file passes on its own too
+
 
 def test_style_is_cleaned():
     w = cat.clean_widget({"metric": "directory.stale_computers", "viz": "kpi", "params": {"days": 21},
@@ -39,8 +41,12 @@ async def test_stale_widgets_counts_clickthrough_and_trend(db, client_admin, adm
         await _ad(db, n, age)
     await db.commit()
     ctx = await cat.context(db, admin_user)
-    v21 = await cat.REGISTRY["directory.stale_computers"].run(ctx, {"days": 21})
-    v90 = await cat.REGISTRY["directory.stale_computers"].run(ctx, {"days": 90})
+    import dataclasses
+
+    from api.models.device import Device
+    mine_only = dataclasses.replace(ctx, scope=Device.hostname.ilike(f"%{n}%"))   # other tests' AD computers don't count
+    v21 = await cat.REGISTRY["directory.stale_computers"].run(mine_only, {"days": 21})
+    v90 = await cat.REGISTRY["directory.stale_computers"].run(mine_only, {"days": 90})
     assert v21["value"] - v90["value"] == 2 and v21["href"] == "/devices?ad_stale_days=21&ad_tools_quiet_days=21"   # the 25- and 40-day ones
     lst = await cat.REGISTRY["directory.stale_computers_list"].run(ctx, {"days": 90, "limit": 50})
     mine = [r for r in lst["rows"] if r[0].lower().endswith(n.lower())]

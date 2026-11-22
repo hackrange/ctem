@@ -56,10 +56,15 @@ async def frameworks(_: User = Depends(require_permission("grc", "read")), db: A
 
 @router.get("/controls")
 async def controls(_: User = Depends(require_permission("grc", "read")), db: AsyncSession = Depends(get_session)):
+    from api.core import control_cadence as cad
+    from api.routes.grc_tests import latest_tests, testing_view
     feeds, latest = await _checks_by_control(db), await latest_results(db)
     rows = (await db.execute(select(GrcControl).where(GrcControl.is_active == True)  # noqa: E712
                              .order_by(GrcControl.control_ref))).scalars().all()
+    rules, tested = await cad.load(db), await latest_tests(db)
+    views = {str(c.id): await testing_view(db, c, rules, tested.get(str(c.id))) for c in rows}
     return {"controls": [{
+        "testing": views[str(c.id)],
         "id": str(c.id), "control_ref": c.control_ref, "title": c.title, "control_type": c.control_type,
         "implementation_status": c.implementation_status, "effectiveness": c.effectiveness, "risk_level": c.risk_level,
         "last_tested_at": _iso(c.last_tested_at), "evidence_count": c.evidence_count, "frameworks": c.frameworks or [],

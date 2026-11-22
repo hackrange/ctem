@@ -157,3 +157,26 @@ class GrcCheckResult(Base, UUIDPrimaryKey):
     thresholds: Mapped[dict | None] = mapped_column(JSON)
     data_freshness: Mapped[dict | None] = mapped_column(JSON)
     measured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+
+
+class GrcControlTest(Base, UUIDPrimaryKey, TimestampMixin):
+    """A person's attestation that they tested a control: what, expected, outcome, pass or fail (and why it failed).
+    Recorded in CTEM and sent to FairTPRM (api/integrations/fairtprm_tests.py). The texts are encrypted at rest."""
+    __tablename__ = "grc_control_tests"
+
+    control_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)    # GrcControl.id
+    control_ref: Mapped[str | None] = mapped_column(String(50))
+    tested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    tested_by_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    tested_by: Mapped[str] = mapped_column(String(128), nullable=False)
+    what_tested: Mapped[str] = mapped_column(EncryptedString, nullable=False)
+    expected_result: Mapped[str] = mapped_column(EncryptedString, nullable=False)
+    outcome: Mapped[str] = mapped_column(EncryptedString, nullable=False)
+    result: Mapped[str] = mapped_column(String(8), nullable=False)          # pass | fail
+    failure_reason: Mapped[str | None] = mapped_column(EncryptedString)
+    next_test_due: Mapped[date | None] = mapped_column(Date)
+    frequency_days: Mapped[int | None] = mapped_column(Integer)
+    # FairTPRM: sent (the full record), summary (dates and effectiveness only: an older FairTPRM), failed, not_connected
+    fairtprm_status: Mapped[str | None] = mapped_column(String(16))
+    fairtprm_detail: Mapped[str | None] = mapped_column(String(300))
+    fairtprm_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

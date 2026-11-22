@@ -9,6 +9,7 @@
   let sev = ['kev', 'critical', 'exploitable'].includes(init.get('severity')) ? init.get('severity') : '';
   let sort = 'risk', offset = 0, picked = init.get('key') || '', pending = null;
   const LIMIT = 50;
+  const pctText = v => (v >= 10 ? v.toFixed(0) : v >= 1 ? v.toFixed(1) : v > 0 ? v.toFixed(2) : '0');
   $('fx-q').value = init.get('q') || '';
 
   const press = (group, attr, val) => document.querySelectorAll(`#${group} [data-${attr}]`)
@@ -43,7 +44,7 @@
       rows(d);
     } catch (e) {
       if (mine !== pending || e.name === 'AbortError') return;
-      $('fx-rows').innerHTML = '<tr><td colspan="6" class="text-muted text-sm" style="text-align:center;padding:16px">Fixes could not load. Try again in a minute.</td></tr>';
+      $('fx-rows').innerHTML = '<tr><td colspan="7" class="text-muted text-sm" style="text-align:center;padding:16px">Fixes could not load. Try again in a minute.</td></tr>';
     } finally {
       if (mine === pending) { pending = null; $('fx-rows').style.opacity = ''; }
     }
@@ -51,6 +52,7 @@
 
   function rows(d) {
     $('fx-sum').innerHTML = `<span><b>${esc(n(d.total))}</b> fixes</span><span><b>${esc(n(d.findings_covered))}</b> findings they resolve</span>`
+      + `<span><b>${esc(n(d.fixable_findings))}</b> open findings with a known fix</span>`
       + (d.scoped ? '<span>For the assets you can see</span>' : '');
     const top = Math.max(1, ...d.fixes.map(f => f.findings));
     $('fx-rows').innerHTML = d.fixes.map(f => `<tr data-key="${esc(f.key)}" class="${f.key === picked ? 'is-picked' : ''}" style="cursor:pointer">
@@ -60,8 +62,9 @@
         <td class="text-sm">${esc(n(f.vulns))}</td>
         <td class="text-sm">${f.kev ? `<span class="chip chip--critical" style="font-size:.65rem">${esc(n(f.kev))}</span>` : '0'}</td>
         <td class="text-sm">${f.critical ? `<span class="chip chip--critical" style="font-size:.65rem">${esc(n(f.critical))}</span>` : '0'}</td>
-        <td class="text-sm">${esc(n(f.devices))}</td><td class="text-sm">${esc(n(f.findings))}</td></tr>`).join('')
-      || `<tr><td colspan="6" class="text-muted text-sm" style="text-align:center;padding:16px">${
+        <td class="text-sm">${esc(n(f.devices))}</td><td class="text-sm">${esc(n(f.findings))}</td>
+        <td class="text-sm">${esc(pctText(f.pct))}%</td></tr>`).join('')
+      || `<tr><td colspan="7" class="text-muted text-sm" style="text-align:center;padding:16px">${
         d.total === 0 && !sev && !$('fx-q').value ? 'No fixes recorded yet. They arrive with each source\'s next full sync.' : 'No fixes match.'}</td></tr>`;
     const end = Math.min(offset + LIMIT, d.total);
     $('fx-page').textContent = d.total ? `${n(offset + 1)} to ${n(end)} of ${n(d.total)}` : '';

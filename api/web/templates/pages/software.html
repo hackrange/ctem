@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% set active_nav = 'software' %}
+
+{% block title %}Software -- open-ctem{% endblock %}
+
+{% block extra_head %}
+<style>
+.sw-seg{display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--surface)}
+.sw-seg button{border:0;background:transparent;color:var(--fg-muted);padding:6px 12px;font-size:13px;font-weight:600;cursor:pointer}
+.sw-seg button+button{border-left:1px solid var(--border)}
+.sw-seg button[aria-pressed="true"]{background:var(--accent-dim);color:var(--fg);box-shadow:inset 0 -2px 0 var(--accent)}
+.sw-seg button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.sw-detail{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 18px;margin-bottom:16px}
+.sw-detail[hidden]{display:none}
+.sw-detail h2{margin:0 0 4px;font-size:17px}
+.sw-cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr);gap:16px;margin-top:12px}
+@media (max-width:900px){.sw-cols{grid-template-columns:minmax(0,1fr)}}
+.sw-vers{border:0;background:none;padding:0;color:var(--accent);cursor:pointer;font:inherit;text-decoration:underline}
+tr.is-picked td{background:var(--accent-dim)}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-header__title">Software</h1>
+    <p class="page-header__sub" id="sw-sub">Third-party software on your assets, one title per product. Approve it or mark it unauthorized.</p>
+  </div>
+  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+    <div class="sw-seg" id="sw-status" role="group" aria-label="Show">
+      <button type="button" data-status="" aria-pressed="true">All</button>
+      <button type="button" data-status="unreviewed" aria-pressed="false">Unreviewed <span data-count="unreviewed"></span></button>
+      <button type="button" data-status="approved" aria-pressed="false">Approved <span data-count="approved"></span></button>
+      <button type="button" data-status="unauthorized" aria-pressed="false">Unauthorized <span data-count="unauthorized"></span></button>
+    </div>
+    <input id="sw-q" type="search" class="search-bar" placeholder="Software or vendor" aria-label="Search software" maxlength="120" style="max-width:220px">
+    <label class="tk-radio text-sm"><input type="checkbox" id="sw-system"> OS and system components</label>
+  </div>
+</div>
+
+<section id="sw-detail" class="sw-detail" hidden aria-live="polite"></section>
+
+<div class="panel" style="padding:0">
+  <table class="data-table">
+    <thead><tr>
+      <th><button type="button" class="btn btn--ghost btn--sm" data-sort="title">Software</button></th>
+      <th><button type="button" class="btn btn--ghost btn--sm" data-sort="vendor">Vendor</button></th>
+      <th><button type="button" class="btn btn--ghost btn--sm" data-sort="assets">Assets</button></th>
+      <th><button type="button" class="btn btn--ghost btn--sm" data-sort="status">Status</button></th>
+    </tr></thead>
+    <tbody id="sw-rows"><tr><td colspan="4" class="text-muted text-sm" style="text-align:center;padding:16px">Loading...</td></tr></tbody>
+  </table>
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px" class="text-sm text-muted">
+    <span id="sw-page"></span>
+    <span><button type="button" class="btn btn--ghost btn--sm" id="sw-prev">Previous</button>
+      <button type="button" class="btn btn--ghost btn--sm" id="sw-next">Next</button></span>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ static('js/software.js') }}"></script>
+{% endblock %}

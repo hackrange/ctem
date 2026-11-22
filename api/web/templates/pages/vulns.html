@@ -50,7 +50,7 @@
       <option value="rapid7_cloudsec" data-types="infra">Rapid7 CloudSec</option>
     </select>
     <label class="text-sm" style="display:flex;align-items:center;gap:6px">
-      <input type="checkbox" id="filter-affected" checked> With affected devices
+      <input type="checkbox" id="filter-affected" checked> <span id="filter-affected-label">With affected devices</span>
     </label>
     <button type="button" id="ex-btn" class="btn btn--primary btn--sm" hidden disabled>Create exception</button>
     <a class="btn btn--ghost btn--sm" href="/vulns/dashboard">Dashboard</a>
@@ -95,6 +95,7 @@ document.getElementById('vl-kind').addEventListener('click', e => {
   if (!b || b.dataset.kind === vkind) return;
   vkind = b.dataset.kind;
   try { localStorage.setItem('ctem.vulnType', vkind); } catch (err) { /* still works, just not remembered */ }
+  affectedDefault();
   pressVkind();
   if (typeof table !== 'undefined' && table) table.reload();
 });
@@ -103,6 +104,14 @@ const FILTERS = { q: 'search-input', is_kev: 'filter-kev', min_cvss: 'filter-cvs
 
 const initial = new URLSearchParams(location.search);
 Object.entries(FILTERS).forEach(([k, id]) => { if (initial.get(k)) $(id).value = initial.get(k); });
+// "With affected ..." starts checked for Infrastructure and Code, unchecked for Web apps (a site scan's findings
+// matter even before they map to an asset); a link's own choice wins on load
+function affectedDefault() {
+  $('filter-affected').checked = vkind !== 'web';
+  const lbl = $('filter-affected-label');
+  if (lbl) lbl.textContent = { code: 'With affected repositories', web: 'With affected sites' }[vkind] || 'With affected devices';
+}
+affectedDefault();
 if (initial.has('affected_only')) $('filter-affected').checked = initial.get('affected_only') === 'true';
 
 const href = v => `/vulns/${encodeURIComponent(v.id)}`;

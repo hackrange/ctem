@@ -55,6 +55,8 @@ class Check:
     run: Callable[[AsyncSession, dict, bool], Awaitable[Outcome]]
     max_age_hours: int = 48
     device_scoped: bool = False       # curated rules may narrow which devices it counts
+    account_scoped: bool = False      # curated rules may give some accounts (by name) their own thresholds
+    account_patterns: tuple[str, ...] | None = None   # it looks for accounts by name; a curated rule may change which
 
     def parse(self, params: dict) -> dict:
         """Only declared thresholds, only integers, only inside their bounds."""
@@ -81,7 +83,8 @@ class Check:
                 "check_version": self.version, "data_sources": list(self.sources),
                 "suggested_controls": list(self.controls),
                 "thresholds": {k: {"default": t.default, "min": t.lo, "max": t.hi, "help": t.help}
-                               for k, t in self.thresholds.items()}, "device_scoped": self.device_scoped}
+                               for k, t in self.thresholds.items()}, "device_scoped": self.device_scoped,
+                "account_scoped": self.account_scoped, "account_patterns": list(self.account_patterns or [])}
 
 
 REGISTRY: dict[str, Check] = {}
@@ -149,6 +152,12 @@ async def evaluate(db: AsyncSession, check: Check, params: dict, detail: bool = 
     await sla.load(db)   # the install's SLAs are the SLA check's defaults
     # Curated rules set this org's defaults; a caller's explicit parameter still wins
     thresholds = check.parse({**rule_thresholds, **params})
+    if check.account_patterns:   # the names it looks for: the last enabled rule that sets them, else the check's own
+        chosen = [list(doc.account_patterns) for _, doc in rules if doc and doc.account_patterns]
+        thresholds["_account_patterns"] = chosen[-1] if chosen else list(check.account_patterns)
+    if check.account_scoped:   # from saved (validated) rules only, never from a caller's parameters
+        thresholds["_account_overrides"] = [{"name_patterns": list(o.name_patterns), "thresholds": check.parse({**rule_thresholds, **params, **o.thresholds})}
+                                            for _, doc in rules if doc for o in (doc.account_overrides or [])]
     fresh, stamps, why = await freshness(db, check.sources, check.max_age_hours)
     if problem:
         outcome = Outcome("error", problem)
@@ -174,7 +183,7 @@ async def evaluate(db: AsyncSession, check: Check, params: dict, detail: bool = 
 
 def _load() -> None:
     # Import for registration side effects; the modules register into REGISTRY
-    from api.grc.checks import endpoint, hygiene, identity, ops, vuln_age, vulns  # noqa: F401
+    from api.grc.checks import admin_logons, deprovisioning, endpoint, hygiene, identity, ops, software, vuln_age, vulns  # noqa: F401
 
 
 _load()

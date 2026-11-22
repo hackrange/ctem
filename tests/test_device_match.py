@@ -308,3 +308,17 @@ async def test_directory_profile_fields_are_stored(db, client_admin):
     u = next(x for x in users if x["username"] == name)
     assert (u["first_name"], u["last_name"], u["title"], u["phone"]) == ("Jane", "Doe", "Analyst", "+12015550123")
     assert u["mobile"] == "ext 4"  # not a number we can normalize, so it's kept as entered
+
+
+def test_wsl_is_a_subsystem_not_the_host_os():
+    from api.core.device_match import host_os, is_guest_os, type_from_os
+    from api.models.device import DeviceType
+    assert is_guest_os("WSL 2.0") and is_guest_os("Windows Subsystem for Linux") and not is_guest_os("Windows 11")
+    assert host_os("Windows 11 Enterprise", "WSL 2.0") == "Windows 11 Enterprise"   # the EDR's answer stays
+    assert host_os(None, "WSL 2.0") == "Windows" and host_os("WSL 2.0", "WSL 2.0") == "Windows"
+    assert host_os("WSL 2.0", "Windows 11 Pro") == "Windows 11 Pro"
+    assert host_os("Ubuntu 22.04", None) == "Ubuntu 22.04"
+    assert type_from_os("Windows 11 Enterprise", DeviceType.server) == DeviceType.workstation
+    assert type_from_os("Windows Server 2022", DeviceType.workstation) == DeviceType.server
+    assert type_from_os("Ubuntu 22.04", DeviceType.server) == DeviceType.server
+    assert type_from_os("macOS 15", DeviceType.unknown) == DeviceType.workstation

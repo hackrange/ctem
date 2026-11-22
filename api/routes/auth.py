@@ -23,6 +23,7 @@ from api.core.config import get_settings
 from api.core.db import get_session
 from api.core.encryption import decrypt, encrypt, search_hash
 from api.models.user import User, UserRole
+from api.core.branding_image import icon_version as _icon_version
 
 router = APIRouter()
 _templates = Jinja2Templates(directory="api/web/templates")
@@ -63,6 +64,7 @@ async def _render_login(request: Request, db: AsyncSession, *, error: str | None
         "accent_color": branding.get("accent_color", "#f5a623"),
         "logo_url": branding.get("login_logo_url") or branding.get("logo_url"),   # its own logo, else the menu's
         "org_name": branding.get("org_name"),
+        "favicon_v": _icon_version(branding.get("favicon_url")),
     }, status_code=status)
 
 

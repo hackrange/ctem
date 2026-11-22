@@ -41,10 +41,12 @@ celery_app.conf.update(
             "task": "api.core.tasks.hunt_watch",
             "schedule": 3600.0,
         },
-        # Daily run of every control check so GRC evidence history has no gaps
+        # Every control check runs once a day so GRC evidence history has no gaps. A fixed 24-hour timer restarts
+        # with the scheduler (each deploy), so instead: every 15 minutes, run the checks whose newest result is
+        # missing or a day old. New checks run within 15 minutes of being added.
         "grc-checks": {
-            "task": "api.core.tasks.run_grc_checks",
-            "schedule": 86400.0,
+            "task": "api.core.tasks.run_due_grc_checks",
+            "schedule": 900.0,
         },
         # The vulnerability dashboard's unfiltered view takes ~15s to build; keep it ready
         "warm-vuln-dashboard": {
@@ -307,6 +309,56 @@ async def _watch() -> dict:
         return {"issues": len(watch["result"]["issues"])}
 
 
+@celery_app.task(name="api.core.tasks.run_due_grc_checks", time_limit=1800, ignore_result=True)
+def run_due_grc_checks() -> dict:
+    return asyncio.run(_due_grc_checks())
+
+
+async def _due_grc_checks() -> dict:
+    import redis.asyncio as aioredis
+
+    from api.core.config import get_settings
+    from api.core.db import get_session
+    from api.grc.evidence import due_checks, record
+    r = aioredis.from_url(get_settings().redis_url)
+    mine = False
+    try:
+        mine = bool(await r.set("grc_checks_running", "1", nx=True, ex=1800))   # one run at a time
+        if not mine:
+            return {}
+        out = {}
+        async for db in get_session():
+            from api.grc.checks import evaluate
+            from api.rules.custom import all_checks
+            checks = await all_checks(db)
+            for t in await due_checks(db):
+                try:
+                    body, _ = await evaluate(db, checks[t], {})
+                    await record(db, body)
+                    await db.commit()
+                    out[t] = body["result"]
+                except Exception:  # noqa: BLE001 -- one broken check doesn't stop the others
+                    log.exception("control check %s failed", t)
+                    await db.rollback()
+            from datetime import datetime, timedelta, timezone
+
+            from sqlalchemy import delete
+
+            from api.grc.evidence import RETENTION_DAYS
+            from api.models.grc import GrcCheckResult
+            await db.execute(delete(GrcCheckResult).where(
+                GrcCheckResult.measured_at < datetime.now(timezone.utc) - timedelta(days=RETENTION_DAYS)))
+            await db.commit()
+            break
+        if out:
+            log.info("control checks run: %s", out)
+        return out
+    finally:
+        if mine:   # only our own lock
+            await r.delete("grc_checks_running")
+        await r.aclose()
+
+
 @celery_app.task(name="api.core.tasks.run_grc_checks", time_limit=1800)
 def run_grc_checks() -> dict:
     return asyncio.run(_grc_checks())
@@ -440,3 +492,5 @@ async def _record_snapshots():
         await fill(db)       # Infrastructure / Code / Web app types on rows written before they existed
         await rec(db)
         await snapshots.record(db)
+        from api.core.software_ingest import prune
+        await prune(db)      # installs no source has reported for 30 days

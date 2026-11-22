@@ -88,6 +88,28 @@ async def refresh(db: AsyncSession, check_type: str) -> dict | None:
     return body
 
 
+async def due_checks(db: AsyncSession, max_age_hours: float | None = None) -> list[str]:
+    """Checks with no result yet, or whose newest result is older than their run interval (the Run schedule, or
+    max_age_hours for all). A few minutes' grace so an hourly check isn't skipped for being 59 minutes old."""
+    from api.core import check_schedule
+    from api.routes.grc_data import latest_results
+    from api.rules.custom import all_checks
+    latest = await latest_results(db)
+    rules = await check_schedule.load(db)
+    now_ = datetime.now(timezone.utc)
+    out = []
+    for t in (await all_checks(db)):
+        hours = max_age_hours if max_age_hours is not None else check_schedule.hours_for(rules, t)
+        cut = now_ - timedelta(hours=hours) + timedelta(minutes=10)
+        r = latest.get(t)
+        at = r.measured_at if r else None
+        if at is not None and at.tzinfo is None:
+            at = at.replace(tzinfo=timezone.utc)
+        if at is None or at < cut:
+            out.append(t)
+    return out
+
+
 async def run_all(db: AsyncSession) -> dict[str, str]:
     """Daily run of every check at default thresholds, so history has no gaps; prunes old rows."""
     from api.rules.custom import all_checks

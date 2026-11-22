@@ -127,6 +127,9 @@ async def list_vulns(
     _sla: None = Depends(sla.fresh),
 ):
     scope = dq.with_tags(await device_scope(current_user, db), tag)
+    # People who see only some assets see only vulnerabilities on at least one of them: the catalog of everything
+    # else would open onto empty affected lists
+    affected_only = affected_only or scope is not None
     stmt, cols = _vuln_query(scope, q or cve_id, is_kev, min_cvss, source, affected_only, vtype, min_age_days)
     total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
     rows = (await db.execute(_sorted_vulns(stmt, cols, sort, order).limit(limit).offset(offset))).all()
@@ -150,6 +153,7 @@ async def export_vulns(
     _sla: None = Depends(sla.fresh),
 ):
     scope = dq.with_tags(await device_scope(current_user, db), tag)
+    affected_only = affected_only or scope is not None
     stmt, cols = _vuln_query(scope, q, is_kev, min_cvss, source, affected_only, vtype, min_age_days)
     stmt = _sorted_vulns(stmt, cols, sort, order)
     header = ["CVE", "Title", "Type", "CVSS", "EPSS", "KEV", "KEV added", "Exploit available", "Affected",
@@ -290,6 +294,7 @@ async def get_vuln(
     out = _vuln_summary(vuln, n, old)
     if old is None:   # nothing open that this person can see: no age to show
         out.update(first_found=None, age_days=None, past_sla=False)
+    out["scoped"] = scope is not None   # the page says so when none of this person's assets have it
     out.update({"source_vuln_id": vuln.source_vuln_id, "exploit_maturity": vuln.exploit_maturity,
                 "epss_updated_at": vuln.epss_updated_at.isoformat() if vuln.epss_updated_at else None})
     return out

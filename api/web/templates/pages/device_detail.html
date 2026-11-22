@@ -17,14 +17,7 @@
     <div id="dev-why" class="dev-score__why" hidden></div>
   </aside>
 </div>
-<style>
-.dev-score{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:6px;max-width:420px;text-align:right}
-.dev-score__grade{display:flex;align-items:center;justify-content:flex-end;gap:10px}
-.dev-score__why{font-size:13px;line-height:1.45}
-.dev-score__why ul{list-style:none;margin:4px 0 0;padding:0;color:var(--fg-muted)}
-.dev-score__why li{margin:1px 0}
-@media (max-width:720px){.dev-score{margin-left:0;align-items:flex-start;text-align:left}.dev-score__grade{justify-content:flex-start}}
-</style>
+<link rel="stylesheet" href="{{ static('css/asset_detail.css') }}">
 
 <div id="dev-contained" class="panel" style="display:none;border-left:4px solid var(--severity-info);margin-bottom:16px">
   <div class="panel__body"><strong>Contained by CrowdStrike.</strong> This host is isolated from the network, so its vulnerabilities can't be exploited right now: they're shown as info and its risk is 0. Normal scoring returns as soon as containment is lifted.</div>
@@ -47,7 +40,23 @@
   <div class="panel__body" id="dev-cloud"></div>
 </div>
 
-<div class="panel" style="padding:0;margin-top:16px">
+<!-- Findings | Software: what's wrong with this asset, and what's installed on it -->
+<div class="dev-tabs" role="tablist" aria-label="Asset details" style="margin-top:16px">
+  <button type="button" role="tab" id="tab-findings" aria-controls="dev-findings-panel" aria-selected="true">Findings</button>
+  <button type="button" role="tab" id="tab-software" aria-controls="dev-software-panel" aria-selected="false">Software <span id="dev-software-count" class="text-muted"></span></button>
+</div>
+<div class="panel" id="dev-software-panel" role="tabpanel" aria-labelledby="tab-software" style="padding:0;margin-top:0" hidden>
+  <div class="panel__header" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+    <span class="panel__title">Software installed</span>
+    <span style="display:flex;gap:10px;align-items:center"><span class="text-sm text-muted" id="dev-software-note"></span>
+      <label class="tk-radio text-sm"><input type="checkbox" id="dev-software-system"> OS and system components</label>
+      <a class="btn btn--ghost btn--sm" href="/software">Software inventory</a></span>
+  </div>
+  <div style="overflow:auto"><table class="data-table"><thead><tr><th>Software</th><th>Vendor</th><th>Versions on this asset</th><th>Status here</th><th>Last reported</th><th></th></tr></thead>
+    <tbody id="dev-software"></tbody></table></div>
+</div>
+
+<div class="panel" id="dev-findings-panel" role="tabpanel" aria-labelledby="tab-findings" style="padding:0;margin-top:0">
   <div class="panel__header" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
     <span class="panel__title">Findings</span>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
@@ -73,6 +82,9 @@
 {% endblock %}
 
 {% block extra_scripts %}
+<script src="{{ static('vendor/echarts-6.1.0/echarts.min.js') }}"></script>
+<script src="{{ static('js/asset_trend.js') }}"></script>
+<script src="{{ static('js/asset_software.js') }}"></script>
 <script src="{{ static('js/data_table.js') }}"></script>
 <script src="{{ static('js/device_assign.js') }}"></script>
 <script src="{{ static('js/exception_modal.js') }}"></script>
@@ -270,6 +282,8 @@ async function loadDevice() {
     info('Tags', tagChips(d.tags || [])),
   ].join('');
   cloudPanel(d.cloud || []);
+  AssetTrend.mount(d.id, d.hostname);
+  AssetSoftware.mount(d.id);
   document.querySelectorAll('[data-fw-rules]').forEach(b => { b.onclick = () => firewallDialog(d.cloud || []); });
   syncShipFields();
   if (!table) startFindings();  // reloading after an assignment shouldn't mount a second table

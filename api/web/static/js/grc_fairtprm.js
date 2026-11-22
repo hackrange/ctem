@@ -111,16 +111,19 @@
       const d = await get('/controls');
       document.getElementById('control-count').textContent = `${d.controls.length} controls`;
       body.innerHTML = d.controls.map(c => `
-        <tr>
-          <td class="text-sm"><b>${esc(c.control_ref || '')}</b> ${esc(c.title)}
+        <tr data-control="${esc(c.id)}" style="cursor:pointer" title="Open to test this control">
+          <td class="text-sm"><a class="dt-link" href="#" data-control-open="${esc(c.id)}"><b>${esc(c.control_ref || '')}</b> ${esc(c.title)}</a>
             <br><span class="text-muted" style="font-size:.75rem">${c.frameworks.map(esc).join(', ')}</span></td>
           <td><span class="chip ${EFFECT_CHIP[c.effectiveness] || 'chip--info'}">${label(c.effectiveness || 'not_tested')}</span></td>
+          <td class="text-sm">${window.GrcTests ? GrcTests.cell(c.testing) : ''}</td>
           <td class="text-sm">${c.ctem_checks.map(k => `${esc(k.check_type)}${k.result ? ` <span class="chip ${RESULT_CHIP[k.result] || 'chip--info'}">${esc(k.result)}</span>` : ''}`).join('<br>') || '<span class="text-muted">--</span>'}</td>
-        </tr>`).join('') || empty(3, 'No controls yet');
+        </tr>`).join('') || empty(4, 'No controls yet');
     } catch (_) {
-      body.innerHTML = empty(3, 'Controls unavailable');
+      body.innerHTML = empty(4, 'Controls unavailable');
     }
   }
+
+  document.addEventListener('ctem:controls-changed', () => loadControls());   // a test or the testing rules changed
 
   async function loadEvidence() {
     const body = document.getElementById('evidence-tbody');

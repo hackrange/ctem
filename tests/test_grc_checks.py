@@ -49,7 +49,7 @@ def _device(**kw):
 
 
 def test_catalog_has_every_check_with_bounded_thresholds():
-    assert len(REGISTRY) == 21
+    assert len(REGISTRY) == 24
     for c in REGISTRY.values():
         assert c.check_type.startswith("ctem_") and c.controls and c.version >= 1
         for t in c.thresholds.values():
@@ -156,7 +156,7 @@ async def test_run_all_records_every_check_and_history_rolls_up(gdb):
 @pytest.mark.asyncio
 async def test_catalog_and_errors_over_http(client_cyber, client_it_user):
     r = await client_cyber.get("/api/v1/grc/checks")
-    assert r.status_code == 200 and len(r.json()["checks"]) == 21
+    assert r.status_code == 200 and len(r.json()["checks"]) == 24
     assert (await client_cyber.get("/api/v1/grc/checks/ctem_nope")).status_code == 404
     assert (await client_cyber.get("/api/v1/grc/checks/ctem_edr_coverage?pass_at=500")).status_code == 400
     assert (await client_cyber.get("/api/v1/grc/checks/ctem_edr_coverage?pass_at=90&pass_at=91")).status_code == 400

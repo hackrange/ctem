@@ -118,6 +118,21 @@
         <p class="text-muted text-sm" style="margin-top:4px">Shown above the sign-in form (on a light grey box), for example a wider version of your logo. PNG, JPEG, WebP or GIF up to 512 KB. Empty uses the menu logo. Click <b>Save</b> after choosing.</p>
       </div>
       <div>
+        <label class="field-label">Favicon <span class="text-muted">(browser tab icon, optional)</span></label>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          <div id="brand-favicon-preview" style="width:40px;height:40px;border:1px solid var(--border);border-radius:8px;overflow:hidden;display:flex;align-items:center;justify-content:center;background:#f3f4f6">
+            <span class="text-muted text-sm">None</span>
+          </div>
+          <label class="btn btn--ghost btn--sm" style="cursor:pointer;display:inline-block">
+            Upload Icon
+            <input id="brand-favicon-upload" type="file" accept="image/png,image/x-icon,image/vnd.microsoft.icon,.ico" style="display:none" onchange="handleFaviconUpload(this)">
+          </label>
+          <button type="button" class="btn btn--ghost btn--sm" onclick="clearLogo('brand-favicon')">Remove</button>
+        </div>
+        <input id="brand-favicon" type="hidden">
+        <p class="text-muted text-sm" style="margin-top:4px">A square PNG (32x32 or 64x64 works well) or an ICO file, up to 128 KB, shown in browser tabs and bookmarks on every page and the sign-in page. Empty uses the browser default. Click <b>Save</b> after choosing.</p>
+      </div>
+      <div>
         <label class="field-label">Organization Name <span class="text-muted">(footer)</span></label>
         <input id="brand-org" type="text" class="form-input" placeholder="Your Organization">
       </div>

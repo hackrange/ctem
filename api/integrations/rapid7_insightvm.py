@@ -183,7 +183,7 @@ class InsightVMConnector(ConsoleMixin, BaseConnector):
     async def _upsert_cloud(self, assets: list[dict], vuln_ids: dict, db: AsyncSession) -> int:
         from sqlalchemy import select
 
-        from api.core.device_match import add_source, find_device, remember_fqdn
+        from api.core.device_match import add_source, find_device, host_os, remember_fqdn, type_from_os
         from api.core.device_tags import R7_MANAGED, r7_tags, sync_tags
         from api.core.encryption import search_hash
         from api.models.device import Device, DeviceType
@@ -207,7 +207,8 @@ class InsightVMConnector(ConsoleMixin, BaseConnector):
             remember_fqdn(dev, a.get("host_name"))
             add_source(dev, "rapid7_insightvm")
             dev.source_id = dev.source_id or a["id"]
-            dev.os = (a.get("os_description") or a.get("os_name") or "")[:128] or dev.os
+            dev.os = host_os(dev.os, a.get("os_description") or a.get("os_name"))   # WSL is a subsystem, not the host
+            dev.device_type = type_from_os(dev.os, dev.device_type)
             dev.os_version = (a.get("os_version") or "")[:128] or dev.os_version
             dev.mac_address = (a.get("mac") or "")[:17] or dev.mac_address
             seen = r7.parse_dt(a.get("last_assessed_for_vulnerabilities") or a.get("last_scan_end"))
@@ -289,6 +290,9 @@ def _port_key(p: str) -> int:
 
 
 def _device_type(asset: dict, DeviceType):
+    from api.core.device_match import is_guest_os
+    if is_guest_os(asset.get("os_description") or asset.get("os_name")):
+        return DeviceType.workstation   # WSL runs on a Windows desktop; the EDR or directory corrects a server
     kind = f"{asset.get('type') or ''} {asset.get('os_type') or ''}".lower()
     if "server" in kind:
         return DeviceType.server

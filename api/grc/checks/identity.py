@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.grc.checks import DIRECTORY, IDENTITY, SHADOW, Check, Outcome, Threshold, aware, grade_low, now, register
@@ -39,23 +39,55 @@ def _name(u) -> str:
     return u.ad_username or u.username
 
 
+def _like(pattern: str) -> str:
+    """An account glob (* and ?) as a case-insensitive LIKE pattern, with LIKE's own wildcards taken literally."""
+    p = pattern.lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return p.replace("*", "%").replace("?", "_")
+
+
+def _groups(t: dict) -> list[tuple[str, object, int]]:
+    """(label, which accounts, idle days): each account override in order (first match wins), then everyone else."""
+    name = func.lower(func.coalesce(User.ad_username, User.username))
+    out, taken = [], []
+    for o in t.get("_account_overrides") or []:
+        m = or_(*(name.like(_like(p), escape="\\") for p in o["name_patterns"]))
+        out.append((", ".join(o["name_patterns"]), and_(m, *[~x for x in taken]), o["thresholds"]["idle_days"]))
+        taken.append(m)
+    out.append(("other accounts" if taken else "", and_(*[~x for x in taken]) if taken else true(), t["idle_days"]))
+    return out
+
+
 async def _dormant(db: AsyncSession, t: dict, detail: bool) -> Outcome:
-    cut = now() - timedelta(days=t["idle_days"])
     total = await _count(db, _person())
     if not total:
         return Outcome("error", "no enabled directory accounts in CTEM")
-    idle = and_(_person(), User.ad_last_logon < cut)
-    never = and_(_person(), User.ad_last_logon.is_(None), User.created_at < cut.replace(tzinfo=None))
-    n_idle, n_never = await _count(db, idle), await _count(db, never)
+    groups, idle, never, parts, by = _groups(t), [], [], [], {}
+    for label, who, days in groups:
+        cut = now() - timedelta(days=days)
+        i = and_(_person(), who, User.ad_last_logon < cut)
+        nv = and_(_person(), who, User.ad_last_logon.is_(None), User.created_at < cut.replace(tzinfo=None))
+        a, b = await _count(db, i), await _count(db, nv)
+        idle.append(i)
+        never.append(nv)
+        by[label or "all accounts"] = {"idle_days": days, "dormant": a, "never_logged_on": b}
+        parts.append(f"{label} over {days} days" if label else f"over {days} days")
+    n_idle = sum(g["dormant"] for g in by.values())
+    n_never = sum(g["never_logged_on"] for g in by.values())
     n = n_idle + n_never
+    rule = parts[0] if len(parts) == 1 else "; ".join(parts)
     out = Outcome(grade_low(n, 0, t["warn_max"]),
-                  f"{n:,} of {total:,} enabled accounts idle over {t['idle_days']} days ({n_never:,} never logged on)",
-                  {"enabled_accounts": total, "dormant": n_idle, "never_logged_on": n_never})
+                  f"{n:,} of {total:,} enabled accounts idle ({rule}; {n_never:,} never logged on)",
+                  {"enabled_accounts": total, "dormant": n_idle, "never_logged_on": n_never,
+                   **({"by_account_group": by} if len(groups) > 1 else {})})
     if detail:
-        found = await db.execute(select(User).where(or_(idle, never)).order_by(User.ad_last_logon).limit(MAX_ROWS))
-        out.columns = ["account", "last_logon", "password_last_set"]
-        out.rows = [{"account": _name(u), "last_logon": _iso(u.ad_last_logon) or "never",
-                     "password_last_set": _iso(u.ad_pwd_last_set)} for u in found.scalars()]
+        rows = []
+        for (label, who, days), i, nv in zip(groups, idle, never):
+            found = await db.execute(select(User).where(or_(i, nv)).order_by(User.ad_last_logon).limit(MAX_ROWS))
+            rows += [{"account": _name(u), "last_logon": _iso(u.ad_last_logon) or "never",
+                      "password_last_set": _iso(u.ad_pwd_last_set), "idle_limit_days": days, "group": label or "all"}
+                     for u in found.scalars()]
+        out.columns = ["account", "last_logon", "password_last_set", "idle_limit_days", "group"]
+        out.rows = rows[:MAX_ROWS]
     return out
 
 
@@ -168,7 +200,8 @@ _IDLE = Threshold(90, 30, 365, "no logon for this many days counts as idle")
 register(Check(
     "ctem_dormant_accounts", "Dormant accounts", "Enabled people accounts with no logon in N days", 1, DIRECTORY,
     ("NIST 800-53 AC-2(3)", "CIS 5.3", "ISO 27001 A.5.18", "SOC 2 CC6.2"),
-    {"idle_days": _IDLE, "warn_max": Threshold(10, 0, 100000, "dormant accounts tolerated as a warning")}, _dormant))
+    {"idle_days": _IDLE, "warn_max": Threshold(10, 0, 100000, "dormant accounts tolerated as a warning")}, _dormant,
+    account_scoped=True))
 
 register(Check(
     "ctem_password_policy", "Password expiry policy", "People accounts whose passwords never expire", 1, DIRECTORY,

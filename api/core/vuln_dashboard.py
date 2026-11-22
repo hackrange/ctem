@@ -139,7 +139,7 @@ async def _units(db, w) -> dict:
                func.count(func.distinct(Finding.vuln_id)), func.count(func.distinct(Finding.device_id)))
         .select_from(Finding).join(Vulnerability, Vulnerability.id == Finding.vuln_id)
         .where(Finding.status.in_(OPEN), Finding.fix_key.is_not(None), *w)
-        .group_by(Finding.fix_key).order_by(crit.desc(), func.count().desc()).limit(10))).all()
+        .group_by(Finding.fix_key).order_by(crit.desc(), func.count().desc()).limit(25))).all()
     names = {f.key: f for f in (await db.execute(select(Fix).where(Fix.key.in_([t[0] for t in top])))).scalars()}
     out["top_fixes"] = [{"key": k, "title": (names[k].title if k in names else k.split(":", 1)[-1])[:200],
                          "kind": names[k].kind if k in names else None, "findings": n, "critical": c, "kev": kv,
@@ -316,7 +316,7 @@ async def cached(db: AsyncSession, range_key: str, source: str | None, device_ty
     from api.core.config import get_settings
     # a scoped viewer's numbers are theirs alone, so their cache entry is too
     kind = kind if kind in KINDS else "all"
-    key = f"vulndash:v4:{kind}:{source or '-'}:{device_type or '-'}:{viewer if scope is not None else 'all'}"
+    key = f"vulndash:v5:{kind}:{source or '-'}:{device_type or '-'}:{viewer if scope is not None else 'all'}"
     r = aioredis.from_url(get_settings().redis_url)
     try:
         try:

@@ -70,7 +70,7 @@ class ConsoleMixin:
         return out
 
     async def _console_upsert_assets(self, assets: list[dict], db: AsyncSession) -> int:
-        from api.core.device_match import add_source, find_device, remember_fqdn
+        from api.core.device_match import add_source, find_device, host_os, remember_fqdn, type_from_os
         from api.core.device_tags import R7_MANAGED, r7_tags, sync_tags
         from api.models.device import Device, DeviceType
 
@@ -89,7 +89,9 @@ class ConsoleMixin:
                 db.add(dev)
             add_source(dev, "rapid7_insightvm")
             remember_fqdn(dev, a.get("hostName"))
-            dev.os = ((a.get("os") or "") if isinstance(a.get("os"), str) else (a.get("os") or {}).get("name") or "")[:128] or None
+            reported = (a.get("os") or "") if isinstance(a.get("os"), str) else (a.get("os") or {}).get("name")
+            dev.os = host_os(dev.os, reported)   # WSL is a subsystem, not the host
+            dev.device_type = type_from_os(dev.os, dev.device_type)
             if own_tags and a.get("tags") is not None:  # older shippers don't send tags; leave what's there
                 names, crit = r7_tags(a["tags"])
                 dev.criticality = crit
