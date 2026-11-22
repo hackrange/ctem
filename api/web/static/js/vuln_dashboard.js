@@ -273,7 +273,7 @@
   async function load() {
     try { localStorage.setItem('ctem.vulnType', kind); } catch (e) { /* not remembered, still works */ }
     $('vd-source').disabled = kind === 'all';
-    if (kind === 'all') return loadAll();
+    if (kind === 'all') { status(''); return loadAll(); }
     $('vd-all').hidden = true;
     $('vd-kpis').hidden = false;
     document.querySelector('.vd-grid').hidden = false;
@@ -286,6 +286,10 @@
     if (pending) pending.abort();
     const mine = pending = new AbortController();
     $('vd-kpis').classList.add('is-loading');
+    if (!data) document.querySelector('.vd-grid').hidden = true;   // no empty charts while the first answer comes
+    status('Loading the dashboard...', true);
+    const slow = setTimeout(() => mine === pending && status('Still working: your view is being built from the latest data, which can take about 15 seconds the first time.', true), 4000);
+    const limit = setTimeout(() => { mine.timedOut = true; mine.abort(); }, 120000);
     try {
       const res = await fetch(`/api/v1/vuln-dashboard?${q}`, { headers: { Accept: 'application/json' }, signal: mine.signal });
       if (!res.ok) throw new Error(res.status);
@@ -293,13 +297,34 @@
       if (mine !== pending) return;
       data = got;
       fillFilters(data.filters);
+      document.querySelector('.vd-grid').hidden = false;
+      status('');
       render();
     } catch (e) {
-      if (mine !== pending || e.name === 'AbortError') return;
-      $('vd-kpis').innerHTML = '<div class="text-muted text-sm" style="padding:16px">The dashboard could not load. Try again in a minute.</div>';
+      if (mine !== pending || (e.name === 'AbortError' && !mine.timedOut)) return;
+      status(mine.timedOut ? 'The dashboard is taking too long to load.' : 'The dashboard could not load.', false, true);
     } finally {
+      clearTimeout(slow);
+      clearTimeout(limit);
       if (mine === pending) { pending = null; $('vd-kpis').classList.remove('is-loading'); }
     }
+  }
+  // What the page is doing while an answer is on its way, or why it has none (with a way to try again)
+  function status(text, busy, failed) {
+    let el = $('vd-status');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'vd-status';
+      el.className = 'vd-status';
+      el.setAttribute('role', 'status');
+      el.setAttribute('aria-live', 'polite');
+      $('vd-kpis').before(el);
+    }
+    el.hidden = !text;
+    el.classList.toggle('is-error', !!failed);
+    el.innerHTML = text ? `${busy ? '<span class="vd-spin" aria-hidden="true"></span>' : ''}<span>${esc(text)}</span>${failed
+      ? ' <button type="button" class="btn btn--ghost btn--sm" id="vd-retry">Try again</button>' : ''}` : '';
+    if (failed) $('vd-retry').onclick = () => load();
   }
 
   let filled = false;

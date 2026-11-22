@@ -108,7 +108,8 @@ async def scoped_integration(tok: CollectorToken, integration_id: str, kind: str
     return cfg
 
 
-async def track_run(db: AsyncSession, cfg: IntegrationConfig, run_id: str, count: int, final: bool) -> SyncJob:
+async def track_run(db: AsyncSession, cfg: IntegrationConfig, run_id: str, count: int, final: bool,
+                    warnings: list[str] | None = None) -> SyncJob:
     now = datetime.now(timezone.utc)
     job = (await db.execute(select(SyncJob).where(SyncJob.id == run_id))).scalar_one_or_none()
     if job is None:
@@ -123,9 +124,12 @@ async def track_run(db: AsyncSession, cfg: IntegrationConfig, run_id: str, count
     elif job.integration_id != str(cfg.id) or job.status != SyncStatus.running:
         raise HTTPException(409, detail="Run is not open")
     job.records_imported = (job.records_imported or 0) + count
+    for w in warnings or []:   # kept on the run; a successful run with warnings shows them on the card
+        if w not in (job.error_message or ""):
+            job.error_message = "; ".join(filter(None, [job.error_message, f"warning: {w}"]))[:1000]
     if final:
         job.status, job.finished_at = SyncStatus.success, now
-        cfg.last_sync_at, cfg.last_sync_status, cfg.last_sync_error = now, SyncStatus.success, None
+        cfg.last_sync_at, cfg.last_sync_status, cfg.last_sync_error = now, SyncStatus.success, job.error_message
     return job
 
 

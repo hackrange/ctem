@@ -39,6 +39,7 @@ class Rapid7Settings(_Source):
     port: Port = 3780
     username: Short
     vuln_catalog_hours: int = Field(24, ge=1, le=168)
+    software_hours: int = Field(24, ge=0, le=168)   # 0 turns software collection off
 
 
 class CrowdStrikeSettings(_Source):

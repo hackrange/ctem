@@ -115,37 +115,85 @@ def _vuln(v):
             "description": {"text": str(text)[:20000]} if text else None}
 
 
+CHUNK_ASSETS = 200   # assets read before their software is grouped and sent
+
+
+def _sw_item(sw):
+    cpe = sw.get("cpe")
+    return {k: (str(v)[:256] if v is not None else None) for k, v in (
+        ("vendor", sw.get("vendor")), ("product", sw.get("product") or sw.get("description")),
+        ("family", sw.get("family")), ("type", sw.get("type")),
+        ("cpe", cpe.get("v2.3") or cpe.get("v2.2") if isinstance(cpe, dict) else cpe))} | {
+        "version": str(sw.get("version") or "")[:128]}
+
+
 def _software(s, secret, names):
-    """The console's software list, each version with the assets it's on (by hostname or IP), in batches small
-    enough to upload. names: console asset id -> hostname or IP, from the asset pass."""
-    batch, refs = [], 0
-    try:
-        for rows in _pages(s, secret, "/api/3/software"):
-            for sw in rows:
-                sid = sw.get("id")
-                if not isinstance(sid, int):
-                    continue
-                ids = (_get(s, secret, f"/api/3/software/{sid}/assets") or {}).get("resources") or []
-                hosts = [names[i] for i in ids if isinstance(i, int) and names.get(i)][:5000]
-                if not hosts:
-                    continue
-                cpe = sw.get("cpe")
-                batch.append({k: (str(v)[:256] if v is not None else None) for k, v in (
-                    ("vendor", sw.get("vendor")), ("product", sw.get("product") or sw.get("description")),
-                    ("family", sw.get("family")), ("type", sw.get("type")),
-                    ("cpe", cpe.get("v2.3") or cpe.get("v2.2") if isinstance(cpe, dict) else cpe))} | {
-                    "version": str(sw.get("version") or "")[:128], "hosts": hosts})
-                refs += len(hosts)
-                if len(batch) >= 500 or refs >= 40000:
-                    yield batch
-                    batch, refs = [], 0
-    except cc.HttpError as e:
-        if e.status in (401, 403, 404):
-            cc.say("  Rapid7: this account can't read the software inventory; software is skipped")
-            return
-        raise
-    if batch:
-        yield batch
+    """Each asset's software (the console lists it per asset), grouped by product and version with the hosts
+    it's on, in batches small enough to upload; a string is a warning for CTEM. names: console asset id -> hostname or IP, from the asset pass."""
+    group, refs, done, found = {}, 0, 0, 0
+
+    def flush():
+        items = list(group.values())
+        for i in range(0, len(items), 500):
+            yield items[i:i + 500]
+        group.clear()
+
+    for aid, host in names.items():
+        try:
+            rows = (_get(s, secret, f"/api/3/assets/{aid}/software") or {}).get("resources") or []
+        except cc.HttpError as e:
+            if e.status in (401, 403):
+                msg = "the console account can't read asset software, so software was skipped"
+                cc.say(f"  Rapid7: {msg}")
+                yield msg   # a warning for CTEM's integration card, not just this box's log
+                return
+            if e.status == 404:
+                continue   # the asset went away since the asset pass
+            raise
+        for sw in rows:
+            if not isinstance(sw, dict):
+                continue
+            found += 1
+            it = _sw_item(sw)
+            key = (it["vendor"], it["product"], it["family"], it["version"])
+            hosts = group.setdefault(key, it | {"hosts": []})["hosts"]
+            if len(hosts) < 5000:
+                hosts.append(host)
+                refs += 1
+        done += 1
+        if done % CHUNK_ASSETS == 0 or refs >= 40000:
+            yield from flush()
+            refs = 0
+    yield from flush()
+    if names and not found:
+        msg = f"the console returned no software for any of {len(names):,} assets"
+        cc.say(f"  Rapid7: {msg}")
+        yield msg
+
+
+RETRY_HOURS = 6   # a pass that sent nothing (no access, or no software) is tried again this much later
+
+
+def _software_due(s, secret, state, names):
+    """Software once a day by default (software_hours in CTEM; 0 turns it off), after the assets so every install
+    maps to one. It counts as done only when software was sent; a pass that sent none is retried in RETRY_HOURS."""
+    hours = float(s.get("software_hours", 24) or 0)
+    if hours <= 0 or str(s.get("software", "on")).lower() in ("off", "0", "false", "no"):
+        return
+    done, tried = f"rapid7_software_sent_at:{s['host']}", f"rapid7_software_tried_at:{s['host']}"
+    now = time.time()
+    if now - float(state.get(done, 0)) < hours * 3600 or now - float(state.get(tried, 0)) < RETRY_HOURS * 3600:
+        return
+    sent = False
+    for part in _software(s, secret, names):
+        if isinstance(part, str):
+            yield {"warnings": [part]}
+        else:
+            sent = True
+            yield {"software": part}
+    state[tried] = now
+    if sent:
+        state[done] = now
 
 
 def collect(s, secret, state):
@@ -156,13 +204,7 @@ def collect(s, secret, state):
             if isinstance(r.get("id"), int) and (r.get("hostName") or r.get("ip")):
                 names[r["id"]] = str(r.get("hostName") or r.get("ip"))[:253]
         yield {"assets": [a for a in (_asset(r, tags) for r in rows) if a]}
-    # Software: once a day by default (software_hours), after the assets so every install maps to one
-    skey = f"rapid7_software_at:{s['host']}"
-    if str(s.get("software", "on")).lower() not in ("off", "0", "false", "no") and \
-            time.time() - float(state.get(skey, 0)) >= float(s.get("software_hours", 24)) * 3600:
-        for part in _software(s, secret, names):
-            yield {"software": part}
-        state[skey] = time.time()
+    yield from _software_due(s, secret, state, names)
     # The vuln catalog is huge and barely changes; once a day is plenty
     key = f"rapid7_vulns_at:{s['host']}"
     if time.time() - float(state.get(key, 0)) < float(s.get("vuln_catalog_hours", 24)) * 3600:

@@ -165,13 +165,13 @@ function _renderCards(list) {
       <div class="text-muted text-sm" style="margin-bottom:12px">
         ${lastLabel}: ${i.last_sync_at ? new Date(i.last_sync_at).toLocaleString() : 'Never'}
         ${i.sync_schedule && !isAI ? `&nbsp;&bull;&nbsp;<span title="cron: ${esc(i.sync_schedule)}">Scheduled</span>` : ''}
-      </div>
+      </div>${syncNote(i)}
       <div style="display:flex;gap:8px;align-items:center">${shipper
         ? `<span class="chip chip--info" title="Its connection, credentials and schedule live on the shipper">Managed by a shipper</span>
-           <a class="btn btn--ghost btn--sm" href="/settings/shippers">Open Shippers</a>`
+           <a class="btn btn--ghost btn--sm" href="/settings/shippers">Open Shippers</a>${truncateBtn(i)}`
         : `${actionBtn}
         <button class="btn btn--ghost btn--sm" onclick="editIntegration('${esc(i.id)}')">Edit</button>
-        <button class="btn btn--ghost btn--sm" style="color:var(--severity-critical)" onclick="deleteIntegration('${esc(i.id)}')">Remove</button>`}
+        <button class="btn btn--ghost btn--sm" style="color:var(--severity-critical)" onclick="deleteIntegration('${esc(i.id)}')">Remove</button>${truncateBtn(i)}`}
       </div>
     </div>`;
   }).join('');
@@ -190,6 +190,7 @@ async function loadIntegrations() {
   try {
     const data = await fetchJson(`${API}/integrations`);
     _integrations = data.integrations || [];
+    window._canTruncate = !!data.can_truncate;
     _renderCards(_integrations);
     // Re-apply any active search filter
     const q = document.getElementById('int-search')?.value || '';
@@ -491,4 +492,5 @@ document.addEventListener('DOMContentLoaded', loadIntegrations);
 // No backdrop dismiss -- clicking off a form loses data
 </script>
 <script src="{{ static('js/integrations_rapid7.js') }}"></script>
+<script src="{{ static('js/integration_truncate.js') }}"></script>
 {% endblock %}

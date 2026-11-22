@@ -337,6 +337,14 @@
 /* Vulnerability dashboard */
 .vd-kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-bottom: 16px; min-height: 76px; }
 .vd-kpis.is-loading { opacity: .55; }
+.vd-status { display: flex; align-items: center; gap: 10px; padding: 12px 14px; margin-bottom: 12px; border: 1px solid var(--border);
+  border-radius: 6px; background: var(--surface); color: var(--text-muted); font-size: .9rem; }
+.vd-status[hidden] { display: none; }
+.vd-status.is-error { color: var(--severity-critical); }
+.vd-spin { width: 16px; height: 16px; flex: none; border: 2px solid var(--border); border-top-color: var(--accent, var(--text));
+  border-radius: 50%; animation: vd-spin .8s linear infinite; }
+@keyframes vd-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .vd-spin { animation: none; } }
 .vd-kpi { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px;
   background: var(--surface); color: var(--fg); text-decoration: none; border-left: 4px solid var(--border); transition: transform .1s; }
 .vd-kpi:hover { transform: translateY(-1px); border-color: var(--accent); }

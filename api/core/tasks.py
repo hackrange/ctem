@@ -12,11 +12,7 @@ from api.core.config import get_settings
 
 settings = get_settings()
 
-celery_app = Celery(
-    "open-ctem",
-    broker=settings.redis_url,
-    backend=settings.redis_url,
-)
+celery_app = Celery("open-ctem", broker=settings.redis_url, backend=settings.redis_url)
 
 celery_app.conf.update(
     task_serializer="json",
@@ -100,11 +96,9 @@ def warm_vuln_dashboard():
 
 async def _warm_vuln_dashboard():
     from api.core.db import get_session
-    from api.core.vuln_dashboard import cached
+    from api.core.vuln_dashboard import warm
     async for db in get_session():
-        await cached(db, "90d", None, None, fresh=True)                  # dashboards' widgets: every finding
-        for kind in ("infra", "code", "web"):                           # the Vulnerability Dashboard's tabs
-            await cached(db, "90d", None, None, fresh=True, kind=kind)
+        await warm(db, _refresh_vuln_view)   # the fleet's views, then each recent scoped viewer's own
 
 
 @celery_app.task(name="api.core.tasks.refresh_vuln_view", ignore_result=True, time_limit=600, soft_time_limit=540)
@@ -182,6 +176,13 @@ def post_sync_pipeline(since: str | None = None):
     asyncio.run(forget_cached())
     warm_vuln_dashboard.delay()   # the tabs' main views, rebuilt now rather than by the next visitor
     asyncio.run(_push_exceptions(None))   # exceptions covering findings the sync just brought in
+
+
+@celery_app.task(name="api.core.tasks.truncate_integration", ignore_result=True)
+def truncate_integration(integration_id: str, actor: str):
+    from api.core.integration_truncate import start
+    if "error" not in asyncio.run(start(integration_id, actor)):
+        post_sync_pipeline.delay(None)   # rescore and refresh what the truncate removed
 
 
 @celery_app.task(name="api.core.tasks.rescore_devices", ignore_result=True)

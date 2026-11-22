@@ -13,6 +13,7 @@ const SOURCES = {
     { key: 'port', label: 'Port', type: 'number', ph: '3780' },
     { key: 'username', label: 'Username', ph: 'svc-ctem', req: true },
     { key: 'vuln_catalog_hours', label: 'Vuln catalog every (hours)', type: 'number', ph: '24' },
+    { key: 'software_hours', label: 'Software every (hours, 0 = off)', type: 'number', ph: '24' },
   ], secrets: { password: 'Console password' } },
   crowdstrike: { label: 'CrowdStrike Falcon', fields: [
     { key: 'cloud', label: 'Cloud', type: 'select', opts: [['us-1', 'us-1'], ['us-2', 'us-2'], ['eu-1', 'eu-1'], ['us-gov-1', 'us-gov-1']] },

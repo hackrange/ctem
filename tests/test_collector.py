@@ -369,3 +369,27 @@ def test_source_schedule_is_validated_and_needs_no_approval():
     for bad in (7, 0, -5, "30", 100000):
         with pytest.raises(Exception):
             validate_settings("splunk", {**base, "schedule_minutes": bad})
+
+
+@pytest.mark.asyncio
+async def test_shipper_warnings_reach_the_card_and_truncate_pauses_uploads(client, client_admin, db, monkeypatch):
+    from api.core import integration_truncate as tr
+    from api.models.integration import IntegrationConfig
+    p, r, _ = await _enroll(client, client_admin)
+    tok, iid, run = r.json()["token"], p["modules"]["ldap"]["integration_id"], str(uuid.uuid4())
+    url = f"/api/v1/collector/ingest/{iid}"
+    w = await client.post(url, headers=_auth(tok), json={"kind": "ldap", "run_id": run, "warnings": ["software was skipped"]})
+    assert w.status_code == 200
+    await client.post(url, headers=_auth(tok), json={"kind": "ldap", "run_id": run, "final": True})
+    cfg = (await db.execute(select(IntegrationConfig).where(IntegrationConfig.id == iid))).scalar_one()
+    await db.refresh(cfg)
+    assert cfg.last_sync_status.value == "success" and cfg.last_sync_error == "warning: software was skipped"
+    card = [i for i in (await client_admin.get("/api/v1/integrations")).json()["integrations"] if i["id"] == iid][0]
+    assert card["last_sync_note"] == "warning: software was skipped"
+    bad = await client.post(url, headers=_auth(tok), json={"kind": "ldap", "run_id": str(uuid.uuid4()), "warnings": ["<script>"]})
+    assert bad.status_code == 400
+
+    async def busy(_):
+        return True
+    monkeypatch.setattr(tr, "running", busy)
+    assert (await client.post(url, headers=_auth(tok), json={"kind": "ldap", "run_id": str(uuid.uuid4())})).status_code == 409

@@ -45,7 +45,7 @@ def _spool_dir(iid):
 
 
 def _count(part):
-    return sum(len(v) for v in part.values() if isinstance(v, list))
+    return sum(len(v) for k, v in part.items() if isinstance(v, list) and k != "warnings")
 
 
 def _fit(part, limit=None):

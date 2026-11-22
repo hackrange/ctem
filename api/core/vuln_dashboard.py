@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import Date, and_, case, cast, func, or_, select
@@ -31,6 +32,8 @@ SLA_DAYS = {"critical": 15, "high": 30, "medium": 90, "low": 180}
 AGE_BUCKETS = ((0, 30, "0-30 days"), (31, 60, "31-60"), (61, 90, "61-90"), (91, 180, "91-180"), (181, None, "180+"))
 OPEN = (FindingStatus.open, FindingStatus.in_progress)
 DIRTY_KEY = "vulndash:dirty_at"   # when the data last changed; a view built before it is out of date
+VIEWERS_KEY = "vulndash:scoped_viewers"   # people who see only some devices and opened the dashboard lately
+VIEWER_DAYS, MAX_WARM_VIEWERS = 7, 25
 CACHE_SECONDS = 1800   # the scheduler rebuilds the unfiltered view every 15 minutes
 
 
@@ -320,6 +323,8 @@ async def cached(db: AsyncSession, range_key: str, source: str | None, device_ty
     r = aioredis.from_url(get_settings().redis_url)
     try:
         try:
+            if scope is not None and viewer and not fresh and not source and not device_type:
+                await r.zadd(VIEWERS_KEY, {viewer: time.time()})   # warmed by warm() while they keep coming back
             hit = None if fresh else await r.get(key)
             if hit:
                 out = json.loads(hit)
@@ -339,3 +344,29 @@ async def cached(db: AsyncSession, range_key: str, source: str | None, device_ty
         return sliced(out, range_key)
     finally:
         await r.aclose()
+
+
+async def warm(db: AsyncSession, refresh) -> None:
+    """Every 15 minutes: the unfiltered views, then the tabs of each person with scoped access who opened the
+    dashboard in the last week, so their first click doesn't wait for a build (about 12s on a large fleet)."""
+    import redis.asyncio as aioredis
+
+    from api.core.config import get_settings
+    await cached(db, "90d", None, None, fresh=True)                  # dashboards' widgets: every finding
+    for kind in ("infra", "code", "web"):                           # the Vulnerability Dashboard's tabs
+        await cached(db, "90d", None, None, fresh=True, kind=kind)
+    r = aioredis.from_url(get_settings().redis_url, decode_responses=True)
+    try:
+        await r.zremrangebyscore(VIEWERS_KEY, 0, time.time() - VIEWER_DAYS * 86400)
+        viewers = await r.zrevrange(VIEWERS_KEY, 0, MAX_WARM_VIEWERS - 1)
+    except Exception:  # noqa: BLE001 -- no Redis, no warming; the page still builds on demand
+        log.warning("scoped dashboard viewers not read")
+        return
+    finally:
+        await r.aclose()
+    for v in viewers:
+        for kind in ("infra", "code", "web"):
+            try:
+                await refresh(None, None, kind, v)
+            except Exception:  # noqa: BLE001 -- one person's view failing doesn't stop the rest
+                log.exception("scoped dashboard view not warmed")

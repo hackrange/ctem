@@ -320,24 +320,57 @@ def test_crowdstrike_alert_details_and_recent_window():
     assert "offset=1000" in q and "created_timestamp%3A%3E%272026-10-21T00%3A00%3A00Z%27" in q and "status" not in q
 
 
-def test_rapid7_console_software_maps_assets_and_batches(monkeypatch):
-    sw = [{"id": 1, "vendor": "Google LLC", "product": "Chrome", "family": "Chrome", "version": "120.0", "type": "Web Browser",
-           "cpe": {"v2.3": "cpe:2.3:a:google:chrome:120.0"}},
-          {"id": 2, "vendor": "Mozilla", "product": "Firefox", "version": "128.0"},
-          {"id": "bad"}]
-    monkeypatch.setattr(r7, "_pages", lambda s, secret, path: iter([sw]))
+def test_rapid7_console_software_reads_each_asset_and_groups(monkeypatch):
+    chrome = {"id": 1, "vendor": "Google LLC", "product": "Chrome", "family": "Chrome", "version": "120.0",
+              "type": "Web Browser", "cpe": {"v2.3": "cpe:2.3:a:google:chrome:120.0"}}
+    ff = {"id": 2, "vendor": "Mozilla", "product": "Firefox", "version": "128.0"}
+    calls = []
 
     def get(s, secret, path):
-        return {"/api/3/software/1/assets": {"resources": [10, 11, 99]}, "/api/3/software/2/assets": {"resources": []}}[path]
+        calls.append(path)
+        if path == "/api/3/assets/12/software":
+            raise cc.HttpError(404, "gone")
+        return {"/api/3/assets/10/software": {"resources": [chrome, ff, "junk"]},
+                "/api/3/assets/11/software": {"resources": [chrome]}}[path]
     monkeypatch.setattr(r7, "_get", get)
-    out = [b for b in r7._software({}, "x", {10: "ws-01", 11: "srv-02"})]
-    assert len(out) == 1 and len(out[0]) == 1                       # Firefox is on no known asset; "bad" has no id
-    item = out[0][0]
-    assert item["hosts"] == ["ws-01", "srv-02"] and item["vendor"] == "Google LLC" and item["cpe"].startswith("cpe:2.3:a:google")
-    assert item["version"] == "120.0" and item["family"] == "Chrome"
+    out = [b for b in r7._software({}, "x", {10: "ws-01", 11: "srv-02", 12: "old-03"})]
+    assert calls == ["/api/3/assets/10/software", "/api/3/assets/11/software", "/api/3/assets/12/software"]
+    items = {i["product"]: i for b in out for i in b}
+    assert items["Chrome"]["hosts"] == ["ws-01", "srv-02"] and items["Chrome"]["cpe"].startswith("cpe:2.3:a:google")
+    assert items["Chrome"]["version"] == "120.0" and items["Chrome"]["family"] == "Chrome"
+    assert items["Firefox"]["hosts"] == ["ws-01"] and len(items) == 2   # a gone asset is skipped, not a failed run
+
+    monkeypatch.setattr(r7, "CHUNK_ASSETS", 1)
+    monkeypatch.setattr(r7, "_get", lambda s, secret, path: {"resources": [chrome]})
+    assert len(list(r7._software({}, "x", {1: "a", 2: "b"}))) == 2       # sent every chunk of assets
 
     def denied(s, secret, path):
         raise cc.HttpError(403, "no")
-        yield
-    monkeypatch.setattr(r7, "_pages", denied)
-    assert list(r7._software({}, "x", {})) == []                    # no access: skipped, never a failed run
+    monkeypatch.setattr(r7, "_get", denied)
+    out = list(r7._software({}, "x", {1: "a"}))                          # no access: skipped, never a failed run
+    assert len(out) == 1 and "can't read asset software" in out[0]      # ...but CTEM hears about it
+    monkeypatch.setattr(r7, "_get", lambda s, secret, path: {"resources": []})
+    out = list(r7._software({}, "x", {1: "a", 2: "b"}))
+    assert out == ["the console returned no software for any of 2 assets"]
+
+
+
+def test_rapid7_software_counts_as_done_only_when_sent(monkeypatch):
+    calls = []
+
+    def fake(s, secret, names):
+        calls.append(1)
+        yield from feed
+    monkeypatch.setattr(r7, "_software", fake)
+    s, state = {"host": "console001"}, {}
+    feed = ["the console returned no software for any of 1 assets"]
+    assert list(r7._software_due(s, "x", state, {1: "a"})) == [{"warnings": feed}]
+    assert "rapid7_software_sent_at:console001" not in state                 # nothing sent: not done...
+    assert list(r7._software_due(s, "x", state, {1: "a"})) == [] and len(calls) == 1   # ...but not retried at once
+    state["rapid7_software_tried_at:console001"] -= r7.RETRY_HOURS * 3600 + 1
+    feed = [[{"product": "Chrome", "hosts": ["a"]}]]
+    assert list(r7._software_due(s, "x", state, {1: "a"})) == [{"software": feed[0]}]
+    assert "rapid7_software_sent_at:console001" in state and len(calls) == 2
+    state["rapid7_software_tried_at:console001"] = 0
+    assert list(r7._software_due(s, "x", state, {1: "a"})) == [] and len(calls) == 2   # sent today: done
+    assert list(r7._software_due({"host": "c2", "software_hours": 0}, "x", {}, {1: "a"})) == []   # 0 = off

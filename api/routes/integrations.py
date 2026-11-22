@@ -79,12 +79,13 @@ _VENDOR_LABELS = {"github_code_review": "GitHub Code Review (SAST and DAST)", "a
 
 @router.get("")
 async def list_integrations(
-    _: User = Depends(require_cyber_or_admin),
+    u: User = Depends(require_cyber_or_admin),
     db: AsyncSession = Depends(get_session),
 ):
     result = await db.execute(select(IntegrationConfig).order_by(IntegrationConfig.vendor))
     owned = await _shipper_owned(db)
-    return {"integrations": [{**_summary(i), "shipper_managed": str(i.id) in owned} for i in result.scalars()]}
+    return {"integrations": [{**_summary(i), "shipper_managed": str(i.id) in owned} for i in result.scalars()],
+            "can_truncate": "admin" in u.role_names}
 
 
 async def _shipper_owned(db) -> set[str]:
@@ -388,6 +389,7 @@ def _summary(cfg: IntegrationConfig) -> dict:
         "is_enabled": cfg.is_enabled,
         "last_sync_at": cfg.last_sync_at.isoformat() if cfg.last_sync_at else None,
         "last_sync_status": cfg.last_sync_status.value if cfg.last_sync_status else None,
+        "last_sync_note": (cfg.last_sync_error or "")[:500] or None,   # a failure, a shipper warning or a truncate
         "sync_schedule": cfg.sync_schedule,
         "config": _mask_config(cfg.config),
     }

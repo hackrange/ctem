@@ -183,9 +183,14 @@ class SplunkIndex(_Lax):
     maxTime: Annotated[str, StringConstraints(max_length=40)] | None = None
 
 
+Warning = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=300,
+                                           pattern=r"^[^<>\x00-\x1f]*$")]
+
+
 class _Batch(_Lax):
     run_id: uuid.UUID
     final: bool = False
+    warnings: list[Warning] = Field(default_factory=list, max_length=10)   # shown on the integration card
 
 
 class LdapBatch(_Batch):

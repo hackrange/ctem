@@ -177,9 +177,12 @@ async def ingest_batch(integration_id: str, request: Request, db: AsyncSession =
     tok = await ingest.authenticate(request, db)
     batch = await _json_body(request, _Batch)
     cfg = await ingest.scoped_integration(tok, integration_id, batch.kind, db)
+    from api.core.integration_truncate import running
+    if await running(str(cfg.id)):
+        raise HTTPException(409, detail="This source's data is being truncated; send again on the next run")
     try:
         count = await ingest.apply_batch(db, batch)
-        job = await ingest.track_run(db, cfg, str(batch.run_id), count, batch.final)
+        job = await ingest.track_run(db, cfg, str(batch.run_id), count, batch.final, batch.warnings)
         await db.commit()
     except HTTPException:
         await db.rollback()
