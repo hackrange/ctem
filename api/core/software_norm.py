@@ -10,7 +10,7 @@ import re
 
 # Bump with every change to the rules below: the hourly maintenance job then regroups what's stored once
 # (api/maintenance/renormalize_software.py), carrying review decisions and exceptions to the new titles
-RULES_VERSION = 2
+RULES_VERSION = 3
 
 _SUFFIX = re.compile(r"[,\s]+(inc|incorporated|corp|corporation|co|company|llc|l\.l\.c|ltd|limited|gmbh|ag|s\.a|sa|bv|"
                      r"b\.v|plc|pty|srl|s\.r\.l|s\.r\.o|sro|spol|oy|ab|as|kk|nv|n\.v|pte|sas|spa|s\.p\.a|ltda|sl|s\.l|a\.s)\.?$", re.I)
@@ -47,6 +47,9 @@ _SYSTEM_NAMES = re.compile(
     r"kb\d{6,}|microsoft edge webview2 runtime|windows sdk|windows driver|microsoft vc\+\+|vcredist|"
     r"microsoft (directx|silverlight|xml parser|core xml|gdi\+)|microsoft policy platform|microsoft windows desktop runtime)",
     re.I)
+
+# Windows' own app packages, named like "Microsoft.AAD.BrokerPlugin" or "MicrosoftWindows.Client.CBS"
+_PACKAGE = re.compile(r"^(?:microsoft|microsoftwindows|windows|microsoftcorporationii|windowsapps|ms)\.[a-z0-9._-]+$", re.I)
 
 
 def vendor(raw: str | None) -> str:
@@ -97,7 +100,8 @@ def system(vendor_name: str, title_name: str, kind: str | None = None, cpe: str 
     if vendor_name.lower() in _SYSTEM_VENDORS:
         return True
     bare = title_name[len(vendor_name):].strip() if vendor_name and title_name.lower().startswith(vendor_name.lower()) else title_name
-    return bool(_SYSTEM_NAMES.match(title_name) or _SYSTEM_NAMES.match(bare))
+    return bool(_SYSTEM_NAMES.match(title_name) or _SYSTEM_NAMES.match(bare) or _PACKAGE.match(title_name)
+                or _PACKAGE.match(bare))
 
 
 def normalize(vendor_raw: str | None, product: str | None, family: str | None = None, kind: str | None = None,

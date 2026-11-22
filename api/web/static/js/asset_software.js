@@ -6,13 +6,15 @@ window.AssetSoftware = (() => {
   const $ = id => document.getElementById(id);
   let deviceId = null;
 
+  // Any tab in the asset's tab bar (Findings, Software, and Firewall / USB when the EDR reports them)
   function show(which) {
-    const sw = which === 'software';
-    $('tab-findings').setAttribute('aria-selected', String(!sw));
-    $('tab-software').setAttribute('aria-selected', String(sw));
-    $('dev-findings-panel').hidden = sw;
-    $('dev-software-panel').hidden = !sw;
-    history.replaceState(null, '', sw ? '#software' : location.pathname + location.search);
+    document.querySelectorAll('.dev-tabs [role="tab"]').forEach(t => {
+      const on = t.id === `tab-${which}`;
+      t.setAttribute('aria-selected', String(on));
+      const panel = $(t.getAttribute('aria-controls'));
+      if (panel) panel.hidden = !on;
+    });
+    history.replaceState(null, '', which === 'findings' ? location.pathname + location.search : `#${which}`);
   }
 
   // A per-asset exception: allowed here although unauthorized elsewhere, or not allowed here although approved
@@ -125,5 +127,5 @@ window.AssetSoftware = (() => {
     load();
     if (location.hash === '#software') show('software');
   }
-  return { mount };
+  return { mount, show };
 })();

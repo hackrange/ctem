@@ -112,6 +112,22 @@ class R7Vuln(_Lax):
     description: Annotated[str, StringConstraints(max_length=20000)] | R7Desc | None = None
 
 
+class _Signal(_Lax):
+    kind: Literal["os", "sensor"]
+    name: Annotated[str, StringConstraints(max_length=128, pattern=r"^[^<>\x00-\x1f]+$")]
+    group: Annotated[str, StringConstraints(max_length=64, pattern=r"^[^<>\x00-\x1f]*$")] | None = None
+    criteria: Annotated[str, StringConstraints(max_length=256, pattern=r"^[^<>\x00-\x1f]*$")] | None = None
+    meets: Annotated[str, StringConstraints(max_length=16, pattern=r"^[A-Za-z_ -]*$")] | None = None
+
+
+class CsPosture(_Lax):
+    overall: Annotated[int, Field(ge=0, le=100)] | None = None
+    os: Annotated[int, Field(ge=0, le=100)] | None = None
+    sensor_config: Annotated[int, Field(ge=0, le=100)] | None = None
+    at: Annotated[str, StringConstraints(max_length=40, pattern=r"^[0-9T:.+Z -]*$")] | None = None
+    signals: list[_Signal] = Field(default_factory=list, max_length=120)
+
+
 class CsDevice(_Lax):
     device_id: Annotated[str, StringConstraints(pattern=r"^[0-9a-fA-F]{32}$")] | None = None
     hostname: Annotated[str, StringConstraints(strip_whitespace=True, max_length=253)] | None = None
@@ -123,6 +139,10 @@ class CsDevice(_Lax):
     product_type: Annotated[str, StringConstraints(strip_whitespace=True, max_length=64, pattern=r"^[^\x00-\x1f]+$")] | None = None
     firewall_enabled: bool | None = None
     usb_storage_blocked: bool | None = None
+    prevention_policy_id: Annotated[str, StringConstraints(pattern=r"^[0-9a-fA-F]{32}$")] | None = None
+    firewall_policy_id: Annotated[str, StringConstraints(pattern=r"^[0-9a-fA-F]{32}$")] | None = None
+    usb_policy_id: Annotated[str, StringConstraints(pattern=r"^[0-9a-fA-F]{32}$")] | None = None
+    posture: CsPosture | None = None    # Falcon Zero Trust Assessment, every few hours
     recent_logins: list[Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=256, pattern=r"^[^\x00-\x1f]+$")]] | None = Field(None, max_length=20)
 
     @field_validator("last_seen", mode="before")
@@ -206,10 +226,71 @@ class Rapid7Batch(_Batch):
     software: list[R7Software] = Field(default_factory=list, max_length=MAX_BATCH)   # newer shippers
 
 
+Txt = lambda n: Annotated[str, StringConstraints(strip_whitespace=True, max_length=n, pattern=r"^[^<>\x00-\x1f]*$")]  # noqa: E731
+Hex32 = Annotated[str, StringConstraints(pattern=r"^[0-9a-fA-F]{32}$")]
+Word = Annotated[str, StringConstraints(max_length=48, pattern=r"^[A-Za-z0-9_ .:-]*$")]
+
+
+class _PolicySetting(_Lax):
+    name: Txt(96) | None = None
+    category: Txt(64) | None = None
+    value: bool | Word | None = None
+
+
+class _FwRule(_Lax):
+    name: Txt(128) | None = None
+    description: Txt(256) | None = None
+    enabled: bool = False
+    action: Word | None = None
+    direction: Word | None = None
+    protocol: Word | None = None
+    local_address: list[Annotated[str, StringConstraints(max_length=49, pattern=r"^[0-9a-fA-F:.*/]+$")]] = Field(default_factory=list, max_length=50)
+    remote_address: list[Annotated[str, StringConstraints(max_length=49, pattern=r"^[0-9a-fA-F:.*/]+$")]] = Field(default_factory=list, max_length=50)
+    local_port: list[tuple[Annotated[int, Field(ge=0, le=65535)], Annotated[int, Field(ge=0, le=65535)]]] = Field(default_factory=list, max_length=50)
+    remote_port: list[tuple[Annotated[int, Field(ge=0, le=65535)], Annotated[int, Field(ge=0, le=65535)]]] = Field(default_factory=list, max_length=50)
+    monitor_only: bool = False
+
+
+class _UsbAllowed(_Lax):
+    match: Word | None = None
+    vendor_id: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{1,8}$")] | None = None
+    vendor: Txt(128) | None = None
+    product_id: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{1,8}$")] | None = None
+    product: Txt(128) | None = None
+    serial: Txt(128) | None = None
+    action: Word | None = None
+    description: Txt(256) | None = None
+    expires: Annotated[str, StringConstraints(max_length=40, pattern=r"^[0-9T:.+Z -]*$")] | None = None
+
+
+class _UsbClass(_Lax):
+    id: Word
+    action: Word | None = None
+    allowed: list[_UsbAllowed] = Field(default_factory=list, max_length=500)
+
+
+class EdrPolicyIn(_Lax):
+    """A prevention, firewall or device control policy, sent once per run; hosts point at it by id."""
+    id: Hex32
+    kind: Literal["prevention", "firewall", "device_control"]
+    name: Txt(128) | None = None
+    enabled: bool = False
+    platform: Txt(32) | None = None
+    settings: dict[Annotated[str, StringConstraints(max_length=64, pattern=r"^[A-Za-z0-9_.-]+$")], _PolicySetting] = Field(default_factory=dict, max_length=120)
+    enforce: bool | None = None
+    test_mode: bool | None = None
+    default_inbound: Word | None = None
+    default_outbound: Word | None = None
+    rules: list[_FwRule] = Field(default_factory=list, max_length=2000)
+    enforcement: Word | None = None
+    classes: list[_UsbClass] = Field(default_factory=list, max_length=40)
+
+
 class CrowdStrikeBatch(_Batch):
     kind: Literal["crowdstrike"]
     devices: list[CsDevice] = Field(default_factory=list, max_length=MAX_BATCH)
     detections: list[CsDetection] = Field(default_factory=list, max_length=MAX_BATCH)
+    edr_policies: list[EdrPolicyIn] = Field(default_factory=list, max_length=500)
 
 
 class SplunkBatch(_Batch):

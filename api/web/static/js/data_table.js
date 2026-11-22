@@ -188,6 +188,15 @@
       if (f.exposure === 'local') return chip('low', 'LOCAL CHECK');
       return '<span class="text-muted" title="The scanner didn\'t say where it found this">--</span>';
     },
+    // What the EDR does about this finding here and how that lowered its score: the reasons are the hover text,
+    // and screen readers read them
+    protections(f) {
+      const why = f.protections || [];
+      if (!why.length) return '';
+      const text = why.join('\n');
+      return ` <span class="chip chip--low" style="font-size:.65rem;cursor:help" tabindex="0" title="${esc(text)}"
+        aria-label="Lowered by protections: ${esc(why.join('; '))}">PROTECTED</span>`;
+    },
     bool(v) {
       return v ? '<span style="color:var(--severity-low)">&#10003;</span>'
                : '<span style="color:var(--severity-critical)">&#10007;</span>';

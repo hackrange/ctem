@@ -56,6 +56,7 @@ async def init_db() -> None:
     import api.models.tag_role      # noqa: F401
     import api.models.user_access   # noqa: F401
     import api.models.software      # noqa: F401
+    import api.models.edr_policy    # noqa: F401
     import api.models.cloud         # noqa: F401
     import api.models.utilization   # noqa: F401
     import api.models.snapshot      # noqa: F401
@@ -231,6 +232,7 @@ def init_db_worker() -> None:
     import api.models.tag_role      # noqa: F401
     import api.models.user_access   # noqa: F401
     import api.models.software      # noqa: F401
+    import api.models.edr_policy    # noqa: F401
     import api.models.cloud         # noqa: F401
     import api.models.utilization   # noqa: F401
     import api.models.snapshot      # noqa: F401

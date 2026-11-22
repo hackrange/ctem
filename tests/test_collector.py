@@ -393,3 +393,28 @@ async def test_shipper_warnings_reach_the_card_and_truncate_pauses_uploads(clien
         return True
     monkeypatch.setattr(tr, "running", busy)
     assert (await client.post(url, headers=_auth(tok), json={"kind": "ldap", "run_id": str(uuid.uuid4())})).status_code == 409
+
+
+
+@pytest.mark.asyncio
+async def test_send_software_sooner_puts_itself_back_after_a_software_run(client, client_admin, db):
+    from api.collector.software_resend import KEY, resend_soon
+    from api.models.collector import CollectorProfile
+    from api.models.settings import AppSetting
+    mods = {"rapid7_console": {"settings": {"host": "console001", "username": "svc", "software_hours": 24}}}
+    p, r, _ = await _enroll(client, client_admin, modules=mods)
+    prof = (await db.execute(select(CollectorProfile).where(CollectorProfile.id == p["id"]))).scalar_one()
+    assert await resend_soon(db, prof, 4) == 24
+    await db.commit()
+    await db.refresh(prof)
+    assert prof.modules["rapid7_console"]["settings"]["software_hours"] == 4
+    iid, h, run = p["modules"]["rapid7_console"]["integration_id"], _auth(r.json()["token"]), str(uuid.uuid4())
+    url = f"/api/v1/collector/ingest/{iid}"
+    assert (await client.post(url, headers=h, json={"kind": "rapid7_console", "run_id": run,
+                                                    "assets": [{"hostName": "server-rs1", "os": "Ubuntu"}]})).status_code == 200
+    assert (await client.post(url, headers=h, json={"kind": "rapid7_console", "run_id": run, "software": [
+        {"vendor": "Acme", "product": "Resend Tool", "version": "1.0", "hosts": ["server-rs1"]}]})).status_code == 200
+    assert (await client.post(url, headers=h, json={"kind": "rapid7_console", "run_id": run, "final": True})).status_code == 200
+    await db.refresh(prof)
+    assert prof.modules["rapid7_console"]["settings"]["software_hours"] == 24
+    assert (await db.execute(select(AppSetting).where(AppSetting.key == KEY.format(prof.id)))).scalar_one_or_none() is None

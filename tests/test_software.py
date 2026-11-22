@@ -214,6 +214,9 @@ async def test_per_asset_exceptions_and_file_details(db, client_admin, client_it
 
 def test_names_from_real_inventories():
     from api.core.software_norm import normalize as n
+    for pkg in ("Microsoft.AAD.BrokerPlugin", "MicrosoftWindows.Client.CBS", "Windows.PrintDialog", "MICROSOFT.UI.XAML.CBS"):
+        assert n("Microsoft Corporation", pkg)["system"], pkg
+    assert not n("Microsoft Corporation", "Microsoft Teams")["system"]
     assert n("JetBrains s.r.o.", "PyCharm Community")["title"] == "JetBrains PyCharm"
     assert n("Hewlett-Packard", "HP Smart")["vendor"] == "HP" and n("HP Inc.", "HP Smart")["key"] == n("Hewlett-Packard", "HP Smart")["key"]
     assert n("AcmeSoftware\\Acme-Browser", "Acme OnlineExpress") == {"key": "|acme onlineexpress", "vendor": "",
@@ -240,23 +243,37 @@ async def test_renormalize_regroups_and_a_software_run_mirrors_the_source(db):
     db.add_all([d, old])
     await db.flush()
     db.add(SoftwareInstall(title_id=old.id, device_id=d.id, version="2024.1", source="t_rn", product=f"PyCharm{n} Community",
-                           last_seen=datetime.now(timezone.utc)))
+                           vendor_raw="JetBrains s.r.o.", last_seen=datetime.now(timezone.utc)))
+    legacy = SoftwareTitle(key=f"acme|acme widget{n}", vendor="Acme", title=f"Acme Widget{n}")
+    pkg = SoftwareTitle(key=f"microsoft|microsoft.aad.brokerplugin{n}", vendor="Microsoft", title=f"Microsoft.AAD.BrokerPlugin{n}")
+    db.add_all([legacy, pkg])
+    await db.flush()
+    db.add_all([SoftwareInstall(title_id=legacy.id, device_id=d.id, version="1", source="t_rn", product=f"Widget{n} Pro Edition",
+                                last_seen=datetime.now(timezone.utc)),
+                SoftwareInstall(title_id=pkg.id, device_id=d.id, version="1", source="t_rn", product=f"MICROSOFT.AAD.BROKERPLUGIN{n}",
+                                vendor_raw="Microsoft Corporation", family="Windows", last_seen=datetime.now(timezone.utc))])
     await db.commit()
     out = await run(db)
     assert out["installs_moved"] >= 1
     t = (await db.execute(select(SoftwareTitle).where(SoftwareTitle.key == f"jetbrains|jetbrains pycharm{n}"))).scalar_one()
     assert (await db.execute(select(SoftwareInstall).where(SoftwareInstall.title_id == t.id))).scalar_one().version == "2024.1"
     assert (await db.execute(select(SoftwareTitle).where(SoftwareTitle.key == old.key))).scalar_one_or_none() is None
+    await db.refresh(legacy)
+    rows = (await db.execute(select(SoftwareInstall.title_id).where(SoftwareInstall.product == f"Widget{n} Pro Edition"))).scalars().all()
+    assert rows == [legacy.id]                            # no reported names kept: left for its next upload
+    win = (await db.execute(select(SoftwareTitle).join(SoftwareInstall, SoftwareInstall.title_id == SoftwareTitle.id)
+                             .where(SoftwareInstall.product == f"MICROSOFT.AAD.BROKERPLUGIN{n}"))).scalar_one()
+    assert win.system                                     # family "Windows" and a package name: a system component
 
     start = datetime.now(timezone.utc)
     stale = SoftwareInstall(title_id=t.id, device_id=d.id, version="2023.1", source="t_rn", last_seen=start - timedelta(hours=1))
     db.add(stale)
     await db.commit()
-    assert await prune_run(db, "t_rn", start) == 0        # this run sent no software: nothing touched
+    assert await prune_run(db, "t_rn", start) is None     # this run sent no software: nothing touched
     (await db.execute(select(SoftwareInstall).where(SoftwareInstall.version == "2024.1", SoftwareInstall.source == "t_rn"))
      ).scalar_one().last_seen = datetime.now(timezone.utc)
     await db.commit()
-    assert await prune_run(db, "t_rn", start) == 1        # it did: what it no longer reports goes
+    assert await prune_run(db, "t_rn", start) == 3        # it did: what it no longer reports goes (all but 2024.1)
 
 
 @pytest.mark.asyncio
@@ -297,3 +314,34 @@ async def test_regroup_runs_once_per_rules_version_and_waits_for_runs(db, monkey
     assert await rn.if_rules_changed(db) is not None and len(calls) == 2
     row = (await db.execute(select(AppSetting).where(AppSetting.key == rn.VERSION_KEY))).scalar_one()
     assert row.value == str(software_norm.RULES_VERSION)
+
+
+@pytest.mark.asyncio
+async def test_bulk_decisions_are_for_deciders_and_audited(db, client_admin, client_cyber, client_it_user):
+    from sqlalchemy import func, select
+
+    from api.models.settings import AuditLog
+    from api.models.software import SoftwareTitle
+    n = uuid.uuid4().hex[:6]
+    ts = [SoftwareTitle(key=f"acme|acme bulk{i}{n}", vendor="Acme", title=f"Acme Bulk{i}{n}") for i in range(3)]
+    db.add_all(ts)
+    await db.flush()
+    ids = [str(t.id) for t in ts]
+    await db.commit()
+    body = {"ids": ids[:2] + [str(uuid.uuid4())], "status": "unauthorized", "note": "not on the approved list"}
+    assert (await client_it_user.put("/api/v1/software/bulk-status", json=body)).status_code in (403, 404)
+    r = await client_cyber.put("/api/v1/software/bulk-status", json=body)
+    assert r.status_code == 200 and r.json()["updated"] == 2 and r.json()["not_found"] == 1
+    fresh = select(SoftwareTitle).where(SoftwareTitle.id.in_(ids)).execution_options(populate_existing=True)
+    got = {t.id: t for t in (await db.execute(fresh)).scalars()}
+    assert got[ids[0]].status == got[ids[1]].status == "unauthorized" and got[ids[2]].status == "unreviewed"
+    assert got[ids[0]].status_note == "not on the approved list" and got[ids[0]].decided_by
+    audits = (await db.execute(select(func.count()).select_from(AuditLog).where(
+        AuditLog.action == "software.status", AuditLog.resource_id.in_(ids)))).scalar_one()
+    assert audits == 2
+    back = await client_admin.put("/api/v1/software/bulk-status", json={"ids": ids[:1], "status": "unreviewed"})
+    assert back.json()["updated"] == 1
+    t0 = {t.id: t for t in (await db.execute(fresh)).scalars()}[ids[0]]
+    assert t0.status == "unreviewed" and t0.decided_by is None
+    assert (await client_admin.put("/api/v1/software/bulk-status", json={"ids": [], "status": "approved"})).status_code == 422
+    assert (await client_admin.put("/api/v1/software/bulk-status", json={"ids": ids, "status": "approved", "note": "<b>"})).status_code == 422

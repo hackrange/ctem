@@ -197,6 +197,12 @@ class CrowdStrikeConnector(BaseConnector):
             for f in ("firewall_enabled", "usb_storage_blocked"):
                 if isinstance(d.get(f), bool):
                     setattr(dev, f, d[f])
+            for f, col in (("prevention_policy_id", "edr_prevention_policy"), ("firewall_policy_id", "edr_firewall_policy"),
+                           ("usb_policy_id", "edr_usb_policy")):
+                if isinstance(d.get(f), str):
+                    setattr(dev, col, d[f][:64])   # the policies themselves: api/core/edr_policies.py
+            if isinstance(d.get("posture"), dict):
+                dev.edr_posture = d["posture"]
             user = (d.get("last_login_user") or "").strip()
             if any(ord(ch) < 32 for ch in user):
                 user = ""

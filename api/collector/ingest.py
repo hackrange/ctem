@@ -132,7 +132,9 @@ async def track_run(db: AsyncSession, cfg: IntegrationConfig, run_id: str, count
         cfg.last_sync_at, cfg.last_sync_status, cfg.last_sync_error = now, SyncStatus.success, job.error_message
         if KIND_FOR_VENDOR.get(cfg.vendor) == "rapid7_console" and job.started_at:
             from api.core.software_ingest import prune_run
-            await prune_run(db, "rapid7_insightvm", job.started_at)   # a full software pass mirrors the console
+            if await prune_run(db, "rapid7_insightvm", job.started_at) is not None:   # a software pass mirrors the console
+                from api.collector.software_resend import restore
+                await restore(db, str(cfg.id))   # and ends a "send software sooner" request
     return job
 
 
@@ -155,6 +157,9 @@ async def apply_batch(db: AsyncSession, batch: LdapBatch | Rapid7Batch | CrowdSt
     if isinstance(batch, CrowdStrikeBatch):
         from api.integrations.crowdstrike import CrowdStrikeConnector
         cs = CrowdStrikeConnector({})
+        if batch.edr_policies:   # sent ahead of the hosts that point at them
+            from api.core.edr_policies import upsert as upsert_policies
+            await upsert_policies(db, "crowdstrike", [p.model_dump(exclude_none=True) for p in batch.edr_policies])
         n = await cs._upsert([d.model_dump(exclude_none=True) for d in batch.devices], [], db)
         if batch.detections:
             await cs._cache_threats([d.model_dump(exclude_none=True) for d in batch.detections], db)

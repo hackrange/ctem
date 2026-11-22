@@ -21,6 +21,11 @@ class ControlContext:
     exposure: str | None = None             # scanner: "listening" (on a network service) or "local" (local check)
     ports: str | None = None                # the listening ports, for the reason text
     cloud_ports: list | None = None         # the instance's cloud firewall openings (api/cloud), None = not a cloud instance
+    # What the EDR's policies do on this host (api/scoring/edr_controls.py); None = not reported
+    edr_prevention: dict | None = None      # {blocking: [...], exploit: [...], name}
+    usb_blocked: bool | None = None
+    memory_flaw: bool = False               # the flaw is memory corruption (what exploit mitigations target)
+    host_firewall: tuple | None = None      # (factor, reason) for this finding's ports
 
 
 def apply_multipliers(base_score: float, ctx: ControlContext) -> tuple[float, list[str]]:
@@ -49,15 +54,18 @@ def apply_multipliers(base_score: float, ctx: ControlContext) -> tuple[float, li
     if ctx.nodezero_confirmed_not_exploitable:
         score *= 0.3
         reasons.append("NodeZero confirmed NOT exploitable (-70%)")
-    if ctx.host_firewall_blocks_vector:
+    if ctx.host_firewall:
+        score *= ctx.host_firewall[0]
+        reasons.append(ctx.host_firewall[1])
+    elif ctx.host_firewall_blocks_vector:
         score *= 0.5
         reasons.append("Host firewall blocks attack vector (-50%)")
     if ctx.network_segmentation_blocks:
         score *= 0.6
         reasons.append("Network segmentation blocks path (-40%)")
     if ctx.edr_active:
-        score *= 0.7
-        reasons.append("EDR active response mode (-30%)")
+        score, why = _edr(score, ctx)
+        reasons.extend(why)
     factor, why = reachability(ctx)
     if factor != 1.0 or why:
         score *= factor
@@ -67,6 +75,30 @@ def apply_multipliers(base_score: float, ctx: ControlContext) -> tuple[float, li
         reasons.append(f"Device offline {ctx.device_offline_days}d (-30%)")
 
     return max(0.0, min(100.0, score)), reasons
+
+
+def _edr(score: float, ctx: ControlContext) -> tuple[float, list[str]]:
+    """The EDR's discount, from what its policy on this host does; the flat one when the policy isn't reported."""
+    from api.scoring.edr_controls import VENDOR
+    who = VENDOR.get(ctx.edr_vendor or "", "EDR")
+    p, why = ctx.edr_prevention, []
+    if p is None:
+        return score * 0.7, ["EDR active response mode (-30%)"]
+    if p["blocking"]:
+        score *= 0.7
+        why.append(f"{who} prevention blocks malicious files and behavior: {', '.join(p['blocking'][:4])}"
+                   f"{' and more' if len(p['blocking']) > 4 else ''} (-30%)")
+    else:
+        score *= 0.9
+        why.append(f"{who} is running but its policy only detects; nothing is set to block (-10%)")
+    if p["exploit"] and ctx.memory_flaw:
+        score *= 0.8
+        why.append(f"{who} exploit mitigations ({', '.join(p['exploit'][:4])}) make this memory corruption flaw "
+                   "harder to exploit (-20%)")
+    if ctx.usb_blocked and (ctx.attack_vector or "").lower() == "physical":
+        score *= 0.5
+        why.append(f"{who} device control blocks USB storage, the usual way in for a physical-access flaw (-50%)")
+    return score, why
 
 
 # Reachability from facts only: what the CVSS vector requires, and where the scanner found it.

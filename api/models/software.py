@@ -35,6 +35,11 @@ class SoftwareInstall(Base, UUIDPrimaryKey):
     device_id: Mapped[str] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True)
     version: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     product: Mapped[str | None] = mapped_column(String(256))     # the name as the source reported it
+    # The rest of what the source reported, so a regroup after a rules change gives exactly what an upload would
+    vendor_raw: Mapped[str | None] = mapped_column(String(256))
+    family: Mapped[str | None] = mapped_column(String(256))
+    kind: Mapped[str | None] = mapped_column(String(64))
+    cpe: Mapped[str | None] = mapped_column(String(256))
     # File details when the source has them (an EDR or privilege manager such as CyberArk EPM; scanners usually don't)
     publisher: Mapped[str | None] = mapped_column(String(256))   # the code-signing publisher
     install_path: Mapped[str | None] = mapped_column(String(512))

@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "api" / "collector"
 
 import collector_common as cc  # noqa: E402
 import collector_crowdstrike as cs  # noqa: E402
+import collector_cs_policies as csp  # noqa: E402
 
 VIS, HID, OLD = "a" * 32, "b" * 32, "c" * 32
 
@@ -44,7 +45,7 @@ def test_hidden_ids_page_by_offset_until_total():
 def test_collect_ships_visible_then_hidden(monkeypatch):
     api = FakeApi()
     monkeypatch.setattr(cs, "_Falcon", lambda s, secret: api)
-    monkeypatch.setattr(cs._Policies, "load", lambda self, rows: None)
+    monkeypatch.setattr(csp.Policies, "load", lambda self, rows: None)
     monkeypatch.setattr(cs._Logins, "load", lambda self, rows: {})
     batches = [b["devices"] for b in cs.collect({}, "x", {}) if "devices" in b]
     assert [(d["device_id"], d["hidden"]) for b in batches for d in b] == [(VIS, False), (HID, True)]
@@ -122,9 +123,9 @@ def test_a_refused_extra_never_stops_the_pull():
     assert cs._Logins(v1).load(rows) == {did: ["jdoe"]} and v1.paths[-1].endswith("/v1")
     both = cs._Logins(Api(["/v2", "/v1"]))  # both refused: the feature turns off, the pull goes on
     assert both.load(rows) == {} and both.off
-    pol = cs._Policies(Api(["firewall"]))
-    pol._fetch("/policy/entities/firewall/v1", ["a" * 32], pol.fw, "firewall")
-    assert "firewall" in pol.denied
+    pol = csp.Policies(Api(["firewall"]))
+    pol._fetch(("/policy/entities/firewall/v1",), ["a" * 32], pol.fw, "firewall")
+    assert "firewall" in pol.denied and "Firewall management: Read" in pol.notes[0]
 
 
 def test_http_error_carries_the_api_reason_cleanly():

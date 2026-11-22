@@ -23,7 +23,9 @@ async def run(db: AsyncSession) -> dict:
     for old in list(titles.values()):
         rows = (await db.execute(select(SoftwareInstall).where(SoftwareInstall.title_id == old.id))).scalars().all()
         for i in rows:
-            n = software_norm.normalize(old.vendor, i.product or old.title)
+            if not (i.vendor_raw or i.family):
+                continue   # stored before the reported names were kept: its next upload regroups it exactly
+            n = software_norm.normalize(i.vendor_raw, i.product, i.family, i.kind, i.cpe)
             if n is None or n["key"] == old.key:
                 continue
             new = by_key.get(n["key"])
@@ -55,6 +57,10 @@ async def run(db: AsyncSession) -> dict:
         if not (await db.execute(select(exists().where(SoftwareException.title_id == to,
                                                        SoftwareException.device_id == e.device_id)))).scalar():
             e.title_id = to
+    # A title the system rules now cover (Windows' own packages, say) moves out of the third-party view
+    for t in (await db.execute(select(SoftwareTitle).where(SoftwareTitle.system == False))).scalars():  # noqa: E712
+        if software_norm.system(t.vendor, t.title):
+            t.system = True
     empty = ~exists().where(SoftwareInstall.title_id == SoftwareTitle.id)
     unused = ~exists().where(SoftwareException.title_id == SoftwareTitle.id)
     r = await db.execute(delete(SoftwareTitle).where(empty, unused, SoftwareTitle.status == "unreviewed")

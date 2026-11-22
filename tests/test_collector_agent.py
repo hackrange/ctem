@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "api" / "collector"
 
 import collector_common as cc  # noqa: E402
 import collector_crowdstrike as cs  # noqa: E402
+import collector_cs_policies as csp  # noqa: E402
 import collector_ldap as ldapmod  # noqa: E402
 import collector_rapid7 as r7  # noqa: E402
 import collector_splunk as sp  # noqa: E402
@@ -166,16 +167,34 @@ def test_crowdstrike_firewall_and_usb_from_policies():
             if path.startswith("/policy/entities/firewall/"):
                 return {"resources": [{"id": fw_on, "enabled": True}, {"id": fw_off, "enabled": False}]}
             if path.startswith("/fwmgr/entities/policies/"):
-                return {"resources": [{"policy_id": fw_on, "enforce": True}, {"policy_id": fw_off, "enforce": False}]}
+                return {"resources": [{"policy_id": fw_on, "enforce": True, "default_inbound": "DENY", "default_outbound": "ALLOW",
+                                       "rule_group_ids": ["9" * 32]}, {"policy_id": fw_off, "enforce": False}]}
+            if path.startswith("/fwmgr/entities/rule-groups/"):
+                return {"resources": [{"id": "9" * 32, "enabled": True, "rule_ids": ["r2", "r1"]}]}
+            if path.startswith("/fwmgr/entities/rules/"):
+                return {"resources": [
+                    {"id": "r1", "name": "Allow RDP from jump hosts", "enabled": True, "action": "ALLOW", "direction": "IN",
+                     "protocol": "6", "local_port": [{"start": 3389, "end": 0}], "remote_address": [{"address": "192.0.2.0", "netmask": 24}]},
+                    {"id": "r2", "name": "Block SMB", "enabled": True, "action": "DENY", "direction": "IN", "protocol": "6",
+                     "local_port": [{"start": 445, "end": 445}], "remote_address": [{"address": "*"}]}]}
+            if path.startswith("/policy/entities/prevention/"):
+                return {"resources": [{"id": "f" * 32, "name": "Workstations", "enabled": True, "platform_name": "Windows",
+                                       "prevention_settings": [{"name": "Exploit Mitigation", "settings": [
+                                           {"id": "ForceDEP", "name": "Force DEP", "type": "toggle", "value": {"enabled": True}}]},
+                                           {"name": "Machine Learning", "settings": [
+                                               {"id": "CloudAntiMalware", "name": "Cloud Anti-malware", "type": "mlslider",
+                                                "value": {"detection": "MODERATE", "prevention": "MODERATE"}}]}]}]}
             if path.startswith("/policy/entities/device-control/"):
                 mode = {"enforcement_mode": "MONITOR_ENFORCE"}
                 return {"resources": [
-                    {"id": usb_block, "enabled": True, "settings": {**mode, "classes": [{"id": "MASS_STORAGE", "action": "BLOCK_ALL"}]}},
+                    {"id": usb_block, "enabled": True, "settings": {**mode, "classes": [{"id": "MASS_STORAGE", "action": "FULL_BLOCK", "exceptions": [
+                        {"vendor_id": "0x0781", "vendor_name": "Acme Storage", "product_id": "5581", "product_name": "Acme Vault",
+                         "serial_number": "ACME123", "action": "FULL_ACCESS", "description": "Finance backup drive"}]}]}},
                     {"id": usb_ro, "enabled": True, "settings": {**mode, "classes": [{"id": "MASS_STORAGE", "action": "READ_ONLY"}]}}]}
             raise AssertionError(path)
 
     def host(fw, usb):
-        pol = {}
+        pol = {"prevention": {"applied": True, "policy_id": "f" * 32}}
         if fw:
             pol["firewall"] = {"applied": True, "policy_id": fw}
         if usb:
@@ -183,15 +202,35 @@ def test_crowdstrike_firewall_and_usb_from_policies():
         return {"device_id": "e" * 32, "hostname": "DESKTOP001", "device_policies": pol}
 
     rows = [host(fw_on, usb_block), host(fw_off, usb_ro), host(None, None)]
-    p = cs._Policies(FakeApi())
+    p = csp.Policies(FakeApi())
     p.load(rows)
     got = [(cs._device(d, p)["firewall_enabled"], cs._device(d, p)["usb_storage_blocked"]) for d in rows]
     assert got == [(True, True), (False, False), (False, False)]
+    every = p.new_policies()
+    usb = next(x for x in every if x["kind"] == "device_control" and x["id"] == usb_block)
+    assert usb["enforcement"] == "MONITOR_ENFORCE" and usb["classes"][0]["action"] == "FULL_BLOCK"
+    assert usb["classes"][0]["allowed"][0] == {"vendor_id": "0781", "vendor": "Acme Storage", "match": None, "product_id": "5581", "product": "Acme Vault",
+                                               "serial": "ACME123", "action": "FULL_ACCESS", "description": "Finance backup drive",
+                                               "expires": None}
+    sent = {x["kind"]: x for x in every if x["id"] in (fw_on, "f" * 32)}
+    rs = sent["firewall"]
+    assert rs["default_inbound"] == "DENY" and rs["enforce"] and [r["name"] for r in rs["rules"]] == ["Block SMB", "Allow RDP from jump hosts"]
+    smb, rdp = rs["rules"]
+    assert smb["action"] == "DENY" and smb["protocol"] == "TCP" and smb["local_port"] == [[445, 445]] and smb["remote_address"] == ["*"]
+    assert rdp["local_port"] == [[3389, 3389]] and rdp["remote_address"] == ["192.0.2.0/24"]
+    assert sent["prevention"]["settings"]["ForceDEP"]["value"] is True
+    assert sent["prevention"]["settings"]["CloudAntiMalware"]["value"] == "MODERATE"
+    assert sent.get("firewall") and not [x for x in p.new_policies()]   # each policy once per run
+    assert cs._device(rows[0], p)["prevention_policy_id"] == "f" * 32 and cs._device(rows[0], p)["firewall_policy_id"] == fw_on
+    assert cs._device(rows[0], p)["usb_policy_id"] == usb_block
 
-    denied = cs._Policies(FakeApi(deny=("/policy/entities/device-control/", "/fwmgr/")))
+    denied = csp.Policies(FakeApi(deny=("/policy/entities/device-control/", "/fwmgr/")))
     denied.load(rows)
     first = cs._device(rows[0], denied)
     assert first["firewall_enabled"] is None and first["usb_storage_blocked"] is None  # unknown, not "off"
+    assert any("Device control policies: Read" in n for n in denied.notes)                 # CTEM's card says why
+    assert any("Firewall management: Read" in n and "HTTP" in n for n in denied.notes)
+    assert not p.notes
 
 
 def test_ad_account_state_from_raw_and_parsed_values():
@@ -374,3 +413,23 @@ def test_rapid7_software_counts_as_done_only_when_sent(monkeypatch):
     state["rapid7_software_tried_at:console001"] = 0
     assert list(r7._software_due(s, "x", state, {1: "a"})) == [] and len(calls) == 2   # sent today: done
     assert list(r7._software_due({"host": "c2", "software_hours": 0}, "x", {}, {1: "a"})) == []   # 0 = off
+
+
+
+def test_device_control_v2_layout_and_watch_counts():
+    v2 = {"id": "a" * 32, "enabled": True, "usb_settings": {"enforcement_mode": "MONITOR_ENFORCE", "classes": [
+        {"id": "x1", "class": "MASS_STORAGE", "action": "WHITELIST", "exceptions": [
+            {"id": "e1", "action": "FULL_ACCESS", "class": "MASS_STORAGE", "match_method": "VID_PID_SERIAL",
+             "vendor_id": "0781", "vendor_name": "Acme Storage", "serial_number": "ACME9"}]}]}}
+    p = csp.Policies(None)
+    p.usb = {"a" * 32: v2, "b" * 32: {"id": "b" * 32, "enabled": True, "settings": {"enforcement_mode": "MONITOR_ENFORCE", "classes": [
+        {"id": "MASS_STORAGE", "action": "READ_ONLY"}]}}, "c" * 32: {"id": "c" * 32, "enabled": True, "settings": {
+            "enforcement_mode": "MONITOR_ENFORCE", "classes": [{"id": "IMAGING", "action": "FULL_BLOCK"}]}}}
+    host = lambda pid: {"device_policies": {"device_control": {"applied": True, "policy_id": pid}}}  # noqa: E731
+    assert p.usb_blocked(host("a" * 32)) is True            # allow-list only: blocked except what's allowed
+    assert p.usb_blocked(host("b" * 32)) is False           # read-only isn't blocked
+    assert p.usb_blocked(host("c" * 32)) is None            # says nothing about USB storage: unknown, not "off"
+    s = csp.usb_summary("a" * 32, v2)
+    assert s["classes"][0]["id"] == "MASS_STORAGE" and s["classes"][0]["allowed"][0]["match"] == "VID_PID_SERIAL"
+    assert csp.rule_summary({"monitor": {"count": "0", "period_ms": "0"}})["monitor_only"] is False
+    assert csp.rule_summary({"monitor": {"count": "5", "period_ms": "60000"}})["monitor_only"] is True

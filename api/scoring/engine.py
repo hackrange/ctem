@@ -47,6 +47,29 @@ async def _app_scores(device: Device, findings: list, db: AsyncSession) -> tuple
     return score, device_grade(score), per, breakdown
 
 
+async def _edr_facts(device: Device, db: AsyncSession) -> dict:
+    """What the EDR's policies do on this host, once per host (api/scoring/edr_controls.py)."""
+    from api.scoring import edr_controls as ec
+    if not device.edr_active or not device.edr_vendor:
+        return {}
+    rows = await ec.policies(db)
+    get = lambda pid, kind: rows.get((device.edr_vendor, pid, kind)) if pid else None  # noqa: E731
+    return {"prevention": ec.prevention(get(device.edr_prevention_policy, "prevention")),
+            "firewall": get(device.edr_firewall_policy, "firewall"), "usb_blocked": device.usb_storage_blocked}
+
+
+def _edr_context(edr: dict, f) -> dict:
+    """The ControlContext fields for one finding on that host."""
+    from api.scoring import edr_controls as ec
+    if not edr:
+        return {}
+    v = f.vuln
+    text = f"{v.title or ''} {v.description or ''}"[:4000] if v else ""
+    fw = ec.firewall(edr["firewall"], f.ports) if f.exposure == "listening" else None
+    return {"edr_prevention": edr["prevention"], "usb_blocked": edr["usb_blocked"],
+            "memory_flaw": bool(ec.MEMORY_FLAW.search(text)), "host_firewall": fw}
+
+
 async def recalculate_device(device: Device, db: AsyncSession) -> RiskScore:
     """Recalculate and persist the risk score for a single device (a repository or a site by their own model)."""
     findings_result = await db.execute(
@@ -65,6 +88,7 @@ async def recalculate_device(device: Device, db: AsyncSession) -> RiskScore:
     cloud_ports = [p for a in cloud for p in a["ports"]] if cloud else None   # None: not a cloud instance
     findings_data = []
     days_offline = _days_since(device.last_seen)
+    edr = await _edr_facts(device, db)
     for f in findings:
         ctx = ControlContext(
             edr_active=device.edr_active,
@@ -75,6 +99,7 @@ async def recalculate_device(device: Device, db: AsyncSession) -> RiskScore:
             nodezero_confirmed_not_exploitable=bool(f.is_reachable is False and f.reachability_source == "horizon3"),
             attack_vector=f.vuln.attack_vector if f.vuln else None,
             exposure=f.exposure, ports=f.ports, cloud_ports=cloud_ports,
+            **_edr_context(edr, f),
         )
         findings_data.append({
             "cvss_base": f.vuln.cvss_base or 0.0,

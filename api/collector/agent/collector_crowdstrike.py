@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 import collector_common as cc
 import collector_cs_alert as csa
+import collector_cs_policies as csp
 
 KIND = "crowdstrike"
 LABEL = "CrowdStrike Falcon"
@@ -105,75 +106,6 @@ def _hidden_ids(api):
     return ids
 
 
-class _Policies:
-    """Falcon firewall and device-control policies, fetched once per run and cached by id."""
-
-    def __init__(self, api):
-        self.api, self.fw, self.usb, self.denied = api, {}, {}, set()
-
-    def _fetch(self, path, ids, into, kind):
-        todo = [i for i in ids if i not in into]
-        for i in range(0, len(todo), 100):
-            q = "&".join(f"ids={x}" for x in todo[i:i + 100])
-            try:
-                rows = self.api.call("GET", f"{path}?{q}").get("resources") or []
-            except cc.HttpError as e:
-                if 400 <= e.status < 500 and e.status != 429:   # an extra: never worth failing the whole pull
-                    if kind not in self.denied:
-                        why = {404: "isn't available on this cloud", 401: "needs read access",
-                               403: "needs read access"}.get(e.status, f"refused the request ({e})")
-                        cc.say(f"  CrowdStrike: {kind} policy API {why}; that column stays blank")
-                    self.denied.add(kind)
-                    for x in todo:
-                        into[x] = None
-                    return
-                raise
-            for r in rows:
-                rid = str(r.get("id") or r.get("policy_id") or "") if isinstance(r, dict) else ""
-                if _ID.match(rid):  # fwmgr calls it policy_id, the policy API calls it id
-                    into[rid] = r
-            for x in todo[i:i + 100]:
-                into.setdefault(x, None)
-
-    def load(self, rows):
-        fw_ids, usb_ids = set(), set()
-        for d in rows:
-            fw_ids.add(_policy_id(d, "firewall"))
-            usb_ids.add(_policy_id(d, "device_control"))
-        self._fetch("/policy/entities/firewall/v1", sorted(i for i in fw_ids if i), self.fw, "firewall")
-        enforce = {}
-        if "firewall" not in self.denied:
-            self._fetch("/fwmgr/entities/policies/v1", sorted(i for i in fw_ids if i), enforce, "firewall rule")
-        for pid, pol in self.fw.items():
-            if isinstance(pol, dict) and pid in enforce and isinstance(enforce[pid], dict):
-                pol["_enforce"] = enforce[pid].get("enforce")
-        self._fetch("/policy/entities/device-control/v1", sorted(i for i in usb_ids if i), self.usb, "device control")
-
-    def firewall_on(self, d):
-        pid = _policy_id(d, "firewall")
-        if pid is None:
-            return False  # no Falcon firewall policy applied to this host
-        pol = self.fw.get(pid)
-        if not isinstance(pol, dict):
-            return None  # couldn't read the policy
-        if not pol.get("enabled"):
-            return False
-        return pol.get("_enforce") if isinstance(pol.get("_enforce"), bool) else None
-
-    def usb_blocked(self, d):
-        pid = _policy_id(d, "device_control")
-        if pid is None:
-            return False
-        pol = self.usb.get(pid)
-        if not isinstance(pol, dict):
-            return None
-        st = pol.get("settings") or {}
-        if not pol.get("enabled") or st.get("enforcement_mode") != "MONITOR_ENFORCE":
-            return False
-        mass = next((c for c in st.get("classes") or [] if isinstance(c, dict) and c.get("id") == "MASS_STORAGE"), {})
-        return mass.get("action") == "BLOCK_ALL"
-
-
 class _Logins:
     """Recent sign-ins per host, so a kiosk or password-reset account signing in last doesn't hide the owner."""
     PATHS = ("/devices/combined/devices/login-history/v2", "/devices/combined/devices/login-history/v1")
@@ -228,12 +160,6 @@ def _recent(logins, keep):
     return names
 
 
-def _policy_id(d, name):
-    p = ((d.get("device_policies") or {}).get(name) or {})
-    pid = p.get("policy_id")
-    return pid if p.get("applied") and isinstance(pid, str) and _ID.match(pid) else None
-
-
 def _device(d, policies=None, logins=None, hidden=False):
     did = d.get("device_id")
     seen = d.get("last_seen")
@@ -247,6 +173,9 @@ def _device(d, policies=None, logins=None, hidden=False):
             "product_type": (d.get("product_type_desc") or "")[:64] or None,
             "firewall_enabled": policies.firewall_on(d) if policies else None,
             "usb_storage_blocked": policies.usb_blocked(d) if policies else None,
+            "prevention_policy_id": policies.prevention_of(d) if policies else None,
+            "firewall_policy_id": policies.firewall_of(d) if policies else None,
+            "usb_policy_id": policies.usb_of(d) if policies else None,
             "recent_logins": (logins or {}).get(d.get("device_id")) or None}
 
 
@@ -274,7 +203,8 @@ def _alert_query(offset, now=None):
 
 def collect(s, secret, state):
     api = _Falcon(s, secret)
-    policies, history = _Policies(api), _Logins(api)
+    policies, history = csp.Policies(api), _Logins(api)
+    posture = csp.Posture(api, state, s.get("client_id", "")[:8])
     ids = _device_ids(api)  # scroll cursors expire fast, so grab every id before shipping
     seen = set(ids)
     hidden = [i for i in _hidden_ids(api) if i not in seen]
@@ -284,9 +214,19 @@ def collect(s, secret, state):
             rows = api.call("POST", "/devices/entities/devices/v2", {"ids": group[i:i + 500]}).get("resources") or []
             policies.load(rows)
             logins = history.load(rows)
-            yield {"devices": [_device(d, policies, logins, is_hidden) for d in rows]}
+            fresh = policies.new_policies()   # before the hosts that point at them
+            if fresh:
+                yield {"edr_policies": fresh}
+            zta = posture.load([d.get("device_id") for d in rows if not is_hidden])
+            yield {"devices": [_device(d, policies, logins, is_hidden) | ({"posture": zta[d["device_id"]]} if d.get("device_id") in zta else {})
+                               for d in rows]}
+    posture.done(state)
+    if posture.note:
+        policies.notes.append(posture.note)
     if hidden:
         cc.say(f"  CrowdStrike: {len(hidden)} hidden host(s) included")
+    if policies.notes:
+        yield {"warnings": list(dict.fromkeys(policies.notes))[:10]}
     for offset in range(0, 10000, 1000):  # the alerts query endpoint stops at 10k
         found = api.call("GET", _alert_query(offset)).get("resources") or []
         if not found:

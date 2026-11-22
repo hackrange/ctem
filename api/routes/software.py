@@ -162,6 +162,31 @@ async def decide(title_id: uuid.UUID, body: Decision, u: User = Depends(require_
     return {"ok": True, "title": _title(t)}
 
 
+class BulkDecision(Decision):
+    ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
+
+
+@router.put("/bulk-status")
+async def decide_many(body: BulkDecision, u: User = Depends(require_permission("devices", "read")),
+                      db: AsyncSession = Depends(get_session)):
+    """The same decision for several titles at once (Software > select > Approve). Admins and cyber; each audited."""
+    if not _deciders(u):
+        raise HTTPException(404)
+    ids = list(dict.fromkeys(str(i) for i in body.ids))
+    now, note = datetime.now(timezone.utc), (body.note or "").strip() or None
+    done = 0
+    for t in (await db.execute(select(SoftwareTitle).where(SoftwareTitle.id.in_(ids)))).scalars():
+        before = t.status
+        t.status, t.status_note = body.status, note
+        t.decided_by = None if body.status == "unreviewed" else u.username
+        t.decided_at = None if body.status == "unreviewed" else now
+        db.add(AuditLog(actor_user_id=str(u.id), actor_username=u.username, action="software.status", resource_type="software",
+                        resource_id=str(t.id), detail=f"{t.title}: {before} to {body.status} (bulk)"[:300]))
+        done += 1
+    await db.commit()
+    return {"ok": True, "updated": done, "not_found": len(ids) - done}
+
+
 @router.get("/device/{device_id}")
 async def device_software(device_id: uuid.UUID, u: User = Depends(require_permission("devices", "read")),
                           db: AsyncSession = Depends(get_session), include_system: bool = False):

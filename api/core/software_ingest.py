@@ -48,7 +48,7 @@ async def upsert(db: AsyncSession, items: list[dict], source: str, host_cache: d
         if not dev_ids:
             continue
         version = str(it.get("version") or "").strip()[:128]
-        files = _files(it)
+        files = _files(it) | _reported(it)
         have = {r.device_id: r for r in (await db.execute(select(SoftwareInstall).where(
             SoftwareInstall.title_id == t.id, SoftwareInstall.version == version, SoftwareInstall.source == source,
             SoftwareInstall.device_id.in_(dev_ids)))).scalars()}
@@ -64,6 +64,16 @@ async def upsert(db: AsyncSession, items: list[dict], source: str, host_cache: d
             count += 1
     await db.commit()
     return count
+
+
+def _reported(it: dict) -> dict:
+    """The names as reported, kept for a later regroup (api/maintenance/renormalize_software.py)."""
+    out = {}
+    for k, src, n in (("vendor_raw", "vendor", 256), ("family", "family", 256), ("kind", "type", 64), ("cpe", "cpe", 256)):
+        v = str(it.get(src) or "").strip()[:n]
+        if v:
+            out[k] = v
+    return out
 
 
 def _files(it: dict) -> dict:
@@ -92,16 +102,16 @@ async def prune(db: AsyncSession) -> int:
     return r.rowcount or 0
 
 
-async def prune_run(db: AsyncSession, source: str, started) -> int:
+async def prune_run(db: AsyncSession, source: str, started) -> int | None:
     """After a run that reported software, drop that source's installs it no longer reports (uninstalled, or
-    named differently now). A run that sent no software leaves everything as it was."""
+    named differently now) and return how many. A run that sent no software changes nothing (None)."""
     from sqlalchemy import delete, exists
 
     from api.models.software import SoftwareInstall
     sent = (await db.execute(select(exists().where(SoftwareInstall.source == source,
                                                    SoftwareInstall.last_seen >= started)))).scalar()
     if not sent:
-        return 0
+        return None
     r = await db.execute(delete(SoftwareInstall).where(SoftwareInstall.source == source, SoftwareInstall.last_seen < started)
                          .execution_options(synchronize_session=False))
     return r.rowcount or 0

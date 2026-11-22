@@ -297,8 +297,20 @@ async def get_device_findings(
     from api.cloud.exposure import for_device
     cloud = await for_device(db, device.id)
     cloud_ports = [p for a in cloud for p in a["ports"]] if cloud else None
-    return {"findings": [_finding_summary(f, contained, cloud_ports) for f in rows], "total": total, "limit": limit,
-            "offset": offset, "contained": contained}
+    from api.scoring.engine import _edr_context, _edr_facts
+    from api.scoring.compensating import ControlContext, _edr
+    edr = await _edr_facts(device, db)
+
+    def protections(f) -> list[str]:
+        """What the EDR does about this finding here, as the score counted it (api/scoring/compensating.py)."""
+        extra = _edr_context(edr, f)
+        if not extra:
+            return []
+        ctx = ControlContext(edr_active=True, edr_vendor=device.edr_vendor, attack_vector=f.vuln.attack_vector if f.vuln else None,
+                             **extra)
+        return ([extra["host_firewall"][1]] if extra.get("host_firewall") else []) + _edr(1.0, ctx)[1]
+    return {"findings": [{**_finding_summary(f, contained, cloud_ports), "protections": protections(f)} for f in rows],
+            "total": total, "limit": limit, "offset": offset, "contained": contained}
 
 
 @router.get("/{device_id}/findings/export")

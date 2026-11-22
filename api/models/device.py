@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Integer, String, Text, event
+from sqlalchemy import JSON, Boolean, DateTime, Enum, Float, ForeignKey, Integer, String, Text, event
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from api.core.device_match import NOT_HOSTS, add_source, host_key
@@ -67,6 +67,11 @@ class Device(Base, UUIDPrimaryKey, TimestampMixin):
     # From the EDR's policies; None means the feed couldn't tell us
     firewall_enabled: Mapped[bool | None] = mapped_column(Boolean)
     usb_storage_blocked: Mapped[bool | None] = mapped_column(Boolean)
+    # The EDR policies in effect on this host (api/models/edr_policy.py), for the Firewall and USB tabs and scoring
+    edr_prevention_policy: Mapped[str | None] = mapped_column(String(64))
+    edr_firewall_policy: Mapped[str | None] = mapped_column(String(64))
+    edr_usb_policy: Mapped[str | None] = mapped_column(String(64))
+    edr_posture: Mapped[dict | None] = mapped_column(JSON)   # the EDR's posture checks (Falcon Zero Trust Assessment)
 
     # Network exposure
     is_internet_exposed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

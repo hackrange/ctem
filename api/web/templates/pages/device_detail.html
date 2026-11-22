@@ -85,6 +85,7 @@
 <script src="{{ static('vendor/echarts-6.1.0/echarts.min.js') }}"></script>
 <script src="{{ static('js/asset_trend.js') }}"></script>
 <script src="{{ static('js/asset_software.js') }}"></script>
+<script src="{{ static('js/asset_edr.js') }}"></script>
 <script src="{{ static('js/data_table.js') }}"></script>
 <script src="{{ static('js/device_assign.js') }}"></script>
 <script src="{{ static('js/exception_modal.js') }}"></script>
@@ -283,7 +284,7 @@ async function loadDevice() {
   ].join('');
   cloudPanel(d.cloud || []);
   AssetTrend.mount(d.id, d.hostname);
-  AssetSoftware.mount(d.id);
+  AssetSoftware.mount(d.id); AssetEdr.mount(d.id);
   document.querySelectorAll('[data-fw-rules]').forEach(b => { b.onclick = () => firewallDialog(d.cloud || []); });
   syncShipFields();
   if (!table) startFindings();  // reloading after an assignment shouldn't mount a second table
@@ -436,7 +437,7 @@ function startFindings() {
       { label: 'EPSS', sort: 'epss_score', firstOrder: 'desc', render: f => dim(f, f.epss_score == null ? txt(null) : esc((f.epss_score * 100).toFixed(1) + '%')) },
       { label: 'KEV', sort: 'is_kev', firstOrder: 'desc', render: f => dim(f, f.is_kev ? '<span class="chip chip--critical">KEV</span>' : '') },
       { label: 'Reach', render: f => dim(f, R.reach(f)) },
-      { label: 'Score', sort: 'composite_score', firstOrder: 'desc', render: f => dim(f, R.score(f.composite_score)) },
+      { label: 'Score', sort: 'composite_score', firstOrder: 'desc', render: f => dim(f, R.score(f.composite_score) + R.protections(f)) },
       { label: 'Status', sort: 'status', render: f => dim(f, f.exception_id
         ? `<a class="chip chip--info" style="font-size:.7rem" href="/exceptions?id=${encodeURIComponent(f.exception_id)}">Excepted</a>`
         : `<span class="text-sm">${esc(f.status.replace('_', ' '))}</span>`) },
