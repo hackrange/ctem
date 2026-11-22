@@ -193,6 +193,7 @@ Charts use [Apache ECharts](https://echarts.apache.org/) 6.1.0 (Apache-2.0) and 
 | `ctem_stale_ad_computers` | AD computers with no logon in 90 days |
 | `ctem_kev_remediation` | Open CISA KEV findings past their deadline |
 | `ctem_vuln_sla` | Critical/high findings past SLA (optionally reachable only) |
+| `ctem_vuln_age` | Open findings older than allowed for Infrastructure, Code and Web apps: each severity's SLA from Change SLAs (or one ceiling), with the age profile |
 | `ctem_exposed_criticals` | Internet-facing devices with critical or KEV findings |
 | `ctem_attack_paths` | Open validated attack paths |
 | `ctem_risk_exceptions` | Expired or permanent risk exceptions |

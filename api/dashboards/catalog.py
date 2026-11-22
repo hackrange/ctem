@@ -245,3 +245,4 @@ async def evaluate(ctx: Ctx, widget: dict, base: dict | None = None) -> dict:
 def load_metrics() -> None:
     """Importing the metric modules is what registers them."""
     from api.dashboards import m_assets, m_devices, m_directory, m_other, m_risk, m_vulns  # noqa: F401
+    from api.dashboards import m_posture, m_queue  # noqa: F401  -- after m_vulns, whose filters they reuse

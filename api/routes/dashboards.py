@@ -402,7 +402,7 @@ def _table_of(w: dict, out: dict) -> tuple[list[str], list[list]]:
     """A widget's data as rows: tables as shown, slices as name and count, charts as one row per point."""
     shape = out.get("shape")
     if shape == "table":
-        return list(out.get("columns") or []), [list(r) for r in out.get("rows") or []]
+        return list(out.get("columns") or []), [[c.get("v") if isinstance(c, dict) else c for c in r] for r in out.get("rows") or []]
     if shape == "parts":
         return ["Name", "Value"], [[i.get("name"), i.get("value")] for i in out.get("items") or []]
     if shape == "series":

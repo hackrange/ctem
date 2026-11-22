@@ -13,11 +13,21 @@
     return 'low';
   }
 
+  // A cell is a value, or {v, tone} to show it as a colored chip (tone from a fixed list)
+  const TONES = ['critical', 'high', 'medium', 'low'];
+  function cell(v) {
+    if (v && typeof v === 'object') {
+      const t = TONES.includes(v.tone) ? v.tone : '';
+      const val = v.v == null || v.v === '' ? '' : n(v.v);
+      return t && val !== '' ? `<span class="chip chip--${t}" style="font-size:.72rem">${esc(val)}</span>` : esc(val);
+    }
+    return esc(n(v));
+  }
   function table(el, cols, rows, hrefs) {
     el.innerHTML = `<div class="dw-table"><table class="data-table data-table--striped">
       <thead><tr>${cols.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead>
       <tbody>${rows.map((r, i) => `<tr${hrefs && hrefs[i] ? ` data-href="${esc(hrefs[i])}" style="cursor:pointer"` : ''}>${r.map((v, j) =>
-        `<td>${j === 0 && hrefs && hrefs[i] ? `<a class="dt-link" href="${esc(hrefs[i])}">${esc(n(v))}</a>` : esc(n(v))}</td>`).join('')}</tr>`).join('')
+        `<td>${j === 0 && hrefs && hrefs[i] && (v === null || typeof v !== 'object') ? `<a class="dt-link" href="${esc(hrefs[i])}">${esc(n(v))}</a>` : cell(v)}</td>`).join('')}</tr>`).join('')
         || `<tr><td colspan="${cols.length}" class="text-muted" style="text-align:center;padding:14px">Nothing here</td></tr>`}</tbody></table></div>`;
   }
 
