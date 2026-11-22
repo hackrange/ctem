@@ -8,6 +8,10 @@ from __future__ import annotations
 
 import re
 
+# Bump with every change to the rules below: the hourly maintenance job then regroups what's stored once
+# (api/maintenance/renormalize_software.py), carrying review decisions and exceptions to the new titles
+RULES_VERSION = 2
+
 _SUFFIX = re.compile(r"[,\s]+(inc|incorporated|corp|corporation|co|company|llc|l\.l\.c|ltd|limited|gmbh|ag|s\.a|sa|bv|"
                      r"b\.v|plc|pty|srl|s\.r\.l|s\.r\.o|sro|spol|oy|ab|as|kk|nv|n\.v|pte|sas|spa|s\.p\.a|ltda|sl|s\.l|a\.s)\.?$", re.I)
 _ALIASES = {"microsoft corporation": "Microsoft", "google llc": "Google", "google inc": "Google", "mozilla": "Mozilla",

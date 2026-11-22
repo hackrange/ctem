@@ -6,7 +6,7 @@ someone reviewed it. Exceptions follow their title when they can."""
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import delete, exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -61,6 +61,29 @@ async def run(db: AsyncSession) -> dict:
                          .execution_options(synchronize_session=False))
     await db.commit()
     return {"installs_moved": moved, "titles_removed": r.rowcount or 0}
+
+
+VERSION_KEY = "software.rules_version"
+
+
+async def if_rules_changed(db: AsyncSession) -> dict | None:
+    """Regroup once after the name rules change. Skipped (until the next hour) while any sync or shipper run is
+    going, so it never races an upload."""
+    from api.models.integration import SyncJob, SyncStatus
+    from api.models.settings import AppSetting
+    row = (await db.execute(select(AppSetting).where(AppSetting.key == VERSION_KEY))).scalar_one_or_none()
+    if row is not None and row.value == str(software_norm.RULES_VERSION):
+        return None
+    recent = datetime.now(timezone.utc) - timedelta(hours=6)   # older "running" rows are runs that died
+    if (await db.execute(select(exists().where(SyncJob.status == SyncStatus.running, SyncJob.started_at >= recent)))).scalar():
+        return None
+    out = await run(db)
+    if row is None:
+        db.add(AppSetting(key=VERSION_KEY, value=str(software_norm.RULES_VERSION)))
+    else:
+        row.value = str(software_norm.RULES_VERSION)
+    await db.commit()
+    return out
 
 
 async def _main() -> None:

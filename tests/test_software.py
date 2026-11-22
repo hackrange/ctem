@@ -257,3 +257,43 @@ async def test_renormalize_regroups_and_a_software_run_mirrors_the_source(db):
      ).scalar_one().last_seen = datetime.now(timezone.utc)
     await db.commit()
     assert await prune_run(db, "t_rn", start) == 1        # it did: what it no longer reports goes
+
+
+@pytest.mark.asyncio
+async def test_regroup_runs_once_per_rules_version_and_waits_for_runs(db, monkeypatch):
+    from datetime import datetime, timezone
+
+    from sqlalchemy import delete, select
+
+    from api.core import software_norm
+    from api.maintenance import renormalize_software as rn
+    from api.models.integration import SyncJob, SyncStatus
+    from api.models.settings import AppSetting
+    calls = []
+
+    async def fake(db):
+        calls.append(1)
+        return {"installs_moved": 0, "titles_removed": 0}
+    monkeypatch.setattr(rn, "run", fake)
+    from sqlalchemy import update
+
+    from api.models.integration import IntegrationConfig, Vendor
+    await db.execute(delete(AppSetting).where(AppSetting.key == rn.VERSION_KEY))
+    # runs other tests left open would hold the regroup back too; close them so this test sees only its own
+    await db.execute(update(SyncJob).where(SyncJob.status == SyncStatus.running).values(status=SyncStatus.failed))
+    cfg = IntegrationConfig(vendor=Vendor.rapid7_insightvm, name="ACME console rn", is_enabled=True, config={})
+    db.add(cfg)
+    await db.flush()
+    job = SyncJob(integration_id=cfg.id, vendor="rapid7_insightvm", status=SyncStatus.running,
+                  started_at=datetime.now(timezone.utc), records_imported=0)
+    db.add(job)
+    await db.commit()
+    assert await rn.if_rules_changed(db) is None and not calls          # a run is going: wait
+    job.status = SyncStatus.success
+    await db.commit()
+    assert await rn.if_rules_changed(db) is not None and len(calls) == 1
+    assert await rn.if_rules_changed(db) is None and len(calls) == 1    # once per version
+    monkeypatch.setattr(software_norm, "RULES_VERSION", software_norm.RULES_VERSION + 1)
+    assert await rn.if_rules_changed(db) is not None and len(calls) == 2
+    row = (await db.execute(select(AppSetting).where(AppSetting.key == rn.VERSION_KEY))).scalar_one()
+    assert row.value == str(software_norm.RULES_VERSION)

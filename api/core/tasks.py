@@ -495,3 +495,5 @@ async def _record_snapshots():
         await snapshots.record(db)
         from api.core.software_ingest import prune
         await prune(db)      # installs no source has reported for 30 days
+        from api.maintenance.renormalize_software import if_rules_changed
+        await if_rules_changed(db)   # once after the software name rules change
