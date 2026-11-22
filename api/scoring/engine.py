@@ -122,7 +122,8 @@ async def recalculate_device(device: Device, db: AsyncSession) -> RiskScore:
         f.risk_grade = "A" if contained else f.raw_grade
     if not app:   # hosts: the score is the average of the worst tenth of their findings
         top = max(1, len(findings) // 10)
-        why = (f"average of the worst {top} of {len(findings)} findings" if findings else "no open findings")
+        why = ((f"its worst finding (of {len(findings)})" if top == 1 else f"average of its worst {top} of {len(findings)} findings")
+               if findings else "no open findings")
         if contained:
             why = "contained by the EDR or not in scope, so nothing counts right now"
         breakdown = json.dumps({"model": "host", "why": why, "worst": worst[1]})[:1000]

@@ -47,12 +47,24 @@
   function kpis(k, ex) {
     const tile = (label, value, href, cls = '', hint = '') => `<a class="vd-kpi ${cls}" href="${esc(href)}"${hint ? ` title="${esc(hint)}"` : ''}>
         <span class="vd-kpi__label">${esc(label)}</span><span class="vd-kpi__value">${esc(n(value))}</span></a>`;
+    // The first five count in the chosen unit: findings, unique vulnerabilities, or fixes
+    const u = unit !== 'findings' && data.units ? data.units[unit] : k;
+    const fx = s => `/vulns/fixes?kind=${kind}${s ? `&severity=${s}` : ''}`;
+    const head = unit === 'fixes' ? [
+      tile('Fixes to apply', u.open, fx(''), '', `Each patch, upgrade or rollup once. ${n(u.unassigned_findings)} findings have no fix named by their source.`),
+      tile('Fix critical', u.critical, fx('critical'), 'vd-kpi--critical', 'Fixes that resolve at least one critical finding'),
+      tile('Fix high', u.high, fx(''), 'vd-kpi--high', 'Fixes whose worst finding is high'),
+      tile('Fix KEV', u.kev, fx('kev'), 'vd-kpi--critical', 'Fixes that resolve a known exploited vulnerability'),
+      tile('Fix exploitable', u.exploitable, fx('exploitable'), 'vd-kpi--high', 'Fixes that resolve a vulnerability with a public exploit'),
+    ] : [
+      tile(unit === 'vulns' ? 'Unique vulnerabilities' : 'Open findings', u.open, '/vulns'),
+      tile('Critical', u.critical, '/vulns?min_cvss=9', 'vd-kpi--critical'),
+      tile('High', u.high, '/vulns?min_cvss=7', 'vd-kpi--high'),
+      tile('KEV', u.kev, '/vulns?is_kev=true', 'vd-kpi--critical', 'Known exploited (CISA KEV)'),
+      tile('Exploit available', u.exploitable, '/vulns', 'vd-kpi--high'),
+    ];
     $('vd-kpis').innerHTML = [
-      tile('Open findings', k.open, '/vulns'),
-      tile('Critical', k.critical, '/vulns?min_cvss=9', 'vd-kpi--critical'),
-      tile('High', k.high, '/vulns?min_cvss=7', 'vd-kpi--high'),
-      tile('KEV', k.kev, '/vulns?is_kev=true', 'vd-kpi--critical', 'Known exploited (CISA KEV)'),
-      tile('Exploit available', k.exploitable, '/vulns', 'vd-kpi--high'),
+      ...head,
       tile('Past SLA', k.past_sla, '/grc/checks/ctem_vuln_sla', 'vd-kpi--high', 'Critical and high open longer than their SLA'),
       tile('Devices affected', k.devices, '/devices'),
       tile('New (7 days)', k.new_7d, '/vulns'),
@@ -131,7 +143,23 @@
     c.on('click', p => { if (p.data && p.data.raw) location.href = `/devices?device_type=${encodeURIComponent(p.data.raw)}`; });
   }
 
+  function fixTable(d) {
+    $('vd-allfixes').href = `/vulns/fixes?kind=${kind}`;
+    const rows = (d.units || {}).top_fixes || [];
+    $('vd-topf').innerHTML = rows.map(f => {
+      const href = `/vulns/fixes?kind=${kind}&key=${encodeURIComponent(f.key)}`;
+      return `<tr data-href="${esc(href)}" style="cursor:pointer">
+        <td class="text-sm"><a class="dt-link" href="${esc(href)}">${esc(f.title.slice(0, 90))}</a>${f.kind === 'rollup' ? ' <span class="chip" style="font-size:.65rem" title="Supersedes older patches">rollup</span>' : ''}</td>
+        <td class="text-sm">${esc(n(f.vulns))}</td>
+        <td class="text-sm">${f.critical ? `<span class="chip chip--critical" style="font-size:.65rem">${esc(n(f.critical))}</span>` : '0'}</td>
+        <td class="text-sm">${f.kev ? `<span class="chip chip--critical" style="font-size:.65rem">${esc(n(f.kev))}</span>` : '0'}</td>
+        <td class="text-sm">${esc(n(f.devices))}</td><td class="text-sm">${esc(n(f.findings))}</td></tr>`;
+    }).join('') || `<tr><td colspan="6" class="text-muted text-sm" style="text-align:center;padding:16px">${
+      kind === 'web' ? 'Web scanners name no shared fixes; each finding is its own.' : 'No fixes recorded yet. They arrive with each source\'s next full sync.'}</td></tr>`;
+  }
+
   function tables(d) {
+    fixTable(d);
     $('vd-topv').innerHTML = d.top_vulns.map(v => `<tr data-href="/vulns/${encodeURIComponent(v.id)}" style="cursor:pointer">
         <td class="text-sm"><a class="dt-link" href="/vulns/${encodeURIComponent(v.id)}">${v.cve_id ? `<b>${esc(v.cve_id)}</b> ` : ''}${esc(v.title.slice(0, 70))}</a>
           ${v.kev ? ' <span class="chip chip--critical" style="font-size:.65rem">KEV</span>' : ''}</td>
@@ -177,7 +205,9 @@
         return r.ok ? r.json() : null;
       } catch (e) { return null; }
     };
+    if (pending) { pending.abort(); pending = null; }   // a single-tab answer still on its way no longer applies
     const [a, b, c] = await Promise.all(['infra', 'code', 'web'].map(one));
+    if (kind !== 'all') return;   // they moved on while it loaded
     if (a) fillFilters(a.filters);
     const spark = tr => {
       const tot = (tr.days || []).map((_, i) => SEV.reduce((s, k) => s + ((tr[k] || [])[i] || 0), 0));
@@ -200,6 +230,26 @@
     $('vd-sub').textContent = 'Infrastructure, Code and Web apps side by side.';
   }
 
+  // Count by findings, unique vulnerabilities, or fixes (remembered, and kept in the link)
+  const UNITS = ['findings', 'vulns', 'fixes'];
+  let unit = UNITS.includes(init.get('count')) ? init.get('count') : (() => {
+    try { const u = localStorage.getItem('ctem.vulnUnit'); return UNITS.includes(u) ? u : 'findings'; } catch (e) { return 'findings'; }
+  })();
+  const pressUnit = () => document.querySelectorAll('#vd-unit [data-unit]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.unit === unit)));
+  pressUnit();
+  $('vd-unit').addEventListener('click', e => {
+    const b = e.target.closest('[data-unit]');
+    if (!b || b.dataset.unit === unit) return;
+    unit = b.dataset.unit;
+    try { localStorage.setItem('ctem.vulnUnit', unit); } catch (err) { /* not remembered, still works */ }
+    pressUnit();
+    const q = new URLSearchParams(location.search);
+    q.set('count', unit);
+    history.replaceState(null, '', `?${q}`);
+    render();   // the counts are already here: no reload
+  });
+
+  let pending = null;
   async function load() {
     try { localStorage.setItem('ctem.vulnType', kind); } catch (e) { /* not remembered, still works */ }
     $('vd-source').disabled = kind === 'all';
@@ -209,19 +259,26 @@
     document.querySelector('.vd-grid').hidden = false;
     const q = new URLSearchParams({ range: $('vd-range').value, kind });
     if ($('vd-source').value) q.set('source', $('vd-source').value);
-    if ($('vd-type').value) q.set('device_type', $('vd-type').value);
+    if (kind === 'infra' && $('vd-type').value) q.set('device_type', $('vd-type').value);
+    if (unit !== 'findings') q.set('count', unit);
     history.replaceState(null, '', `?${q}`);
+    // Only the latest click counts: an earlier, slower answer is dropped instead of replacing the newer one
+    if (pending) pending.abort();
+    const mine = pending = new AbortController();
     $('vd-kpis').classList.add('is-loading');
     try {
-      const res = await fetch(`/api/v1/vuln-dashboard?${q}`, { headers: { Accept: 'application/json' } });
+      const res = await fetch(`/api/v1/vuln-dashboard?${q}`, { headers: { Accept: 'application/json' }, signal: mine.signal });
       if (!res.ok) throw new Error(res.status);
-      data = await res.json();
+      const got = await res.json();
+      if (mine !== pending) return;
+      data = got;
       fillFilters(data.filters);
       render();
-    } catch (_) {
+    } catch (e) {
+      if (mine !== pending || e.name === 'AbortError') return;
       $('vd-kpis').innerHTML = '<div class="text-muted text-sm" style="padding:16px">The dashboard could not load. Try again in a minute.</div>';
     } finally {
-      $('vd-kpis').classList.remove('is-loading');
+      if (mine === pending) { pending = null; $('vd-kpis').classList.remove('is-loading'); }
     }
   }
 
@@ -242,16 +299,43 @@
     allSources = f.sources || [];
     byType = f.by_type || {};
     sourceOptions();
-    add($('vd-type'), f.device_types, v => v.replace(/_/g, ' '));
+    hostTypes = (f.device_types || []).filter(v => !APP_TYPES.includes(v));
+    typeOptions();
     if (init.get('source')) { $('vd-source').value = init.get('source'); }
-    if (init.get('device_type')) $('vd-type').value = init.get('device_type');
+    if (init.get('device_type') && hostTypes.includes(init.get('device_type')) && kind === 'infra') $('vd-type').value = init.get('device_type');
+  }
+  // The device type follows the tab: Code is all repositories and Web apps all sites, so there it shows that type and
+  // is locked (a "server" left over from Infrastructure would otherwise match nothing). Infrastructure lists the
+  // host types and keeps the one picked there.
+  const APP_TYPES = ['code_repository', 'website'];
+  const TAB_TYPE = { code: 'code_repository', web: 'website' };
+  let hostTypes = [], hostPick = '';
+  function typeOptions() {
+    const sel = $('vd-type');
+    if (!sel.disabled && hostTypes.length > 1) hostPick = sel.value;
+    const fixed = TAB_TYPE[kind];
+    sel.innerHTML = '';
+    if (fixed) {
+      add(sel, [fixed], v => v.replace(/_/g, ' '));
+      sel.value = fixed;
+    } else if (hostTypes.length === 1) {
+      // one type is the same as all of them, so just name it (and filter nothing)
+      sel.innerHTML = `<option value="">${esc(hostTypes[0].replace(/_/g, ' '))}</option>`;
+    } else {
+      sel.innerHTML = '<option value="">All device types</option>';
+      add(sel, hostTypes, v => v.replace(/_/g, ' '));
+      sel.value = hostTypes.includes(hostPick) ? hostPick : '';
+    }
+    sel.disabled = !!fixed || hostTypes.length === 1;
+    sel.hidden = kind === 'all';
+    sel.title = fixed ? `The ${kind === 'code' ? 'Code' : 'Web apps'} tab is all ${fixed === 'website' ? 'websites' : 'code repositories'}` : '';
   }
   function pressKind() {
     document.querySelectorAll('#vd-kind [data-kind]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.kind === kind)));
   }
   $('vd-all').addEventListener('click', e => {
     const b = e.target.closest('[data-open]');
-    if (b) { kind = b.dataset.open; pressKind(); sourceOptions(); load(); }
+    if (b) { kind = b.dataset.open; pressKind(); sourceOptions(); typeOptions(); load(); }
   });
   $('vd-kind').addEventListener('click', e => {
     const b = e.target.closest('[data-kind]');
@@ -259,12 +343,13 @@
     kind = b.dataset.kind;
     pressKind();
     sourceOptions();   // a source from the other side no longer applies
+    typeOptions();
     load();
   });
   pressKind();
 
   document.addEventListener('click', e => {
-    const tr = e.target.closest('#vd-topv tr[data-href], #vd-topd tr[data-href]');
+    const tr = e.target.closest('#vd-topv tr[data-href], #vd-topd tr[data-href], #vd-topf tr[data-href]');
     if (tr && !e.target.closest('a')) location.href = tr.dataset.href;
   });
   ['vd-range', 'vd-source', 'vd-type'].forEach(id => $(id).addEventListener('change', load));

@@ -58,6 +58,8 @@ class Finding(Base, UUIDPrimaryKey, TimestampMixin):
     # Where and how, by type (code: repository, branch, file, line, rule, package and fixed version; web: URL,
     # parameter, CWE, evidence), plus the fix and a link back to the tool. Encrypted: it can hold paths and names.
     details: Mapped[dict | None] = mapped_column(EncryptedJSON)
+    # The fix the source recommends (fixes.key), shared by every finding one patch or upgrade resolves
+    fix_key: Mapped[str | None] = mapped_column(String(160), index=True)
     status: Mapped[FindingStatus] = mapped_column(Enum(FindingStatus), default=FindingStatus.open, nullable=False)
     first_detected: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -171,6 +173,19 @@ class VulnException(Base, UUIDPrimaryKey, TimestampMixin):
     findings_covered: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
 
     vuln: Mapped[Vulnerability] = relationship()
+
+
+class Fix(Base, UUIDPrimaryKey, TimestampMixin):
+    """One fix a source recommends (a patch, an upgrade, a rollup that supersedes older patches), so the findings it
+    resolves can be counted and worked as one. Keyed "<source>:<the source's solution id>"."""
+    __tablename__ = "fixes"
+
+    key: Mapped[str] = mapped_column(String(160), nullable=False, unique=True, index=True)
+    source: Mapped[str] = mapped_column(String(64), nullable=False)
+    title: Mapped[str] = mapped_column(String(512), nullable=False)
+    kind: Mapped[str | None] = mapped_column(String(32))          # rollup, patch, workaround, upgrade...
+    steps: Mapped[str | None] = mapped_column(Text)               # plain text, never the source's HTML
+    links: Mapped[list | None] = mapped_column(JSON)              # http(s) links from the source's steps
 
 
 @event.listens_for(Finding, "before_insert")

@@ -103,6 +103,10 @@ def card_filters(card: dict) -> list:
         out.append(Device.device_type.not_in((DeviceType.code_repository, DeviceType.website)))
     if card.get("new_days"):
         out.append(Device.created_at >= fleet.now().replace(tzinfo=None) - timedelta(days=int(card["new_days"])))
+    if card.get("fix"):   # the assets one fix applies to: those with an open finding it resolves
+        from api.models.vuln import Finding, FindingStatus
+        out.append(Device.id.in_(select(Finding.device_id).where(
+            Finding.fix_key == card["fix"], Finding.status.in_((FindingStatus.open, FindingStatus.in_progress)))))
     return out
 
 
@@ -154,7 +158,11 @@ def build_query(scope, q: str | None, grade: str | None, device_type: DeviceType
         hashes = {search_hash(q), search_hash(q.lower()), *(search_hash(n) for n in sign_in_names(q))}
         named = select(User.id).where(or_(User.username.ilike(like, escape="\\"), User.upn_hash == search_hash(q.lower())))
         assigned_to = select(DeviceAssignment.device_id).where(DeviceAssignment.user_id.in_(named))
+        from api.models.tag import Tag
+        # A tag's name or its value: "specops" finds app:SPECOPS, "pat@" finds app_owner:pat@acme.example
+        tagged_like = select(DeviceTag.device_id).join(Tag, Tag.id == DeviceTag.tag_id).where(Tag.name.ilike(like, escape="\\"))
         stmt = stmt.where(or_(
+            Device.id.in_(tagged_like),
             Device.hostname.ilike(like, escape="\\"),
             Device.fqdn.ilike(like, escape="\\"),
             func.upper(Device.mac_address) == q.upper(),

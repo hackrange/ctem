@@ -11,6 +11,7 @@ from api.integrations import rapid7_common as r7
 from api.integrations.base import BaseConnector, load_sync_state, register, save_sync_state
 from api.integrations.rapid7_insightvm_console import ConsoleMixin
 from api.models.integration import Vendor
+from api.core import fixes
 
 log = logging.getLogger("open-ctem.rapid7-insightvm")
 
@@ -224,6 +225,7 @@ class InsightVMConnector(ConsoleMixin, BaseConnector):
             existing = {f.vuln_id: f for f in (await db.execute(select(Finding).where(
                 Finding.device_id == dev.id, Finding.source == "rapid7_insightvm"))).scalars()}
             seen_now: dict[str, set[str]] = {}   # vuln id -> ports it was found on in this answer
+            solutions: dict[str, dict] = {}       # the fixes these findings name (api/core/fixes.py)
             for f in a.get("same", []) + a.get("new", []):
                 vuln_id = vuln_ids.get(f.get("vulnerability_id"))
                 if vuln_id is None:
@@ -248,11 +250,20 @@ class InsightVMConnector(ConsoleMixin, BaseConnector):
                 finding.exposure = "listening" if ports else "local"
                 finding.ports = " ".join(sorted(ports, key=_port_key))[:128] or None
                 finding.exposure_at = finding.last_seen or datetime.now(timezone.utc)
+                fk = fixes.key("rapid7_insightvm", f.get("solution_id"))
+                if fk:
+                    finding.fix_key = fk
+                    if fk not in solutions:
+                        steps, links = fixes.plain(f.get("solution_fix"))
+                        solutions[fk] = {"source": "rapid7_insightvm", "kind": (str(f.get("solution_type") or "") or None),
+                                         "title": str(f.get("solution_summary") or f.get("solution_id"))[:512],
+                                         "steps": steps, "links": links}
                 count += 1
             for f in a.get("remediated", []):
                 vuln_id = vuln_ids.get(f.get("vulnerability_id"))
                 if vuln_id is not None and vuln_id in existing:
                     existing[vuln_id].status = FindingStatus.remediated
+            await fixes.save(db, solutions)
             await db.commit()
         return count
 

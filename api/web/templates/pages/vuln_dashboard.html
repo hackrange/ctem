@@ -34,6 +34,11 @@
       <button type="button" data-kind="web" aria-pressed="false" title="Web applications: DAST and web scanning, fixed by application owners">Web apps</button>
       <button type="button" data-kind="all" aria-pressed="false" title="The three side by side">All</button>
     </div>
+    <div class="vd-kind" id="vd-unit" role="group" aria-label="Count by">
+      <button type="button" data-unit="findings" aria-pressed="true" title="Every vulnerability on every asset, one each">Findings</button>
+      <button type="button" data-unit="vulns" aria-pressed="false" title="Each vulnerability once, however many assets have it">Unique</button>
+      <button type="button" data-unit="fixes" aria-pressed="false" title="Each patch, upgrade or rollup once: one fix can resolve many vulnerabilities">Fixes</button>
+    </div>
     <select id="vd-range" class="filter-select" aria-label="Range">
       <option value="30d">Last 30 days</option>
       <option value="90d" selected>Last 90 days</option>
@@ -51,6 +56,10 @@
 <div id="vd-all" class="vd-all" hidden aria-live="polite"></div>
 
 <div class="vd-grid">
+  <div class="panel vd-wide" style="padding:0"><div class="panel__header"><h2 class="panel__title">Fixes that remove the most risk</h2>
+    <a class="btn btn--ghost btn--sm" id="vd-allfixes" href="/vulns/fixes">All fixes</a></div>
+    <table class="data-table"><thead><tr><th>Fix</th><th>Vulnerabilities</th><th>Critical findings</th><th>KEV findings</th><th>Assets</th><th>Findings resolved</th></tr></thead>
+    <tbody id="vd-topf"></tbody></table></div>
   <div class="panel vd-wide"><div class="panel__header"><h2 class="panel__title">Open findings over time</h2>
     <span class="text-muted text-sm" id="vd-trend-note"></span></div><div class="vd-chart vd-chart--tall" id="c-trend"></div></div>
   <div class="panel"><div class="panel__header"><h2 class="panel__title">New vs fixed per day</h2></div><div class="vd-chart" id="c-flow"></div></div>

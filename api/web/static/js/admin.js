@@ -276,6 +276,7 @@ function openEditModal(u) {
   _updateTotpUi(u.totp_enabled);
   document.getElementById('totp-setup-result').style.display = 'none';
   document.getElementById('edit-user-modal').style.display = 'flex';
+  UserAccess.open(u.id);
 }
 function closeEditModal() {
   document.getElementById('edit-user-modal').style.display = 'none';
@@ -314,6 +315,7 @@ async function saveEditUser() {
       method: 'PATCH', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ page_tags: pageTags }),
     });
+    await UserAccess.save(id);
     closeEditModal();
     loadUsers();
     toast('User updated', 'success');

@@ -22,6 +22,7 @@ from api.integrations.base import BaseConnector, register
 from api.integrations.gcr_client import Gcr, GcrError, floor
 from api.integrations.rapid7_common import parse_dt
 from api.models.integration import Vendor
+from api.core import fixes
 
 log = logging.getLogger("open-ctem.gcr")
 SRC = "github_code_review"
@@ -322,6 +323,10 @@ class GitHubCodeReviewConnector(BaseConnector):
             if details and ((dev.id, v.id) not in seen or status == FindingStatus.open):
                 sent = (f.details or {}).get("tool_exception")   # what CTEM told GCR about this finding stays
                 f.details = {**details, **({"tool_exception": sent} if sent else {})}
+                fk, fx = fixes.package_fix(SRC, details.get("package"))   # one upgrade resolves all its advisories
+                f.fix_key = fk
+                if fk and (fk not in upgrades or fixes._ver(fx["version"]) > fixes._ver(upgrades[fk]["version"])):
+                    upgrades[fk] = fx
             before = f.status
             if (dev.id, v.id) not in seen or status == FindingStatus.open:   # an open copy on any branch wins
                 f.status = status
@@ -332,7 +337,7 @@ class GitHubCodeReviewConnector(BaseConnector):
             seen.add((dev.id, v.id))
             return f
 
-        count = 0
+        count, upgrades = 0, {}
         for fd in found:
             dev = repo_dev.get(fd.get("repository"))
             if dev is None:
@@ -382,6 +387,7 @@ class GitHubCodeReviewConnector(BaseConnector):
         for (dev_id, vid), f in have.items():
             if dev_id in covered and (dev_id, vid) not in seen and f.status in (FindingStatus.open, FindingStatus.in_progress):
                 f.status = FindingStatus.remediated
+        await fixes.save(db, upgrades)
         await db.commit()
         log.info("GCR: %d repositories, %d sites, %d findings", len(repo_dev), len(site_dev), count)
         return count

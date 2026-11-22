@@ -197,3 +197,20 @@ async def test_detail_pages_render(client_admin, db):
     for path in (f"/devices/{dev.id}", f"/vulns/{uuid.uuid4()}"):
         resp = await client_admin.get(path)
         assert resp.status_code == 200 and "data_table.js" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_search_finds_assets_by_tag_name_or_value(client_admin, db):
+    from api.core.device_tags import sync_tags
+    from api.models.device import Device, DeviceType
+    n = uuid.uuid4().hex[:6]
+    site = Device(hostname=f"portal-{n}.acme.example", device_type=DeviceType.website)
+    other = Device(hostname=f"other-{n}.acme.example", device_type=DeviceType.website)
+    db.add_all([site, other])
+    await db.flush()
+    await sync_tags(db, site.id, {f"app:Specops{n}", f"exec_owner:pat{n}@acme.example"}, ("app:", "exec_owner:"), "manual", {})
+    await db.commit()
+    for q in (f"specops{n}", f"pat{n}@", f"app:Specops{n}"):
+        names = [d["hostname"] for d in (await client_admin.get("/api/v1/devices", params={"q": q, "asset": "sites"})).json()["devices"]]
+        assert names == [site.hostname], q
+    assert (await client_admin.get("/api/v1/devices", params={"q": f"100%_{n}"})).json()["devices"] == []   # wildcards are literal

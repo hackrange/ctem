@@ -117,14 +117,15 @@ def allowed(m: Metric, ctx: Ctx) -> bool:
     return m.needs is None or (m.needs == "grc" and ctx.grc) or (m.needs == "threats" and ctx.threats)
 
 
-async def context(db: AsyncSession, user) -> Ctx:
+async def context(db: AsyncSession, user, everything: bool = False) -> Ctx:
+    """everything: a dashboard an admin or cyber set to show all the data (only for its published widgets)."""
     from api.auth.device_scope import device_scope
     from api.auth.rbac import _load_user_permissions
     from api.core import tag_roles
     await tag_roles.ensure(db)   # filters and the AI read this install's tag mapping
     perms = await _load_user_permissions(user, db)
     roles = set(user.role_names)
-    return Ctx(db=db, user=user, scope=await device_scope(user, db),
+    return Ctx(db=db, user=user, scope=None if everything else await device_scope(user, db),
                grc=any(p.startswith("grc:read:") for p in perms) or "admin" in roles,
                threats=bool({"admin", "cyber"} & roles), decider=bool({"admin", "cyber"} & roles))
 

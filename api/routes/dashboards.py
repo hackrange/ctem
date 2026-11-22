@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.auth.middleware import get_current_user
 from api.core.db import get_session
 from api.dashboards import catalog as cat
+from api.dashboards.data_scope import _ask, _scope_change, _until, can_widen, shows_everything
 from api.models.dashboard import Dashboard, Favorite, Visibility
 from api.models.settings import AuditLog
 from api.models.user import User
@@ -46,6 +47,8 @@ def can_view(d: Dashboard, u: User) -> bool:
     """Owners and admins always; anyone else only once it's published and shared with them."""
     if _admin(u) or d.owner_id == str(u.id):
         return True
+    if d.scope_request and can_widen(u):   # cyber reviewing a request to show all the data
+        return True
     return d.published is not False and (d.visibility == Visibility.everyone
                                          or (d.visibility == Visibility.roles and bool(set(d.share_roles or []) & set(u.role_names))))
 
@@ -65,6 +68,8 @@ class DashBody(BaseModel):
     filters: list[dict] = Field(default_factory=list, max_length=10)        # dashboard-wide conditions
     filter_match: Literal["all", "any"] = "all"
     template: Annotated[str, StringConstraints(pattern=r"^[a-z_]{1,40}$")] | None = None   # start from a starter dashboard
+    data_scope: Literal["viewer", "everything"] | None = None   # None: leave it as it is
+    scope_days: Literal[1, 7, 30, 90, 365] | None = None        # how long "everything" lasts (None: no end)
 
 
 def _widgets(raw: list) -> list[dict]:
@@ -108,7 +113,10 @@ def _summary(d: Dashboard, u: User, starred: set[str]) -> dict:
             "widgets": len(d.widgets or []), "updated_at": (d.updated_at or d.created_at).isoformat() + "Z",
             "can_edit": can_edit(d, u), "starred": str(d.id) in starred, "theme": d.theme or "default",
             "published": d.published is not False, "has_draft": bool(d.draft) and can_edit(d, u),
-            "published_at": d.published_at.isoformat() if d.published_at else None, "filters": _shown_filters(d.filters)}
+            "published_at": d.published_at.isoformat() if d.published_at else None, "filters": _shown_filters(d.filters),
+            "data_scope": "everything" if shows_everything(d) else "viewer", "can_widen": can_widen(u),
+            "scope_until": d.scope_until.isoformat() if d.scope_until and shows_everything(d) else None,
+            "scope_request": d.scope_request if (can_widen(u) or can_edit(d, u)) else None}
 
 
 def _editing(d: Dashboard) -> dict:
@@ -173,7 +181,9 @@ async def list_dashboards(u: User = Depends(_member), db: AsyncSession = Depends
     if scope == "mine":
         stmt = stmt.where(Dashboard.owner_id == me)
     elif scope == "shared":
-        stmt = stmt.where(Dashboard.owner_id != me, Dashboard.visibility != Visibility.private)
+        stmt = stmt.where(Dashboard.owner_id != me)
+        if not can_widen(u):   # approvers also see private ones waiting for them (can_view below)
+            stmt = stmt.where(Dashboard.visibility != Visibility.private)
     elif scope == "starred":
         stmt = stmt.where(Dashboard.id.in_(select(Favorite.ref).where(Favorite.user_id == me, Favorite.kind == "dashboard")))
     elif not _admin(u):
@@ -223,6 +233,7 @@ async def update(dash_id: uuid.UUID, body: DashBody, u: User = Depends(_member),
     d = await _get(db, u, dash_id)
     if not can_edit(d, u):
         raise HTTPException(404)
+    pending = _scope_change(d, u, body.data_scope, body.scope_days)
     d.name, d.description = body.name, body.description or None
     d.visibility, d.share_roles = Visibility(body.visibility), list(dict.fromkeys(body.share_roles)) or None
     widgets, dfl = _widgets(body.widgets), _dfilters(body.filters, body.filter_match)
@@ -234,7 +245,7 @@ async def update(dash_id: uuid.UUID, body: DashBody, u: User = Depends(_member),
         d.draft = None
     _audit(db, u, "dashboard.update", d)
     await db.commit()
-    return {"ok": True, "draft": bool(d.draft) or d.published is False}
+    return {"ok": True, "draft": bool(d.draft) or d.published is False, "scope_pending": pending}
 
 
 @router.post("/{dash_id}/publish")
@@ -243,6 +254,8 @@ async def publish(dash_id: uuid.UUID, u: User = Depends(_member), db: AsyncSessi
     d = await _get(db, u, dash_id)
     if not can_edit(d, u):
         raise HTTPException(404)
+    if not can_widen(u) and shows_everything(d):
+        _ask(d, u, "published changes after it was approved")
     if d.draft:
         d.widgets, d.theme = _widgets(d.draft.get("widgets") or []), d.draft.get("theme") or d.theme
         d.filters = _dfilters(*_fl(d.draft.get("filters"))) if "filters" in d.draft else d.filters
@@ -292,6 +305,39 @@ async def delete(dash_id: uuid.UUID, u: User = Depends(_member), db: AsyncSessio
     return {"ok": True}
 
 
+class ScopeDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    days: Literal[1, 7, 30, 90, 365] | None = 30   # None: no end
+    note: Annotated[str, StringConstraints(max_length=500, pattern=r"^[^<>]*$")] | None = None
+
+
+@router.post("/{dash_id}/scope/approve")
+async def approve_scope(dash_id: uuid.UUID, body: ScopeDecision, u: User = Depends(_member), db: AsyncSession = Depends(get_session)):
+    """An admin or cyber lets this dashboard, as published now, show everyone it's shared with all the data, for a time."""
+    if not can_widen(u):
+        raise HTTPException(404)
+    d = await _get(db, u, dash_id)
+    if d.published is False:
+        return {"ok": False, "error": "Publish it first: approval covers the widgets as published."}
+    d.data_scope, d.scope_until, d.scope_request = "everything", _until(body.days), None
+    _audit(db, u, "dashboard.scope_approve", d)
+    await db.commit()
+    return {"ok": True, "scope_until": d.scope_until.isoformat() if d.scope_until else None}
+
+
+@router.post("/{dash_id}/scope/deny")
+async def deny_scope(dash_id: uuid.UUID, body: ScopeDecision, u: User = Depends(_member), db: AsyncSession = Depends(get_session)):
+    if not can_widen(u):
+        raise HTTPException(404)
+    d = await _get(db, u, dash_id)
+    d.scope_request = None
+    if not shows_everything(d):
+        d.data_scope, d.scope_until = "viewer", None
+    _audit(db, u, "dashboard.scope_deny", d)
+    await db.commit()
+    return {"ok": True}
+
+
 @router.post("/{dash_id}/copy")
 async def copy(dash_id: uuid.UUID, u: User = Depends(_member), db: AsyncSession = Depends(get_session)):
     """Your own private copy to change as you like."""
@@ -314,18 +360,34 @@ class DataBody(BaseModel):
     widgets: list[dict] = Field(max_length=cat.MAX_WIDGETS)
     filters: list[dict] = Field(default_factory=list, max_length=10)
     filter_match: Literal["all", "any"] = "all"
+    dashboard: uuid.UUID | None = None   # the saved dashboard these come from (for one that shows all the data)
+
+
+async def _published_wide(db, u: User, dash_id) -> dict[str, dict]:
+    """The published widgets, by id, of a dashboard set to show all the data, if this person may view it. Only these
+    stored definitions are evaluated without the viewer's limits; whatever a browser sends is never trusted for it."""
+    if dash_id is None:
+        return {}
+    d = await db.get(Dashboard, str(dash_id))
+    if d is None or not can_view(d, u) or not shows_everything(d) or d.published is False:
+        return {}
+    return {w["id"]: w for w in map(cat.clean_widget, d.widgets or []) if w and w.get("id")}
 
 
 @router.post("/data")
 async def widget_data(body: DataBody, u: User = Depends(_member), db: AsyncSession = Depends(get_session)):
     """Data for widgets (saved or being edited), computed for this viewer. Keyed by widget id."""
     ctx = await cat.context(db, u)
+    wide = await _published_wide(db, u, body.dashboard)
+    wctx = await cat.context(db, u, everything=True) if wide else None
     out = {}
     for raw in body.widgets:
         w = cat.clean_widget(raw)
         if w:
-            out[w["id"] or w["metric"]] = await cat.evaluate(ctx, w, {"filters": body.filters, "match": body.filter_match})
-    return {"data": out}
+            stored = wide.get(w["id"]) if w.get("id") else None
+            out[w["id"] or w["metric"]] = await cat.evaluate(wctx if stored else ctx, stored or w,
+                                                             {"filters": body.filters, "match": body.filter_match})
+    return {"data": out, "everything": bool(wide)}
 
 
 class ExportBody(BaseModel):
@@ -333,6 +395,7 @@ class ExportBody(BaseModel):
     widget: dict
     filters: list[dict] = Field(default_factory=list, max_length=10)
     filter_match: Literal["all", "any"] = "all"
+    dashboard: uuid.UUID | None = None
 
 
 def _table_of(w: dict, out: dict) -> tuple[list[str], list[list]]:
@@ -361,7 +424,10 @@ async def export_widget(body: ExportBody, u: User = Depends(_member), db: AsyncS
     w = cat.clean_widget(body.widget)
     if w is None:
         raise HTTPException(422, "Unknown widget")
-    out = await cat.evaluate(await cat.context(db, u), w, {"filters": body.filters, "match": body.filter_match})
+    stored = (await _published_wide(db, u, body.dashboard)).get(w.get("id")) if w.get("id") else None
+    out = await cat.evaluate(await cat.context(db, u, everything=bool(stored)), stored or w,
+                             {"filters": body.filters, "match": body.filter_match})
+    w = stored or w
     if out.get("error"):
         raise HTTPException(422, "This widget has no data to export right now")
     header, rows = _table_of(w, out)

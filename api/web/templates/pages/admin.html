@@ -223,7 +223,7 @@
 
 <!-- ── Edit User Modal ──────────────────────────────────────────────────────── -->
 <div id="edit-user-modal" class="modal-overlay" style="display:none">
-  <div class="modal-box" style="max-width:500px">
+  <div class="modal-box" style="max-width:640px;max-height:90vh;overflow:auto">
     <div class="modal-header">
       <h2 class="modal-title" id="edit-modal-title">Edit User</h2>
       <button class="modal-close" onclick="closeEditModal()" aria-label="Close">&times;</button>
@@ -245,6 +245,27 @@
       <div class="form-row">
         <label class="field-label">Roles</label>
         <div id="edit-roles-list" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px"></div>
+      </div>
+
+      <hr style="border:none;border-top:1px solid var(--border);margin:16px 0">
+
+      <div class="form-row">
+        <span class="field-label">Data access</span>
+        <p class="text-muted text-sm" style="margin:2px 0 8px">Sees assets (and their findings and dashboards) where any of these match, on top of what their roles give.
+          Pick a tag role and the values in use, or paste rule text from another user. Values can use wildcards
+          (<code>*@acme.example</code>, <code>app:*</code>); <b>All assets</b> gives complete visibility (a CISO, an audit team).</p>
+        <div id="ua-note" class="text-sm" style="color:var(--severity-medium);margin-bottom:6px" hidden>This person has a role that already sees everything, so these rules only shape their "only my data" dashboard filter.</div>
+        <div id="ua-rules"></div>
+        <button type="button" class="btn btn--ghost btn--sm" id="ua-add" style="margin-top:6px">+ Add rule</button>
+        <div id="ua-preview" class="text-sm" style="margin-top:8px" aria-live="polite"></div>
+        <label class="field-label" for="ua-text" style="margin-top:12px;display:block">Rule text <span class="text-muted">(copy to reuse on other users)</span></label>
+        <textarea id="ua-text" class="form-input" rows="2" maxlength="8000" spellcheck="false" style="font-family:var(--font-mono, monospace);font-size:12.5px"
+          placeholder='executive_owner = "Elmer Fudd" OR executive_owner = "elmer.fudd@acme.example"'></textarea>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+          <button type="button" class="btn btn--ghost btn--sm" id="ua-copy">Copy</button>
+          <button type="button" class="btn btn--ghost btn--sm" id="ua-apply">Apply text</button>
+          <span id="ua-text-msg" class="text-sm text-muted" aria-live="polite"></span>
+        </div>
       </div>
 
       <hr style="border:none;border-top:1px solid var(--border);margin:16px 0">
@@ -374,6 +395,7 @@
 }
 </style>
 <script src="{{ static('js/admin.js') }}"></script>
+<script src="{{ static('js/user_access.js') }}"></script>
 <script src="{{ static('js/ai_usage.js') }}"></script>
 <script src="{{ static('js/curated_rules.js') }}"></script>
 <script src="{{ static('js/admin_tag_roles.js') }}"></script>

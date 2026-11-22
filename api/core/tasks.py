@@ -101,7 +101,33 @@ async def _warm_vuln_dashboard():
     from api.core.vuln_dashboard import cached
     async for db in get_session():
         await cached(db, "90d", None, None, fresh=True)                  # dashboards' widgets: every finding
-        await cached(db, "90d", None, None, fresh=True, kind="infra")    # the Vulnerability Dashboard's default
+        for kind in ("infra", "code", "web"):                           # the Vulnerability Dashboard's tabs
+            await cached(db, "90d", None, None, fresh=True, kind=kind)
+
+
+@celery_app.task(name="api.core.tasks.refresh_vuln_view", ignore_result=True, time_limit=600, soft_time_limit=540)
+def refresh_vuln_view(source, device_type, kind, viewer=None):
+    """Rebuild one out-of-date Vulnerability Dashboard view (a viewer's own when they see only some devices)."""
+    asyncio.run(_refresh_vuln_view(source, device_type, kind, viewer))
+
+
+async def _refresh_vuln_view(source, device_type, kind, viewer):
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
+    from api.auth.device_scope import device_scope
+    from api.core.db import get_session
+    from api.core.vuln_dashboard import cached
+    from api.models.user import User
+    async for db in get_session():
+        scope = None
+        if viewer:
+            u = (await db.execute(select(User).options(selectinload(User.roles)).where(User.id == viewer))).scalar_one_or_none()
+            if u is None:
+                return
+            scope = await device_scope(u, db)
+        await cached(db, "90d", source, device_type, fresh=True, scope=scope, viewer=viewer, kind=kind)
+        break
 
 
 async def _recalculate_all():
@@ -152,6 +178,7 @@ def post_sync_pipeline(since: str | None = None):
     # Then the dashboards, which cache filtered views for up to 30 minutes, show what the sync brought in
     from api.core.vuln_dashboard import forget_cached
     asyncio.run(forget_cached())
+    warm_vuln_dashboard.delay()   # the tabs' main views, rebuilt now rather than by the next visitor
     asyncio.run(_push_exceptions(None))   # exceptions covering findings the sync just brought in
 
 

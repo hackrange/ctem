@@ -16,7 +16,8 @@
     return `<div class="panel dl-card">
       <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start">
         <span><a class="dt-link dl-card__name" href="/dashboards/${encodeURIComponent(d.id)}">${esc(d.name)}</a>${!d.published ? '<span class="dl-draft">Draft</span>'
-          : d.has_draft ? '<span class="dl-draft">Unpublished changes</span>' : ''}</span>
+          : d.has_draft ? '<span class="dl-draft">Unpublished changes</span>' : ''}${
+            d.scope_request ? ` <span class="dl-draft" title="Asked to show everyone all the data">${d.can_widen ? 'Needs your approval' : 'Waiting for approval'}</span>` : ''}</span>
         <button type="button" class="db-star" data-star="${esc(d.id)}" data-on="${d.starred ? 1 : 0}" aria-pressed="${d.starred}"
           title="${d.starred ? 'Remove from Favorites' : 'Add to Favorites'}">${d.starred ? '&#9733;' : '&#9734;'}</button>
       </div>

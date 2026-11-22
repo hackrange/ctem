@@ -117,7 +117,7 @@ async def test_every_score_keeps_its_reason(db, client_admin):
         await recalculate_device(dev, db)
     h = (await client_admin.get(f"/api/v1/devices/{host.id}")).json()["score_why"]
     w = (await client_admin.get(f"/api/v1/devices/{site.id}")).json()["score_why"]
-    assert h["model"] == "host" and "worst 1 of 1" in h["why"] and any("CVSS 7.5" in r for r in h["worst"])
+    assert h["model"] == "host" and h["why"] == "its worst finding (of 1)" and any("CVSS 7.5" in r for r in h["worst"])
     assert w["model"] == "web" and any("context" in r for r in w["worst"])
     f = (await client_admin.get(f"/api/v1/devices/{site.id}/findings")).json()["findings"][0]
     assert any("context" in r for r in f["details"]["score_why"])

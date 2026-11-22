@@ -231,11 +231,15 @@ def _one(f: dict):
 async def granted(db, user):
     """Devices this person is granted by tag (through their roles and groups) or by assignment. The same grants
     the device scope uses, applied even to roles that otherwise see everything, so anyone can view their own
-    slice. Per-user tag grants plug in here when they're added."""
+    slice, including their own rules (Admin > Users > Data access)."""
     from api.models.device import DeviceAssignment
     from api.models.tag import GroupTagAccess
     tag_ids = [r[0] for r in (await db.execute(select(GroupTagAccess.tag_id).where(
         GroupTagAccess.role_name.in_(list(user.role_names) or ["__none__"])))).all()]
+    from api.core import user_access
+    if await user_access.sees_all(db, user):
+        return Device.id.is_not(None)   # every asset
+    tag_ids = sorted({str(t) for t in tag_ids} | await user_access.tag_ids(db, user))
     tagged = select(DeviceTag.device_id).where(DeviceTag.tag_id.in_(tag_ids or ["__none__"]))
     assigned = select(DeviceAssignment.device_id).where(DeviceAssignment.user_id == user.id)
     return or_(Device.id.in_(tagged), Device.id.in_(assigned))

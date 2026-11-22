@@ -64,6 +64,7 @@ def create_app() -> FastAPI:
     # ── Routers ───────────────────────────────────────────────────────────────
     from api.routes.auth import router as auth_router
     from api.routes.admin import router as admin_router
+    from api.routes.user_access import router as user_access_router
     from api.routes.api_docs import router as api_docs_router
     from api.routes.device_assign import router as device_assign_router
     from api.routes.devices import router as devices_router
@@ -85,6 +86,7 @@ def create_app() -> FastAPI:
     from api.routes.vuln_exceptions import router as vuln_exceptions_router
     from api.routes.exception_rules import router as exception_rules_router
     from api.routes.vuln_dashboard import router as vuln_dashboard_router
+    from api.routes.fixes import router as fixes_router
     from api.routes.dashboards import fav_router as favorites_router
     from api.routes.dashboards import router as dashboards_router
     from api.routes.tag_roles import router as tag_roles_router
@@ -104,6 +106,7 @@ def create_app() -> FastAPI:
     from api.routes.admin_sso import router as admin_sso_router
 
     app.include_router(auth_router)
+    app.include_router(user_access_router)   # before admin's /users/{id} routes
     app.include_router(admin_router)
     app.include_router(api_docs_router)
     app.include_router(device_assign_router)  # before devices so /assignable-users never hits /{device_id}
@@ -133,6 +136,7 @@ def create_app() -> FastAPI:
     app.include_router(exception_rules_router)   # before /{exc_id} routes
     app.include_router(vuln_exceptions_router)
     app.include_router(vuln_dashboard_router)
+    app.include_router(fixes_router)
     app.include_router(dashboards_ai_router)
     app.include_router(dashboards_router)
     app.include_router(tag_roles_router)
@@ -236,6 +240,7 @@ def _register_web_routes(app: FastAPI) -> None:
     app.get("/vulns", response_class=HTMLResponse, include_in_schema=False)(_render("pages/vulns.html", "/vulns"))
     # before /vulns/{vuln_id}, which would otherwise take "dashboard" as an id
     app.get("/vulns/dashboard", response_class=HTMLResponse, include_in_schema=False)(_render("pages/vuln_dashboard.html", "/vulns"))
+    app.get("/vulns/fixes", response_class=HTMLResponse, include_in_schema=False)(_render("pages/fixes.html", "/vulns"))
     app.get("/vulns/{vuln_id}", response_class=HTMLResponse, include_in_schema=False)(_render("pages/vuln_detail.html", "/vulns"))
     app.get("/exceptions", response_class=HTMLResponse, include_in_schema=False)(_render("pages/exceptions.html", "/exceptions"))
 

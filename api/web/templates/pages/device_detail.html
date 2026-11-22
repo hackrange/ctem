@@ -8,16 +8,23 @@
   <div>
     <p class="text-sm"><a href="/devices" id="dev-back" data-tag-focus-link class="dt-link" style="color:var(--fg-muted)">&larr; Hosts</a></p>
     <div id="tag-focus" class="filter-bar" hidden style="margin:4px 0 8px"></div>
-    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
-      <h1 class="page-header__title" id="dev-title">Loading...</h1>
-      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;max-width:520px">
-        <div id="dev-grade" style="display:flex;align-items:center;gap:10px;min-width:160px"></div>
-        <div id="dev-why" class="text-sm" style="text-align:right" hidden></div>
-      </div>
-    </div>
+    <h1 class="page-header__title" id="dev-title">Loading...</h1>
     <p class="page-header__sub" id="dev-sub"></p>
   </div>
+  <!-- the grade and why, on the right: what drives the score, in a few plain lines -->
+  <aside class="dev-score" aria-label="Risk score">
+    <div id="dev-grade" class="dev-score__grade"></div>
+    <div id="dev-why" class="dev-score__why" hidden></div>
+  </aside>
 </div>
+<style>
+.dev-score{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:6px;max-width:420px;text-align:right}
+.dev-score__grade{display:flex;align-items:center;justify-content:flex-end;gap:10px}
+.dev-score__why{font-size:13px;line-height:1.45}
+.dev-score__why ul{list-style:none;margin:4px 0 0;padding:0;color:var(--fg-muted)}
+.dev-score__why li{margin:1px 0}
+@media (max-width:720px){.dev-score{margin-left:0;align-items:flex-start;text-align:left}.dev-score__grade{justify-content:flex-start}}
+</style>
 
 <div id="dev-contained" class="panel" style="display:none;border-left:4px solid var(--severity-info);margin-bottom:16px">
   <div class="panel__body"><strong>Contained by CrowdStrike.</strong> This host is isolated from the network, so its vulnerabilities can't be exploited right now: they're shown as info and its risk is 0. Normal scoring returns as soon as containment is lifted.</div>
@@ -230,8 +237,11 @@ async function loadDevice() {
   // Why this score, beside the grade: what drives it and the arithmetic (kept by the scoring engine)
   const w = d.score_why;
   $('dev-why').hidden = !w;
-  if (w) $('dev-why').innerHTML = `<b>Why ${esc(d.risk_grade || '')} ${esc(d.risk_score == null ? '' : d.risk_score)}:</b> ${esc(w.why || '')}`
-    + ((w.worst || []).length ? `<div class="text-muted">Worst finding: ${esc(w.worst.join(' · '))}</div>` : '');
+  if (w) {
+    const why = String(w.why || '');
+    $('dev-why').innerHTML = `<div><b>Why ${esc(d.risk_grade || '')} ${esc(d.risk_score == null ? '' : d.risk_score)}:</b> ${esc(why.charAt(0).toUpperCase() + why.slice(1))}</div>`
+      + ((w.worst || []).length ? `<ul aria-label="What drives the worst finding">${w.worst.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : '');
+  }
   if (assetKind) $('dev-info').innerHTML = AssetDetail.info(d, { info, txt, R, tagChips });
   else $('dev-info').innerHTML = [
     info('Assigned to', assignedCell(d)),
@@ -240,7 +250,9 @@ async function loadDevice() {
     info('Detected user (from sign-ins)', txt(d.detected_user) + upnLine(d.detected_user_upn, d.detected_user_title)),
     info('Last login user', txt(d.last_login_user)),
     info('Recent sign-ins', (d.recent_logins || []).length ? (d.recent_logins || []).map(esc).join(', ') : txt(null)),
-    info('IP address', `<span class="text-mono">${txt(d.ip)}</span>`),
+    // the public address sits right under the private one
+    info('IP address', `<span class="text-mono">${txt(d.ip)}</span>`
+      + `<div style="margin-top:8px"><span class="text-sm text-muted" style="display:block">Public IP</span>${publicIps(d)}</div>`),
     info('MAC address', `<span class="text-mono">${txt(d.mac_address)}</span>`),
     info('FQDN', `<span title="${esc(d.fqdn || '')}">${dotted(d.fqdn)}</span>`),
     info('OS version', txt(d.os_version)),
@@ -250,7 +262,6 @@ async function loadDevice() {
     info('Open findings', R.num(d.open_findings)),
     info('KEV findings', d.kev_findings ? `<span class="chip chip--critical">${R.num(d.kev_findings)}</span>` : '0'),
     info('EDR', `${R.bool(d.edr_active)} ${txt(d.edr_vendor)}${d.edr_contained ? ' <span class="chip chip--info">Contained</span>' : ''}${d.edr_hidden ? ' <span class="chip chip--medium" title="Hidden in the Falcon console: its detections may not show there">Hidden in Falcon</span>' : ''}`),
-    info('Public IP', publicIps(d)),
     info('Host firewall', hostFirewall(d)),
     info('Cloud firewall', cloudFirewall(d.cloud || [])),
     info('USB storage blocked', d.usb_storage_blocked == null ? txt(null) : R.bool(d.usb_storage_blocked)),

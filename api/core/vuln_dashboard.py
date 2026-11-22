@@ -29,6 +29,7 @@ KINDS = ("infra", "code", "web", "all")
 SLA_DAYS = {"critical": 15, "high": 30, "medium": 90, "low": 180}   # matches the GRC SLA check's defaults
 AGE_BUCKETS = ((0, 30, "0-30 days"), (31, 60, "31-60"), (61, 90, "61-90"), (91, 180, "91-180"), (181, None, "180+"))
 OPEN = (FindingStatus.open, FindingStatus.in_progress)
+DIRTY_KEY = "vulndash:dirty_at"   # when the data last changed; a view built before it is out of date
 CACHE_SECONDS = 1800   # the scheduler rebuilds the unfiltered view every 15 minutes
 
 
@@ -38,17 +39,18 @@ def _sev():
 
 
 async def forget_cached() -> int:
-    """Drop every cached dashboard view (all sources and filters) after a sync changes the data, so a newly
-    synced source shows at once instead of after the cache runs out. The next visit rebuilds it."""
+    """After a sync changes the data: mark every cached Vulnerability Dashboard view out of date (the next visit gets
+    it at once and a fresh one is rebuilt in the background, see cached()), and drop the custom dashboards' widget
+    cache. Wiping the views instead made the next visitor wait for a full rebuild, up to 20 seconds."""
     import redis.asyncio as aioredis
 
     from api.core.config import get_settings
     r = aioredis.from_url(get_settings().redis_url)
     n = 0
     try:
-        for pattern in ("vulndash:*", "dashw:*"):
-            async for key in r.scan_iter(match=pattern, count=500):
-                n += await r.delete(key)
+        await r.set(DIRTY_KEY, str(_now().timestamp()))
+        async for key in r.scan_iter(match="dashw:*", count=500):
+            n += await r.delete(key)
     except Exception:  # noqa: BLE001 -- a stale view for a few more minutes is the worst case
         log.warning("dashboard cache not cleared")
     finally:
@@ -106,6 +108,42 @@ async def _kpis(db, w) -> dict:
     return {"open": r[0], **{s: r[i + 1] for i, s in enumerate(SEVERITIES)}, "kev": r[5], "exploitable": r[6],
             "past_sla": r[7], "devices": await distinct_open(Finding.device_id), "vulns": await distinct_open(Finding.vuln_id),
             "new_7d": r[8], "fixed_7d": r[9], "excepted": r[10], "_fixes_since": r[11].date().isoformat() if r[11] else None}
+
+
+async def _units(db, w) -> dict:
+    """The headline counts as unique vulnerabilities and as fixes, for the dashboard's Count switch. A fix counts
+    under Critical when any finding it resolves is critical, under KEV when any is known exploited, and so on."""
+    from api.models.vuln import Fix
+    rank = case((Vulnerability.cvss_base >= 9.0, 4), (Vulnerability.cvss_base >= 7.0, 3),
+                (Vulnerability.cvss_base >= 4.0, 2), else_=1)
+    kev = func.max(case((Vulnerability.is_kev == True, 1), else_=0))  # noqa: E712
+    exp = func.max(case((Vulnerability.exploit_available == True, 1), else_=0))  # noqa: E712
+    out = {}
+    for unit, col in (("vulns", Finding.vuln_id), ("fixes", Finding.fix_key)):
+        sub = (select(col.label("k"), func.max(rank).label("r"), kev.label("kev"), exp.label("exp"))
+               .select_from(Finding).join(Vulnerability, Vulnerability.id == Finding.vuln_id)
+               .where(Finding.status.in_(OPEN), col.is_not(None), *w).group_by(col).subquery())
+        r = (await db.execute(select(func.count(), *[func.count().filter(sub.c.r == n) for n in (4, 3, 2, 1)],
+                                     func.count().filter(sub.c.kev == 1), func.count().filter(sub.c.exp == 1))
+                              .select_from(sub))).one()
+        out[unit] = {"open": r[0], **{s: r[i + 1] for i, s in enumerate(SEVERITIES)}, "kev": r[5], "exploitable": r[6]}
+    # Findings no source has named a fix for yet: shown so the Fixes count is never mistaken for everything
+    out["fixes"]["unassigned_findings"] = (await db.execute(
+        select(func.count()).select_from(Finding).join(Vulnerability, Vulnerability.id == Finding.vuln_id)
+        .where(Finding.status.in_(OPEN), Finding.fix_key.is_(None), *w))).scalar_one()
+    # The fixes that remove the most risk: critical findings first, then how many findings, then known exploited
+    crit = func.count().filter(Vulnerability.cvss_base >= 9.0)
+    top = (await db.execute(
+        select(Finding.fix_key, func.count(), crit, func.count().filter(Vulnerability.is_kev == True),  # noqa: E712
+               func.count(func.distinct(Finding.vuln_id)), func.count(func.distinct(Finding.device_id)))
+        .select_from(Finding).join(Vulnerability, Vulnerability.id == Finding.vuln_id)
+        .where(Finding.status.in_(OPEN), Finding.fix_key.is_not(None), *w)
+        .group_by(Finding.fix_key).order_by(crit.desc(), func.count().desc()).limit(10))).all()
+    names = {f.key: f for f in (await db.execute(select(Fix).where(Fix.key.in_([t[0] for t in top])))).scalars()}
+    out["top_fixes"] = [{"key": k, "title": (names[k].title if k in names else k.split(":", 1)[-1])[:200],
+                         "kind": names[k].kind if k in names else None, "findings": n, "critical": c, "kev": kv,
+                         "vulns": nv, "devices": nd} for k, n, c, kv, nv, nd in top]
+    return out
 
 
 async def _trend(db, w, days: int | None) -> dict:
@@ -245,9 +283,17 @@ async def build(db: AsyncSession, source: str | None, device_type: str | None, s
     k = await _kpis(db, w)
     return {"generated_at": _now().isoformat(), "tracking_since": k.pop("_fixes_since"), "sla_days": SLA_DAYS,
             "kpis": k, "trend": await _trend(db, w, None), "aging": await _aging(db, w), "mttr": await _mttr(db, w),
-            **await _breakdowns(db, w, kind),
+            **await _breakdowns(db, w, kind), "units": await _units(db, w),
             # exception counts are fleet-wide, so scoped viewers don't get them
             "exceptions": await _exceptions(db) if scope is None else {"active": None, "pending": 0, "ending_14d": 0}}
+
+
+def _rebuild_later(source, device_type, kind, viewer) -> None:
+    try:
+        from api.core.tasks import refresh_vuln_view
+        refresh_vuln_view.delay(source, device_type, kind, viewer)
+    except Exception:  # noqa: BLE001 -- the view runs out within CACHE_SECONDS anyway
+        log.warning("vuln dashboard rebuild not queued")
 
 
 def sliced(out: dict, range_key: str) -> dict:
@@ -267,13 +313,19 @@ async def cached(db: AsyncSession, range_key: str, source: str | None, device_ty
     from api.core.config import get_settings
     # a scoped viewer's numbers are theirs alone, so their cache entry is too
     kind = kind if kind in KINDS else "all"
-    key = f"vulndash:v3:{kind}:{source or '-'}:{device_type or '-'}:{viewer if scope is not None else 'all'}"
+    key = f"vulndash:v4:{kind}:{source or '-'}:{device_type or '-'}:{viewer if scope is not None else 'all'}"
     r = aioredis.from_url(get_settings().redis_url)
     try:
         try:
             hit = None if fresh else await r.get(key)
             if hit:
-                return sliced(json.loads(hit), range_key)
+                out = json.loads(hit)
+                dirty = await r.get(DIRTY_KEY)
+                if dirty and datetime.fromisoformat(out["generated_at"]).timestamp() < float(dirty):
+                    # out of date: answer now with it, and rebuild once in the background
+                    if await r.set(f"vulndash:rebuilding:{key}", "1", nx=True, ex=600):
+                        _rebuild_later(source, device_type, kind, viewer if scope is not None else None)
+                return sliced(out, range_key)
         except Exception:  # noqa: BLE001 -- no Redis means no cache, not no dashboard
             log.warning("vuln dashboard cache unavailable")
         out = await build(db, source, device_type, scope, kind)

@@ -118,3 +118,68 @@ async def test_dashboard_defaults_to_infrastructure_and_lists_sources_by_type(db
         await client_admin.get("/api/v1/vuln-dashboard", params={"kind": k})
     assert seen == ["infra", "code", "web"]
     assert (await client_admin.get("/api/v1/vuln-dashboard", params={"kind": "app"})).status_code == 422
+
+
+class _Redis:
+    """Just enough Redis for the dashboard cache."""
+    store: dict = {}
+
+    async def get(self, k):
+        return self.store.get(k)
+
+    async def set(self, k, v, ex=None, nx=False):
+        if nx and k in self.store:
+            return None
+        self.store[k] = v.encode() if isinstance(v, str) else v
+        return True
+
+    async def delete(self, k):
+        return 1 if self.store.pop(k, None) is not None else 0
+
+    async def scan_iter(self, match="*", count=None):
+        import fnmatch
+        for k in list(self.store):
+            if fnmatch.fnmatch(k, match):
+                yield k
+
+    async def aclose(self):
+        pass
+
+
+@pytest.mark.asyncio
+async def test_after_a_sync_the_old_view_answers_at_once_and_rebuilds_in_the_background(monkeypatch):
+    import redis.asyncio as aioredis
+    _Redis.store = {}
+    monkeypatch.setattr(aioredis, "from_url", lambda *a, **k: _Redis())
+    builds, queued = [], []
+
+    async def build(db, source, device_type, scope=None, kind="all"):
+        builds.append(kind)
+        return {"generated_at": vd._now().isoformat(), "trend": {"days": []}, "n": len(builds)}
+    monkeypatch.setattr(vd, "build", build)
+    monkeypatch.setattr(vd, "_rebuild_later", lambda *a: queued.append(a))
+    first = await vd.cached(None, "90d", None, None, kind="code")
+    assert first["n"] == 1 and (await vd.cached(None, "90d", None, None, kind="code"))["n"] == 1   # cached
+    _Redis.store["dashw:x"] = b"1"
+    await vd.forget_cached()
+    assert "dashw:x" not in _Redis.store
+    vd_key = next(k for k in _Redis.store if k.startswith("vulndash:v4:code"))
+    assert vd_key   # the view is kept, only marked out of date
+    _Redis.store[vd.DIRTY_KEY] = str(vd._now().timestamp() + 1).encode()
+    again = await vd.cached(None, "90d", None, None, kind="code")
+    assert again["n"] == 1 and len(builds) == 1          # answered from the old view, nobody waited
+    await vd.cached(None, "90d", None, None, kind="code")
+    assert queued == [(None, None, "code", None)]        # rebuilt once, not once per visitor
+
+
+@pytest.mark.asyncio
+async def test_host_device_type_is_ignored_on_code_and_web(client_admin, monkeypatch):
+    seen = []
+
+    async def fake(db, range_key, source, device_type, fresh=False, scope=None, viewer=None, kind="all"):
+        seen.append((kind, device_type))
+        return {"kpis": {}, "trend": {}}
+    monkeypatch.setattr(vd, "cached", fake)
+    for kind in ("infra", "code", "web"):
+        await client_admin.get("/api/v1/vuln-dashboard", params={"kind": kind, "device_type": "server"})
+    assert seen == [("infra", "server"), ("code", None), ("web", None)]

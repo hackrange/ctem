@@ -87,7 +87,13 @@ async def can_access_device(user: User, device: Any, db: AsyncSession) -> bool:
     # Tags assigned to this device
     device_tag_ids = {dt.tag_id for dt in device.tags} if device.tags else set()
     if not device_tag_ids:
-        return False
+        from api.core import user_access
+        return await user_access.sees_all(db, user)
+
+    # This person's own rules (Admin > Users > Data access)
+    from api.core import user_access
+    if await user_access.sees_all(db, user) or {str(t) for t in device_tag_ids} & await user_access.tag_ids(db, user):
+        return True
 
     # Roles this user has that grant tag access
     result = await db.execute(
@@ -106,9 +112,14 @@ async def get_accessible_device_tag_ids(user: User, db: AsyncSession) -> list[uu
     """
     if set(user.role_names).intersection(_GLOBAL_SCOPE_ROLES):
         return None  # None = no filter, see everything
+    from api.core import user_access
+    if await user_access.sees_all(db, user):
+        return None  # an "all" data access rule (a CISO, an audit team)
 
     from api.models.tag import GroupTagAccess
     result = await db.execute(
         select(GroupTagAccess.tag_id).where(GroupTagAccess.role_name.in_(user.role_names))
     )
-    return [row[0] for row in result.all()]
+    from api.core import user_access
+    ids = {str(row[0]) for row in result.all()} | await user_access.tag_ids(db, user)
+    return sorted(ids)

@@ -36,6 +36,13 @@ class Dashboard(Base, UUIDPrimaryKey, TimestampMixin):
     # Dashboard-wide conditions every widget honors: {"filters": [...], "match": "all"|"any"} (see dashboards.filters)
     filters: Mapped[dict | None] = mapped_column(JSON)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # viewer: every widget shows only what each viewer may see (the default). everything: the published widgets
+    # show all the data to everyone it's shared with. Only admins and cyber can set it; it resets when anyone else
+    # changes or publishes the dashboard (api/routes/dashboards.py).
+    data_scope: Mapped[str] = mapped_column(String(16), nullable=False, default="viewer", server_default=text("'viewer'"))
+    # Someone who can't set "everything" asked for it: {"by", "at", "why"} until an admin or cyber approves or denies
+    scope_request: Mapped[dict | None] = mapped_column(JSON)
+    scope_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))   # "everything" ends then (None: no end)
 
 
 class Favorite(Base, UUIDPrimaryKey):

@@ -22,6 +22,7 @@
 </div>
 <div id="db-banner" class="db-banner" hidden></div>
 <div id="db-ai" class="db-ai" hidden></div>
+<div id="db-scope" class="panel" hidden style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 14px;border-left:3px solid var(--severity-high);font-size:13.5px" role="status"></div>
 <div id="db-explain" class="panel" hidden><div class="panel__body text-sm" id="db-explain-text"></div></div>
 <div id="db-empty" class="panel" hidden><div class="panel__body text-muted" style="text-align:center;padding:32px">
   This dashboard has no widgets yet. Click <b>Edit</b>, then drag widgets in from the library, or describe one for the AI.</div></div>
@@ -43,5 +44,6 @@
 <script src="{{ static('js/dash_palette.js') }}"></script>
 <script src="{{ static('js/dash_filters.js') }}"></script>
 <script src="{{ static('js/dash_editor.js') }}"></script>
+<script src="{{ static('js/dash_access.js') }}"></script>
 <script src="{{ static('js/dash_builder.js') }}"></script>
 {% endblock %}

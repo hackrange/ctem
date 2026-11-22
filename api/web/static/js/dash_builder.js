@@ -121,12 +121,16 @@
     $('db-drop-hint').hidden = !(editing && !widgets.length);
   }
 
+  // A dashboard an admin set to show all the data: the published widgets are asked for by dashboard, so the server
+  // can use its stored copy (see DashAccess)
+  const wideRef = () => (!editing && showing === 'published' && dash && dash.data_scope === 'everything' ? { dashboard: id } : {});
+
   async function load(only) {
     const list = only || widgets;
     if (!list.length) return;
     list.forEach(w => DashRender.render(body(w.id), w, null, !editing));
     const f = active();
-    const r = await DashRender.api('POST', `${API}/data`, { widgets: list, filters: f.filters, filter_match: f.match });
+    const r = await DashRender.api('POST', `${API}/data`, { widgets: list, filters: f.filters, filter_match: f.match, ...wideRef() });
     Object.assign(data, r.data || {});
     list.forEach(w => { const b = body(w.id); if (b) DashRender.render(b, w, data[w.id] || { error: r.error || 'No data' }, !editing); });
   }
@@ -159,7 +163,8 @@
     document.title = `${dash.name} -- open-ctem`;
     const share = dash.visibility === 'everyone' ? 'Shared with everyone'
       : dash.visibility === 'roles' ? `Shared with ${dash.share_roles.map(r => ROLE_LABEL[r] || r).join(', ')}` : 'Private';
-    $('db-sub').textContent = [dash.description, `${share} · by ${dash.owner}`].filter(Boolean).join(' · ');
+    $('db-sub').textContent = [dash.description, `${share} · by ${dash.owner}`, DashAccess.note(dash)].filter(Boolean).join(' · ');
+    DashAccess.bar(dash, id, () => open(showing));
     $('db-star').hidden = false;
     $('db-star').innerHTML = dash.starred ? '&#9733;' : '&#9734;';
     $('db-star').setAttribute('aria-pressed', String(dash.starred));
@@ -260,8 +265,7 @@
         `<label class="tk-radio"><input type="checkbox" value="${esc(r)}"${dash.share_roles.includes(r) ? ' checked' : ''}> ${esc(ROLE_LABEL[r] || r)}</label>`).join('')}</div>
       <label class="form-label" for="dbs-link" style="margin-top:12px">Link</label>
       <div style="display:flex;gap:8px"><input id="dbs-link" class="form-input" readonly value="${esc(link)}"><button type="button" class="btn btn--ghost btn--sm" id="dbs-copy">Copy link</button></div>
-      <p class="text-sm text-muted">People you share with can view, star and copy it; only you and admins can change it.
-        Everyone sees only the data they're allowed to see.</p>`;
+      ${DashAccess.field(dash)}`;
     $('dbs-copy').onclick = async () => {
       try { await navigator.clipboard.writeText(link); d.msg('Link copied.'); } catch (e) { $('dbs-link').select(); d.msg('Press Ctrl+C to copy.'); }
     };
@@ -275,7 +279,8 @@
       const cur = dash.draft || { widgets: dash.widgets, theme: dash.theme, filters: dash.filters };
       const r = await DashRender.api('PUT', `${API}/${id}`, { name, description: desc || null, visibility: vis, share_roles: share,
                                                              widgets: cur.widgets, theme: cur.theme,
-                                                             filters: (cur.filters || {}).filters || [], filter_match: (cur.filters || {}).match || 'all' });
+                                                             filters: (cur.filters || {}).filters || [], filter_match: (cur.filters || {}).match || 'all',
+                                                             ...DashAccess.value(dash) });
       if (!r.ok) return d.msg(r.error || 'Could not save', true);
       d.close();
       open(showing);
@@ -400,7 +405,7 @@
     if (!w) return;
     button.disabled = true;
     try {
-      const r = await fetch(`${API}/export`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ widget: w, filters: active().filters, filter_match: active().match }) });
+      const r = await fetch(`${API}/export`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ widget: w, filters: active().filters, filter_match: active().match, ...wideRef() }) });
       if (!r.ok) { alert('That widget has no data to export right now.'); return; }
       const name = (/filename="([^"]+)"/.exec(r.headers.get('Content-Disposition') || '') || [, 'widget.csv'])[1];
       const url = URL.createObjectURL(await r.blob());
