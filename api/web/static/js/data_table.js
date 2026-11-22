@@ -198,6 +198,16 @@
       return `<div style="display:flex;align-items:center;gap:6px"><div class="score-bar" style="width:50px"><div class="score-bar__fill" style="width:${Math.min(100, +s)}%;background:var(--severity-${c})"></div></div><span class="text-sm">${esc(s)}</span></div>`;
     },
     date(iso) { return iso ? esc(new Date(iso).toLocaleDateString()) : '<span class="text-muted">--</span>'; },
+    // Age: days from first found until today (or until fixed); red once an open one is past its severity's SLA
+    age(x) {
+      if (!x || x.age_days == null) return '<span class="text-muted">--</span>';
+      const first = x.first_found || x.first_detected;
+      const n = x.age_days, label = `${fmtInt(n)} day${n === 1 ? '' : 's'}`;
+      const tip = [first ? `First found ${new Date(first).toLocaleDateString()}` : '', x.age_until === 'fixed' ? 'open this long before it was fixed' : '',
+                   x.sla_days ? `SLA ${x.sla_days} days for this severity` : ''].filter(Boolean).join(' · ');
+      if (x.past_sla) return `<span class="chip chip--critical nowrap" style="font-size:.7rem" title="${esc(tip)}, past SLA">${esc(label)}</span>`;
+      return `<span class="text-sm nowrap${x.age_until === 'fixed' ? ' text-muted' : ''}" title="${esc(tip)}">${esc(label)}</span>`;
+    },
     link(href, text) { return `<a class="dt-link" href="${esc(href)}">${esc(text || '--')}</a>`; },
     num: fmtInt,
   };

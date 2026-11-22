@@ -306,7 +306,7 @@ async def expire_scope_exemptions(db: AsyncSession) -> list[str]:
 
 
 async def refresh_affected_counts(db: AsyncSession) -> None:
-    """One set-based UPDATE so vuln lists can sort by affected count without counting millions of findings."""
+    """One set-based UPDATE so vuln lists can sort by affected count and age without counting millions of findings."""
     from sqlalchemy import distinct, func, update
 
     from api.models.vuln import Vulnerability
@@ -315,7 +315,12 @@ async def refresh_affected_counts(db: AsyncSession) -> None:
              .where(Finding.vuln_id == Vulnerability.id, in_scope_findings(),
                     Finding.status.in_([FindingStatus.open, FindingStatus.in_progress]))
              .correlate(Vulnerability).scalar_subquery())
-    await db.execute(update(Vulnerability).values(affected_devices=count).execution_options(synchronize_session=False))
+    oldest = (select(func.min(Finding.first_detected))
+              .where(Finding.vuln_id == Vulnerability.id, in_scope_findings(),
+                     Finding.status.in_([FindingStatus.open, FindingStatus.in_progress]))
+              .correlate(Vulnerability).scalar_subquery())
+    await db.execute(update(Vulnerability).values(affected_devices=count, first_found=oldest)
+                     .execution_options(synchronize_session=False))
     await db.commit()
 
 

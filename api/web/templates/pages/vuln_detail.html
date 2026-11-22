@@ -150,6 +150,7 @@ function startAffected() {
         ? `<a class="chip chip--info" style="font-size:.7rem" href="/exceptions?id=${encodeURIComponent(f.exception_id)}">Excepted</a>`
         : `<span class="text-sm">${esc(f.status.replace('_', ' '))}</span>`) },
       { label: 'First detected', sort: 'first_detected', firstOrder: 'desc', render: f => dim(f, R.date(f.first_detected)) },
+      { label: 'Age', sort: 'age', firstOrder: 'desc', render: f => dim(f, R.age(f)) },
       { label: 'Last seen', sort: 'last_seen', firstOrder: 'desc', render: f => dim(f, R.date(f.last_seen)) },
       { label: '', render: f => `<span style="display:flex;gap:4px">${f.source === 'rapid7_insightvm' ? `<button type="button" class="btn btn--ghost btn--sm" data-proof="${esc(f.id)}" data-host="${esc(f.hostname)}">Proof</button>` : ''}<button type="button" class="btn btn--ghost btn--sm" data-ticket="${esc(f.id)}" data-host="${esc(f.hostname)}">Ticket</button></span>` },
     ],

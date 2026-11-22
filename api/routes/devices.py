@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from api.auth.device_scope import device_scope
+from api.core import finding_age as age
 from api.auth.rbac import can_access_device, require_permission
 from api.core.csv_export import csv_paged_response
 from api.core.db import get_session
@@ -261,8 +262,12 @@ def _findings_query(device_id: str, status: str | None, q: str | None):
 
 
 def _sorted_findings(stmt, sort, order):
-    col = _FINDING_SORTS.get(sort or "", Vulnerability.cvss_base)
-    direction = col.asc() if (order or "").lower() == "asc" else col.desc()
+    asc = (order or "").lower() == "asc"
+    if sort == "age":   # oldest first is the highest age
+        col, asc = Finding.first_detected, not asc
+    else:
+        col = _FINDING_SORTS.get(sort or "", Vulnerability.cvss_base)
+    direction = col.asc() if asc else col.desc()
     return stmt.order_by(direction.nullslast(), Vulnerability.title.asc(), Finding.id.asc()).options(selectinload(Finding.vuln))
 
 
@@ -309,12 +314,14 @@ async def export_device_findings(
     hostname, contained = dq.short_name(device.hostname), bool(device.edr_contained) or is_exempt(device)
     stmt = _sorted_findings(_findings_query(device.id, status, q), sort, order)
     header = ["Hostname", "Severity", "CVE", "Title", "CVSS", "EPSS", "KEV", "Score", "Status", "First detected",
-              "Last seen", "Source"]
+              "Last seen", "Age (days)", "Past SLA", "Source"]
 
     async def fetch(offset: int, limit: int) -> list[list]:
         rows = (await db.execute(stmt.limit(limit).offset(offset))).scalars().all()
         out = [[hostname, dq.severity(f.vuln.cvss_base, contained), f.vuln.cve_id, f.vuln.title, f.vuln.cvss_base, f.vuln.epss_score, f.vuln.is_kev,
-                f.composite_score, f.status.value, _iso(f.first_detected), _iso(f.last_seen), f.source] for f in rows]
+                f.composite_score, f.status.value, _iso(f.first_detected), _iso(f.last_seen),
+                *(lambda a: (a["age_days"], a["past_sla"]))(age.view(f.first_detected, f.last_seen, f.status.value, f.vuln.cvss_base)),
+                f.source] for f in rows]
         db.expunge_all()
         return out
 
@@ -351,5 +358,6 @@ def _finding_summary(f: Finding, contained: bool = False, cloud_ports: list | No
         "in_attack_chain": f.in_attack_chain,
         **reach_view(f, contained, v.attack_vector if v else None, cloud_ports),
         "first_detected": _iso(f.first_detected),
+        **age.view(f.first_detected, f.last_seen, f.status.value, v.cvss_base if v else None),
         "last_seen": _iso(f.last_seen),
     }

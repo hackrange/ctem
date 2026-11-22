@@ -79,6 +79,7 @@
         { label: 'Fix', render: f => { const p = (f.details || {}).package; return h.dim(f, p && p.fixed_in ? `Upgrade to <b>${esc(p.fixed_in)}</b>` : (f.details || {}).fix ? 'See details' : h.txt(null)); } },
         { label: 'Reach', render: f => h.dim(f, h.R.reach(f)) },
         { label: 'Status', sort: 'status', render: status },
+        { label: 'Age', sort: 'age', firstOrder: 'desc', render: f => h.dim(f, h.R.age(f)) },
         { label: 'Last seen', sort: 'last_seen', firstOrder: 'desc', render: f => h.dim(f, h.R.date(f.last_seen)) },
         { label: '', render: btn },
       ];
@@ -89,6 +90,7 @@
       { label: 'URL', render: f => h.dim(f, where(f)) },
       { label: 'Weakness', render: f => h.dim(f, esc((f.details || {}).cwe || '')) },
       { label: 'Status', sort: 'status', render: status },
+      { label: 'Age', sort: 'age', firstOrder: 'desc', render: f => h.dim(f, h.R.age(f)) },
       { label: 'Last scanned', sort: 'last_seen', firstOrder: 'desc', render: f => h.dim(f, h.R.date(f.last_seen)) },
       { label: '', render: btn },
     ];
@@ -216,6 +218,7 @@
         { label: 'Fix', render: f => { const p = (f.details || {}).package; return h.dim(f, p && p.fixed_in ? `Upgrade to <b>${esc(p.fixed_in)}</b>` : (f.details || {}).fix ? 'See details' : ''); } },
         { label: 'Reach', render: f => h.dim(f, h.R.reach(f)) },
         { label: 'Status', sort: 'status', render: status },
+        { label: 'Age', sort: 'age', firstOrder: 'desc', render: f => h.dim(f, h.R.age(f)) },
         { label: 'Last seen', sort: 'last_seen', firstOrder: 'desc', render: f => h.dim(f, h.R.date(f.last_seen)) },
         { label: '', render: btn },
       ];
@@ -225,6 +228,7 @@
       { label: 'Severity', render: sev },
       { label: 'URL', render: f => h.dim(f, where(f)) },
       { label: 'Status', sort: 'status', render: status },
+      { label: 'Age', sort: 'age', firstOrder: 'desc', render: f => h.dim(f, h.R.age(f)) },
       { label: 'Last scanned', sort: 'last_seen', firstOrder: 'desc', render: f => h.dim(f, h.R.date(f.last_seen)) },
       { label: '', render: btn },
     ];

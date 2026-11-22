@@ -141,6 +141,7 @@ table = DataTable.create({
     { label: 'KEV', sort: 'is_kev', firstOrder: 'desc', render: v => v.is_kev ? '<span class="chip chip--critical">KEV</span>' : '' },
     { label: 'Exploit', sort: 'exploit_available', firstOrder: 'desc', render: v => v.exploit_available ? '<span class="chip chip--high">Yes</span>' : '' },
     { label: 'Affected', sort: 'affected', firstOrder: 'desc', render: v => R.num(v.affected_devices) },
+    { label: 'Age', sort: 'age', firstOrder: 'desc', render: v => R.age(v) },
     { label: 'Source', sort: 'source', render: v => `<span class="text-sm text-muted">${esc(v.source)}</span>` },
   ],
 });

@@ -41,6 +41,8 @@ class Vulnerability(Base, UUIDPrimaryKey, TimestampMixin):
     source_vuln_id: Mapped[str | None] = mapped_column(String(256))
     # Devices with an open finding, refreshed by each scoring run (global view only)
     affected_devices: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False, index=True)
+    # When its oldest open finding was first found (kept with affected_devices), so lists sort and filter by age
+    first_found: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
 
     findings: Mapped[list[Finding]] = relationship(back_populates="vuln")
     chains: Mapped[list[CVEChainMember]] = relationship(back_populates="vuln")
@@ -194,3 +196,11 @@ def _set_domain(mapper, connection, target):  # noqa: ARG001 -- SQLAlchemy liste
     """Every finding and vulnerability gets a type (infra, code or web) when it is written."""
     from api.core.finding_domain import set_default
     set_default(target)
+
+
+@event.listens_for(Finding, "before_insert")
+def _first_found(mapper, connection, target):  # noqa: ARG001 -- SQLAlchemy listener signature
+    """A source that sends no first-found date: the finding ages from when CTEM first stored it."""
+    if target.first_detected is None:
+        from datetime import timezone
+        target.first_detected = datetime.now(timezone.utc)

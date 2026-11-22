@@ -17,6 +17,7 @@ from api.core.db import get_session
 from api.core.device_scope_exempt import in_scope, is_exempt
 from api.models.device import Device, DeviceAssignment, DeviceTag
 from api.models.user import User
+from api.core import finding_age as age
 from api.models.vuln import Finding, FindingStatus, Vulnerability
 from api.routes import device_query as dq
 from api.scoring.compensating import reach_view
@@ -39,13 +40,28 @@ def _affected_count(scope):
     return stmt.correlate(Vulnerability).scalar_subquery()
 
 
+def _oldest(scope):
+    """When this person's oldest open finding of the vuln was first found (live, for tag-scoped users)."""
+    stmt = (select(func.min(Finding.first_detected)).join(Device, Device.id == Finding.device_id)
+            .where(Finding.vuln_id == Vulnerability.id, Finding.status.in_(_OPEN), in_scope()))
+    if scope is not None:
+        stmt = stmt.where(scope)
+    return stmt.correlate(Vulnerability).scalar_subquery()
+
+
+_AGE = Query(None, ge=0, le=36500, description="Only vulnerabilities whose oldest open finding is at least this many days old")
 _TYPE = Query(None, alias="type", pattern="^(infra|code|web)$", description="Infrastructure, Code or Web apps; none = all")
 
 
-def _vuln_query(scope, q, is_kev, min_cvss, source, affected_only, vtype=None):
-    # Global roles read the stored count; tag-scoped users get a live count of only their devices
+def _vuln_query(scope, q, is_kev, min_cvss, source, affected_only, vtype=None, min_age_days=None):
+    # Global roles read the stored count and age; tag-scoped users get live ones for only their devices
     affected = (Vulnerability.affected_devices if scope is None else _affected_count(scope)).label("affected")
-    stmt = select(Vulnerability, affected)
+    oldest_expr = Vulnerability.first_found if scope is None else _oldest(scope)
+    oldest = oldest_expr.label("oldest")
+    stmt = select(Vulnerability, affected, oldest)
+    if min_age_days is not None:
+        from datetime import datetime, timedelta, timezone
+        stmt = stmt.where(oldest_expr <= datetime.now(timezone.utc) - timedelta(days=min_age_days))
     if q:
         like = dq._like(q.strip()[:200])  # partial, case-insensitive match
         stmt = stmt.where(or_(
@@ -63,7 +79,7 @@ def _vuln_query(scope, q, is_kev, min_cvss, source, affected_only, vtype=None):
         stmt = stmt.where(Vulnerability.domain == vtype)
     if affected_only:
         stmt = stmt.where((Vulnerability.affected_devices if scope is None else _affected_count(scope)) > 0)
-    return stmt, affected
+    return stmt, (affected, oldest)
 
 
 def _vuln_sorts(affected):
@@ -79,9 +95,14 @@ def _vuln_sorts(affected):
     }
 
 
-def _sorted_vulns(stmt, affected, sort, order):
-    col = _vuln_sorts(affected).get(sort or "", Vulnerability.cvss_base)
-    direction = col.asc() if (order or "").lower() == "asc" else col.desc()
+def _sorted_vulns(stmt, cols, sort, order):
+    affected, oldest = cols
+    asc = (order or "").lower() == "asc"
+    if sort == "age":   # oldest first is the highest age
+        col, asc = oldest, not asc
+    else:
+        col = _vuln_sorts(affected).get(sort or "", Vulnerability.cvss_base)
+    direction = col.asc() if asc else col.desc()
     return stmt.order_by(direction.nullslast(), Vulnerability.title.asc(), Vulnerability.id.asc())
 
 
@@ -97,16 +118,17 @@ async def list_vulns(
     affected_only: bool = False,
     tag: list[str] | None = _TAGS,
     vtype: str | None = _TYPE,
+    min_age_days: int | None = _AGE,
     sort: str | None = Query(None, max_length=32),
     order: str | None = Query(None, pattern="^(asc|desc)$"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0, le=1_000_000),
 ):
     scope = dq.with_tags(await device_scope(current_user, db), tag)
-    stmt, affected = _vuln_query(scope, q or cve_id, is_kev, min_cvss, source, affected_only, vtype)
+    stmt, cols = _vuln_query(scope, q or cve_id, is_kev, min_cvss, source, affected_only, vtype, min_age_days)
     total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
-    rows = (await db.execute(_sorted_vulns(stmt, affected, sort, order).limit(limit).offset(offset))).all()
-    return {"vulns": [_vuln_summary(v, n) for v, n in rows], "total": total, "limit": limit, "offset": offset}
+    rows = (await db.execute(_sorted_vulns(stmt, cols, sort, order).limit(limit).offset(offset))).all()
+    return {"vulns": [_vuln_summary(v, n, old) for v, n, old in rows], "total": total, "limit": limit, "offset": offset}
 
 
 @router.get("/export")
@@ -120,19 +142,24 @@ async def export_vulns(
     affected_only: bool = False,
     tag: list[str] | None = _TAGS,
     vtype: str | None = _TYPE,
+    min_age_days: int | None = _AGE,
     sort: str | None = Query(None, max_length=32),
     order: str | None = Query(None, pattern="^(asc|desc)$"),
 ):
     scope = dq.with_tags(await device_scope(current_user, db), tag)
-    stmt, affected = _vuln_query(scope, q, is_kev, min_cvss, source, affected_only, vtype)
-    stmt = _sorted_vulns(stmt, affected, sort, order)
+    stmt, cols = _vuln_query(scope, q, is_kev, min_cvss, source, affected_only, vtype, min_age_days)
+    stmt = _sorted_vulns(stmt, cols, sort, order)
     header = ["CVE", "Title", "Type", "CVSS", "EPSS", "KEV", "KEV added", "Exploit available", "Affected",
-              "Source", "Source ID"]
+              "First found", "Age (days)", "Past SLA", "Source", "Source ID"]
 
     async def fetch(offset: int, limit: int) -> list[list]:
         rows = (await db.execute(stmt.limit(limit).offset(offset))).all()
-        out = [[v.cve_id, v.title, {"infra": "Infrastructure", "code": "Code", "web": "Web app"}.get(v.domain, v.domain), v.cvss_base, v.epss_score, v.is_kev, v.kev_added_date, v.exploit_available, n,
-                v.source, v.source_vuln_id] for v, n in rows]
+        out = []
+        for v, n, old in rows:
+            a = age.view(old, None, "open", v.cvss_base)
+            out.append([v.cve_id, v.title, {"infra": "Infrastructure", "code": "Code", "web": "Web app"}.get(v.domain, v.domain),
+                        v.cvss_base, v.epss_score, v.is_kev, v.kev_added_date, v.exploit_available, n,
+                        _iso(old), a["age_days"], a["past_sla"], v.source, v.source_vuln_id])
         db.expunge_all()
         return out
 
@@ -170,8 +197,12 @@ def _affected_query(vuln_id: str, scope, status, q):
 
 
 def _sorted_affected(stmt, sort, order):
-    col = _AFFECTED_SORTS.get(sort or "", Device.risk_score)
-    direction = col.asc() if (order or "").lower() == "asc" else col.desc()
+    asc = (order or "").lower() == "asc"
+    if sort == "age":   # oldest first is the highest age
+        col, asc = Finding.first_detected, not asc
+    else:
+        col = _AFFECTED_SORTS.get(sort or "", Device.risk_score)
+    direction = col.asc() if asc else col.desc()
     return stmt.order_by(direction.nullslast(), Device.hostname.asc(), Finding.id.asc()).options(
         selectinload(Finding.device).selectinload(Device.owner),
         selectinload(Finding.device).selectinload(Device.assignment).selectinload(DeviceAssignment.user),
@@ -225,14 +256,14 @@ async def export_vuln_findings(
     stmt = _sorted_affected(_affected_query(str(vuln_id), dq.with_tags(await device_scope(current_user, db), tag), status, q),
                             sort, order)
     header = ["CVE", "Title", "Hostname", "User", "IP", "OS", "Grade", "Device score", "Status",
-              "First detected", "Last seen"]
+              "First detected", "Last seen", "Age (days)", "Past SLA"]
 
     async def fetch(offset: int, limit: int) -> list[list]:
         out = []
         for f in (await db.execute(stmt.limit(limit).offset(offset))).scalars().all():
             r = _affected_row(f, vuln.cvss_base, vuln.attack_vector)
             out.append([cve, title, r["hostname"], r["user"], r["ip"], r["os"], r["device_grade"],
-                        r["device_score"], r["status"], r["first_detected"], r["last_seen"]])
+                        r["device_score"], r["status"], r["first_detected"], r["last_seen"], r["age_days"], r["past_sla"]])
         db.expunge_all()
         return out
 
@@ -247,9 +278,12 @@ async def get_vuln(
     tag: list[str] | None = _TAGS,
 ):
     vuln = await _vuln_or_404(vuln_id, db)
-    affected = _affected_count(dq.with_tags(await device_scope(current_user, db), tag))
-    n = (await db.execute(select(affected).select_from(Vulnerability).where(Vulnerability.id == vuln.id))).scalar_one()
-    out = _vuln_summary(vuln, n)
+    scope = dq.with_tags(await device_scope(current_user, db), tag)
+    n, old = (await db.execute(select(_affected_count(scope), _oldest(scope)).select_from(Vulnerability)
+                               .where(Vulnerability.id == vuln.id))).one()
+    out = _vuln_summary(vuln, n, old)
+    if old is None:   # nothing open that this person can see: no age to show
+        out.update(first_found=None, age_days=None, past_sla=False)
     out.update({"source_vuln_id": vuln.source_vuln_id, "exploit_maturity": vuln.exploit_maturity,
                 "epss_updated_at": vuln.epss_updated_at.isoformat() if vuln.epss_updated_at else None})
     return out
@@ -332,11 +366,15 @@ def _affected_row(f: Finding, cvss: float | None = None, attack_vector: str | No
         **reach_view(f, bool(d and (d.edr_contained or is_exempt(d))), attack_vector, cloud_ports),
         "first_detected": _iso(f.first_detected),
         "last_seen": _iso(f.last_seen),
+        **age.view(f.first_detected, f.last_seen, f.status.value, cvss),
     }
 
 
-def _vuln_summary(v: Vulnerability, affected_devices: int) -> dict:
+def _vuln_summary(v: Vulnerability, affected_devices: int, oldest=None) -> dict:
+    a = age.view(oldest if oldest is not None else v.first_found, None, "open", v.cvss_base)
     return {
+        "first_found": _iso(oldest if oldest is not None else v.first_found),   # its oldest open finding
+        "age_days": a["age_days"], "sla_days": a["sla_days"], "past_sla": a["past_sla"],
         "id": str(v.id),
         "cve_id": v.cve_id,
         "title": v.title,
