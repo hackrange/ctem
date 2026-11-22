@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% set active_nav = 'hunt' %}
+
+{% block title %}Telemetry -- open-ctem{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-header__title">Telemetry</h1>
+    <p class="page-header__sub">Stack counting over endpoint telemetry: each distinct process, domain, connection and logon with how many hosts did it. Rare ones and threat intel matches are where to look first.</p>
+  </div>
+  <a class="btn btn--ghost btn--sm" href="/hunt">Threat Hunt</a>
+</div>
+
+<div class="dev-tabs" role="tablist" aria-label="Telemetry">
+  <button type="button" role="tab" id="ht-tab-stacks" aria-controls="ht-stacks" aria-selected="true">Fleet stacks</button>
+  <button type="button" role="tab" id="ht-tab-events" aria-controls="ht-events" aria-selected="false">EDR events</button>
+</div>
+
+<section id="ht-stacks" class="panel" role="tabpanel" aria-labelledby="ht-tab-stacks" style="padding:0;margin-top:0">
+  <div class="panel__header" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+    <input id="ht-q" type="search" class="search-bar" placeholder="Process, SHA-256, domain, IP or user" aria-label="Search telemetry" maxlength="200" style="max-width:300px">
+    <select id="ht-kind" class="form-input" style="width:auto" aria-label="Kind">
+      <option value="">Everything</option><option value="process">Processes</option><option value="dns">DNS lookups</option>
+      <option value="network">Connections</option><option value="logon">Logons</option><option value="logon_failed">Failed logons</option></select>
+    <select id="ht-days" class="form-input" style="width:auto" aria-label="Window">
+      <option value="1">Last day</option><option value="7" selected>Last 7 days</option><option value="30">Last 30 days</option></select>
+    <label class="tk-radio text-sm"><input type="checkbox" id="ht-rare"> Rare only</label>
+    <label class="tk-radio text-sm"><input type="checkbox" id="ht-intel"> Intel matches</label>
+    <span class="text-sm text-muted" id="ht-total" style="margin-left:auto"></span>
+  </div>
+  <div id="ht-detail" class="sw-detail" hidden style="margin:12px"></div>
+  <div style="overflow:auto"><table class="data-table"><thead><tr>
+    <th>Kind</th><th><button type="button" class="btn btn--ghost btn--sm" data-sort="value">What</button></th>
+    <th><button type="button" class="btn btn--ghost btn--sm" data-sort="hosts">Hosts</button></th>
+    <th><button type="button" class="btn btn--ghost btn--sm" data-sort="events">Events</button></th><th>Days</th>
+    <th><button type="button" class="btn btn--ghost btn--sm" data-sort="last_seen">Last seen</button></th><th>Intel</th></tr></thead>
+    <tbody id="ht-rows"><tr><td colspan="7" class="text-muted text-sm" style="text-align:center;padding:16px">Loading...</td></tr></tbody></table></div>
+</section>
+
+<section id="ht-events" class="panel" role="tabpanel" aria-labelledby="ht-tab-events" style="padding:0;margin-top:0" hidden>
+  <div class="panel__header" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+    <input id="he-q" type="search" class="search-bar" placeholder="Host, user or text" aria-label="Search events" maxlength="200" style="max-width:300px">
+    <select id="he-type" class="form-input" style="width:auto" aria-label="Event type"><option value="">Every type</option></select>
+    <span class="text-sm text-muted" id="he-total" style="margin-left:auto"></span>
+  </div>
+  <div style="overflow:auto"><table class="data-table"><thead><tr><th>When</th><th>Type</th><th>Host</th><th>User</th><th>Severity</th><th>What</th></tr></thead>
+    <tbody id="he-rows"></tbody></table></div>
+</section>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ static('js/hunt_telemetry.js') }}"></script>
+{% endblock %}

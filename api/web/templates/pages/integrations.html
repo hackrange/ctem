@@ -108,6 +108,7 @@ const VENDOR_FIELDS = {
     {key:'username',   label:'Username',        type:'text',     placeholder:'admin', required:true},
     {key:'password',   label:'Password',        type:'password', placeholder:'', required:true},
     {key:'hec_token',  label:'HEC Token',       type:'password', placeholder:'Optional -- for push/ingestion', required:false},
+    {key:'hec_url',    label:'HEC URL for CTEM alerts (blank = off; must be reachable from CTEM, e.g. Splunk Cloud)', type:'text', placeholder:'https://http-inputs-acme.splunkcloud.com', required:false},
     {key:'lookback_minutes', label:'Lookback Window (minutes)', type:'number', placeholder:'5', required:false},
     {key:'max_events',       label:'Max Events per Sync',       type:'number', placeholder:'500', required:false},
     {key:'notable_query', label:'SPL Query', type:'text',

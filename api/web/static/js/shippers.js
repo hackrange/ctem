@@ -18,14 +18,27 @@ const SOURCES = {
   crowdstrike: { label: 'CrowdStrike Falcon', fields: [
     { key: 'cloud', label: 'Cloud', type: 'select', opts: [['us-1', 'us-1'], ['us-2', 'us-2'], ['eu-1', 'eu-1'], ['us-gov-1', 'us-gov-1']] },
     { key: 'client_id', label: 'API client ID', ph: '32 hex characters', req: true },
-  ], secrets: { client_secret: 'API client secret' } },
+    ...[['policies', 'Policies (prevention, firewall, USB)'], ['posture', 'Zero Trust Assessment'], ['spotlight', 'Spotlight vulnerabilities'],
+        ['discover', 'Discover applications'], ['alerts', 'Alerts (endpoint, identity...)'], ['intel', 'Intel indicators'],
+        ['event_stream', 'Event stream (real time)']].map(([key, label]) => (
+      { key, label, type: 'select', opts: [['on', 'On (skipped if not licensed)'], ['off', 'Off']] })),
+    { key: 'fdr', label: 'Falcon Data Replicator (hunting)', type: 'select', opts: [['off', 'Off'], ['on', 'On']] },
+    { key: 'fdr_queue_url', label: 'FDR SQS queue URL', ph: 'https://sqs.us-west-1.amazonaws.com/123456789012/acme-fdr', wide: true },
+    { key: 'fdr_region', label: 'FDR region', ph: 'us-west-1' },
+    { key: 'fdr_access_key_id', label: 'FDR access key ID', ph: 'AKIA...' },
+  ], secrets: { client_secret: 'API client secret', fdr_secret_key: 'FDR secret access key' } },
   splunk: { label: 'Splunk (local search head)', fields: [
     { key: 'host', label: 'Management host', ph: 'splunk001.acme.example', req: true },
     { key: 'port', label: 'Port', type: 'number', ph: '8089' },
     { key: 'username', label: 'Username', ph: 'svc-ctem', req: true },
     { key: 'query', label: 'Notable events SPL', ph: 'search index=wineventlog ... | table _time, host, source, _raw', wide: true },
     { key: 'max_events', label: 'Max events per run', type: 'number', ph: '5000' },
-  ], secrets: { password: 'Splunk password' } },
+    { key: 'forward_alerts', label: 'Send CTEM alerts to Splunk', type: 'select', opts: [['off', 'Off'], ['hec', 'To the HEC'],
+      ['file', 'To a file for a Universal Forwarder'], ['both', 'Both']] },
+    { key: 'hec_host', label: 'HEC host (blank = the management host)', ph: 'splunk001.acme.example' },
+    { key: 'hec_port', label: 'HEC port', type: 'number', ph: '8088' },
+    { key: 'hec_index', label: 'HEC index (blank = the token\'s default)', ph: 'ctem' },
+  ], secrets: { password: 'Splunk password', hec_token: 'HEC token (for CTEM alerts)' } },
 };
 
 // Each source can run on its own clock; blank follows the shipper's schedule

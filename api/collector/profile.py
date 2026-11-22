@@ -42,9 +42,24 @@ class Rapid7Settings(_Source):
     software_hours: int = Field(24, ge=0, le=168)   # 0 turns software collection off
 
 
+OnOff = Literal["on", "off"]
+
+
 class CrowdStrikeSettings(_Source):
     cloud: Literal["us-1", "us-2", "eu-1", "us-gov-1"] = "us-1"
     client_id: Annotated[str, StringConstraints(pattern=r"^[0-9a-fA-F]{32}$")]
+    # Falcon products, each optional: "off" skips it; "on" with no license or scope skips it with a note on the card
+    policies: OnOff = "on"      # prevention, firewall, device control
+    posture: OnOff = "on"       # Zero Trust Assessment
+    spotlight: OnOff = "on"     # Spotlight / Exposure Management vulnerabilities
+    discover: OnOff = "on"      # Discover installed applications
+    alerts: OnOff = "on"        # endpoint, identity and other Falcon alerts
+    intel: OnOff = "on"         # Falcon Intel high-confidence indicators, matched against telemetry
+    event_stream: OnOff = "on"  # the real-time event stream (detections, response sessions, console activity)
+    fdr: OnOff = "off"          # Falcon Data Replicator telemetry as fleet stacks; needs the FDR queue and key
+    fdr_queue_url: Annotated[str, StringConstraints(max_length=300, pattern=r"^https://sqs\.[a-z0-9-]+\.amazonaws\.com/[0-9]{12}/[A-Za-z0-9_-]{1,80}$")] | None = None
+    fdr_region: Annotated[str, StringConstraints(pattern=r"^[a-z]{2}(-gov)?-[a-z]+-[0-9]$")] | None = None
+    fdr_access_key_id: Annotated[str, StringConstraints(pattern=r"^[A-Z0-9]{16,128}$")] | None = None
 
 
 class SplunkSettings(_Source):
@@ -54,6 +69,12 @@ class SplunkSettings(_Source):
     query: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)] = (
         "search index=wineventlog OR index=crowdstrike OR index=guardicore | table _time, host, source, _raw")
     max_events: int = Field(5000, ge=1, le=50000)
+    # CTEM's high-fidelity alert feed, delivered on the box: to the local HEC, to a file a Universal Forwarder reads,
+    # or both (api/core/alert_feed.py)
+    forward_alerts: Literal["off", "hec", "file", "both"] = "off"
+    hec_host: Host | None = None
+    hec_port: Port = 8088
+    hec_index: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,80}$")] | None = None
 
 
 SETTINGS = {"ldap": LdapSettings, "rapid7_console": Rapid7Settings,
@@ -61,14 +82,19 @@ SETTINGS = {"ldap": LdapSettings, "rapid7_console": Rapid7Settings,
 # Anything that decides where a password goes, or what runs with it, needs a yes on the box
 DEST_KEYS = {"ldap": ("host", "port", "tls"), "rapid7_console": ("host", "port"),
              "crowdstrike": ("cloud",), "splunk": ("host", "port", "query")}
+# Destinations added later count only once set, so existing approvals stay valid (the agent has the same rule)
+DEST_EXTRA = {"crowdstrike": {"fdr_queue_url": ("fdr_queue_url",)}, "splunk": {"hec_host": ("hec_host", "hec_port")}}
 SECRET_FIELDS = {"ldap": ("password",), "rapid7_console": ("password",),
-                 "crowdstrike": ("client_secret",), "splunk": ("password",)}
+                 "crowdstrike": ("client_secret", "fdr_secret_key"), "splunk": ("password", "hec_token")}
 SCHEDULES = (15, 30, 60, 120, 240, 360, 720, 1440)
 
 
 def dest_digest(kind: str, settings: dict) -> str:
     # Must match the agent's copy byte for byte; tests check both
     dest = {k: settings.get(k) for k in DEST_KEYS[kind]}
+    for anchor, keys in DEST_EXTRA.get(kind, {}).items():
+        if settings.get(anchor):
+            dest.update({k: settings.get(k) for k in keys})
     return hashlib.sha256(json.dumps([kind, dest], sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 

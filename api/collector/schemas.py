@@ -286,11 +286,109 @@ class EdrPolicyIn(_Lax):
     classes: list[_UsbClass] = Field(default_factory=list, max_length=40)
 
 
+CveId = Annotated[str, StringConstraints(pattern=r"^CVE-\d{4}-\d{4,}$")]
+Long = Annotated[str, StringConstraints(max_length=4000, pattern=r"^[^<>\x00-\x08\x0b-\x1f]*$")]
+
+
+class SpotlightCve(_Lax):
+    id: CveId
+    name: Txt(512) | None = None
+    description: Long | None = None
+    base_score: Annotated[float, Field(ge=0, le=10)] | None = None
+    severity: Word | None = None
+    vector: Annotated[str, StringConstraints(max_length=256, pattern=r"^[A-Za-z0-9:/.]*$")] | None = None
+    exprt_rating: Word | None = None
+    exploit_status: Annotated[int, Field(ge=0, le=1000)] | None = None
+    is_kev: bool = False
+    published: Annotated[str, StringConstraints(max_length=40, pattern=r"^[0-9T:.+Z -]*$")] | None = None
+    actors: list[Txt(128)] = Field(default_factory=list, max_length=20)
+    cwes: list[Word] = Field(default_factory=list, max_length=10)
+
+
+class _Remedy(_Lax):
+    title: Txt(256) | None = None
+    action: Annotated[str, StringConstraints(max_length=1000, pattern=r"^[^<>\x00-\x08\x0b-\x1f]*$")] | None = None
+    link: Annotated[str, StringConstraints(max_length=500, pattern=r"^https://[^\s<>\"']+$")] | None = None
+
+
+class SpotlightVuln(_Lax):
+    id: Annotated[str, StringConstraints(max_length=128, pattern=r"^[A-Za-z0-9_:.-]+$")] | None = None
+    aid: Hex32
+    hostname: Annotated[str, StringConstraints(strip_whitespace=True, max_length=253, pattern=r"^[^<>\x00-\x1f]+$")] | None = None
+    status: Word | None = None
+    cve_id: CveId
+    created: Annotated[str, StringConstraints(max_length=40, pattern=r"^[0-9T:.+Z -]*$")] | None = None
+    updated: Annotated[str, StringConstraints(max_length=40, pattern=r"^[0-9T:.+Z -]*$")] | None = None
+    closed: Annotated[str, StringConstraints(max_length=40, pattern=r"^[0-9T:.+Z -]*$")] | None = None
+    apps: list[Txt(200)] = Field(default_factory=list, max_length=5)
+    remediation: list[_Remedy] = Field(default_factory=list, max_length=3)
+
+    @field_validator("remediation", mode="before")
+    @classmethod
+    def _links(cls, v):
+        """A remediation link that isn't plain https is dropped, not a reason to refuse the batch."""
+        out = []
+        for r in v or []:
+            if isinstance(r, dict) and r.get("link") and not str(r["link"]).startswith("https://"):
+                r = {**r, "link": None}
+            out.append(r)
+        return out
+
+
+Stamp = Annotated[str, StringConstraints(max_length=40, pattern=r"^[0-9T:.+Z -]*$")]
+Val = Annotated[str, StringConstraints(max_length=512, pattern=r"^[^\x00-\x1f]+$")]
+_Flat = dict[Annotated[str, StringConstraints(max_length=64, pattern=r"^[A-Za-z0-9_]+$")],
+             Annotated[str, StringConstraints(max_length=1000, pattern=r"^[^\x00-\x08\x0b-\x1f]*$")] | None]
+
+
+class IntelIn(_Lax):
+    value: Val
+    type: Word
+    confidence: Word | None = None
+    actors: list[Txt(128)] = Field(default_factory=list, max_length=10)
+    malware: list[Txt(128)] = Field(default_factory=list, max_length=10)
+    labels: list[Txt(64)] = Field(default_factory=list, max_length=10)
+    published: Stamp | None = None
+    updated: Stamp | None = None
+
+
+class StreamEventIn(_Lax):
+    partition: Annotated[str, StringConstraints(pattern=r"^[0-9a-zA-Z]{1,16}$")]
+    offset: Annotated[int, Field(ge=0, le=2**62)]
+    type: Word
+    at: Stamp | None = None
+    hostname: Txt(253) | None = None
+    user: Txt(256) | None = None
+    severity: Word | None = None
+    summary: Annotated[str, StringConstraints(max_length=500, pattern=r"^[^\x00-\x08\x0b-\x1f]*$")] | None = None
+    event: _Flat = Field(default_factory=dict, max_length=60)
+
+
+class HuntStackIn(_Lax):
+    day: Annotated[str, StringConstraints(pattern=r"^\d{4}-\d{2}-\d{2}$")]
+    kind: Literal["process", "dns", "network", "logon", "logon_failed"]
+    key: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
+    value: Val
+    sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")] | None = None
+    fields: _Flat = Field(default_factory=dict, max_length=10)
+    hosts: list[Hex32] = Field(default_factory=list, max_length=200)
+    events: Annotated[int, Field(ge=0, le=10**9)] = 0
+    first_seen: Stamp | None = None
+    last_seen: Stamp | None = None
+
+
 class CrowdStrikeBatch(_Batch):
     kind: Literal["crowdstrike"]
     devices: list[CsDevice] = Field(default_factory=list, max_length=MAX_BATCH)
     detections: list[CsDetection] = Field(default_factory=list, max_length=MAX_BATCH)
     edr_policies: list[EdrPolicyIn] = Field(default_factory=list, max_length=500)
+    spotlight_cves: list[SpotlightCve] = Field(default_factory=list, max_length=MAX_BATCH)
+    spotlight: list[SpotlightVuln] = Field(default_factory=list, max_length=MAX_BATCH)
+    spotlight_mode: Literal["full", "incremental"] | None = None
+    software: list[R7Software] = Field(default_factory=list, max_length=MAX_BATCH)   # Discover applications
+    intel: list[IntelIn] = Field(default_factory=list, max_length=5000)
+    stream_events: list[StreamEventIn] = Field(default_factory=list, max_length=MAX_BATCH)
+    hunt: list[HuntStackIn] = Field(default_factory=list, max_length=5000)
 
 
 class SplunkBatch(_Batch):

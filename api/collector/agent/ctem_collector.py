@@ -161,6 +161,7 @@ def _run_locked(force):
             cc.say(f"{kind}: shipped {n} records in {time.time() - started:.0f}s")
             if kind == "splunk":
                 state["splunk_ok"] = started
+                core.mod(kind).deliver(sh.api, m, s, secret, state, os.path.join(core.STATE_DIR, "alerts"))
         except Exception as e:
             errors[kind] = cc.short_error(e)
             cc.say(f"{kind}: FAILED {errors[kind]}")

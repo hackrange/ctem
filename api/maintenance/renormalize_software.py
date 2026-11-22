@@ -14,10 +14,59 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.core import software_norm
 
 
+_RANK = {"unauthorized": 2, "approved": 1, "unreviewed": 0}   # when titles merge, the strictest decision stays
+
+
+async def _rekey_titles(db: AsyncSession, by_key: dict) -> int:
+    """A stored title renamed by the current rules (its own name normalized again) merges into that title, with its
+    installs, exceptions and review decision. Safe without the reported names: the rules are idempotent on a
+    title they produced, so only names the rules now clean up move."""
+    from sqlalchemy import update
+
+    from api.models.software import SoftwareException, SoftwareInstall, SoftwareTitle
+    moved = 0
+    for old in list(dict.fromkeys(by_key.values())):
+        n = software_norm.normalize(old.vendor, old.title)
+        if n is None or n["key"] == old.key:
+            continue
+        new = by_key.get(n["key"])
+        if new is None:
+            by_key.pop(old.key, None)
+            old.key, old.title, old.system = n["key"], n["title"], old.system or n["system"]
+            by_key[n["key"]] = old
+            moved += 1
+            continue
+        if _RANK.get(old.status, 0) > _RANK.get(new.status, 0):
+            new.status, new.status_note, new.decided_by, new.decided_at = old.status, old.status_note, old.decided_by, old.decided_at
+        for i in (await db.execute(select(SoftwareInstall).where(SoftwareInstall.title_id == old.id))).scalars().all():
+            clash = (await db.execute(select(SoftwareInstall).where(
+                SoftwareInstall.title_id == new.id, SoftwareInstall.device_id == i.device_id,
+                SoftwareInstall.version == i.version, SoftwareInstall.source == i.source))).scalar_one_or_none()
+            if clash:
+                clash.last_seen = max(filter(None, [clash.last_seen, i.last_seen]))
+                await db.delete(i)
+            else:
+                i.title_id = new.id
+        for e in (await db.execute(select(SoftwareException).where(SoftwareException.title_id == old.id))).scalars().all():
+            if (await db.execute(select(exists().where(SoftwareException.title_id == new.id,
+                                                       SoftwareException.device_id == e.device_id)))).scalar():
+                await db.delete(e)
+            else:
+                e.title_id = new.id
+        await db.flush()
+        await db.execute(update(SoftwareTitle).where(SoftwareTitle.id == old.id).values(status="unreviewed"))
+        by_key.pop(old.key, None)
+        moved += 1
+    await db.flush()
+    return moved
+
+
 async def run(db: AsyncSession) -> dict:
     from api.models.software import SoftwareException, SoftwareInstall, SoftwareTitle
     titles = {t.id: t for t in (await db.execute(select(SoftwareTitle))).scalars()}
     by_key = {t.key: t for t in titles.values()}
+    renamed = await _rekey_titles(db, by_key)
+    titles = {t.id: t for t in by_key.values()}
     moved, went = 0, {}   # old title id -> the titles its installs went to
     now = datetime.now(timezone.utc)
     for old in list(titles.values()):
@@ -66,7 +115,7 @@ async def run(db: AsyncSession) -> dict:
     r = await db.execute(delete(SoftwareTitle).where(empty, unused, SoftwareTitle.status == "unreviewed")
                          .execution_options(synchronize_session=False))
     await db.commit()
-    return {"installs_moved": moved, "titles_removed": r.rowcount or 0}
+    return {"titles_renamed": renamed, "installs_moved": moved, "titles_removed": r.rowcount or 0}
 
 
 VERSION_KEY = "software.rules_version"

@@ -345,3 +345,33 @@ async def test_bulk_decisions_are_for_deciders_and_audited(db, client_admin, cli
     assert t0.status == "unreviewed" and t0.decided_by is None
     assert (await client_admin.put("/api/v1/software/bulk-status", json={"ids": [], "status": "approved"})).status_code == 422
     assert (await client_admin.put("/api/v1/software/bulk-status", json={"ids": ids, "status": "approved", "note": "<b>"})).status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_bracketed_ids_merge_and_the_strictest_decision_stays(db):
+    from sqlalchemy import select
+
+    from api.core.software_norm import normalize as nz
+    from api.maintenance.renormalize_software import run
+    from api.models.device import Device, DeviceType
+    from api.models.software import SoftwareInstall, SoftwareTitle
+    assert nz("BeyondTrust", "Remote Support Jump Client 23.3.5 [remotesupport.acme.example] [673DECE6]")["title"] == \
+        "BeyondTrust Remote Support Jump Client"
+    assert nz("Acme", "Acme Tool [en-US]")["title"] == "Acme Tool [en-US]"      # an ordinary bracket stays
+    n = uuid.uuid4().hex[:6]
+    d = Device(hostname=f"ws-bt-{n}", device_type=DeviceType.workstation)
+    a = SoftwareTitle(key=f"beyondtrust|beyondtrust jump{n} 23.3.5 [remotesupport.acme.example] [673dece6]", vendor="BeyondTrust",
+                      title=f"BeyondTrust Jump{n} 23.3.5 [remotesupport.acme.example] [673DECE6]", status="unauthorized", decided_by="admin")
+    b = SoftwareTitle(key=f"beyondtrust|beyondtrust jump{n} 23.3.5 [remotesupport.acme.example] [67603d12]", vendor="BeyondTrust",
+                      title=f"BeyondTrust Jump{n} 23.3.5 [remotesupport.acme.example] [67603D12]", status="approved", decided_by="admin")
+    db.add_all([d, a, b])
+    await db.flush()
+    from datetime import datetime, timezone
+    for t in (a, b):
+        db.add(SoftwareInstall(title_id=t.id, device_id=d.id, version="23.3.5", source=f"t_bt{t.id[:4]}", last_seen=datetime.now(timezone.utc)))
+    await db.commit()
+    out = await run(db)
+    assert out["titles_renamed"] >= 2
+    merged = (await db.execute(select(SoftwareTitle).where(SoftwareTitle.key == f"beyondtrust|beyondtrust jump{n}"))).scalar_one()
+    assert merged.status == "unauthorized"                                       # the stricter one wins
+    assert len((await db.execute(select(SoftwareInstall).where(SoftwareInstall.title_id == merged.id))).scalars().all()) == 2

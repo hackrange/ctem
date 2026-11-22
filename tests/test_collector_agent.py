@@ -98,6 +98,14 @@ def test_server_and_agent_destination_digests_agree():
                     "crowdstrike": {"cloud": "us-2", "client_id": "a" * 32},
                     "rapid7_console": {"host": "c1", "port": 3780, "username": "u"}}.items():
         assert dest_digest(kind, s) == cc.dest_digest(kind, s)
+    # New destinations count only once set: upgrading doesn't invalidate approvals, setting one asks again
+    cs = {"cloud": "us-2", "client_id": "a" * 32}
+    assert dest_digest("crowdstrike", {**cs, "fdr": "off", "fdr_queue_url": None}) == dest_digest("crowdstrike", cs)
+    q = {**cs, "fdr_queue_url": "https://sqs.us-west-1.amazonaws.com/123456789012/acme-fdr"}
+    assert dest_digest("crowdstrike", q) != dest_digest("crowdstrike", cs) and dest_digest("crowdstrike", q) == cc.dest_digest("crowdstrike", q)
+    sp = {"host": "s1", "port": 8089, "query": "search x"}
+    assert dest_digest("splunk", {**sp, "hec_port": 8088}) == dest_digest("splunk", sp)
+    assert dest_digest("splunk", {**sp, "hec_host": "s2", "hec_port": 8088}) == cc.dest_digest("splunk", {**sp, "hec_host": "s2", "hec_port": 8088})
 
 
 def test_pin_mismatch_raises():

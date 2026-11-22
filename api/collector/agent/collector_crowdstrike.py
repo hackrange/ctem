@@ -6,6 +6,8 @@ from datetime import datetime, timedelta, timezone
 
 import collector_common as cc
 import collector_cs_alert as csa
+import collector_cs_extras as cse
+import collector_cs_hunt as csh
 import collector_cs_policies as csp
 
 KIND = "crowdstrike"
@@ -212,12 +214,13 @@ def collect(s, secret, state):
     for group, is_hidden in ((ids, False), (hidden, True)):
         for i in range(0, len(group), 500):
             rows = api.call("POST", "/devices/entities/devices/v2", {"ids": group[i:i + 500]}).get("resources") or []
-            policies.load(rows)
+            if cse.on(s, "policies"):
+                policies.load(rows)
             logins = history.load(rows)
             fresh = policies.new_policies()   # before the hosts that point at them
             if fresh:
                 yield {"edr_policies": fresh}
-            zta = posture.load([d.get("device_id") for d in rows if not is_hidden])
+            zta = posture.load([d.get("device_id") for d in rows if not is_hidden]) if cse.on(s, "posture") else {}
             yield {"devices": [_device(d, policies, logins, is_hidden) | ({"posture": zta[d["device_id"]]} if d.get("device_id") in zta else {})
                                for d in rows]}
     posture.done(state)
@@ -225,8 +228,15 @@ def collect(s, secret, state):
         policies.notes.append(posture.note)
     if hidden:
         cc.say(f"  CrowdStrike: {len(hidden)} hidden host(s) included")
+    yield from csh.intel(api, s, state, policies.notes)   # before the telemetry it's matched against
+    yield from cse.spotlight(api, s, state, policies.notes)
+    yield from cse.discover(api, s, state, policies.notes)
+    yield from csh.stream(api, s, state, policies.notes, s.get("ca_file"))
+    yield from csh.fdr(s, secret, state, policies.notes)
     if policies.notes:
         yield {"warnings": list(dict.fromkeys(policies.notes))[:10]}
+    if not cse.on(s, "alerts"):
+        return
     for offset in range(0, 10000, 1000):  # the alerts query endpoint stops at 10k
         found = api.call("GET", _alert_query(offset)).get("resources") or []
         if not found:

@@ -1,6 +1,9 @@
 """Local Splunk module: notable events on a rolling window, plus the index list for the SPL catalog."""
 import base64
+import json
+import os
 import re
+import time
 
 import collector_common as cc
 
@@ -72,3 +75,53 @@ def collect(s, secret, state):
     for i in range(0, len(events), 1000):
         yield {"events": events[i:i + 1000]}
     yield {"indexes": _indexes(s, secret)}
+
+
+FILE_MAX = 50 * 1024 * 1024   # the forwarder file rolls over at this size (one previous file kept)
+
+
+def deliver(api, m, s, secret, state, alerts_dir):
+    """CTEM's alert feed, on the box: to the local HEC, to a file a Universal Forwarder monitors, or both."""
+    mode = s.get("forward_alerts", "off")
+    if mode == "off":
+        return 0
+    if mode in ("hec", "both") and not secret.get("hec_token"):
+        cc.say("  Splunk: no HEC token set in CTEM yet; alerts go to the file only" if mode == "both" else
+               "  Splunk: no HEC token set in CTEM yet; alerts are not sent")
+        mode = "file" if mode == "both" else "off"
+        if mode == "off":
+            return 0
+    key = f"ctem_alert_seq:{m['integration_id']}"
+    seq, sent = state.get(key, -1), 0   # -1: start from now, don't replay history
+    for _ in range(200):
+        page = api.call("GET", f"/api/v1/collector/alerts/{m['integration_id']}?after={int(seq)}", retries=2) or {}
+        events = page.get("alerts") or []
+        if events and mode in ("hec", "both"):
+            for e in events:
+                body = {"time": time.time(), "source": "open-ctem", "sourcetype": "ctem:alert", "event": e}
+                if s.get("hec_index"):
+                    body["index"] = s["hec_index"]
+                cc.pinned_json("POST", s.get("hec_host") or s["host"], int(s.get("hec_port") or 8088), "/services/collector/event",
+                               headers={"Authorization": f"Splunk {secret['hec_token']}"}, body=body,
+                               pin=s.get("hec_pin"), cafile=s.get("ca_file"), timeout=60)
+        if events and mode in ("file", "both"):
+            _append(alerts_dir, events)
+        sent += len(events)
+        seq = page.get("next", seq)
+        state[key] = seq   # what's delivered stays delivered, even if a later page fails
+        if not page.get("more"):
+            break
+    if sent:
+        cc.say(f"  Splunk: delivered {sent} CTEM alerts ({mode})")
+    return sent
+
+
+def _append(alerts_dir, events):
+    os.makedirs(alerts_dir, mode=0o750, exist_ok=True)
+    path = os.path.join(alerts_dir, "ctem-alerts.json")
+    if os.path.exists(path) and os.path.getsize(path) > FILE_MAX:
+        os.replace(path, path + ".1")
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o640)
+    with os.fdopen(fd, "a", encoding="utf-8") as f:
+        for e in events:
+            f.write(json.dumps(e, separators=(",", ":"), sort_keys=True) + "\n")

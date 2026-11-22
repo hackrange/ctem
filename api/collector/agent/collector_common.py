@@ -230,8 +230,17 @@ DEST_KEYS = {"ldap": ("host", "port", "tls"), "rapid7_console": ("host", "port")
              "crowdstrike": ("cloud",), "splunk": ("host", "port", "query")}
 
 
+# Destinations added later count only once set (each anchor key with the keys that go with it), so existing
+# approvals stay valid: a new place a secret goes still needs a yes on the box
+DEST_EXTRA = {"crowdstrike": {"fdr_queue_url": ("fdr_queue_url",)}, "splunk": {"hec_host": ("hec_host", "hec_port")}}
+
+
 def dest_of(kind, settings):
-    return {k: settings.get(k) for k in DEST_KEYS[kind]}
+    out = {k: settings.get(k) for k in DEST_KEYS[kind]}
+    for anchor, keys in DEST_EXTRA.get(kind, {}).items():
+        if settings.get(anchor):
+            out.update({k: settings.get(k) for k in keys})
+    return out
 
 
 def dest_digest(kind, settings):

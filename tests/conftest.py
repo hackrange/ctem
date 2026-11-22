@@ -47,6 +47,8 @@ import api.models.tag_role    # noqa: F401, E402
 import api.models.user_access # noqa: F401, E402
 import api.models.software    # noqa: F401, E402
 import api.models.edr_policy  # noqa: F401, E402
+import api.models.alert_feed  # noqa: F401, E402
+import api.models.hunt_data  # noqa: F401, E402
 import api.models.cloud       # noqa: F401, E402
 import api.models.utilization # noqa: F401, E402
 import api.models.snapshot    # noqa: F401, E402

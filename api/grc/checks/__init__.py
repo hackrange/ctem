@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.models.integration import IntegrationConfig, SyncJob, SyncStatus
 
 EDR = ("crowdstrike", "sentinelone", "msdefender", "tanium", "cortex_xdr")
-SCANNERS = ("qualys", "rapid7_insightvm", "tanium", "msdefender")
+SCANNERS = ("qualys", "rapid7_insightvm", "tanium", "msdefender", "crowdstrike_spotlight")
 EXPOSURE = SCANNERS + ("rapid7_appsec",)   # web app scanners see internet-facing apps too
 DIRECTORY = ("ldap",)
 IDENTITY = ("grip",)

@@ -10,7 +10,7 @@ import re
 
 # Bump with every change to the rules below: the hourly maintenance job then regroups what's stored once
 # (api/maintenance/renormalize_software.py), carrying review decisions and exceptions to the new titles
-RULES_VERSION = 3
+RULES_VERSION = 4
 
 _SUFFIX = re.compile(r"[,\s]+(inc|incorporated|corp|corporation|co|company|llc|l\.l\.c|ltd|limited|gmbh|ag|s\.a|sa|bv|"
                      r"b\.v|plc|pty|srl|s\.r\.l|s\.r\.o|sro|spol|oy|ab|as|kk|nv|n\.v|pte|sas|spa|s\.p\.a|ltda|sl|s\.l|a\.s)\.?$", re.I)
@@ -26,6 +26,8 @@ _ALIASES = {"microsoft corporation": "Microsoft", "google llc": "Google", "googl
 _GENERIC = {"the", "software", "technology", "technologies", "systems", "solutions", "group", "international",
             "development", "computer", "corporation", "labs", "studio", "studios", "digital", "network", "networks",
             "foundation", "team", "project", "community"}
+# A bracketed server name or install id some installers append ("[remotesupport.acme.example] [673DECE6]")
+_BRACKET = re.compile(r"\s*\[[^\]]*(?:[a-z0-9-]+\.[a-z]{2,}|\b[0-9a-f]{8,}\b)[^\]]*\]", re.I)
 _HOST = re.compile(r"\s+[a-z0-9-]+(?:\.[a-z0-9-]+){2,}\s*$", re.I)   # a server name some installers append
 _ARCH = re.compile(r"\([^()]*\b(?:x64|x86|amd64|arm64|64-bit|32-bit|[a-z]{2}-[a-z]{2})\b[^()]*\)|"
                    r"\b(?:x64|x86|amd64|arm64|win64|win32|64-bit|32-bit|64 bit|32 bit)\b", re.I)
@@ -69,7 +71,7 @@ def title(name: str | None, vendor_name: str = "") -> str:
     n = " ".join(str(name or "").replace("®", "").replace("™", "").split())
     for _ in range(3):
         before = n
-        n = _EMPTY.sub(" ", _ARCH.sub(" ", _HOST.sub("", n)))
+        n = _EMPTY.sub(" ", _ARCH.sub(" ", _HOST.sub("", _BRACKET.sub("", n))))
         n = _SPACE.sub(" ", n).strip(" -_,")
         n = _VERSION.sub("", n).strip(" -_,")
         cut = _EDITION.sub("", n).strip(" -_,")

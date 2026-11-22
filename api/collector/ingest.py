@@ -130,12 +130,36 @@ async def track_run(db: AsyncSession, cfg: IntegrationConfig, run_id: str, count
     if final:
         job.status, job.finished_at = SyncStatus.success, now
         cfg.last_sync_at, cfg.last_sync_status, cfg.last_sync_error = now, SyncStatus.success, job.error_message
+        if KIND_FOR_VENDOR.get(cfg.vendor) == "crowdstrike" and job.started_at:
+            await _crowdstrike_finished(db, cfg, run_id, job.started_at)
         if KIND_FOR_VENDOR.get(cfg.vendor) == "rapid7_console" and job.started_at:
             from api.core.software_ingest import prune_run
             if await prune_run(db, "rapid7_insightvm", job.started_at) is not None:   # a software pass mirrors the console
                 from api.collector.software_resend import restore
                 await restore(db, str(cfg.id))   # and ends a "send software sooner" request
     return job
+
+
+async def mark_full_spotlight(db: AsyncSession, cfg: IntegrationConfig, run_id: str) -> None:
+    """This run carries a full Spotlight pass: at its end, what Falcon no longer lists is closed."""
+    from api.models.settings import AppSetting
+    key = f"spotlight_full_run.{cfg.id}"
+    row = (await db.execute(select(AppSetting).where(AppSetting.key == key))).scalar_one_or_none()
+    if row is None:
+        db.add(AppSetting(key=key, value=run_id))
+    else:
+        row.value = run_id
+
+
+async def _crowdstrike_finished(db: AsyncSession, cfg: IntegrationConfig, run_id: str, started) -> None:
+    from api.core.software_ingest import prune_run
+    from api.models.settings import AppSetting
+    await prune_run(db, "crowdstrike_discover", started)   # a Discover pass mirrors Falcon's installed apps
+    row = (await db.execute(select(AppSetting).where(AppSetting.key == f"spotlight_full_run.{cfg.id}"))).scalar_one_or_none()
+    if row is not None and row.value == run_id:
+        from api.integrations.crowdstrike_spotlight import close_unseen
+        await close_unseen(db, started)
+        await db.delete(row)
 
 
 async def apply_batch(db: AsyncSession, batch: LdapBatch | Rapid7Batch | CrowdStrikeBatch | SplunkBatch) -> int:
@@ -161,6 +185,18 @@ async def apply_batch(db: AsyncSession, batch: LdapBatch | Rapid7Batch | CrowdSt
             from api.core.edr_policies import upsert as upsert_policies
             await upsert_policies(db, "crowdstrike", [p.model_dump(exclude_none=True) for p in batch.edr_policies])
         n = await cs._upsert([d.model_dump(exclude_none=True) for d in batch.devices], [], db)
+        if batch.spotlight:
+            from api.integrations.crowdstrike_spotlight import upsert as spotlight
+            n += await spotlight(db, [c.model_dump(exclude_none=True) for c in batch.spotlight_cves],
+                                 [v.model_dump(exclude_none=True) for v in batch.spotlight])
+        if batch.software:
+            from api.core.software_ingest import upsert as software
+            n += await software(db, [x.model_dump(exclude_none=True) for x in batch.software], "crowdstrike_discover")
+        if batch.intel or batch.stream_events or batch.hunt:
+            from api.core import hunt_ingest as hi
+            n += await hi.intel(db, [x.model_dump(exclude_none=True) for x in batch.intel])
+            n += await hi.stream_events(db, [x.model_dump(exclude_none=True) for x in batch.stream_events])
+            n += await hi.stacks(db, [x.model_dump(exclude_none=True) for x in batch.hunt])
         if batch.detections:
             await cs._cache_threats([d.model_dump(exclude_none=True) for d in batch.detections], db)
         return n + len(batch.detections)

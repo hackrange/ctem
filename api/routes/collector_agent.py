@@ -7,7 +7,7 @@ import secrets
 from datetime import datetime, timezone
 from typing import Annotated, Union
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import Field, TypeAdapter, ValidationError
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -182,6 +182,8 @@ async def ingest_batch(integration_id: str, request: Request, db: AsyncSession =
         raise HTTPException(409, detail="This source's data is being truncated; send again on the next run")
     try:
         count = await ingest.apply_batch(db, batch)
+        if getattr(batch, "spotlight_mode", None) == "full":
+            await ingest.mark_full_spotlight(db, cfg, str(batch.run_id))
         job = await ingest.track_run(db, cfg, str(batch.run_id), count, batch.final, batch.warnings)
         await db.commit()
     except HTTPException:
@@ -192,3 +194,21 @@ async def ingest_batch(integration_id: str, request: Request, db: AsyncSession =
         log.exception("collector ingest failed for integration %s", integration_id)
         raise HTTPException(500, detail="Ingest failed") from None
     return {"accepted": count, "run_id": str(batch.run_id), "records": job.records_imported, "final": batch.final}
+
+
+@router.get("/alerts/{integration_id}")
+async def alert_feed(request: Request, db: AsyncSession = Depends(get_session), *, integration_id: str,
+                     after: int = Query(-1, ge=-1, le=2**62)):
+    """CTEM's alert feed for the box's own Splunk source, when that source forwards alerts (api/core/alert_feed.py).
+    after=-1 starts from now: turning it on doesn't replay history."""
+    from api.core import alert_feed
+    tok = await ingest.authenticate(request, db)
+    cfg = await ingest.scoped_integration(tok, integration_id, "splunk", db)
+    prof = await ingest.profile_of(tok, db)
+    mod = (prof.modules or {}).get("splunk") or {}
+    if (mod.get("settings") or {}).get("forward_alerts", "off") == "off" or str(mod.get("integration_id")) != str(cfg.id):
+        raise HTTPException(404)
+    if after < 0:
+        return {"alerts": [], "next": await alert_feed.latest_seq(db), "more": False}
+    rows = await alert_feed.after(db, after, 500)
+    return {"alerts": [r.event for r in rows], "next": rows[-1].seq if rows else after, "more": len(rows) == 500}

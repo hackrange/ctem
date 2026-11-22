@@ -35,6 +35,8 @@ class Vulnerability(Base, UUIDPrimaryKey, TimestampMixin):
     attack_vector: Mapped[str | None] = mapped_column(String(32))               # network, adjacent, local, physical
     exploit_available: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     exploit_maturity: Mapped[str | None] = mapped_column(String(32))            # poc, functional, weaponized
+    threat_actors: Mapped[list | None] = mapped_column(JSON)    # adversaries known to exploit it (EDR threat intel)
+    exprt_rating: Mapped[str | None] = mapped_column(String(16))   # the EDR's own exploit prediction (Falcon ExPRT)
     source: Mapped[str] = mapped_column(String(64), nullable=False)             # qualys, rapid7, defender...
     # infra (hosts, network, cloud) | code (SAST, packages, secrets, IaC) | web (DAST): see api.core.finding_domain
     domain: Mapped[str] = mapped_column(String(8), nullable=False, default="infra", server_default=text("'infra'"), index=True)

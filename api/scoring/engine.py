@@ -99,6 +99,7 @@ async def recalculate_device(device: Device, db: AsyncSession) -> RiskScore:
             nodezero_confirmed_not_exploitable=bool(f.is_reachable is False and f.reachability_source == "horizon3"),
             attack_vector=f.vuln.attack_vector if f.vuln else None,
             exposure=f.exposure, ports=f.ports, cloud_ports=cloud_ports,
+            threat_actors=(f.vuln.threat_actors or None) if f.vuln else None,
             **_edr_context(edr, f),
         )
         findings_data.append({

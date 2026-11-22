@@ -21,6 +21,7 @@ COLLECTOR_NAME='@@COLLECTOR_NAME@@'
 AGENT_VERSION='@@AGENT_VERSION@@'
 LDAP3_VERSION='2.9.1'
 CRYPTO_VERSION='50.0.2'
+BOTO3_VERSION='1.43.120'
 
 APP=/opt/open-ctem-collector
 CONF=/etc/open-ctem-collector
@@ -112,6 +113,8 @@ install_deps() {
   ok "cryptography ready"
   if pip_or_os ldap3 "ldap3==$LDAP3_VERSION" python3-ldap3; then ok "ldap3 ready"
   else warn "ldap3 unavailable; the LDAP source won't work until it's installed into $APP/venv"; fi
+  if pip_or_os boto3 "boto3==$BOTO3_VERSION" python3-boto3; then ok "boto3 ready (Falcon Data Replicator)"
+  else warn "boto3 unavailable; only Falcon Data Replicator needs it"; fi
 }
 
 write_unit() {

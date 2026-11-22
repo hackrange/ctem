@@ -26,6 +26,7 @@ class ControlContext:
     usb_blocked: bool | None = None
     memory_flaw: bool = False               # the flaw is memory corruption (what exploit mitigations target)
     host_firewall: tuple | None = None      # (factor, reason) for this finding's ports
+    threat_actors: list | None = None       # adversaries the EDR's threat intel ties to this flaw
 
 
 def apply_multipliers(base_score: float, ctx: ControlContext) -> tuple[float, list[str]]:
@@ -49,6 +50,10 @@ def apply_multipliers(base_score: float, ctx: ControlContext) -> tuple[float, li
     if not ctx.edr_active:
         score *= 1.3
         reasons.append("No EDR installed on asset (+30%)")
+    if ctx.threat_actors:
+        score *= 1.2
+        names = ", ".join(ctx.threat_actors[:3]) + (" and others" if len(ctx.threat_actors) > 3 else "")
+        reasons.append(f"Exploited by adversaries threat intel tracks: {names} (+20%)")
 
     # --- Negative risk (lowers score) ----------------------------------------
     if ctx.nodezero_confirmed_not_exploitable:
