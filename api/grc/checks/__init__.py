@@ -145,6 +145,8 @@ async def evaluate(db: AsyncSession, check: Check, params: dict, detail: bool = 
     if rules is None:
         rules = await active_rules(db, check.check_type)
     clause, rule_thresholds, applied, problem = combine(rules)
+    from api.core import sla
+    await sla.load(db)   # the install's SLAs are the SLA check's defaults
     # Curated rules set this org's defaults; a caller's explicit parameter still wins
     thresholds = check.parse({**rule_thresholds, **params})
     fresh, stamps, why = await freshness(db, check.sources, check.max_age_hours)

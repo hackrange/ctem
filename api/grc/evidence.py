@@ -39,6 +39,8 @@ async def _redis():
 
 async def run_check(db: AsyncSession, check: Check, params: dict) -> dict:
     """Result for FairTPRM; cached briefly so a burst of monitors doesn't hammer the database."""
+    from api.core import sla
+    await sla.load(db)   # an SLA change makes a new cache key
     key = _cache_key(check, check.parse(params))
     try:
         r = await _redis()

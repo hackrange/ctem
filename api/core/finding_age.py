@@ -1,7 +1,7 @@
 """How old a vulnerability is: days from when it was first found until today (or until it was fixed).
 
 One definition for every list, export, dashboard and control check. An open finding ages until today; a closed one
-stops at its last sighting. SLA days follow the GRC SLA check's defaults (vuln_dashboard.SLA_DAYS)."""
+stops at its last sighting. SLA days are the install's setting (api/core/sla.py, Vulnerabilities > Change SLAs)."""
 from __future__ import annotations
 
 from datetime import datetime, timezone

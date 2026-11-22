@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from api.auth.device_scope import device_scope
+from api.core import sla
 from api.core import finding_age as age
 from api.auth.rbac import can_access_device, require_permission
 from api.core.csv_export import csv_paged_response
@@ -286,6 +287,7 @@ async def get_device_findings(
     order: str | None = Query(None, pattern="^(asc|desc)$"),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0, le=1_000_000),
+    _sla: None = Depends(sla.fresh),
 ):
     device = await _visible_device(device_id, current_user, db)
     stmt = _findings_query(device.id, status, q)
@@ -309,6 +311,7 @@ async def export_device_findings(
     q: str | None = Query(None, max_length=200),
     sort: str | None = Query(None, max_length=32),
     order: str | None = Query(None, pattern="^(asc|desc)$"),
+    _sla: None = Depends(sla.fresh),
 ):
     device = await _visible_device(device_id, current_user, db)
     hostname, contained = dq.short_name(device.hostname), bool(device.edr_contained) or is_exempt(device)

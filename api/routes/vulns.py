@@ -17,6 +17,7 @@ from api.core.db import get_session
 from api.core.device_scope_exempt import in_scope, is_exempt
 from api.models.device import Device, DeviceAssignment, DeviceTag
 from api.models.user import User
+from api.core import sla
 from api.core import finding_age as age
 from api.models.vuln import Finding, FindingStatus, Vulnerability
 from api.routes import device_query as dq
@@ -123,6 +124,7 @@ async def list_vulns(
     order: str | None = Query(None, pattern="^(asc|desc)$"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0, le=1_000_000),
+    _sla: None = Depends(sla.fresh),
 ):
     scope = dq.with_tags(await device_scope(current_user, db), tag)
     stmt, cols = _vuln_query(scope, q or cve_id, is_kev, min_cvss, source, affected_only, vtype, min_age_days)
@@ -145,6 +147,7 @@ async def export_vulns(
     min_age_days: int | None = _AGE,
     sort: str | None = Query(None, max_length=32),
     order: str | None = Query(None, pattern="^(asc|desc)$"),
+    _sla: None = Depends(sla.fresh),
 ):
     scope = dq.with_tags(await device_scope(current_user, db), tag)
     stmt, cols = _vuln_query(scope, q, is_kev, min_cvss, source, affected_only, vtype, min_age_days)
@@ -229,6 +232,7 @@ async def list_vuln_findings(
     order: str | None = Query(None, pattern="^(asc|desc)$"),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0, le=1_000_000),
+    _sla: None = Depends(sla.fresh),
 ):
     """Devices affected by a vulnerability, limited in SQL to devices this user can access."""
     vuln = await _vuln_or_404(vuln_id, db)
@@ -250,6 +254,7 @@ async def export_vuln_findings(
     tag: list[str] | None = _TAGS,
     sort: str | None = Query(None, max_length=32),
     order: str | None = Query(None, pattern="^(asc|desc)$"),
+    _sla: None = Depends(sla.fresh),
 ):
     vuln = await _vuln_or_404(vuln_id, db)
     cve, title, name = vuln.cve_id, vuln.title, f"affected-{vuln.cve_id or vuln.id}"
@@ -276,6 +281,7 @@ async def get_vuln(
     current_user: User = Depends(require_permission("vulns", "read")),
     db: AsyncSession = Depends(get_session),
     tag: list[str] | None = _TAGS,
+    _sla: None = Depends(sla.fresh),
 ):
     vuln = await _vuln_or_404(vuln_id, db)
     scope = dq.with_tags(await device_scope(current_user, db), tag)

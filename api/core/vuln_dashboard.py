@@ -26,7 +26,8 @@ SOURCES = ("rapid7_insightvm", "rapid7_appsec", "rapid7_cloudsec", "qualys", "te
            "github_advanced", "forgerepo", "crowdstrike", "github_code_review")
 # The type of work (api.core.finding_domain): infra, code or web. "all" applies no type filter (dashboard widgets).
 KINDS = ("infra", "code", "web", "all")
-SLA_DAYS = {"critical": 15, "high": 30, "medium": 90, "low": 180}   # matches the GRC SLA check's defaults
+# Days to fix by severity; updated in place from the install's setting (api/core/sla.py, Change SLAs)
+SLA_DAYS = {"critical": 15, "high": 30, "medium": 90, "low": 180}
 AGE_BUCKETS = ((0, 30, "0-30 days"), (31, 60, "31-60"), (61, 90, "61-90"), (91, 180, "91-180"), (181, None, "180+"))
 OPEN = (FindingStatus.open, FindingStatus.in_progress)
 DIRTY_KEY = "vulndash:dirty_at"   # when the data last changed; a view built before it is out of date
@@ -279,6 +280,8 @@ def scoped(scope) -> list:
 
 async def build(db: AsyncSession, source: str | None, device_type: str | None, scope=None, kind: str = "all") -> dict:
     """Everything for one filter combination, with the trend over the whole history (ranges are sliced later)."""
+    from api.core import sla
+    await sla.load(db)
     w = _where(source, device_type, kind) + scoped(scope)
     k = await _kpis(db, w)
     return {"generated_at": _now().isoformat(), "tracking_since": k.pop("_fixes_since"), "sla_days": SLA_DAYS,

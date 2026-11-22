@@ -26,6 +26,7 @@
       <button type="button" data-kind="web" aria-pressed="false" title="Web applications: DAST and web scanning, fixed by application owners">Web apps</button>
       <button type="button" data-kind="all" aria-pressed="false" title="Every type, with a Type column">All</button>
     </div>
+    <button type="button" class="btn btn--ghost btn--sm" id="vl-sla" hidden>Change SLAs</button>
     <div class="search-bar-wrap">
       <svg class="search-icon" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
       <input id="search-input" type="search" class="search-bar" placeholder="Title, CVE, or scanner ID (partial ok)" autocomplete="off" aria-label="Search vulnerabilities">
@@ -61,6 +62,7 @@
 {% endblock %}
 
 {% block extra_scripts %}
+<script src="{{ static('js/sla_settings.js') }}"></script>
 <script src="{{ static('js/data_table.js') }}"></script>
 <script src="{{ static('js/exception_modal.js') }}"></script>
 <script>
@@ -162,6 +164,7 @@ $('search-input').addEventListener('input', () => { clearTimeout(timer); timer =
 // A tag focus (from the dashboard or device pages) counts and lists only those devices' vulnerabilities
 TagFocus.chips($('tag-focus'), 'Viewing');
 window.addEventListener('tag-focus-changed', () => table && table.reload());
+document.addEventListener('ctem:sla-changed', () => table && table.reload());   // ages recolor with the new SLAs
 fetch('/api/v1/exceptions/summary', { headers: { Accept: 'application/json' } })
   .then(r => (r.ok ? r.json() : {})).catch(() => ({}))
   .then(s => { const can = !!s.can_decide; $('ex-btn').hidden = !can; start(can); });

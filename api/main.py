@@ -87,6 +87,7 @@ def create_app() -> FastAPI:
     from api.routes.exception_rules import router as exception_rules_router
     from api.routes.vuln_dashboard import router as vuln_dashboard_router
     from api.routes.fixes import router as fixes_router
+    from api.routes.sla_settings import router as sla_router
     from api.routes.dashboards import fav_router as favorites_router
     from api.routes.dashboards import router as dashboards_router
     from api.routes.tag_roles import router as tag_roles_router
@@ -137,6 +138,7 @@ def create_app() -> FastAPI:
     app.include_router(vuln_exceptions_router)
     app.include_router(vuln_dashboard_router)
     app.include_router(fixes_router)
+    app.include_router(sla_router)
     app.include_router(dashboards_ai_router)
     app.include_router(dashboards_router)
     app.include_router(tag_roles_router)
