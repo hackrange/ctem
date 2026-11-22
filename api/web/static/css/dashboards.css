@@ -120,6 +120,13 @@
 .grid-stack-item-content:hover .dw-csv, .dw-csv:focus-visible { opacity: 1; }
 @media (hover: none) { .dw-csv { opacity: 1; } }
 
+/* Dashboard filter bar */
+.db-filters { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 12px; margin-bottom: 12px; border: 1px solid var(--border);
+              border-radius: 12px; background: var(--surface); }
+.db-filters .dw-chip { font-size: 12px; line-height: 22px; padding: 0 10px; }
+.db-filters__label { font-weight: 650; font-size: 13px; margin-right: 4px; }
+.db-filters__note { font-size: 12px; color: var(--fg-muted); margin-left: auto; }
+
 /* Widget filters */
 .dwf { border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; }
 .dwf__head { display: flex; gap: 8px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 6px; }
@@ -129,6 +136,17 @@
 @media (max-width: 560px) { .dwf__row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; } .dwf__row > :nth-child(3) { grid-column: 1 / -2; } }
 .dwf__num { display: flex; align-items: center; gap: 4px; }
 .dwf__num small { color: var(--fg-muted); }
+.dw-chips { display: flex; gap: 4px; align-items: center; padding: 2px 14px 2px; overflow-x: auto; scrollbar-width: none; flex: none; }
+.dw-chips::-webkit-scrollbar { display: none; }
+.dw-chip { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; font-size: 11px; line-height: 18px; padding: 0 8px;
+           border-radius: 999px; background: var(--accent-dim); color: var(--fg); border: 1px solid transparent; }
+.dw-chip.is-live { cursor: pointer; }
+.dw-chip.is-live:hover, .dw-chip.is-live:focus-visible { border-color: var(--accent); outline: none; }
+.dw-chip__x { background: none; border: 0; padding: 0 0 0 2px; cursor: pointer; color: var(--fg-muted); font-size: 10px; line-height: 1; }
+.dw-chip__x:hover { color: var(--severity-critical); }
+.dw-chip--add { background: none; border: 1px dashed var(--border); color: var(--fg-muted); cursor: pointer; }
+.dw-chip--add:hover { border-color: var(--accent); color: var(--fg); }
+.dw-chips__or { font-size: 10.5px; color: var(--fg-muted); }
 .dw-filter { font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: 999px; background: var(--accent-dim); color: var(--fg-muted); vertical-align: middle; cursor: help; }
 
 /* Draft status */

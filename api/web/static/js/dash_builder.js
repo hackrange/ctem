@@ -9,7 +9,7 @@
                        inventory: 'Inventory', business_stakeholder: 'Business stakeholders' };
   const COLORS = ['blue', 'green', 'red', 'orange', 'yellow', 'purple', 'teal', 'gray'];
   const OPACITY = [100, 85, 70, 55, 40, 25];
-  let dash, catalog = [], presets = [], roles = [], filterOptions = null, grid, editing = false, widgets = [], data = {}, timer, theme = 'default';
+  let dash, catalog = [], presets = [], roles = [], filterOptions = null, dfilters = { filters: [], match: 'all' }, grid, editing = false, widgets = [], data = {}, timer, theme = 'default';
   let showing = 'published';   // or 'draft': what the owner is looking at
   const byMetric = () => Object.fromEntries(catalog.map(m => [m.id, m]));
 
@@ -28,17 +28,68 @@
         `<option value="${o}"${(st.opacity || 100) === o ? ' selected' : ''}>${o === 100 ? 'Solid' : `${o}%`}</option>`).join('')}</select>`}</div>`;
   }
 
+  // The widget's conditions as chips while editing: remove one (x) or refine them (click)
+  function chips(w) {
+    const m = byMetric()[w.metric];
+    const parts = DashFilters.parts(w, filterOptions);
+    const can = dash && dash.can_edit && m && m.filterable !== false;
+    if (!editing) return '';   // filters are shown and changed in edit mode only
+    const join = w.filter_match === 'any' ? '<span class="dw-chips__or">or</span>' : '';
+    return `<div class="dw-chips" aria-label="Filters">${parts.map((p, i) => `${i && join ? join : ''}<span class="dw-chip${can ? ' is-live' : ''}"
+        ${can ? `data-refine="${esc(w.id)}" role="button" tabindex="0" title="Change the filters"` : `title="${esc(p)}"`}>${esc(p)}${can
+        ? `<button type="button" class="dw-chip__x" data-unfilter="${esc(w.id)}" data-i="${i}" title="Remove this filter" aria-label="Remove filter: ${esc(p)}">&#10005;</button>` : ''}</span>`).join('')}
+      ${can ? `<button type="button" class="dw-chip dw-chip--add" data-refine="${esc(w.id)}" title="Add or change filters">+ Filter</button>` : ''}</div>`;
+  }
+
   function item(w) {
-    const fd = DashFilters.describe(w, filterOptions);
-    return `<div class="dw"><div class="dw-head"><span class="dw-title" title="${esc(w.title)}">${esc(w.title)}${fd
-      ? ` <span class="dw-filter" title="Filtered: ${esc(fd)}" aria-label="Filtered: ${esc(fd)}">&#9881; ${esc(String(w.filters.length))}</span>` : ''}</span>
+    return `<div class="dw"><div class="dw-head"><span class="dw-title" title="${esc(w.title)}">${esc(w.title)}</span>
       ${!editing && (byMetric()[w.metric] || {}).shape !== 'value' ? `<button type="button" class="dw-tool dw-csv" data-csv="${esc(w.id)}"
         title="Download the data as CSV" aria-label="Download ${esc(w.title)} as CSV">CSV</button>` : ''}
       <span class="dw-tools" ${editing ? '' : 'hidden'}><button type="button" class="dw-tool" data-edit="${esc(w.id)}" title="All settings" aria-label="Edit widget">&#9998;</button>
       <button type="button" class="dw-tool" data-dup="${esc(w.id)}" title="Duplicate" aria-label="Duplicate widget">&#10697;</button>
       <button type="button" class="dw-tool" data-remove="${esc(w.id)}" title="Remove" aria-label="Remove widget">&#10005;</button></span></div>
-      ${editing ? bar(w) : ''}<div class="dw-body"></div></div>`;
+      ${editing ? bar(w) : ''}${chips(w)}<div class="dw-body"></div></div>`;
   }
+
+  // Dashboard-wide filters, set in edit mode and saved with the dashboard
+  const copyF = f => ({ filters: JSON.parse(JSON.stringify((f && f.filters) || [])), match: (f && f.match) === 'any' ? 'any' : 'all' });
+  const active = () => dfilters;
+  function filterBar() {
+    const box = $('db-filters');
+    const f = active();
+    const parts = DashFilters.parts({ filters: f.filters, filter_match: f.match }, filterOptions);
+    const join = f.match === 'any' ? '<span class="dw-chips__or">or</span>' : '';
+    box.hidden = !editing;   // edit mode only; viewers see the data as filtered
+    box.innerHTML = `<span class="db-filters__label">Dashboard filters</span>
+      ${parts.map((p, i) => `${i && join ? join : ''}<span class="dw-chip is-live" data-dfilter role="button" tabindex="0" title="Change">${esc(p)}<button type="button"
+        class="dw-chip__x" data-dunfilter="${i}" title="Remove this filter" aria-label="Remove filter: ${esc(p)}">&#10005;</button></span>`).join('')
+        || '<span class="text-sm text-muted">None: every widget counts all the devices you can see</span>'}
+      <button type="button" class="dw-chip dw-chip--add" data-dfilter>+ Filter</button>
+      ${editing ? '<span class="db-filters__note">Saved with the dashboard; applies to every widget that counts devices</span>' : ''}`;
+  }
+  function setFilters(next) {
+    dfilters = next;
+    data = {};
+    filterBar();
+    load();
+  }
+  function refineDashboard() {
+    const cur = active();
+    const d = DashRender.dialog('db-refine', 'Dashboard filters', 760);
+    d.body.innerHTML = `<div id="dbr-box"></div><p class="text-sm text-muted">These apply to every widget that counts devices, on top of
+      each widget's own filters. Saved with the dashboard. Alerts, GRC and snapshot trends aren't affected.</p>`;
+    const f = DashFilters.mount($('dbr-box'), filterOptions, { filters: cur.filters, match: cur.match });
+    d.button('Cancel', 'btn--ghost', d.close);
+    d.button('Apply', 'btn--primary', () => { const g = f.get(); d.close(); setFilters({ filters: g.filters, match: g.filter_match }); });
+  }
+  $('db-filters').addEventListener('click', e => {
+    const x = e.target.closest('[data-dunfilter]');
+    if (x) { const c = copyF(active()); c.filters.splice(Number(x.dataset.dunfilter), 1); setFilters(c); return; }
+    if (e.target.closest('[data-dfilter]')) refineDashboard();
+  });
+  $('db-filters').addEventListener('keydown', e => {
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('.dw-chip[data-dfilter]')) { e.preventDefault(); refineDashboard(); }
+  });
 
   function applyTheme() {
     const t = DashCharts.setTheme(theme);
@@ -65,6 +116,7 @@
       DashRender.render(body(w.id), w, data[w.id], !editing);
     });
     grid.setStatic(!editing);
+    filterBar();
     $('db-empty').hidden = widgets.length > 0 || editing;
     $('db-drop-hint').hidden = !(editing && !widgets.length);
   }
@@ -73,7 +125,8 @@
     const list = only || widgets;
     if (!list.length) return;
     list.forEach(w => DashRender.render(body(w.id), w, null, !editing));
-    const r = await DashRender.api('POST', `${API}/data`, { widgets: list });
+    const f = active();
+    const r = await DashRender.api('POST', `${API}/data`, { widgets: list, filters: f.filters, filter_match: f.match });
     Object.assign(data, r.data || {});
     list.forEach(w => { const b = body(w.id); if (b) DashRender.render(b, w, data[w.id] || { error: r.error || 'No data' }, !editing); });
   }
@@ -139,7 +192,7 @@
 
   let palette = null;
   function startEdit() {
-    if (dash.draft) { widgets = dash.draft.widgets; theme = dash.draft.theme; showing = 'draft'; }
+    if (dash.draft) { widgets = dash.draft.widgets; theme = dash.draft.theme; dfilters = copyF(dash.draft.filters); showing = 'draft'; }
     editing = true;
     header();
     $('db-palette').hidden = false;
@@ -167,7 +220,7 @@
   async function save(andPublish) {
     layout();
     const r = await DashRender.api('PUT', `${API}/${id}`, { name: dash.name, description: dash.description,
-      visibility: dash.visibility, share_roles: dash.share_roles, widgets, theme });
+      visibility: dash.visibility, share_roles: dash.share_roles, widgets, theme, filters: dfilters.filters, filter_match: dfilters.match });
     if (!r.ok) { alert(r.error || 'Could not save'); return; }
     if (andPublish) await DashRender.api('POST', `${API}/${id}/publish`);
     editing = false;
@@ -219,9 +272,10 @@
       const name = $('dbs-name').value.trim(), desc = $('dbs-desc').value.trim();
       if (!name || /[<>]/.test(name + desc)) return d.msg('Give it a name, without < or >.', true);
       if (vis === 'roles' && !share.length) return d.msg('Pick at least one role.', true);
-      const cur = dash.draft || { widgets: dash.widgets, theme: dash.theme };
+      const cur = dash.draft || { widgets: dash.widgets, theme: dash.theme, filters: dash.filters };
       const r = await DashRender.api('PUT', `${API}/${id}`, { name, description: desc || null, visibility: vis, share_roles: share,
-                                                             widgets: cur.widgets, theme: cur.theme });
+                                                             widgets: cur.widgets, theme: cur.theme,
+                                                             filters: (cur.filters || {}).filters || [], filter_match: (cur.filters || {}).match || 'all' });
       if (!r.ok) return d.msg(r.error || 'Could not save', true);
       d.close();
       open(showing);
@@ -247,7 +301,7 @@
       $('db-ai-go').disabled = true;
       $('db-ai-msg').textContent = 'Asking the AI...';
       layout();
-      const r = await DashRender.api('POST', `${API}/ai/edit/${id}`, { text, widgets, history: aiAsked.slice(-8), answers });
+      const r = await DashRender.api('POST', `${API}/ai/edit/${id}`, { text, widgets, filters: dfilters, history: aiAsked.slice(-8), answers });
       $('db-ai-go').disabled = false;
       if (r.available === false) { $('db-ai-msg').textContent = 'No AI integration is set up. Use the widget library instead.'; return; }
       if (r.question) {   // it wasn't sure: answer, and the same request goes again with the answer
@@ -259,6 +313,7 @@
       aiAsked.push((answers.length ? `${text} (${answers.map(x => x.split(' -> ').pop()).join('; ')})` : text).slice(0, 1000));
       answers = [];
       widgets = r.widgets;
+      if (r.filters) dfilters = copyF(r.filters);
       data = {};
       build();
       load();
@@ -309,11 +364,43 @@
     if (data[wid]) DashRender.render(body(wid), w, data[wid], false); else load([w]);
   }
 
+  // Change one widget's filters. From view mode this opens edit mode first, so it stays a draft until saved.
+  function changeFilters(wid, fn) {
+    if (!dash || !dash.can_edit) return;
+    if (!editing) startEdit();
+    layout();
+    const w = widgets.find(x => x.id === wid);
+    if (!w) return;
+    w.filters = [...(w.filters || [])];
+    fn(w);
+    if (!w.filters.length) w.filter_match = 'all';
+    delete data[wid];
+    const el = document.querySelector(`.grid-stack-item[gs-id="${CSS.escape(wid)}"] .grid-stack-item-content`);
+    if (el) el.innerHTML = item(w);
+    load([w]);
+  }
+  function refine(wid) {
+    const w = widgets.find(x => x.id === wid);
+    if (!w || !dash.can_edit) return;
+    const d = DashRender.dialog('dw-refine', `Filters: ${w.title}`, 760);
+    d.body.innerHTML = '<div id="dwr-box"></div><p class="text-sm text-muted">Saved with the dashboard. Others see the change once you publish.</p>';
+    const f = DashFilters.mount(document.getElementById('dwr-box'), filterOptions, { filters: w.filters || [], match: w.filter_match });
+    d.button('Cancel', 'btn--ghost', d.close);
+    d.button('Apply', 'btn--primary', () => {
+      const got = f.get();
+      d.close();
+      changeFilters(wid, x => { x.filters = got.filters; x.filter_match = got.filter_match; });
+    });
+  }
+  document.getElementById('db-grid').addEventListener('keydown', e => {
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('.dw-chip[data-refine]')) { e.preventDefault(); refine(e.target.dataset.refine); }
+  });
+
   async function csv(w, button) {   // the server builds the file for this viewer, formula-safe
     if (!w) return;
     button.disabled = true;
     try {
-      const r = await fetch(`${API}/export`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ widget: w }) });
+      const r = await fetch(`${API}/export`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ widget: w, filters: active().filters, filter_match: active().match }) });
       if (!r.ok) { alert('That widget has no data to export right now.'); return; }
       const name = (/filename="([^"]+)"/.exec(r.headers.get('Content-Disposition') || '') || [, 'widget.csv'])[1];
       const url = URL.createObjectURL(await r.blob());
@@ -340,6 +427,10 @@
       else if (t.dataset.color != null) patch(t.dataset.w, w => { w.style = { ...(w.style || {}) }; if (t.dataset.color) w.style.color = t.dataset.color; else delete w.style.color; });
       return;
     }
+    const un = e.target.closest('[data-unfilter]');
+    if (un) { e.stopPropagation(); changeFilters(un.dataset.unfilter, w => { w.filters = w.filters.filter((_, i) => i !== Number(un.dataset.i)); }); return; }
+    const rf = e.target.closest('[data-refine]');
+    if (rf) { refine(rf.dataset.refine); return; }
     const dl = !editing && e.target.closest('[data-csv]');
     if (dl) { csv(widgets.find(w => w.id === dl.dataset.csv), dl); return; }
     const tr = !editing && e.target.closest('tr[data-href]');
@@ -361,9 +452,10 @@
     dash = d;
     if (editing && !dash.can_edit) editing = false;
     showing = view || (dash.draft ? 'draft' : 'published');
-    const shown = showing === 'draft' && dash.draft ? dash.draft : { widgets: dash.widgets, theme: dash.theme };
+    const shown = showing === 'draft' && dash.draft ? dash.draft : { widgets: dash.widgets, theme: dash.theme, filters: dash.filters };
     widgets = shown.widgets;
     theme = shown.theme || 'default';
+    dfilters = copyF(shown.filters);
     $('db-palette').hidden = true;
     $('db-ai').hidden = true;
     aiAsked = [];

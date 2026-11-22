@@ -3,6 +3,24 @@
 
 {% block title %}Vulnerability Dashboard -- open-ctem{% endblock %}
 
+{% block extra_head %}
+<style>
+.vd-kind{display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--surface)}
+.vd-kind button{border:0;background:transparent;color:var(--fg-muted);padding:6px 12px;font-size:13px;font-weight:600;cursor:pointer}
+.vd-kind button+button{border-left:1px solid var(--border)}
+.vd-kind button[aria-pressed="true"]{background:var(--accent-dim);color:var(--fg);box-shadow:inset 0 2px 5px rgba(0,0,0,.22),inset 0 -2px 0 var(--accent)}
+.vd-kind button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.vd-all{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(280px,100%),1fr));gap:16px}
+.vd-all[hidden]{display:none}
+.vd-col{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 18px;display:flex;flex-direction:column;gap:10px}
+.vd-col h2{margin:0;font-size:16px}
+.vd-col__row{display:flex;justify-content:space-between;font-size:13.5px;border-bottom:1px solid var(--border);padding-bottom:7px}
+.vd-col__row span{color:var(--fg-muted)}
+.vd-col__note{margin:0;font-size:13px;color:var(--fg-muted)}
+.vd-col svg{width:100%;height:70px}
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="page-header">
   <div>
@@ -10,6 +28,12 @@
     <p class="page-header__sub" id="vd-sub">Posture and trends across every device</p>
   </div>
   <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+    <div class="vd-kind" id="vd-kind" role="group" aria-label="Which vulnerabilities">
+      <button type="button" data-kind="infra" aria-pressed="true" title="Hosts, network devices and cloud: fixed by IT and operations">Infrastructure</button>
+      <button type="button" data-kind="code" aria-pressed="false" title="Repositories: SAST, open-source packages, secrets and IaC, fixed by developers">Code</button>
+      <button type="button" data-kind="web" aria-pressed="false" title="Web applications: DAST and web scanning, fixed by application owners">Web apps</button>
+      <button type="button" data-kind="all" aria-pressed="false" title="The three side by side">All</button>
+    </div>
     <select id="vd-range" class="filter-select" aria-label="Range">
       <option value="30d">Last 30 days</option>
       <option value="90d" selected>Last 90 days</option>
@@ -24,6 +48,7 @@
 </div>
 
 <div id="vd-kpis" class="vd-kpis" aria-live="polite"></div>
+<div id="vd-all" class="vd-all" hidden aria-live="polite"></div>
 
 <div class="vd-grid">
   <div class="panel vd-wide"><div class="panel__header"><h2 class="panel__title">Open findings over time</h2>

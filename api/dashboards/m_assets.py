@@ -17,7 +17,8 @@ from api.models.vuln import Finding, FindingStatus, Vulnerability
 OPEN = (FindingStatus.open, FindingStatus.in_progress)
 TYPES = ("any", "compute", *DeviceType.__members__)
 TYPE_LABEL = {"any": "All types", "compute": "Workstations and servers", "network_device": "Network devices",
-              "workstation": "Workstations", "server": "Servers", "unknown": "Other devices"}
+              "workstation": "Workstations", "server": "Servers", "unknown": "Other devices",
+              "code_repository": "Code (SAST)", "website": "Web applications (DAST)", "cloud_instance": "Cloud instances"}
 MISSING = ("none", "edr", "scanner", "either")
 MISSING_LABEL = {"none": "Everything", "edr": "Without EDR", "scanner": "Without a vulnerability scanner",
                  "either": "Without EDR or a scanner"}

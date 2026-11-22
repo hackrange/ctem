@@ -85,7 +85,7 @@
         </div>
       </div>
       <div>
-        <label class="field-label">Logo <span class="text-muted">(optional)</span></label>
+        <label class="field-label">Menu logo <span class="text-muted">(optional; also on the sign-in page unless one is set below)</span></label>
         <!-- Upload takes priority; URL is fallback -->
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
           <div id="brand-logo-preview" style="width:52px;height:52px;border:1px solid var(--border);border-radius:8px;overflow:hidden;display:flex;align-items:center;justify-content:center;background:var(--bg)">
@@ -94,13 +94,28 @@
           <div style="flex:1">
             <label class="btn btn--ghost btn--sm" style="cursor:pointer;display:inline-block">
               Upload Image
-              <input id="brand-logo-upload" type="file" accept="image/*" style="display:none" onchange="handleLogoUpload(this)">
+              <input id="brand-logo-upload" type="file" accept="image/png,image/jpeg,image/webp,image/gif" style="display:none" onchange="handleLogoUpload(this)">
             </label>
             <span class="text-muted text-sm" style="margin-left:8px">or</span>
           </div>
         </div>
-        <input id="brand-logo" type="url" class="form-input" placeholder="https://example.com/logo.png" oninput="previewLogoUrl(this.value)">
-        <p class="text-muted text-sm" style="margin-top:4px">Leave blank to use the default shield icon.</p>
+        <input id="brand-logo" type="text" class="form-input" placeholder="/static/your-logo.png (a file this server serves)" oninput="previewLogoUrl(this.value)">
+        <p class="text-muted text-sm" style="margin-top:4px">Upload a PNG, JPEG, WebP or GIF up to 512 KB, or give the path of one this server serves. Outside web addresses aren't allowed, so the sign-in page never loads anything from elsewhere. Leave blank for the default shield. Click <b>Save</b> after choosing.</p>
+      </div>
+      <div>
+        <label class="field-label">Sign-in page logo <span class="text-muted">(optional)</span></label>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          <div id="brand-login-logo-preview" style="width:120px;height:52px;border:1px solid var(--border);border-radius:8px;overflow:hidden;display:flex;align-items:center;justify-content:center;background:#f3f4f6">
+            <span class="text-muted text-sm">None</span>
+          </div>
+          <label class="btn btn--ghost btn--sm" style="cursor:pointer;display:inline-block">
+            Upload Image
+            <input id="brand-login-logo-upload" type="file" accept="image/png,image/jpeg,image/webp,image/gif" style="display:none" onchange="handleLogoUpload(this, 'brand-login-logo')">
+          </label>
+          <button type="button" class="btn btn--ghost btn--sm" onclick="clearLogo('brand-login-logo')">Remove</button>
+        </div>
+        <input id="brand-login-logo" type="hidden">
+        <p class="text-muted text-sm" style="margin-top:4px">Shown above the sign-in form (on a light grey box), for example a wider version of your logo. PNG, JPEG, WebP or GIF up to 512 KB. Empty uses the menu logo. Click <b>Save</b> after choosing.</p>
       </div>
       <div>
         <label class="field-label">Organization Name <span class="text-muted">(footer)</span></label>

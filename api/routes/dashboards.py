@@ -62,6 +62,8 @@ class DashBody(BaseModel):
     share_roles: list[Literal[ROLES]] = Field(default_factory=list, max_length=len(ROLES))
     widgets: list[dict] = Field(default_factory=list, max_length=cat.MAX_WIDGETS)
     theme: Literal[cat.THEMES] = "default"
+    filters: list[dict] = Field(default_factory=list, max_length=10)        # dashboard-wide conditions
+    filter_match: Literal["all", "any"] = "all"
     template: Annotated[str, StringConstraints(pattern=r"^[a-z_]{1,40}$")] | None = None   # start from a starter dashboard
 
 
@@ -85,20 +87,36 @@ async def _starred(db, u: User) -> set[str]:
         Favorite.user_id == str(u.id), Favorite.kind == "dashboard"))).all()}
 
 
+def _dfilters(raw, match="all") -> dict | None:
+    """Dashboard-wide filters, cleaned like a widget's; None when there are none."""
+    from api.dashboards import filters as flt
+    c = flt.clean(raw)
+    return {"filters": c, "match": "any" if match == "any" else "all"} if c else None
+
+
+def _fl(f) -> tuple:
+    return ((f or {}).get("filters"), (f or {}).get("match"))
+
+
+def _shown_filters(f: dict | None) -> dict:
+    return _dfilters((f or {}).get("filters"), (f or {}).get("match")) or {"filters": [], "match": "all"}
+
+
 def _summary(d: Dashboard, u: User, starred: set[str]) -> dict:
     return {"id": str(d.id), "name": d.name, "description": d.description, "owner": d.owner_name,
             "mine": d.owner_id == str(u.id), "visibility": d.visibility.value, "share_roles": d.share_roles or [],
             "widgets": len(d.widgets or []), "updated_at": (d.updated_at or d.created_at).isoformat() + "Z",
             "can_edit": can_edit(d, u), "starred": str(d.id) in starred, "theme": d.theme or "default",
             "published": d.published is not False, "has_draft": bool(d.draft) and can_edit(d, u),
-            "published_at": d.published_at.isoformat() if d.published_at else None}
+            "published_at": d.published_at.isoformat() if d.published_at else None, "filters": _shown_filters(d.filters)}
 
 
 def _editing(d: Dashboard) -> dict:
     """What the owner is working on: the draft if there is one, else the published version."""
     if d.draft:
-        return {"widgets": d.draft.get("widgets") or [], "theme": d.draft.get("theme") or d.theme or "default"}
-    return {"widgets": d.widgets or [], "theme": d.theme or "default"}
+        return {"widgets": d.draft.get("widgets") or [], "theme": d.draft.get("theme") or d.theme or "default",
+                "filters": d.draft.get("filters", d.filters)}
+    return {"widgets": d.widgets or [], "theme": d.theme or "default", "filters": d.filters}
 
 
 async def _get(db, u: User, dash_id: uuid.UUID) -> Dashboard:
@@ -112,8 +130,17 @@ async def _get(db, u: User, dash_id: uuid.UUID) -> Dashboard:
 async def catalog(u: User = Depends(_member), db: AsyncSession = Depends(get_session)):
     """The metrics this person may put on a dashboard."""
     ctx = await cat.context(db, u)
+    from api.core import vuln_dashboard as vd
     from api.dashboards import presets
-    return {"metrics": [m.spec() for m in cat.REGISTRY.values() if cat.allowed(m, ctx)],
+    used = set(await vd.configured_sources(db))
+
+    def spec(m):   # a source picker offers only the tools this install has
+        out = m.spec()
+        for p in out["params"]:
+            if p["key"] == "source" and p.get("choices"):
+                p["choices"] = [c for c in p["choices"] if c["value"] == "any" or c["value"] in used]
+        return out
+    return {"metrics": [spec(m) for m in cat.REGISTRY.values() if cat.allowed(m, ctx)],
             "roles": list(ROLES), "grid_cols": cat.GRID_COLS, "max_widgets": cat.MAX_WIDGETS, "themes": list(cat.THEMES),
             **presets.for_viewer(ctx), "filter_options": await _filter_options(db, ctx.scope is None)}
 
@@ -127,7 +154,8 @@ async def _filter_options(db, fleet_wide: bool) -> dict:
     from api.models.device import DeviceType, RiskGrade
     roles = await tag_roles.ensure(db)
     opts = await tag_roles.options(db, roles)
-    return {"roles": [{"key": r.key, "name": r.name, "values": sorted({o["value"] for o in opts.get(r.key, [])}, key=str.lower)[:500]}
+    from api.routes.tag_roles import merged   # one suggestion per value, however many tools tag it
+    return {"roles": [{"key": r.key, "name": r.name, "values": sorted({o["value"] for o in merged(opts.get(r.key, []))}, key=str.lower)[:500]}
                       for r in roles],
             "sources": [{"value": k, "label": f"{k.replace('_', ' ')} ({v})"} for k, v in SOURCE_CODES.items()],
             "device_types": list(DeviceType.__members__), "os_families": [{"value": k, "label": v} for k, v in fleet.OS_LABEL.items()],
@@ -171,7 +199,7 @@ async def create(body: DashBody, u: User = Depends(_member), db: AsyncSession = 
         theme = t["theme"] if body.theme == "default" else body.theme
     d = Dashboard(name=body.name, description=body.description or None, owner_id=str(u.id), owner_name=u.username,
                   visibility=Visibility(body.visibility), share_roles=list(dict.fromkeys(body.share_roles)) or None,
-                  widgets=widgets, theme=theme, published=False)
+                  widgets=widgets, theme=theme, published=False, filters=_dfilters(body.filters, body.filter_match))
     db.add(d)
     await db.flush()
     _audit(db, u, "dashboard.create", d)
@@ -185,7 +213,8 @@ async def get_dashboard(dash_id: uuid.UUID, u: User = Depends(_member), db: Asyn
     out = {**_summary(d, u, await _starred(db, u)), "widgets": [w for w in map(cat.clean_widget, d.widgets or []) if w]}
     if can_edit(d, u) and d.draft:
         e = _editing(d)
-        out["draft"] = {"widgets": [w for w in map(cat.clean_widget, e["widgets"]) if w], "theme": e["theme"]}
+        out["draft"] = {"widgets": [w for w in map(cat.clean_widget, e["widgets"]) if w], "theme": e["theme"],
+                        "filters": _shown_filters(e["filters"])}
     return out
 
 
@@ -196,11 +225,11 @@ async def update(dash_id: uuid.UUID, body: DashBody, u: User = Depends(_member),
         raise HTTPException(404)
     d.name, d.description = body.name, body.description or None
     d.visibility, d.share_roles = Visibility(body.visibility), list(dict.fromkeys(body.share_roles)) or None
-    widgets = _widgets(body.widgets)
+    widgets, dfl = _widgets(body.widgets), _dfilters(body.filters, body.filter_match)
     if d.published is False:   # still a draft: nobody else sees it, so save in place
-        d.widgets, d.theme, d.draft = widgets, body.theme, None
-    elif widgets != (d.widgets or []) or body.theme != (d.theme or "default"):
-        d.draft = {"widgets": widgets, "theme": body.theme}   # viewers keep the published version until Publish
+        d.widgets, d.theme, d.filters, d.draft = widgets, body.theme, dfl, None
+    elif widgets != (d.widgets or []) or body.theme != (d.theme or "default") or dfl != _dfilters(*_fl(d.filters)):
+        d.draft = {"widgets": widgets, "theme": body.theme, "filters": dfl}   # viewers keep the published version until Publish
     else:
         d.draft = None
     _audit(db, u, "dashboard.update", d)
@@ -216,6 +245,7 @@ async def publish(dash_id: uuid.UUID, u: User = Depends(_member), db: AsyncSessi
         raise HTTPException(404)
     if d.draft:
         d.widgets, d.theme = _widgets(d.draft.get("widgets") or []), d.draft.get("theme") or d.theme
+        d.filters = _dfilters(*_fl(d.draft.get("filters"))) if "filters" in d.draft else d.filters
     d.draft, d.published, d.published_at = None, True, datetime.now(timezone.utc)
     _audit(db, u, "dashboard.publish", d)
     await db.commit()
@@ -241,7 +271,9 @@ async def unpublish(dash_id: uuid.UUID, u: User = Depends(_member), db: AsyncSes
     if not can_edit(d, u):
         raise HTTPException(404)
     if d.draft:
-        d.widgets, d.theme, d.draft = _widgets(d.draft.get("widgets") or []), d.draft.get("theme") or d.theme, None
+        d.widgets, d.theme = _widgets(d.draft.get("widgets") or []), d.draft.get("theme") or d.theme
+        d.filters = _dfilters(*_fl(d.draft.get("filters"))) if "filters" in d.draft else d.filters
+        d.draft = None
     d.published = False
     _audit(db, u, "dashboard.unpublish", d)
     await db.commit()
@@ -264,9 +296,10 @@ async def delete(dash_id: uuid.UUID, u: User = Depends(_member), db: AsyncSessio
 async def copy(dash_id: uuid.UUID, u: User = Depends(_member), db: AsyncSession = Depends(get_session)):
     """Your own private copy to change as you like."""
     src = await _get(db, u, dash_id)
-    e = _editing(src) if can_edit(src, u) else {"widgets": src.widgets or [], "theme": src.theme or "default"}
+    e = _editing(src) if can_edit(src, u) else {"widgets": src.widgets or [], "theme": src.theme or "default", "filters": src.filters}
     d = Dashboard(name=f"{src.name} (copy)"[:120], description=src.description, owner_id=str(u.id), owner_name=u.username,
-                  visibility=Visibility.private, widgets=_widgets(e["widgets"]), theme=e["theme"], published=False)
+                  visibility=Visibility.private, widgets=_widgets(e["widgets"]), theme=e["theme"], published=False,
+                  filters=_dfilters(*_fl(e["filters"])))
     db.add(d)
     await db.flush()
     _audit(db, u, "dashboard.copy", d)
@@ -275,8 +308,12 @@ async def copy(dash_id: uuid.UUID, u: User = Depends(_member), db: AsyncSession 
 
 
 class DataBody(BaseModel):
+    """Widgets plus the dashboard-wide filters in force (saved ones, or a viewer's own for this visit). Filters only
+    ever narrow what the viewer may already see."""
     model_config = ConfigDict(extra="forbid")
     widgets: list[dict] = Field(max_length=cat.MAX_WIDGETS)
+    filters: list[dict] = Field(default_factory=list, max_length=10)
+    filter_match: Literal["all", "any"] = "all"
 
 
 @router.post("/data")
@@ -287,13 +324,15 @@ async def widget_data(body: DataBody, u: User = Depends(_member), db: AsyncSessi
     for raw in body.widgets:
         w = cat.clean_widget(raw)
         if w:
-            out[w["id"] or w["metric"]] = await cat.evaluate(ctx, w)
+            out[w["id"] or w["metric"]] = await cat.evaluate(ctx, w, {"filters": body.filters, "match": body.filter_match})
     return {"data": out}
 
 
 class ExportBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     widget: dict
+    filters: list[dict] = Field(default_factory=list, max_length=10)
+    filter_match: Literal["all", "any"] = "all"
 
 
 def _table_of(w: dict, out: dict) -> tuple[list[str], list[list]]:
@@ -322,7 +361,7 @@ async def export_widget(body: ExportBody, u: User = Depends(_member), db: AsyncS
     w = cat.clean_widget(body.widget)
     if w is None:
         raise HTTPException(422, "Unknown widget")
-    out = await cat.evaluate(await cat.context(db, u), w)
+    out = await cat.evaluate(await cat.context(db, u), w, {"filters": body.filters, "match": body.filter_match})
     if out.get("error"):
         raise HTTPException(422, "This widget has no data to export right now")
     header, rows = _table_of(w, out)

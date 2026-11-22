@@ -24,13 +24,18 @@ def _viewer(u: User = Depends(get_current_user)) -> User:
 async def dashboard(u: User = Depends(_viewer), db: AsyncSession = Depends(get_session),
                     range: str = Query("90d", pattern="^(30d|90d|180d|365d|all)$"),  # noqa: A002
                     source: str | None = Query(None, max_length=64),
-                    device_type: str | None = Query(None, max_length=32)):
+                    device_type: str | None = Query(None, max_length=32),
+                    kind: str = Query("infra", pattern="^(infra|code|web)$")):
     if source and source not in vd.SOURCES:
         raise HTTPException(422, detail="unknown source")
     if device_type and device_type not in DeviceType.__members__:
         raise HTTPException(422, detail="unknown device type")
     from api.auth.device_scope import device_scope
     scope = await device_scope(u, db)   # None for fleet-wide roles; otherwise only the devices this person may see
-    out = await vd.cached(db, range, source or None, device_type or None, scope=scope, viewer=str(u.id))
-    return {**out, "scoped": scope is not None,
-            "filters": {"sources": list(vd.SOURCES), "device_types": list(DeviceType.__members__)}}
+    out = await vd.cached(db, range, source or None, device_type or None, scope=scope, viewer=str(u.id), kind=kind)
+    # Only sources this install uses: a configured integration, or open findings left from one
+    used = set(await vd.configured_sources(db)) | {r["source"] for r in out.get("by_source") or []} | ({source} if source else set())
+    from api.core.finding_domain import sources_by_domain
+    srcs = [s for s in vd.SOURCES if s in used]
+    return {**out, "scoped": scope is not None, "kind": kind,
+            "filters": {"sources": srcs, "by_type": sources_by_domain(srcs), "device_types": list(DeviceType.__members__)}}

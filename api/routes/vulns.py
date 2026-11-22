@@ -39,7 +39,10 @@ def _affected_count(scope):
     return stmt.correlate(Vulnerability).scalar_subquery()
 
 
-def _vuln_query(scope, q, is_kev, min_cvss, source, affected_only):
+_TYPE = Query(None, alias="type", pattern="^(infra|code|web)$", description="Infrastructure, Code or Web apps; none = all")
+
+
+def _vuln_query(scope, q, is_kev, min_cvss, source, affected_only, vtype=None):
     # Global roles read the stored count; tag-scoped users get a live count of only their devices
     affected = (Vulnerability.affected_devices if scope is None else _affected_count(scope)).label("affected")
     stmt = select(Vulnerability, affected)
@@ -56,6 +59,8 @@ def _vuln_query(scope, q, is_kev, min_cvss, source, affected_only):
         stmt = stmt.where(Vulnerability.cvss_base >= min_cvss)
     if source:
         stmt = stmt.where(Vulnerability.source == source[:64])
+    if vtype:
+        stmt = stmt.where(Vulnerability.domain == vtype)
     if affected_only:
         stmt = stmt.where((Vulnerability.affected_devices if scope is None else _affected_count(scope)) > 0)
     return stmt, affected
@@ -91,13 +96,14 @@ async def list_vulns(
     source: str | None = Query(None, max_length=64),
     affected_only: bool = False,
     tag: list[str] | None = _TAGS,
+    vtype: str | None = _TYPE,
     sort: str | None = Query(None, max_length=32),
     order: str | None = Query(None, pattern="^(asc|desc)$"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0, le=1_000_000),
 ):
     scope = dq.with_tags(await device_scope(current_user, db), tag)
-    stmt, affected = _vuln_query(scope, q or cve_id, is_kev, min_cvss, source, affected_only)
+    stmt, affected = _vuln_query(scope, q or cve_id, is_kev, min_cvss, source, affected_only, vtype)
     total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
     rows = (await db.execute(_sorted_vulns(stmt, affected, sort, order).limit(limit).offset(offset))).all()
     return {"vulns": [_vuln_summary(v, n) for v, n in rows], "total": total, "limit": limit, "offset": offset}
@@ -113,18 +119,19 @@ async def export_vulns(
     source: str | None = Query(None, max_length=64),
     affected_only: bool = False,
     tag: list[str] | None = _TAGS,
+    vtype: str | None = _TYPE,
     sort: str | None = Query(None, max_length=32),
     order: str | None = Query(None, pattern="^(asc|desc)$"),
 ):
     scope = dq.with_tags(await device_scope(current_user, db), tag)
-    stmt, affected = _vuln_query(scope, q, is_kev, min_cvss, source, affected_only)
+    stmt, affected = _vuln_query(scope, q, is_kev, min_cvss, source, affected_only, vtype)
     stmt = _sorted_vulns(stmt, affected, sort, order)
-    header = ["CVE", "Title", "CVSS", "EPSS", "KEV", "KEV added", "Exploit available", "Affected devices",
+    header = ["CVE", "Title", "Type", "CVSS", "EPSS", "KEV", "KEV added", "Exploit available", "Affected",
               "Source", "Source ID"]
 
     async def fetch(offset: int, limit: int) -> list[list]:
         rows = (await db.execute(stmt.limit(limit).offset(offset))).all()
-        out = [[v.cve_id, v.title, v.cvss_base, v.epss_score, v.is_kev, v.kev_added_date, v.exploit_available, n,
+        out = [[v.cve_id, v.title, {"infra": "Infrastructure", "code": "Code", "web": "Web app"}.get(v.domain, v.domain), v.cvss_base, v.epss_score, v.is_kev, v.kev_added_date, v.exploit_available, n,
                 v.source, v.source_vuln_id] for v, n in rows]
         db.expunge_all()
         return out
@@ -302,7 +309,10 @@ def _affected_row(f: Finding, cvss: float | None = None, attack_vector: str | No
     return {
         "id": str(f.id),
         "device_id": str(f.device_id),
-        "hostname": dq.short_name(d.hostname) if d else None,
+        # a repository or site keeps its whole name ("acme/payments", "shop.acme.example"); hosts get the short one
+        "hostname": (d.hostname if f.domain in ("code", "web") else dq.short_name(d.hostname)) if d else None,
+        "domain": f.domain,
+        "details": f.details if f.domain in ("code", "web") else None,
         "contained": bool(d and (d.edr_contained or is_exempt(d))),
         "out_of_scope": bool(d and is_exempt(d)),
         "severity": dq.severity(cvss, bool(d and (d.edr_contained or is_exempt(d)))),
@@ -330,6 +340,7 @@ def _vuln_summary(v: Vulnerability, affected_devices: int) -> dict:
         "id": str(v.id),
         "cve_id": v.cve_id,
         "title": v.title,
+        "domain": v.domain,
         "description": v.description,
         "cvss_base": v.cvss_base,
         "cvss_vector": v.cvss_vector,

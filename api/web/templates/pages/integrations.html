@@ -66,6 +66,7 @@
 {% block extra_scripts %}
 <script src="{{ static('js/integrations_ai.js') }}"></script>
 <script src="{{ static('js/integrations_cloud.js') }}"></script>
+<script src="{{ static('js/integrations_appsec.js') }}"></script>
 <script>
 const API = '/api/v1';
 let _editId = null;
@@ -78,6 +79,7 @@ let _integrations = [];  // cache for edit lookup
 const VENDOR_FIELDS = {
   ...AI_VENDOR_FIELDS,   // static/js/integrations_ai.js
   ...CLOUD_VENDOR_FIELDS, // static/js/integrations_cloud.js
+  ...APPSEC_VENDOR_FIELDS, // static/js/integrations_appsec.js
   // ── Identity / Directory ───────────────────────────────────────────────────
   ldap: [
     {key:'host',       label:'LDAP Host',      type:'text',     placeholder:'ldap.acme.example.com', required:true},
@@ -150,6 +152,7 @@ function _renderCards(list) {
       ? `<button class="btn btn--ghost btn--sm" onclick="testConnection('${esc(i.id)}',this)">Test</button>`
       : `<button class="btn btn--ghost btn--sm" onclick="triggerSync('${esc(i.id)}',this)">Sync Now</button>`;
     const lastLabel = isAI ? 'Last tested' : 'Last sync';
+    const shipper = !!i.shipper_managed;   // a shipper owns it: no edit, sync or remove here
     return `
     <div class="panel" style="margin:0" data-vendor="${esc(i.vendor)}" data-name="${esc((i.name||'').toLowerCase())}">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px">
@@ -163,10 +166,12 @@ function _renderCards(list) {
         ${lastLabel}: ${i.last_sync_at ? new Date(i.last_sync_at).toLocaleString() : 'Never'}
         ${i.sync_schedule && !isAI ? `&nbsp;&bull;&nbsp;<span title="cron: ${esc(i.sync_schedule)}">Scheduled</span>` : ''}
       </div>
-      <div style="display:flex;gap:8px">
-        ${actionBtn}
+      <div style="display:flex;gap:8px;align-items:center">${shipper
+        ? `<span class="chip chip--info" title="Its connection, credentials and schedule live on the shipper">Managed by a shipper</span>
+           <a class="btn btn--ghost btn--sm" href="/settings/shippers">Open Shippers</a>`
+        : `${actionBtn}
         <button class="btn btn--ghost btn--sm" onclick="editIntegration('${esc(i.id)}')">Edit</button>
-        <button class="btn btn--ghost btn--sm" style="color:var(--severity-critical)" onclick="deleteIntegration('${esc(i.id)}')">Remove</button>
+        <button class="btn btn--ghost btn--sm" style="color:var(--severity-critical)" onclick="deleteIntegration('${esc(i.id)}')">Remove</button>`}
       </div>
     </div>`;
   }).join('');
@@ -337,6 +342,12 @@ function updateVendorFields() {
       return `<div>
         <label class="text-sm" style="font-weight:600;display:block;margin-bottom:4px">${esc(f.label)}</label>
         <select id="${id}" style="${INPUT_STYLE}">${opts}</select>
+      </div>`;
+    }
+    if (f.type === 'textarea') {   // plain multi-line settings (shown again when editing)
+      return `<div>
+        <label class="text-sm" style="font-weight:600;display:block;margin-bottom:4px">${esc(f.label)}</label>
+        <textarea id="${id}" rows="5" placeholder="${esc(f.placeholder)}" spellcheck="false" style="${INPUT_STYLE};font-family:monospace;font-size:.8rem"></textarea>
       </div>`;
     }
     if (f.type === 'secret_text') {   // a multi-line secret such as a PEM key; never shown again after saving

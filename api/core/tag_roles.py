@@ -160,11 +160,15 @@ def name_of(key: str) -> str:
 
 
 # ── what the dashboard and pages need ─────────────────────────────────────────
-async def options(db: AsyncSession, roles: list[Role]) -> dict[str, list[dict]]:
-    """Per role: the tags in use that map to it, with the value to show, sorted by value."""
-    from api.models.device import DeviceTag
+async def options(db: AsyncSession, roles: list[Role], devices=None) -> dict[str, list[dict]]:
+    """Per role: the tags in use that map to it, with the value to show, sorted by value. devices: a condition
+    on Device to count only tags on those (say, only web applications)."""
+    from api.models.device import Device, DeviceTag
     from api.models.tag import Tag
-    names = (await db.execute(select(Tag.name).where(Tag.id.in_(select(DeviceTag.tag_id).distinct())))).scalars().all()
+    used = select(DeviceTag.tag_id).distinct()
+    if devices is not None:
+        used = used.where(DeviceTag.device_id.in_(select(Device.id).where(devices)))
+    names = (await db.execute(select(Tag.name).where(Tag.id.in_(used)))).scalars().all()
     out: dict[str, list[dict]] = {r.key: [] for r in roles}
     for n in names:
         m = match(n, roles)

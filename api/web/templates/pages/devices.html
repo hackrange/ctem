@@ -3,13 +3,29 @@
 
 {% block title %}Devices -- open-ctem{% endblock %}
 
+{% block extra_head %}
+<style>
+.vd-kind{display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--surface)}
+.vd-kind a{color:var(--fg-muted);padding:6px 12px;font-size:13px;font-weight:600;text-decoration:none}
+.vd-kind a+a{border-left:1px solid var(--border)}
+.vd-kind a[aria-current="page"]{background:var(--accent-dim);color:var(--fg);box-shadow:inset 0 2px 5px rgba(0,0,0,.22),inset 0 -2px 0 var(--accent)}
+.vd-kind a:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="page-header">
   <div>
-    <h1 class="page-header__title">Device Inventory</h1>
-    <p class="page-header__sub">All managed assets across your environment</p>
+    <h1 class="page-header__title" id="inv-title">Device Inventory</h1>
+    <p class="page-header__sub" id="inv-sub">All managed assets across your environment</p>
   </div>
   <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <nav class="vd-kind" id="inv-kind" aria-label="Which assets">
+      <a href="?asset=hosts" data-asset="hosts" aria-current="false">Hosts</a>
+      <a href="?asset=repositories" data-asset="repositories" aria-current="false">Repositories</a>
+      <a href="?asset=sites" data-asset="sites" aria-current="false">Web apps</a>
+      <a href="?asset=all" data-asset="all" aria-current="false">All</a>
+    </nav>
     <div class="search-bar-wrap">
       <svg class="search-icon" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
         <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
@@ -32,6 +48,8 @@
       <option value="workstation">Workstation</option>
       <option value="network_device">Network device</option>
       <option value="cloud_instance">Cloud instance</option>
+      <option value="code_repository">Code (SAST)</option>
+      <option value="website">Web application (DAST)</option>
       <option value="unknown">Unknown</option>
     </select>
     <select id="filter-status" class="filter-select" aria-label="Inventory status">
@@ -50,6 +68,7 @@
       <option value="crowdstrike">CrowdStrike (CS)</option>
       <option value="rapid7_insightvm">Rapid7 InsightVM (R7)</option>
       <option value="rapid7_appsec">Rapid7 AppSec</option>
+      <option value="github_code_review">GitHub Code Review</option>
       <option value="rapid7_cloudsec">Rapid7 CloudSec</option>
       <option value="ldap">Active Directory (AD)</option>
     </select>
@@ -73,6 +92,8 @@ const TYPE_ICONS = {
   workstation: ['Workstation', '<rect x="2.5" y="4" width="19" height="12" rx="1.5"/><path d="M8 20h8M12 16v4"/>'],
   network_device: ['Network device', '<rect x="2.5" y="13" width="19" height="7" rx="1.5"/><path d="M6.5 16.5h.01M10 16.5h.01M12 13V8M8.5 6.5a5 5 0 0 1 7 0"/>'],
   cloud_instance: ['Cloud instance', '<path d="M7 18h10a4 4 0 0 0 .5-7.97A6 6 0 0 0 6 9.5 4.25 4.25 0 0 0 7 18z"/>'],
+  code_repository: ['Code (repository)', '<path d="m8 8-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14"/>'],
+  website: ['Web application', '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>'],
   unknown: ['Unknown', '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6M12 17h.01"/>'],
 };
 function typeIcon(t) {
@@ -104,6 +125,23 @@ const CARD = {
 };
 const card = {};
 Object.entries(CARD).forEach(([k, [re]]) => { const v = initial.get(k); if (v && re.test(v)) card[k] = v; });
+// Hosts, Repositories (code), Web apps (sites) or All: repositories and sites are not devices, so each tab has its
+// own title and columns. Hosts is the default.
+const ASSETS = {
+  hosts: { title: 'Hosts', sub: 'Workstations, servers, network devices and cloud instances', search: 'Hostname, user, IP, or MAC' },
+  repositories: { title: 'Repositories', sub: 'Code your SAST, dependency and secrets scanners check', search: 'Repository name' },
+  sites: { title: 'Web applications', sub: 'Sites your DAST and web scanners check', search: 'Site' },
+  all: { title: 'All assets', sub: 'Hosts, repositories and web applications', search: 'Name, user, IP, or MAC' },
+};
+const asset = ASSETS[initial.get('asset')] ? initial.get('asset') : 'hosts';
+$('inv-title').textContent = ASSETS[asset].title;
+$('inv-sub').textContent = ASSETS[asset].sub;
+document.title = `${ASSETS[asset].title} -- open-ctem`;
+$('search-input').placeholder = ASSETS[asset].search;
+$('search-input').setAttribute('aria-label', `Search ${ASSETS[asset].title.toLowerCase()}`);
+document.querySelectorAll('#inv-kind [data-asset]').forEach(a => a.setAttribute('aria-current', a.dataset.asset === asset ? 'page' : 'false'));
+if (asset === 'repositories' || asset === 'sites') $('filter-type').hidden = true;
+const tagVals = (d, prefix) => (d.tags || []).filter(t => t.toLowerCase().startsWith(prefix)).map(t => t.slice(prefix.length));
 function showStale() {
   const box = $('stale-filter');
   const keys = Object.keys(card);
@@ -128,15 +166,35 @@ const table = DataTable.create({
   defaultSort: 'risk_score',
   defaultOrder: 'desc',
   syncUrl: true,
-  emptyText: 'No devices match these filters',
+  emptyText: `No ${ASSETS[asset].title.toLowerCase()} match these filters`,
   rowHref: d => `/devices/${encodeURIComponent(d.id)}`,
   params: () => {
     const q = $('search-input').value.trim();
     return { q: normalizeMac(q) || q, grade: $('filter-grade').value,
              device_type: $('filter-type').value, source: $('filter-source').value, status: $('filter-status').value,
-             tag: TagFocus.get(), ...card };
+             tag: TagFocus.get(), ...card, ...(asset === 'all' ? {} : { asset }) };
   },
-  columns: [
+  columns: asset === 'repositories' ? [
+    { label: 'Repository', sort: 'hostname', render: d => `<span class="text-mono">${R.link(`/devices/${encodeURIComponent(d.id)}`, d.hostname)}</span>` },
+    { label: 'Application', render: d => esc(tagVals(d, 'app:').join(', ')) || '<span class="text-muted">--</span>' },
+    { label: 'Owner', render: d => esc([...tagVals(d, 'tech_owner:'), ...tagVals(d, 'app_owner:')].slice(0, 2).join(', ')) || '<span class="text-muted">--</span>' },
+    { label: 'Grade', sort: 'risk_grade', firstOrder: 'desc', render: d => R.grade(d.risk_grade) },
+    { label: 'Score', sort: 'risk_score', firstOrder: 'desc', render: d => R.score(d.risk_score) },
+    { label: 'Open', sort: 'open_findings', firstOrder: 'desc', render: d => R.num(d.open_findings) },
+    { label: 'KEV', sort: 'kev_findings', firstOrder: 'desc', render: d => d.kev_findings ? `<span class="chip chip--critical">${R.num(d.kev_findings)}</span>` : '0' },
+    { label: 'Behind a live site', render: d => d.is_internet_exposed ? '<span class="chip chip--high">Yes</span>' : '<span class="chip chip--low">No</span>' },
+    { label: 'Sources', render: d => (d.sources || []).map(c => `<span class="chip chip--info" style="font-size:.7rem">${esc(c)}</span>`).join(' ') },
+  ] : asset === 'sites' ? [
+    { label: 'Site', sort: 'hostname', render: d => `<span class="text-mono">${R.link(`/devices/${encodeURIComponent(d.id)}`, d.hostname)}</span>` },
+    { label: 'Application', render: d => esc(tagVals(d, 'app:').join(', ')) || '<span class="text-muted">--</span>' },
+    { label: 'Environment', render: d => esc(tagVals(d, 'env:').join(', ')) || '<span class="text-muted">--</span>' },
+    { label: 'IP', render: d => `<span class="text-mono text-sm">${esc(d.ip || '--')}</span>` },
+    { label: 'Grade', sort: 'risk_grade', firstOrder: 'desc', render: d => R.grade(d.risk_grade) },
+    { label: 'Score', sort: 'risk_score', firstOrder: 'desc', render: d => R.score(d.risk_score) },
+    { label: 'Open', sort: 'open_findings', firstOrder: 'desc', render: d => R.num(d.open_findings) },
+    { label: 'Internet facing', render: d => d.is_internet_exposed ? '<span class="chip chip--high">Yes</span>' : '<span class="chip chip--low">No</span>' },
+    { label: 'Sources', render: d => (d.sources || []).map(c => `<span class="chip chip--info" style="font-size:.7rem">${esc(c)}</span>`).join(' ') },
+  ] : [
     { label: 'Hostname', sort: 'hostname', render: d => `<span title="${esc(d.fqdn || d.hostname)}">${R.link(`/devices/${encodeURIComponent(d.id)}`, d.hostname)}</span> ${DeviceAssign.statusChip(d.inventory_status)}${d.out_of_scope_until ? ' <span class="chip chip--medium" style="font-size:.7rem" title="Its vulnerabilities don\'t count">Not in scope</span>' : ''}` },
     { label: 'User', sort: 'user', render: userCell },
     { label: 'IP', render: d => `<span class="text-mono text-sm">${esc(d.ip || '--')}</span>` },

@@ -177,8 +177,11 @@ async def _sync_by_id(db: AsyncSession, integration_id: str) -> bool:
         ok = True
     except Exception as e:
         await db.rollback()
-        job_vals = {"status": SyncStatus.failed, "error_message": str(e)[:1000]}
-        cfg_vals = {"last_sync_status": SyncStatus.failed, "last_sync_error": str(e)[:500]}
+        # Some errors (timeouts, dropped connections) carry no text: never record an empty reason
+        why = str(e).strip() or f"{type(e).__name__} (no details from the connector)"
+        log.warning("sync of %s failed: %s", cfg_id, type(e).__name__)
+        job_vals = {"status": SyncStatus.failed, "error_message": why[:1000]}
+        cfg_vals = {"last_sync_status": SyncStatus.failed, "last_sync_error": why[:500]}
     finally:
         done = datetime.now(timezone.utc)
         await db.execute(update(SyncJob).where(SyncJob.id == job_id).values(finished_at=done, **job_vals))

@@ -247,7 +247,7 @@ async def test_widget_can_leave_out_an_ou(db, admin_user):
 async def test_ai_says_so_when_it_changed_nothing(client_admin, monkeypatch):
     class Fake:
         async def complete(self, prompt, **kw):
-            now = prompt.split("The dashboard now", 1)[1].split(":\n", 1)[1].split("\n\nReturn", 1)[0]
+            now = prompt.split("The dashboard now", 1)[1].split(":\n", 1)[1].split("\n\nDashboard filters now", 1)[0]
             return '{"widgets": ' + now + ', "note": "Couldn\'t: there is no way to filter by printer color."}'
 
     async def fake_ai(db):
@@ -300,3 +300,47 @@ async def test_conditions_on_any_source_value(db, admin_user):
     assert flt.clean([{"field": "attr", "attr": "ad_last_logon", "op": "older_than", "value": "99999"}])[0]["value"] == 3650
     spec = flt.spec()
     assert {"Directory (AD)", "Vulnerability scanner", "EDR", "Device", "Cloud"} <= {a["group"] for a in spec["attrs"]}
+
+
+@pytest.mark.asyncio
+async def test_dashboard_wide_filters_save_publish_and_apply(db, client_admin, client_it_user, monkeypatch):
+    from api.models.device import Device, DeviceType
+    n = uuid.uuid4().hex[:6]
+    db.add_all([Device(hostname=f"ACME-{n}.acme.example", device_type=DeviceType.server),
+                Device(hostname=f"keep-{n}.acme.example", device_type=DeviceType.server)])
+    await db.commit()
+    w = {"id": "w1", "metric": "assets.count", "viz": "kpi", "params": {"seen": "any"},
+         "filters": [{"field": "attr", "attr": "hostname", "op": "ends_with", "value": f"{n}.acme.example"}]}
+    leave_out = {"field": "attr", "attr": "hostname", "op": "not_starts_with", "value": "ACME-"}
+    data = lambda c, **f: c.post("/api/v1/dashboards/data", json={"widgets": [w], **f})  # noqa: E731
+    assert (await data(client_admin)).json()["data"]["w1"]["value"] == 2
+    assert (await data(client_admin, filters=[leave_out])).json()["data"]["w1"]["value"] == 1   # dashboard AND widget
+    # saved with the dashboard, a draft until published
+    made = (await client_admin.post("/api/v1/dashboards", json={**_body(widgets=[w]), "filters": [leave_out]})).json()
+    url = f"/api/v1/dashboards/{made['id']}"
+    d = (await client_admin.get(url)).json()
+    assert d["filters"]["filters"][0]["value"] == "ACME-" and d["filters"]["match"] == "all"
+    await client_admin.post(f"{url}/publish")
+    await client_admin.put(url, json={**_body(widgets=[w]), "filters": []})               # remove it: a draft
+    seen = (await client_it_user.get(url)).json()
+    assert seen["filters"]["filters"][0]["value"] == "ACME-"                               # viewers keep the published one
+    assert (await client_admin.get(url)).json()["draft"]["filters"]["filters"] == []
+    await client_admin.post(f"{url}/publish")
+    assert (await client_it_user.get(url)).json()["filters"]["filters"] == []
+    # export follows the filters in force
+    csv = (await client_admin.post("/api/v1/dashboards/export", json={"widget": {**w, "viz": "kpi"}, "filters": [leave_out]})).text
+    assert csv.splitlines()[1] == '"1"'
+
+    class Fake:   # the AI sets a dashboard-wide filter instead of touching each widget
+        async def complete(self, prompt, **kw):
+            assert "Dashboard filters now" in prompt
+            now = prompt.split("The dashboard now", 1)[1].split(":\n", 1)[1].split("\n\nDashboard filters now", 1)[0]
+            return ('{"widgets": ' + now + ', "filters": [{"field": "ou", "op": "not_in", "value": "Blocked_Computers"}], '
+                    '"filter_match": "all", "note": "Left out OU=Blocked_Computers on the whole dashboard."}')
+
+    async def fake_ai(db):
+        return Fake()
+    monkeypatch.setattr("api.hunt.ai.get_ai", fake_ai)
+    r = (await client_admin.post(f"/api/v1/dashboards/ai/edit/{made['id']}",
+                                 json={"text": "Don't consider computers in OU=Blocked_Computers"})).json()
+    assert r["filters"]["filters"] == [{"field": "ou", "op": "not_in", "value": "Blocked_Computers"}] and r["widgets"]

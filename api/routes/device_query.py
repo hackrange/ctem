@@ -95,6 +95,12 @@ def card_filters(card: dict) -> list:
                                                    "missing": card.get("missing") or "none"})
     if card.get("active_days"):
         out.append(fleet.active(int(card["active_days"])))
+    if card.get("asset") == "repositories":   # the Security Overview's Code tab
+        out.append(Device.device_type == DeviceType.code_repository)
+    elif card.get("asset") == "sites":       # its Web apps tab
+        out.append(Device.device_type == DeviceType.website)
+    elif card.get("asset") == "hosts":       # its Infrastructure tab: everything but repositories and sites
+        out.append(Device.device_type.not_in((DeviceType.code_repository, DeviceType.website)))
     if card.get("new_days"):
         out.append(Device.created_at >= fleet.now().replace(tzinfo=None) - timedelta(days=int(card["new_days"])))
     return out
@@ -139,8 +145,8 @@ def build_query(scope, q: str | None, grade: str | None, device_type: DeviceType
         stmt = stmt.where(Device.source == source[:64])
     if tags:
         from api.models.tag import Tag
-        for tag in [t for t in tags if t][:10]:  # every tag must match (AND)
-            tagged = select(DeviceTag.device_id).join(Tag, Tag.id == DeviceTag.tag_id).where(Tag.name == tag[:128])
+        for tag in [t for t in tags if t][:10]:  # every tag must match (AND); "a|b" is either one (OR)
+            tagged = select(DeviceTag.device_id).join(Tag, Tag.id == DeviceTag.tag_id).where(Tag.name.in_(tag_alternatives(tag)))
             stmt = stmt.where(Device.id.in_(tagged))
     if q:
         q = q.strip()[:200]
@@ -256,6 +262,13 @@ def short_name(name: str | None) -> str | None:
     return name.split(".", 1)[0].rstrip("$").upper()
 
 
+def display_name(d: Device) -> str | None:
+    """A host's short name; a repository ("acme/payments") or a site ("shop.acme.example") keeps its whole name."""
+    if d.device_type in (DeviceType.code_repository, DeviceType.website):
+        return d.hostname
+    return short_name(d.hostname)
+
+
 def full_name(d: Device) -> str | None:
     if d.fqdn:
         return d.fqdn.upper()
@@ -348,8 +361,8 @@ def _exempt(d: Device) -> bool:
 def summary(d: Device) -> dict:
     return {
         "id": str(d.id),
-        "hostname": short_name(d.hostname),
-        "fqdn": full_name(d),
+        "hostname": display_name(d),
+        "fqdn": full_name(d) if d.device_type not in (DeviceType.code_repository, DeviceType.website) else None,
         "user": user_label(d),
         "assigned_user": assigned_user(d),
         "inventory_status": inventory_status(d),
@@ -397,16 +410,24 @@ def export_row(d: Device) -> list:
 
 
 
+def tag_alternatives(value: str) -> list[str]:
+    """One tag filter value: a tag name, or several joined by "|" that mean the same thing (the same application
+    tagged by two tools, say "app:MuleSoft|r7:app:MuleSoft"). At most 10, each at most 128 characters."""
+    return [t[:128] for t in str(value or "")[:1400].split("|") if t][:10]
+
+
 def tag_cond(tags: list[str] | None):
-    """Device condition: has every one of these tags (at most 10, each at most 128 chars), or None."""
+    """Device condition: matches every one of these tag filters (at most 10), or None. A filter value may list
+    alternatives joined by "|", any of which counts."""
     from sqlalchemy import and_
 
     from api.models.tag import Tag
-    wanted = [t[:128] for t in (tags or []) if t][:10]
+    wanted = [tag_alternatives(t) for t in (tags or []) if t][:10]
+    wanted = [w for w in wanted if w]
     if not wanted:
         return None
-    return and_(*(Device.id.in_(select(DeviceTag.device_id).join(Tag, Tag.id == DeviceTag.tag_id).where(Tag.name == t))
-                  for t in wanted))
+    return and_(*(Device.id.in_(select(DeviceTag.device_id).join(Tag, Tag.id == DeviceTag.tag_id).where(Tag.name.in_(w)))
+                  for w in wanted))
 
 
 def with_tags(scope, tags: list[str] | None):

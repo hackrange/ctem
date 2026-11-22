@@ -324,12 +324,13 @@ async def test_crowdstrike_rapid7_and_splunk_batches_apply(client, client_admin,
 
 
 @pytest.mark.asyncio
-async def test_collector_fed_integration_refuses_server_pull_and_keeps_mode_on_edit(client, client_admin):
+async def test_collector_fed_integration_is_managed_on_the_shipper_only(client, client_admin):
     p, _, _ = await _enroll(client, client_admin)
     iid = p["modules"]["ldap"]["integration_id"]
     assert (await client_admin.post(f"/api/v1/integrations/{iid}/sync")).status_code == 409
     r = await client_admin.put(f"/api/v1/integrations/{iid}", json={"config": {"host": "dc001.acme.example"}})
-    assert r.status_code == 200 and r.json()["config"]["mode"] == "collector"
+    assert r.status_code == 409   # edited on the Shippers tab, where its connection and schedule live
+    assert (await client_admin.delete(f"/api/v1/integrations/{iid}")).status_code == 409
 
 
 @pytest.mark.asyncio

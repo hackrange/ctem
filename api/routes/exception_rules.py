@@ -110,6 +110,7 @@ async def create(body: NewRuleException, u: User = Depends(require_admin), db: A
                     detail=f"{er.describe(rule)} until {body.expires_on.isoformat()}"[:500]))
     touched = await vx.apply(db, exc)
     await db.commit()
-    await vx.rescore(db, touched)
+    from api.routes.vuln_exceptions import _after
+    _after(touched, [exc])   # rescoring and telling the source tools (GCR), in the background
     return {"ok": True, "id": str(exc.id), "status": exc.status.value, "findings_covered": exc.findings_covered,
             "devices": p["devices"]}

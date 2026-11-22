@@ -135,3 +135,75 @@ def test_ldaps_verifies_certificates_by_default(monkeypatch):
     assert seen["tls"].validate == ssl.CERT_REQUIRED
     ldap_mod.LDAPConnector({**base, "tls_skip_verify": True})._connect()
     assert seen["tls"].validate == ssl.CERT_NONE
+
+
+@pytest.mark.asyncio
+async def test_editing_an_integration_keeps_saved_credentials(db, client_admin):
+    """Changing the schedule or a setting never asks for credentials again; moving the endpoint still does.
+    Shipper-run integrations aren't edited here at all."""
+    from api.models.integration import IntegrationConfig, Vendor
+    shipper = IntegrationConfig(vendor=Vendor.rapid7_insightvm, name="Console via shipper", is_enabled=True,
+                                config={"mode": "collector", "collector": "abc"})
+    direct = IntegrationConfig(vendor=Vendor.rapid7_insightvm, name="Console direct", is_enabled=True,
+                               config={"mode": "console", "host": "r7.acme.example", "username": "svc", "password": "s3cret"})
+    db.add_all([shipper, direct])
+    await db.flush()
+    from api.models.collector import CollectorProfile
+    prof = CollectorProfile(name=f"box-{shipper.id}"[:60], created_by="test", config_version=1,
+                            modules={"insightvm_console": {"integration_id": str(shipper.id), "enabled": True}})
+    db.add(prof)
+    await db.commit()
+    listed = {i["id"]: i for i in (await client_admin.get("/api/v1/integrations")).json()["integrations"]}
+    assert listed[str(shipper.id)]["shipper_managed"] and not listed[str(direct.id)]["shipper_managed"]
+    # what the edit form sends for the shipper one: blank host and username, the sentinel for unsaved secrets
+    form = {"mode": "console", "host": "", "username": "", "password": "__REDACTED__", "api_key": "__REDACTED__",
+            "min_severity": "Critical"}
+    # a shipper-run integration is managed on the Shippers tab only: the integration routes leave it alone
+    r = await client_admin.put(f"/api/v1/integrations/{shipper.id}", json={"config": form, "sync_schedule": "0 */6 * * *"})
+    assert r.status_code == 409 and "Shippers" in r.text
+    assert (await client_admin.delete(f"/api/v1/integrations/{shipper.id}")).status_code == 409
+    await db.refresh(shipper)
+    assert shipper.config == {"mode": "collector", "collector": "abc"}
+    # once the shipper no longer owns it, its leftover card can be cleaned up
+    await db.delete(prof)
+    await db.commit()
+    assert (await client_admin.delete(f"/api/v1/integrations/{shipper.id}")).status_code == 200
+    # the direct one: same host (blank vs trailing slash and case don't count as a move), secret kept
+    r = await client_admin.put(f"/api/v1/integrations/{direct.id}", json={"config": {
+        "mode": "console", "host": "R7.acme.example/", "username": "svc", "password": "__REDACTED__", "api_key": "__REDACTED__",
+        "port": ""}})
+    assert r.status_code == 200, r.text
+    await db.refresh(direct)
+    assert direct.config["password"] == "s3cret" and "api_key" not in direct.config   # never the sentinel
+    # a real move with a kept secret is refused, so a saved password can't be sent somewhere else
+    r = await client_admin.put(f"/api/v1/integrations/{direct.id}", json={"config": {
+        "mode": "console", "host": "evil.example", "username": "svc", "password": "__REDACTED__"}})
+    assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_browser_sessions_renew_while_in_use_and_end_at_the_hard_limit(monkeypatch):
+    import time
+    from types import SimpleNamespace
+
+    from fastapi import HTTPException
+    import jwt
+
+    from api.auth import middleware as mw
+    s = mw._settings()
+    user = SimpleNamespace(id="u1", username="pat")
+    now = int(time.time())
+    # half the life gone: a fresh token, so active work never hits the 15 minutes
+    req = SimpleNamespace(session={"access_token": "old", "signed_in_at": now - 60})
+    mw._slide(req, {"exp": now + 60}, user)
+    fresh = jwt.decode(req.session["access_token"], s.secret_key, algorithms=[s.jwt_algorithm])
+    assert fresh["sub"] == "u1" and fresh["exp"] > now + 60
+    # plenty left: nothing changes
+    req = SimpleNamespace(session={"access_token": "keep", "signed_in_at": now - 60})
+    mw._slide(req, {"exp": now + s.access_token_expire_minutes * 60}, user)
+    assert req.session["access_token"] == "keep"
+    # past the hard limit: signed out however busy
+    req = SimpleNamespace(session={"access_token": "x", "signed_in_at": now - s.session_max_hours * 3600 - 5})
+    with pytest.raises(HTTPException) as e:
+        mw._slide(req, {"exp": now + 600}, user)
+    assert e.value.status_code == 401 and req.session == {}

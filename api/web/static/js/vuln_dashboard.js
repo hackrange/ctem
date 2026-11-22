@@ -8,6 +8,12 @@
   const charts = {};
   const init = new URLSearchParams(location.search);   // read before the first load rewrites the address
   let data = null;
+  // Infrastructure (default), Code, Web apps, or All side by side. The last choice is remembered per browser.
+  const KINDS = ['infra', 'code', 'web', 'all'];
+  const KIND_NAME = { infra: 'Infrastructure', code: 'Code', web: 'Web apps' };
+  const remembered = (() => { try { return localStorage.getItem('ctem.vulnType'); } catch (e) { return null; } })();
+  let kind = KINDS.includes(init.get('kind')) ? init.get('kind') : KINDS.includes(remembered) ? remembered : 'infra';
+  let allSources = [], byType = {};
 
   const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   const theme = () => ({
@@ -150,13 +156,58 @@
     types(data.by_type);
     tables(data);
     const at = new Date(data.generated_at);
-    $('vd-sub').textContent = `${data.scoped ? 'Posture and trends for the devices you can see' : 'Posture and trends across every device'}. Updated ${at.toLocaleTimeString()}.`;
+    const what = { infra: 'Infrastructure: hosts, network and cloud', code: 'Code: repositories (SAST, packages, secrets, IaC)',
+                   web: 'Web apps: DAST and web application scanning' }[kind];
+    $('vd-sub').textContent = `${what}, ${data.scoped ? 'for the devices you can see' : 'across every device'}. Updated ${at.toLocaleTimeString()}.`;
     $('vd-trend-note').textContent = data.tracking_since
       ? `CTEM has tracked fixes since ${new Date(data.tracking_since).toLocaleDateString()}; earlier points read low` : '';
   }
 
+  // All: the three types side by side, never added together
+  async function loadAll() {
+    $('vd-kpis').hidden = true;
+    document.querySelector('.vd-grid').hidden = true;
+    $('vd-all').hidden = false;
+    const q = new URLSearchParams({ range: $('vd-range').value, kind: 'all' });
+    history.replaceState(null, '', `?${q}`);
+    $('vd-all').innerHTML = '<div class="text-muted text-sm">Loading...</div>';
+    const one = async k => {
+      try {
+        const r = await fetch(`/api/v1/vuln-dashboard?range=${encodeURIComponent($('vd-range').value)}&kind=${k}`, { headers: { Accept: 'application/json' } });
+        return r.ok ? r.json() : null;
+      } catch (e) { return null; }
+    };
+    const [a, b, c] = await Promise.all(['infra', 'code', 'web'].map(one));
+    if (a) fillFilters(a.filters);
+    const spark = tr => {
+      const tot = (tr.days || []).map((_, i) => SEV.reduce((s, k) => s + ((tr[k] || [])[i] || 0), 0));
+      if (tot.length < 2) return '';
+      const hi = Math.max(...tot) || 1, lo = Math.min(...tot);
+      const pts = tot.map((v, i) => `${(i / (tot.length - 1) * 400).toFixed(1)},${(110 - (v - lo) / ((hi - lo) || 1) * 100).toFixed(1)}`).join(' ');
+      return `<svg viewBox="0 0 400 120" preserveAspectRatio="none" role="img" aria-label="Open findings over the range"><polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2.5"></polyline></svg>`;
+    };
+    const col = (k, d) => {
+      if (!d) return `<section class="vd-col"><h2>${KIND_NAME[k]}</h2><p class="vd-col__note">Couldn't load.</p></section>`;
+      const x = d.kpis || {};
+      const row = (l, v) => `<div class="vd-col__row"><span>${esc(l)}</span><b>${esc(n(v))}</b></div>`;
+      return `<section class="vd-col"><div style="display:flex;justify-content:space-between;align-items:baseline"><h2>${KIND_NAME[k]}</h2>
+        <button type="button" class="btn btn--ghost btn--sm" data-open="${k}">Open tab</button></div>
+        ${row('Open findings', x.open)}${row('Critical', x.critical)}${row('Known exploited (KEV)', x.kev)}${row('Past SLA', x.past_sla)}
+        ${row(k === 'infra' ? 'Hosts affected' : k === 'code' ? 'Repositories affected' : 'Sites affected', x.devices)}${spark(d.trend || {})}</section>`;
+    };
+    $('vd-all').innerHTML = col('infra', a) + col('code', b) + col('web', c)
+      + '<p class="vd-col__note" style="grid-column:1/-1">The three are shown side by side and never added together: different work for different teams.</p>';
+    $('vd-sub').textContent = 'Infrastructure, Code and Web apps side by side.';
+  }
+
   async function load() {
-    const q = new URLSearchParams({ range: $('vd-range').value });
+    try { localStorage.setItem('ctem.vulnType', kind); } catch (e) { /* not remembered, still works */ }
+    $('vd-source').disabled = kind === 'all';
+    if (kind === 'all') return loadAll();
+    $('vd-all').hidden = true;
+    $('vd-kpis').hidden = false;
+    document.querySelector('.vd-grid').hidden = false;
+    const q = new URLSearchParams({ range: $('vd-range').value, kind });
     if ($('vd-source').value) q.set('source', $('vd-source').value);
     if ($('vd-type').value) q.set('device_type', $('vd-type').value);
     history.replaceState(null, '', `?${q}`);
@@ -175,15 +226,42 @@
   }
 
   let filled = false;
+  const add = (sel, vals, label) => vals.forEach(v => { const o = document.createElement('option'); o.value = v; o.textContent = label(v); sel.appendChild(o); });
+  // The source list follows the buttons: only application scanners under Application, the rest under Non application
+  function sourceOptions() {
+    const sel = $('vd-source'), cur = sel.value;
+    const list = kind === 'all' ? allSources : (byType[kind] || []);
+    sel.innerHTML = '<option value="">All sources</option>';
+    add(sel, list, v => v.replace(/_/g, ' '));
+    sel.value = list.includes(cur) ? cur : '';
+    return sel.value === cur;
+  }
   function fillFilters(f) {
     if (filled || !f) return;
     filled = true;
-    const add = (sel, vals, label) => vals.forEach(v => { const o = document.createElement('option'); o.value = v; o.textContent = label(v); sel.appendChild(o); });
-    add($('vd-source'), f.sources, v => v.replace(/_/g, ' '));
+    allSources = f.sources || [];
+    byType = f.by_type || {};
+    sourceOptions();
     add($('vd-type'), f.device_types, v => v.replace(/_/g, ' '));
-    if (init.get('source')) $('vd-source').value = init.get('source');
+    if (init.get('source')) { $('vd-source').value = init.get('source'); }
     if (init.get('device_type')) $('vd-type').value = init.get('device_type');
   }
+  function pressKind() {
+    document.querySelectorAll('#vd-kind [data-kind]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.kind === kind)));
+  }
+  $('vd-all').addEventListener('click', e => {
+    const b = e.target.closest('[data-open]');
+    if (b) { kind = b.dataset.open; pressKind(); sourceOptions(); load(); }
+  });
+  $('vd-kind').addEventListener('click', e => {
+    const b = e.target.closest('[data-kind]');
+    if (!b || b.dataset.kind === kind) return;
+    kind = b.dataset.kind;
+    pressKind();
+    sourceOptions();   // a source from the other side no longer applies
+    load();
+  });
+  pressKind();
 
   document.addEventListener('click', e => {
     const tr = e.target.closest('#vd-topv tr[data-href], #vd-topd tr[data-href]');

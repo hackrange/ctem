@@ -72,11 +72,13 @@ async def get_current_user(
 
     token_str: str | None = None
 
+    from_session = False
     if credentials:
         token_str = credentials.credentials
     else:
         # Fall back to session cookie for browser requests
         token_str = request.session.get("access_token")
+        from_session = bool(token_str)
 
     if not token_str:
         raise HTTPException(401, detail="Not authenticated")
@@ -98,7 +100,28 @@ async def get_current_user(
     if user is None or not user.is_active or user.is_locked:
         raise HTTPException(401, detail="User not found or disabled")
 
+    if from_session:
+        _slide(request, claims, user)
     return user
+
+
+def _slide(request: Request, claims: dict, user: User) -> None:
+    """A browser session stays signed in while it's being used: once half its time is gone, it gets a fresh token
+    (and the cookie a fresh expiry), so it only ends after a stretch of inactivity, never in the middle of work.
+    It still ends at the hard limit counted from sign-in (session_max_hours)."""
+    import time
+    settings = _settings()
+    now = int(time.time())
+    started = request.session.get("signed_in_at")
+    if not isinstance(started, int):
+        started = now
+        request.session["signed_in_at"] = now   # sessions from before this existed count from now
+    if now - started > settings.session_max_hours * 3600:
+        request.session.clear()
+        raise HTTPException(401, detail="Session ended; sign in again")
+    left = int(claims.get("exp", 0)) - now
+    if left < settings.access_token_expire_minutes * 60 / 2:
+        request.session["access_token"] = create_access_token(str(user.id), user.username)
 
 
 async def _authenticate_api_token(raw_token: str, request: Request, db: AsyncSession) -> User:

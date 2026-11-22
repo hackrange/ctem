@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 15
     refresh_token_expire_days: int = 7
+    # A browser sign-in renews while in use and ends after access_token_expire_minutes idle, but never lasts longer
+    # than this from sign-in
+    session_max_hours: int = 12
 
     # ── TOTP lockout ──────────────────────────────────────────────────────────
     totp_lockout_threshold_1: int = 5

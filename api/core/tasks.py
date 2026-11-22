@@ -100,7 +100,8 @@ async def _warm_vuln_dashboard():
     from api.core.db import get_session
     from api.core.vuln_dashboard import cached
     async for db in get_session():
-        await cached(db, "90d", None, None, fresh=True)
+        await cached(db, "90d", None, None, fresh=True)                  # dashboards' widgets: every finding
+        await cached(db, "90d", None, None, fresh=True, kind="infra")    # the Vulnerability Dashboard's default
 
 
 async def _recalculate_all():
@@ -148,6 +149,41 @@ def post_sync_pipeline(since: str | None = None):
     # Enrichment first so the scores see fresh KEV/EPSS data
     asyncio.run(_enrich())
     asyncio.run(_recalculate_changed(since) if since else _recalculate_all())
+    # Then the dashboards, which cache filtered views for up to 30 minutes, show what the sync brought in
+    from api.core.vuln_dashboard import forget_cached
+    asyncio.run(forget_cached())
+    asyncio.run(_push_exceptions(None))   # exceptions covering findings the sync just brought in
+
+
+@celery_app.task(name="api.core.tasks.rescore_devices", ignore_result=True)
+def rescore_devices(device_ids: list[str]):
+    """Rescore the devices an exception changed and refresh the affected counts once (they read every finding)."""
+    asyncio.run(_rescore_devices(device_ids))
+
+
+async def _rescore_devices(device_ids):
+    from api.core.db import get_session
+    from api.core.vuln_dashboard import forget_cached
+    from api.core.vuln_exceptions import rescore
+    async for db in get_session():
+        await rescore(db, list(device_ids)[:5000])
+    await forget_cached()
+
+
+@celery_app.task(name="api.core.tasks.push_exceptions_to_tools", ignore_result=True)
+def push_exceptions_to_tools(exception_ids: list[str] | None = None):
+    """Mirror CTEM's approved exceptions to the tools the findings came from (GitHub Code Review)."""
+    asyncio.run(_push_exceptions(exception_ids))
+
+
+async def _push_exceptions(exception_ids):
+    from api.core.db import get_session
+    from api.integrations.gcr_writeback import push
+    async for db in get_session():
+        try:
+            await push(db, exception_ids)
+        except Exception:  # noqa: BLE001 -- retried after the next sync
+            log.exception("exception write-back failed")
 
 
 async def _recalculate_changed(since: str):
@@ -372,6 +408,8 @@ async def _record_snapshots():
     from api.dashboards.m_directory import record_snapshots as rec
     async for db in get_session():
         from api.core.device_ou import backfill
+        from api.core.finding_domain import fill
         await backfill(db)   # OU keys for devices synced before they existed
+        await fill(db)       # Infrastructure / Code / Web app types on rows written before they existed
         await rec(db)
         await snapshots.record(db)

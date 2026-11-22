@@ -27,6 +27,36 @@
     return { body: $(`${id}-body`), sub: $(`${id}-sub`), actions: $(`${id}-actions`), close: () => wrap.classList.remove('is-open') };
   }
 
+  // While a request is saving: the form greys out and can't be changed, the button spins and says so, and the
+  // other buttons wait. busy(d, button, text) starts it; the returned function ends it.
+  function busy(d, btn, text) {
+    if (!document.getElementById('ctem-busy-style')) {
+      const st = document.createElement('style');
+      st.id = 'ctem-busy-style';
+      st.textContent = `.is-busy{opacity:.45;pointer-events:none;filter:grayscale(.6);transition:opacity .15s}
+        .btn-spin{display:inline-block;width:12px;height:12px;border:2px solid currentColor;border-right-color:transparent;
+          border-radius:50%;margin-right:6px;vertical-align:-2px;animation:btn-spin .7s linear infinite}
+        @keyframes btn-spin{to{transform:rotate(360deg)}}
+        @media (prefers-reduced-motion: reduce){.btn-spin{animation:none}}`;
+      document.head.appendChild(st);
+    }
+    const label = btn.textContent;
+    d.body.classList.add('is-busy');
+    d.body.setAttribute('aria-busy', 'true');
+    d.actions.querySelectorAll('button').forEach(b => { b.disabled = true; });
+    const say = t => { btn.innerHTML = `<span class="btn-spin" aria-hidden="true"></span>${esc(t)}`; };
+    say(text);
+    return {
+      say,
+      done: () => {
+        d.body.classList.remove('is-busy');
+        d.body.removeAttribute('aria-busy');
+        d.actions.querySelectorAll('button').forEach(b => { b.disabled = false; });
+        btn.textContent = label;
+      },
+    };
+  }
+
   function button(label, cls, onClick) {
     const b = document.createElement('button');
     b.type = 'button';
@@ -41,6 +71,9 @@
                                    body: JSON.stringify(body) });
     const data = await res.json().catch(() => ({}));
     if (res.status === 422) return { ok: false, error: 'Check the form: a reason of at least 10 characters (no < or >) and an end date within a year.' };
+    if (res.status === 401) {
+      return { ok: false, expired: true, error: `Your sign-in has expired, so nothing was saved. <a href="/login?next=${encodeURIComponent(location.pathname)}">Sign in again</a> and try once more.` };
+    }
     if (!res.ok) return { ok: false, error: res.status === 404 ? "That isn't available to you." : 'Something went wrong. Try again.' };
     return data;
   }
@@ -93,12 +126,14 @@
   function exceptionForm(opts) {
     const fleet = !(opts.devices && opts.devices.length);
     const many = !fleet && opts.vulns && opts.vulns.length;
-    const d = dialog('ex-modal', opts.canDecide ? 'Create an exception' : 'Request an exception');
+    const fp = opts.kind === 'false_positive';   // not real, rather than an accepted risk
+    const d = dialog('ex-modal', fp ? (opts.canDecide ? 'Mark as false positive' : 'Report a false positive')
+      : opts.canDecide ? 'Create an exception' : 'Request an exception');
     d.sub.textContent = fleet ? (opts.vulns.length === 1 ? opts.vulns[0].label : `${opts.vulns.length} vulnerabilities`)
       : many ? `${opts.vulns.length} findings on ${opts.devices[0].hostname || 'this device'}` : (opts.label || '');
     const max = new Date(Date.now() + MAX_DAYS * 864e5).toISOString().slice(0, 10);
     const min = new Date(Date.now() + 864e5).toISOString().slice(0, 10);
-    const dflt = new Date(Date.now() + 90 * 864e5).toISOString().slice(0, 10);
+    const dflt = new Date(Date.now() + (fp ? 364 : 90) * 864e5).toISOString().slice(0, 10);
     const n = fleet ? 0 : opts.devices.length;
     const scopes = fleet ? [['all', 'Every device, including ones found later'], ['tag', 'Every device with a tag, including ones tagged later']]
       : many ? [] : [
@@ -110,13 +145,14 @@
       ${scopes.length > 1 ? `<div class="form-group"><span class="form-label">Covers</span>
         ${scopes.map(([v, l], i) => `<label class="tk-radio" style="margin:4px 0"><input type="radio" name="ex-scope" value="${v}" ${i ? '' : 'checked'}> ${esc(l)}</label>`).join('')}
         <div id="ex-tag-wrap" hidden style="margin-top:6px"><select id="ex-tag" class="form-input"><option value="">Loading tags...</option></select></div></div>` : ''}
-      <div class="form-group"><label class="form-label" for="ex-reason">Reason <span style="color:var(--severity-critical)">*</span></label>
-        <textarea id="ex-reason" class="form-input" rows="3" maxlength="2000" placeholder="Why can't this be fixed now? e.g. Vendor patch due in March; app is internal only"></textarea></div>
-      <div class="form-group"><label class="form-label" for="ex-comp">Compensating controls <span class="text-muted">(optional)</span></label>
+      ${fp ? '<div class="tk-note">A false positive stops counting. Findings from GitHub Code Review are marked there too once this is approved; GCR shows it at once and CTEM after the next sync.</div>' : ''}
+      <div class="form-group"><label class="form-label" for="ex-reason">${fp ? 'Why it is not real' : 'Reason'} <span style="color:var(--severity-critical)">*</span></label>
+        <textarea id="ex-reason" class="form-input" rows="3" maxlength="2000" placeholder="${fp ? 'e.g. The scanner matched a banner; the service is not Spring and the endpoint does not exist' : "Why can't this be fixed now? e.g. Vendor patch due in March; app is internal only"}"></textarea></div>
+      <div class="form-group"${fp ? ' hidden' : ''}><label class="form-label" for="ex-comp">Compensating controls <span class="text-muted">(optional)</span></label>
         <textarea id="ex-comp" class="form-input" rows="2" maxlength="2000" placeholder="What reduces the risk meanwhile? e.g. Blocked at the firewall, EDR in prevent mode"></textarea></div>
       <div class="form-group"><label class="form-label" for="ex-until">Ends on <span style="color:var(--severity-critical)">*</span></label>
         <input id="ex-until" type="date" class="form-input" min="${min}" max="${max}" value="${dflt}" style="max-width:200px">
-        <div class="text-sm text-muted" style="margin-top:4px">At most a year. When it ends, the findings count again.</div></div>
+        <div class="text-sm text-muted" style="margin-top:4px">${fp ? 'Checked again on this date: at most a year away.' : 'At most a year. When it ends, the findings count again.'}</div></div>
       <div id="ex-msg" class="text-sm" style="min-height:1.2em"></div>`;
     const scopeVal = () => (document.querySelector('input[name="ex-scope"]:checked') || {}).value || (many ? 'finding' : scopes[0][0]);
     if (fleet) d.body.insertAdjacentHTML('afterbegin', `<div class="tk-note">${esc(opts.vulns.map(v => v.label).slice(0, 8).join(', '))}${opts.vulns.length > 8 ? ` and ${opts.vulns.length - 8} more` : ''}</div>`);
@@ -130,7 +166,7 @@
       }
     }));
     const msg = (t, bad) => { $('ex-msg').style.color = bad ? 'var(--severity-critical)' : 'var(--fg-muted)'; $('ex-msg').innerHTML = t; };
-    const submit = button(opts.canDecide ? 'Create exception' : 'Send request', 'btn--primary', async () => {
+    const submit = button(fp ? (opts.canDecide ? 'Mark as false positive' : 'Send for approval') : opts.canDecide ? 'Create exception' : 'Send request', 'btn--primary', async () => {
       const reason = $('ex-reason').value.trim();
       const until = $('ex-until').value;
       if (reason.length < 10) return msg('Give a reason of at least 10 characters.', true);
@@ -138,25 +174,34 @@
       if (!until || until < min || until > max) return msg('Pick an end date between tomorrow and a year from now.', true);
       const scope = scopeVal();
       if (scope === 'tag' && !$('ex-tag').value) return msg('Pick a tag.', true);
-      const base = { reason, compensating_controls: $('ex-comp').value.trim() || null, expires_on: until };
+      const base = { reason, compensating_controls: fp ? null : ($('ex-comp').value.trim() || null), expires_on: until, kind: fp ? 'false_positive' : 'exception' };
       const items = fleet ? opts.vulns.map(v => ({ ...base, vuln_id: v.vulnId, scope, device_ids: [], tag_id: scope === 'tag' ? $('ex-tag').value : null }))
         : many ? opts.vulns.map(v => ({ ...base, vuln_id: v.vulnId, scope: 'finding', device_ids: [v.deviceId] }))
         : [{ ...base, vuln_id: opts.vulnId, scope, device_ids: ['finding', 'devices'].includes(scope) ? opts.devices.map(x => x.id) : [],
              tag_id: scope === 'tag' ? $('ex-tag').value : null }];
-      submit.disabled = true;
-      msg('Saving...');
+      const work = busy(d, submit, items.length > 1 ? `Saving ${items.length}...` : 'Saving...');
+      msg(fp ? 'Recording the false positive...' : 'Recording the exception...');
       const problems = [];
-      let done = 0;
-      for (const body of items) {
-        const r = await post(`${API}/exceptions`, body);
-        if (r.ok) done += 1; else problems.push(r.error);
+      let done = 0, expired = null;   // expired: our own message, with its sign-in link
+      // Many at once go in one request (saved together; scores update in the background)
+      for (let i = 0; i < items.length; i += 200) {
+        const chunk = items.slice(i, i + 200);
+        if (items.length > 200) work.say(`Saving ${Math.min(i + 200, items.length)} of ${items.length}...`);
+        const r = chunk.length === 1 ? await post(`${API}/exceptions`, chunk[0]) : await post(`${API}/exceptions/batch`, { items: chunk });
+        if (r.expired) { expired = r.error; break; }   // no point sending the rest
+        if (r.results) r.results.forEach(x => { if (x.ok) done += 1; else problems.push(x.error); });
+        else if (r.ok) done += 1; else problems.push(r.error);
       }
-      submit.disabled = false;
+      work.done();
+      if (expired && !done) return msg(expired, true);
       if (problems.length && !done) return msg(esc(problems[0]), true);
-      const what = opts.canDecide ? 'in effect now' : 'sent for approval';
+      const what = opts.canDecide ? 'recorded and in effect now' : 'sent for approval';
+      const noun = fp ? 'false positive' : 'exception';
       d.actions.innerHTML = '';
       d.actions.appendChild(button('Done', 'btn--primary', () => { d.close(); opts.onDone && opts.onDone(); }));
-      d.body.innerHTML = `<div class="tk-note">${done} exception${done === 1 ? '' : 's'} ${what}.
+      d.body.innerHTML = `<div class="tk-note">${done} ${noun}${done === 1 ? '' : 's'} ${what}.
+        ${opts.canDecide ? 'Scores and counts update in the background within a few minutes; you can leave this page. Findings from GitHub Code Review are marked there too.'
+          : 'Once cyber or an admin approves it, findings from GitHub Code Review are marked there too.'}
         ${problems.length ? `<br>${problems.length} couldn't be saved: ${esc(problems[0])}` : ''}
         <br><a href="/exceptions">Open Exceptions</a></div>`;
     });

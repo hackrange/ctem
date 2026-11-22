@@ -9,7 +9,13 @@
     <h1 class="page-header__title">Security Overview</h1>
     <p class="page-header__sub">Executive dashboard &middot; last updated <span id="last-updated">loading...</span></p>
   </div>
-  <div class="flex items-center gap-2">
+  <div class="flex items-center gap-2" style="flex-wrap:wrap">
+    <div class="vd-kind" id="ov-kind" role="group" aria-label="Which assets">
+      <button type="button" data-kind="infra" aria-pressed="true" title="Hosts, network devices and cloud: IT and operations">Infrastructure</button>
+      <button type="button" data-kind="code" aria-pressed="false" title="Repositories: developers">Code</button>
+      <button type="button" data-kind="web" aria-pressed="false" title="Web applications: application owners">Web apps</button>
+      <button type="button" data-kind="all" aria-pressed="false" title="The three side by side">All</button>
+    </div>
     <a href="/api/v1/cmdb/export" class="btn btn--ghost btn--sm">Export CMDB</a>
     <button class="btn btn--primary btn--sm" onclick="refreshDashboard()">Refresh</button>
   </div>
@@ -30,22 +36,24 @@
   <button class="btn btn--ghost btn--sm" onclick="clearFilters()">Clear</button>
 </div>
 
+<div id="overview-all" class="vd-all" hidden aria-live="polite"></div>
+
 <!-- Risk summary cards -->
 <div class="summary-grid" id="summary-cards">
   <div class="summary-card summary-card--critical">
     <p class="summary-card__eyebrow">Critical Risk</p>
     <p class="summary-card__value" id="count-f">--</p>
-    <p class="summary-card__label">Grade F devices</p>
+    <p class="summary-card__label" id="lbl-f">Grade F devices</p>
   </div>
   <div class="summary-card summary-card--high">
     <p class="summary-card__eyebrow">High Risk</p>
     <p class="summary-card__value" id="count-d">--</p>
-    <p class="summary-card__label">Grade D devices</p>
+    <p class="summary-card__label" id="lbl-d">Grade D devices</p>
   </div>
   <div class="summary-card summary-card--medium">
     <p class="summary-card__eyebrow">Medium Risk</p>
     <p class="summary-card__value" id="count-c">--</p>
-    <p class="summary-card__label">Grade C devices</p>
+    <p class="summary-card__label" id="lbl-c">Grade C devices</p>
   </div>
   <div class="summary-card summary-card--critical" id="card-kev">
     <p class="summary-card__eyebrow">KEV Exposed</p>
@@ -53,16 +61,21 @@
     <p class="summary-card__label">Known exploited</p>
   </div>
   <div class="summary-card summary-card--info">
-    <p class="summary-card__eyebrow">Total Devices</p>
+    <p class="summary-card__eyebrow" id="eye-total">Total Devices</p>
     <p class="summary-card__value" id="count-total">--</p>
     <p class="summary-card__label">In inventory</p>
   </div>
-  <div class="summary-card summary-card--critical">
+  <div class="summary-card summary-card--high" id="card-exposed" hidden>
+    <p class="summary-card__eyebrow">Exposed</p>
+    <p class="summary-card__value" id="count-exposed">--</p>
+    <p class="summary-card__label" id="lbl-exposed">Internet facing</p>
+  </div>
+  <div class="summary-card summary-card--critical" id="card-itdr">
     <p class="summary-card__eyebrow">ITDR Alerts</p>
     <p class="summary-card__value" id="count-itdr">--</p>
     <p class="summary-card__label"><a href="/identity" style="color:inherit">Active identity threats</a></p>
   </div>
-  <div class="summary-card summary-card--high">
+  <div class="summary-card summary-card--high" id="card-shadow">
     <p class="summary-card__eyebrow">Shadow AI</p>
     <p class="summary-card__value" id="count-shadow-ai">--</p>
     <p class="summary-card__label"><a href="/identity" style="color:inherit">Unsanctioned AI apps</a></p>
@@ -78,22 +91,22 @@
 </div>
 
 <!-- Two-column layout -->
-<div class="cols-2">
+<div class="cols-2" id="ov-cols">
 
   <!-- Top at-risk devices -->
   <div class="panel">
     <div class="panel__header">
-      <h2 class="panel__title">Top Risk Devices</h2>
-      <a href="/devices" class="btn btn--ghost btn--sm">View all</a>
+      <h2 class="panel__title" id="top-title">Top Risk Devices</h2>
+      <a href="/devices" class="btn btn--ghost btn--sm" id="top-viewall">View all</a>
     </div>
     <div class="panel__body" style="padding:0">
       <table class="data-table">
         <thead>
           <tr>
-            <th>Hostname</th>
+            <th id="top-th-name">Hostname</th>
             <th>Grade</th>
             <th>Score</th>
-            <th>EDR</th>
+            <th id="top-th-last">EDR</th>
           </tr>
         </thead>
         <tbody id="top-devices-tbody">
@@ -106,14 +119,14 @@
   <!-- CTEM exposure summary by environment tag -->
   <div class="panel">
     <div class="panel__header">
-      <h2 class="panel__title">Exposure by Environment</h2>
+      <h2 class="panel__title" id="env-title">Exposure by Environment</h2>
     </div>
     <div class="panel__body" style="padding:0">
       <table class="data-table">
         <thead>
           <tr>
-            <th>Environment</th>
-            <th>Devices</th>
+            <th id="env-th-name">Environment</th>
+            <th id="env-th-count">Devices</th>
             <th>Avg Score</th>
             <th>Critical</th>
           </tr>
@@ -127,7 +140,7 @@
 </div>
 
 <!-- KEV and attack chain panel -->
-<div class="panel">
+<div class="panel" id="ov-kev">
   <div class="panel__header">
     <h2 class="panel__title">Known exploited vulnerabilities (CISA KEV)</h2>
     <span class="chip chip--critical">Prioritize these now</span>
@@ -141,7 +154,7 @@
           <th>CVSS</th>
           <th>EPSS %</th>
           <th>KEV</th>
-          <th>Affected devices</th>
+          <th id="kev-th-affected">Affected devices</th>
           <th></th>
         </tr>
       </thead>
@@ -156,6 +169,18 @@
 
 {% block extra_scripts %}
 <style>
+.vd-kind{display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--surface)}
+.vd-kind button{border:0;background:transparent;color:var(--fg-muted);padding:6px 12px;font-size:13px;font-weight:600;cursor:pointer}
+.vd-kind button+button{border-left:1px solid var(--border)}
+.vd-kind button[aria-pressed="true"]{background:var(--accent-dim);color:var(--fg);box-shadow:inset 0 2px 5px rgba(0,0,0,.22),inset 0 -2px 0 var(--accent)}
+.vd-kind button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.vd-all{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(280px,100%),1fr));gap:16px;margin-bottom:20px}
+.vd-all[hidden],#summary-cards[hidden],#ov-cols[hidden],#ov-kev[hidden],.summary-card[hidden]{display:none}
+.vd-col{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 18px;display:flex;flex-direction:column;gap:8px}
+.vd-col h2{margin:0;font-size:16px}
+.vd-col__row{display:flex;justify-content:space-between;gap:10px;font-size:13.5px;border-bottom:1px solid var(--border);padding-bottom:6px}
+.vd-col__row span{color:var(--fg-muted)}
+.vd-col__note{margin:0;font-size:13px;color:var(--fg-muted)}
 .watch-item { display: flex; gap: 12px; align-items: flex-start; padding: 12px 16px; border-bottom: 1px solid var(--border);
   color: inherit; text-decoration: none; }
 .watch-item:hover { background: var(--surface); }
@@ -164,6 +189,7 @@
 </style>
 <script src="{{ static('js/dashboard_watch.js') }}" defer></script>
 <script src="{{ static('js/ticket_modal.js') }}"></script>
+<script src="{{ static('js/overview_types.js') }}"></script>
 <script>
 const API = '/api/v1';
 let activeFilters = {};
@@ -185,10 +211,12 @@ function boolIcon(v) {
     : '<span style="color:var(--severity-critical)">&#10007;</span>';
 }
 
-function filterParams() {
-  // Owner/app/env filters are tag names; grade is its own filter
+function filterParams(kind) {
+  // Owner/app/env filters are tag names; grade is its own filter; the tab picks hosts, repositories or sites
   const p = new URLSearchParams();
   Object.entries(activeFilters).forEach(([k, v]) => p.append(k === 'grade' ? 'grade' : 'tag', v));
+  const t = OverviewTypes.T[kind || OverviewTypes.kind()];
+  if (t) p.set('asset', t.asset);
   return p;
 }
 
@@ -202,11 +230,26 @@ function setCard(id, value, href) {
   card.tabIndex = 0;
 }
 
+async function loadAllTypes() {
+  const cols = await Promise.all(['infra', 'code', 'web'].map(async k => {
+    const p = filterParams(k);
+    const [sum, top] = await Promise.all([
+      fetchJson(`${API}/devices/summary?${p}&by=${OverviewTypes.T[k].by}`).catch(() => null),
+      fetchJson(`${API}/devices?limit=3&sort=risk_score&order=desc&${p}`).then(r => r.devices).catch(() => []),
+    ]);
+    return { k, sum, top };
+  }));
+  document.getElementById('overview-all').innerHTML = OverviewTypes.allView(cols);
+  document.getElementById('last-updated').textContent = new Date().toLocaleTimeString();
+}
+
 async function loadSummary() {
+  if (OverviewTypes.kind() === 'all') return loadAllTypes();
   try {
     const params = filterParams();
+    const ot = OverviewTypes.t();
     const [sum, top] = await Promise.all([
-      fetchJson(`${API}/devices/summary?${params}`),
+      fetchJson(`${API}/devices/summary?${params}&by=${ot.by}`),
       fetchJson(`${API}/devices?limit=10&sort=risk_score&order=desc&${params}`),
     ]);
     const link = extra => { const p = filterParams(); Object.entries(extra).forEach(([k, v]) => p.set(k, v)); return `/devices?${p}`; };
@@ -219,6 +262,9 @@ async function loadSummary() {
     kevCard.classList.toggle('summary-card--critical', Number(sum.kev_devices) > 0);
     kevCard.classList.toggle('summary-card--low', !(Number(sum.kev_devices) > 0));
     setCard('count-total', sum.total, link({}));
+    setCard('count-exposed', sum.internet_exposed, link({}));
+    const lastCell = d => (OverviewTypes.kind() === 'code' ? esc(Number(d.open_findings || 0).toLocaleString())
+      : OverviewTypes.kind() === 'web' ? boolIcon(d.is_internet_exposed) : boolIcon(d.edr_active));
 
     const devices = top.devices || [];
     document.getElementById('top-devices-tbody').innerHTML = devices.map(d => `
@@ -231,7 +277,7 @@ async function loadSummary() {
             <span class="text-sm">${esc(d.risk_score ?? 0)}</span>
           </div>
         </td>
-        <td>${boolIcon(d.edr_active)}</td>
+        <td>${lastCell(d)}</td>
       </tr>
     `).join('') || '<tr><td colspan="4" class="text-muted text-sm" style="text-align:center;padding:16px">No devices found</td></tr>';
 
@@ -263,7 +309,8 @@ async function loadSummary() {
 
 async function loadKEV() {
   try {
-    const data = await fetchJson(`${API}/vulns?is_kev=true&affected_only=true&sort=affected&order=desc&limit=60`);
+    if (OverviewTypes.kind() === 'all') return;
+    const data = await fetchJson(`${API}/vulns?is_kev=true&affected_only=true&sort=affected&order=desc&limit=60&type=${OverviewTypes.kind()}`);
     // A CVE can be found by several scanner checks: show it once (the check on the most devices) and say so
     const byCve = new Map();
     (data.vulns || []).forEach(v => {
@@ -297,13 +344,17 @@ async function loadKEV() {
 let TAG_SELECTS = [];
 
 async function loadTagFilters() {
+  // Only the owners, applications and environments found on this tab's assets (hosts, repositories or sites)
+  const kept = TAG_SELECTS.map(id => document.getElementById(id)?.value).filter(Boolean);
+  const t = OverviewTypes.T[OverviewTypes.kind()];
   let data = {};
-  try { data = await fetchJson(`${API}/tag-roles/filters`); } catch (e) { /* no filters then */ }
+  try { data = await fetchJson(`${API}/tag-roles/filters${t ? `?asset=${t.asset}` : ''}`); } catch (e) { /* no filters then */ }
   const box = document.getElementById('role-filters');
   box.innerHTML = '';
   TAG_SELECTS = [];
   (data.filters || []).forEach(f => {
     if (!/^[a-z0-9_]+$/.test(f.key)) return;
+    if (!(f.options || []).length) return;   // nothing to pick on this tab (say, no executive owners on repositories)
     const sel = document.createElement('select');
     sel.id = `filter-role-${f.key}`;
     sel.title = f.name;
@@ -313,15 +364,16 @@ async function loadTagFilters() {
     box.appendChild(sel);
     TAG_SELECTS.push(sel.id);
   });
-  // Bring back the tag focus from the device pages
-  const focus = TagFocus.get();
+  // Bring back what was picked (switching tabs) or the tag focus from the device pages
+  const focus = kept.length ? kept : TagFocus.get();
   let any = false;
   TAG_SELECTS.forEach(id => {
     const sel = document.getElementById(id);
     const hit = [...sel.options].find(o => o.value && focus.includes(o.value));
     if (hit) { sel.value = hit.value; any = true; }
   });
-  if (any) applyFilters();
+  if (any || kept.length) applyFilters();   // a choice that isn't on this tab's assets drops out
+  return any || kept.length;
 }
 
 function applyFilters() {
@@ -362,6 +414,11 @@ function scoreColor(s) {
 
 // Auto-refresh every 5 minutes
 document.addEventListener('DOMContentLoaded', () => {
+  OverviewTypes.apply();
+  // A new tab: its own filter values, then its data
+  const go = k => OverviewTypes.pick(k, async () => { if (!(await loadTagFilters())) refreshDashboard(); else loadKEV(); });
+  document.getElementById('ov-kind').addEventListener('click', e => { const b = e.target.closest('[data-kind]'); if (b) go(b.dataset.kind); });
+  document.getElementById('overview-all').addEventListener('click', e => { const b = e.target.closest('[data-open]'); if (b) go(b.dataset.open); });
   loadTagFilters();
   loadSummary();
   loadKEV();

@@ -60,6 +60,11 @@ def covers(exc: VulnException):
     return cond
 
 
+def covered_status(exc: VulnException) -> FindingStatus:
+    """What a covered finding becomes: a false positive, or an accepted risk."""
+    return FindingStatus.false_positive if getattr(exc, "kind", None) == "false_positive" else FindingStatus.risk_accepted
+
+
 async def apply(db: AsyncSession, exc: VulnException) -> list[str]:
     """Cover this exception's open findings. Returns the devices to rescore."""
     if not is_active(exc):
@@ -70,13 +75,13 @@ async def apply(db: AsyncSession, exc: VulnException) -> list[str]:
         gone = and_(Finding.exception_id == exc.id, not_(covers(exc)))
         ids += [r[0] for r in (await db.execute(select(Finding.device_id).where(gone).distinct())).all()]
         if ids:
-            await db.execute(update(Finding).where(gone, Finding.status == FindingStatus.risk_accepted)
+            await db.execute(update(Finding).where(gone, Finding.status.in_((FindingStatus.risk_accepted, FindingStatus.false_positive)))
                              .values(status=FindingStatus.open, exception_id=None).execution_options(synchronize_session=False))
             await db.execute(update(Finding).where(gone).values(exception_id=None).execution_options(synchronize_session=False))
     todo = and_(covers(exc), Finding.status.in_(OPEN), Finding.exception_id.is_(None))
     ids += [r[0] for r in (await db.execute(select(Finding.device_id).where(todo).distinct())).all()]
     if ids:
-        await db.execute(update(Finding).where(todo).values(status=FindingStatus.risk_accepted, exception_id=exc.id)
+        await db.execute(update(Finding).where(todo).values(status=covered_status(exc), exception_id=exc.id)
                          .execution_options(synchronize_session=False))
     exc.findings_covered = (await db.execute(
         select(func.count()).select_from(Finding).where(Finding.exception_id == exc.id))).scalar_one()
@@ -87,7 +92,7 @@ async def release(db: AsyncSession, exc: VulnException) -> list[str]:
     """The exception ended: its findings count again. Returns the devices to rescore."""
     mine = Finding.exception_id == exc.id
     ids = [r[0] for r in (await db.execute(select(Finding.device_id).where(mine).distinct())).all()]
-    await db.execute(update(Finding).where(mine, Finding.status == FindingStatus.risk_accepted)
+    await db.execute(update(Finding).where(mine, Finding.status.in_((FindingStatus.risk_accepted, FindingStatus.false_positive)))
                      .values(status=FindingStatus.open, exception_id=None).execution_options(synchronize_session=False))
     await db.execute(update(Finding).where(mine).values(exception_id=None).execution_options(synchronize_session=False))
     return [str(i) for i in ids]

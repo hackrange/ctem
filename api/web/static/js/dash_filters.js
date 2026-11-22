@@ -69,7 +69,7 @@
       const sel = list => `<select class="form-input" data-v="${i}"><option value="">Pick one</option>${list.map(([val, lab]) =>
         `<option value="${esc(val)}"${val === f.value ? ' selected' : ''}>${esc(lab)}</option>`).join('')}</select>`;
       if (f.field === 'source') return sel(o.sources.map(s => [s.value, s.label]));
-      if (f.field === 'device_type') return sel(o.device_types.map(t => [t, t.replace(/_/g, ' ')]));
+      if (f.field === 'device_type') return sel(o.device_types.map(t => [t, ({ code_repository: 'Code (SAST)', website: 'Web application (DAST)' })[t] || t.replace(/_/g, ' ')]));
       if (f.field === 'os_family') return sel(o.os_families.map(x => [x.value, x.label]));
       if (f.field === 'grade') return sel(o.grades.map(g => [g, `Grade ${g}`]));
       if (f.field === 'criticality') return sel(['Very High', 'High', 'Medium', 'Low', 'Very Low'].map(c => [c, c]));
@@ -124,14 +124,17 @@
   // "Executive owner is Jeffrey Davis and Source reported by crowdstrike", for the widget's filter badge
   function describe(w, o) {
     const fl = (w && w.filters) || [];
-    if (!fl.length) return '';
+    if (!fl.length) return [];
     const name = f => (f.field === 'access' ? 'My access:' : f.field === 'ou' ? 'AD OU' : f.field === 'role' ? ((o && o.roles.find(r => r.key === f.role)) || {}).name || f.role : f.field.replace(/_/g, ' '));
     const op = f => (OPS[f.field].find(x => x[0] === f.op) || [, f.op])[1];
     const attr = f => ((o && o.attrs) || []).find(x => x.key === f.attr) || { label: f.attr, type: 'text' };
     const aop = f => ((((o && o.ops) || {})[attr(f).type] || []).find(x => x[0] === f.op) || [, f.op])[1];
     return fl.map(f => (f.field === 'attr' ? `${attr(f).label} ${aop(f)}${f.value != null && f.value !== '' ? ` ${f.value}${attr(f).type === 'days' ? ' days' : ''}` : ''}`
-      : `${name(f)} ${op(f)}${f.value ? ` ${f.value}` : ''}`)).join(w.filter_match === 'any' ? ' or ' : ' and ');
+      : `${name(f)} ${op(f)}${f.value ? ` ${f.value}` : ''}`));
   }
 
-  window.DashFilters = { mount, describe };
+  // One line per condition for the chips; joined for tooltips and the AI
+  const line = (w, o) => { const p = describe(w, o); return Array.isArray(p) ? p.join(w.filter_match === 'any' ? ' or ' : ' and ') : p; };
+
+  window.DashFilters = { mount, describe: line, parts: describe };
 })();

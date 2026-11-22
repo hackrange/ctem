@@ -3,13 +3,29 @@
 
 {% block title %}Vulnerabilities -- open-ctem{% endblock %}
 
+{% block extra_head %}
+<style>
+.vd-kind{display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--surface)}
+.vd-kind button{border:0;background:transparent;color:var(--fg-muted);padding:6px 12px;font-size:13px;font-weight:600;cursor:pointer}
+.vd-kind button+button{border-left:1px solid var(--border)}
+.vd-kind button[aria-pressed="true"]{background:var(--accent-dim);color:var(--fg);box-shadow:inset 0 2px 5px rgba(0,0,0,.22),inset 0 -2px 0 var(--accent)}
+.vd-kind button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="page-header">
   <div>
     <h1 class="page-header__title">Vulnerabilities</h1>
-    <p class="page-header__sub">All CVEs and scanner findings across your environment</p>
+    <p class="page-header__sub" id="vl-sub">All CVEs and scanner findings across your environment</p>
   </div>
   <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <div class="vd-kind" id="vl-kind" role="group" aria-label="Which vulnerabilities">
+      <button type="button" data-kind="infra" aria-pressed="true" title="Hosts, network devices and cloud: fixed by IT and operations">Infrastructure</button>
+      <button type="button" data-kind="code" aria-pressed="false" title="Repositories: SAST, open-source packages, secrets and IaC, fixed by developers">Code</button>
+      <button type="button" data-kind="web" aria-pressed="false" title="Web applications: DAST and web scanning, fixed by application owners">Web apps</button>
+      <button type="button" data-kind="all" aria-pressed="false" title="Every type, with a Type column">All</button>
+    </div>
     <div class="search-bar-wrap">
       <svg class="search-icon" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
       <input id="search-input" type="search" class="search-bar" placeholder="Title, CVE, or scanner ID (partial ok)" autocomplete="off" aria-label="Search vulnerabilities">
@@ -27,9 +43,10 @@
     </select>
     <select id="filter-source" class="filter-select" aria-label="Source">
       <option value="">All sources</option>
-      <option value="rapid7_insightvm">Rapid7 InsightVM</option>
-      <option value="rapid7_appsec">Rapid7 AppSec</option>
-      <option value="rapid7_cloudsec">Rapid7 CloudSec</option>
+      <option value="rapid7_insightvm" data-types="infra">Rapid7 InsightVM</option>
+      <option value="rapid7_appsec" data-types="web">Rapid7 AppSec</option>
+      <option value="github_code_review" data-types="code web">GitHub Code Review</option>
+      <option value="rapid7_cloudsec" data-types="infra">Rapid7 CloudSec</option>
     </select>
     <label class="text-sm" style="display:flex;align-items:center;gap:6px">
       <input type="checkbox" id="filter-affected" checked> With affected devices
@@ -49,6 +66,37 @@
 <script>
 const R = DataTable.R;
 const $ = id => document.getElementById(id);
+// Infrastructure, Code, Web apps or All: the same choice as the Vulnerability Dashboard, remembered per browser
+const VTYPE = { infra: 'Infrastructure', code: 'Code', web: 'Web app' };
+const VSUB = { infra: 'Infrastructure: hosts, network devices and cloud', code: 'Code: repositories (SAST, open-source packages, secrets, IaC)',
+               web: 'Web apps: DAST and web application scanning', all: 'Every type: Infrastructure, Code and Web apps' };
+let vkind = (() => {
+  const u = new URLSearchParams(location.search).get('type');
+  if (['infra', 'code', 'web'].includes(u)) return u;
+  try { const r = localStorage.getItem('ctem.vulnType'); return ['infra', 'code', 'web', 'all'].includes(r) ? r : 'infra'; } catch (e) { return 'infra'; }
+})();
+function pressVkind() {
+  document.querySelectorAll('#vl-kind [data-kind]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.kind === vkind)));
+  document.getElementById('vl-sub').textContent = VSUB[vkind];
+  // Only the sources that produce this type: web app scanners under Web apps, code scanners under Code...
+  const sel = document.getElementById('filter-source');
+  [...sel.options].forEach(o => {
+    const show = !o.value || vkind === 'all' || (o.dataset.types || 'infra').split(' ').includes(vkind);
+    o.hidden = !show;
+    o.disabled = !show;
+  });
+  if (sel.selectedOptions[0] && sel.selectedOptions[0].disabled) sel.value = '';
+}
+pressVkind();
+document.getElementById('vl-kind').addEventListener('click', e => {
+  const b = e.target.closest('[data-kind]');
+  if (!b || b.dataset.kind === vkind) return;
+  vkind = b.dataset.kind;
+  try { localStorage.setItem('ctem.vulnType', vkind); } catch (err) { /* still works, just not remembered */ }
+  pressVkind();
+  if (typeof table !== 'undefined' && table) table.reload();
+});
+
 const FILTERS = { q: 'search-input', is_kev: 'filter-kev', min_cvss: 'filter-cvss', source: 'filter-source' };
 
 const initial = new URLSearchParams(location.search);
@@ -79,7 +127,7 @@ table = DataTable.create({
   params: () => ({
     q: $('search-input').value.trim(), is_kev: $('filter-kev').value, min_cvss: $('filter-cvss').value,
     source: $('filter-source').value, affected_only: $('filter-affected').checked ? 'true' : 'false',
-    tag: TagFocus.get(),
+    tag: TagFocus.get(), type: vkind === 'all' ? '' : vkind,
   }),
   onLoad: () => syncPicks && syncPicks(),
   columns: [
@@ -87,6 +135,7 @@ table = DataTable.create({
       render: v => `<input type="checkbox" data-pick="${esc(v.id)}" aria-label="Select ${esc(v.cve_id || v.title)}"${picked.has(v.id) ? ' checked' : ''}>` }] : []),
     { label: 'CVE', sort: 'cve_id', render: v => v.cve_id ? `<span class="nowrap">${R.link(href(v), v.cve_id)}</span>` : muted },
     { label: 'Title', sort: 'title', render: v => R.link(href(v), v.title) },
+    { label: 'Type', render: v => `<span class="chip chip--info" style="font-size:.7rem">${esc(VTYPE[v.domain] || v.domain || '')}</span>` },
     { label: 'CVSS', sort: 'cvss_base', firstOrder: 'desc', render: v => v.cvss_base == null ? muted : esc(v.cvss_base) },
     { label: 'EPSS', sort: 'epss_score', firstOrder: 'desc', render: v => v.epss_score == null ? muted : esc((v.epss_score * 100).toFixed(1) + '%') },
     { label: 'KEV', sort: 'is_kev', firstOrder: 'desc', render: v => v.is_kev ? '<span class="chip chip--critical">KEV</span>' : '' },

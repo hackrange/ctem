@@ -6,11 +6,14 @@
 {% block content %}
 <div class="page-header">
   <div>
-    <p class="text-sm"><a href="/devices" data-tag-focus-link class="dt-link" style="color:var(--fg-muted)">&larr; Devices</a></p>
+    <p class="text-sm"><a href="/devices" id="dev-back" data-tag-focus-link class="dt-link" style="color:var(--fg-muted)">&larr; Hosts</a></p>
     <div id="tag-focus" class="filter-bar" hidden style="margin:4px 0 8px"></div>
     <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
       <h1 class="page-header__title" id="dev-title">Loading...</h1>
-      <div id="dev-grade" style="display:flex;align-items:center;gap:10px;min-width:160px"></div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;max-width:520px">
+        <div id="dev-grade" style="display:flex;align-items:center;gap:10px;min-width:160px"></div>
+        <div id="dev-why" class="text-sm" style="text-align:right" hidden></div>
+      </div>
     </div>
     <p class="page-header__sub" id="dev-sub"></p>
   </div>
@@ -41,6 +44,7 @@
   <div class="panel__header" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
     <span class="panel__title">Findings</span>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <button type="button" id="fp-btn" class="btn btn--ghost btn--sm" hidden disabled>False positive</button>
       <button type="button" id="ex-btn" class="btn btn--primary btn--sm" hidden disabled>Request exception</button>
       <div class="search-bar-wrap">
         <svg class="search-icon" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
@@ -65,6 +69,7 @@
 <script src="{{ static('js/data_table.js') }}"></script>
 <script src="{{ static('js/device_assign.js') }}"></script>
 <script src="{{ static('js/exception_modal.js') }}"></script>
+<script src="{{ static('js/asset_detail.js') }}"></script>
 <script>
 const R = DataTable.R;
 TagFocus.chips(document.getElementById('tag-focus'), 'Viewing');
@@ -214,10 +219,21 @@ async function loadDevice() {
       <div class="text-sm" style="margin-top:6px">${esc(oos.reason || '')}</div>
       <div class="text-sm text-muted">Set by ${esc(oos.by || '?')}${oos.at ? ` on ${esc(new Date(oos.at).toLocaleDateString())}` : ''}.</div>`;
   }
-  $('dev-sub').textContent = [d.device_type, d.os].filter(Boolean).join(' / ');
+  assetKind = AssetDetail.kind(d);   // a repository or a site has its own facts and findings columns
+  $('dev-sub').textContent = assetKind ? AssetDetail.label(assetKind) : [d.device_type, d.os].filter(Boolean).join(' / ');
+  if (assetKind) {   // back to the list this came from, not to devices
+    $('dev-back').innerHTML = `&larr; ${assetKind === 'code' ? 'Repositories' : 'Web applications'}`;
+    $('dev-back').href = `/devices?asset=${assetKind === 'code' ? 'repositories' : 'sites'}`;
+  }
   $('dev-grade').innerHTML = `${R.grade(d.risk_grade)} ${R.score(d.risk_score)}`
     + ((d.edr_contained || oos) ? ' ' + R.adjusted(d.raw_risk_grade, d.raw_risk_score, d.risk_grade, d.risk_score) : '');
-  $('dev-info').innerHTML = [
+  // Why this score, beside the grade: what drives it and the arithmetic (kept by the scoring engine)
+  const w = d.score_why;
+  $('dev-why').hidden = !w;
+  if (w) $('dev-why').innerHTML = `<b>Why ${esc(d.risk_grade || '')} ${esc(d.risk_score == null ? '' : d.risk_score)}:</b> ${esc(w.why || '')}`
+    + ((w.worst || []).length ? `<div class="text-muted">Worst finding: ${esc(w.worst.join(' · '))}</div>` : '');
+  if (assetKind) $('dev-info').innerHTML = AssetDetail.info(d, { info, txt, R, tagChips });
+  else $('dev-info').innerHTML = [
     info('Assigned to', assignedCell(d)),
     info('Inventory status', statusCell(d)),
     info('Scope', scopeCell(d)),
@@ -366,7 +382,7 @@ const dim = (f, html) => f.contained ? `<span style="opacity:.45">${html}</span>
 const sevChip = f => `<span class="chip chip--${esc(f.severity)}" style="font-size:.7rem">${esc(f.severity === 'info' ? 'Info' : f.severity)}</span>`
   + (f.contained ? ' ' + R.adjusted(f.raw_grade, f.raw_score, f.risk_grade, f.composite_score) : '');
 
-let table;
+let table, assetKind = null;
 function startFindings() {
   const base = `/api/v1/devices/${encodeURIComponent(deviceId)}/findings`;
   const vulnLink = (f, text) => R.link(`/vulns/${encodeURIComponent(f.vuln_id)}`, text);
@@ -378,10 +394,14 @@ function startFindings() {
     defaultSort: 'cvss_base',
     defaultOrder: 'desc',
     emptyText: 'No findings with this status',
-    rowHref: f => `/vulns/${encodeURIComponent(f.vuln_id)}`,
+    rowHref: f => (assetKind ? null : `/vulns/${encodeURIComponent(f.vuln_id)}`),
     params: () => ({ status: $('f-status').value, q: $('f-search').value.trim() }),
     onLoad: () => syncPicks && syncPicks(),
-    columns: [
+    columns: assetKind ? [
+      ...(exceptRole ? [{ label: 'Select', head: CtemFindings.PICK_HEAD, render: f => ['open', 'in_progress'].includes(f.status)
+        ? `<input type="checkbox" data-pick="${esc(f.id)}" aria-label="Select ${esc(f.title)}"${picked.has(f.id) ? ' checked' : ''}>` : '' }] : []),
+      ...AssetDetail.columns(assetKind, { sevChip, dim, txt, R, vulnLink }),
+    ] : [
       ...(exceptRole ? [{ label: 'Select', head: CtemFindings.PICK_HEAD, render: f => ['open', 'in_progress'].includes(f.status)
         ? `<input type="checkbox" data-pick="${esc(f.id)}" aria-label="Select ${esc(f.cve_id || f.title)}"${picked.has(f.id) ? ' checked' : ''}>` : '' }] : []),
       { label: 'Severity', sort: 'cvss_base', firstOrder: 'desc', render: f => sevChip(f) },
@@ -409,24 +429,30 @@ const picked = new Map();   // finding id -> {vulnId, label}
 $('findings-table').addEventListener('click', e => {
   const p = e.target.closest('button[data-proof]');
   if (p) CtemFindings.proof(p.dataset.proof, `${p.dataset.label} on ${$('dev-title').textContent}`);
+  const dt = e.target.closest('button[data-detail]');   // Code and Web app findings: where it is and how to fix it
+  if (dt) { const row = (table ? table.rows() : []).find(r => r.id === dt.dataset.detail); if (row) AssetDetail.open(row); }
 });
 function pickedLabel() {
-  $('ex-btn').disabled = !picked.size;
-  $('ex-btn').textContent = `${exceptRole && exceptRole.canDecide ? 'Create' : 'Request'} exception${picked.size ? ` (${picked.size})` : ''}`;
+  const n = picked.size ? ` (${picked.size})` : '';
+  $('ex-btn').disabled = $('fp-btn').disabled = !picked.size;
+  $('ex-btn').textContent = `${exceptRole && exceptRole.canDecide ? 'Create' : 'Request'} exception${n}`;
+  $('fp-btn').textContent = `${exceptRole && exceptRole.canDecide ? 'False positive' : 'Report false positive'}${n}`;
 }
 const syncPicks = CtemFindings.picker({
   mount: $('findings-table'), rows: () => (table ? table.rows() : []), picked, onChange: pickedLabel,
   entry: row => ({ vulnId: row.vuln_id, label: row.cve_id || row.title, deviceId }),
 });
-$('ex-btn').addEventListener('click', () => {
+function openForm(kind) {
   const vulns = [...picked.values()];
   const host = $('dev-title').textContent;
   CtemFindings.exceptionForm({
     vulnId: vulns[0].vulnId, label: `${vulns[0].label} on ${host}`, devices: [{ id: deviceId, hostname: host }],
-    canDecide: exceptRole.canDecide, vulns: vulns.length > 1 ? vulns : null,
+    canDecide: exceptRole.canDecide, vulns: vulns.length > 1 ? vulns : null, kind,
     onDone: () => { picked.clear(); pickedLabel(); table && table.reload(); },
   });
-});
+}
+$('ex-btn').addEventListener('click', () => openForm('exception'));
+$('fp-btn').addEventListener('click', () => openForm('false_positive'));
 
 let timer;
 $('f-search').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => table && table.reload(), 300); });
@@ -435,8 +461,8 @@ fetch('/api/v1/exceptions/summary', { headers: { Accept: 'application/json' } })
   .then(r => (r.ok ? r.json() : null)).catch(() => null)
   .then(s => {
     exceptRole = s ? { canDecide: !!s.can_decide } : null;
-    $('ex-btn').hidden = !exceptRole;
-    if (exceptRole) $('ex-btn').textContent = exceptRole.canDecide ? 'Create exception' : 'Request exception';
+    $('ex-btn').hidden = $('fp-btn').hidden = !exceptRole;
+    if (exceptRole) pickedLabel();
     loadDevice();
   });
 </script>

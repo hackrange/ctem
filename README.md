@@ -89,6 +89,7 @@ Every source is matched to the same device row by host name, however it spells i
 | Snyk | AppSec | Code and container findings |
 | GitHub Advanced Security | AppSec | SAST/secret scan findings |
 | ForgeRepo | SCM | Repository security findings |
+| GitHub Code Review | SAST and DAST | Repositories as **Code** assets with code, dependency (CVE, KEV, EPSS, reachability), credential and misconfiguration findings; external sites as **Web application** assets with their latest DAST findings, telemetry and the repositories behind them. Application, owners and environment arrive as tags, a tag map adds your own, and code behind a live site counts as internet exposed |
 | AI (Anthropic, Amazon Bedrock, OpenAI, custom) | Analysis | Risk narratives, threat analysis, hunt, curated rule drafts |
 
 **Claude on Amazon Bedrock:** add a *Claude on Amazon Bedrock* integration, pick the AWS region and model (Bedrock IDs such as `anthropic.claude-sonnet-5-5`), and sign in with an IAM access key, a Bedrock API key, or the server's own AWS credentials (instance role). The endpoint is always `bedrock-mantle.<region>.api.aws`, so there is no URL to enter. Give the IAM principal only permission to invoke the chosen Claude models. **Test** sends a tiny real message. When more than one AI integration is enabled, the oldest one is used, so disable the Anthropic one to switch every AI feature (hunt, rule drafts, threat analysis) to Bedrock. Usage is metered like any other provider; enter your Bedrock prices under Admin > AI Usage, or CTEM estimates with Anthropic list prices.

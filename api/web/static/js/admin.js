@@ -154,11 +154,13 @@ async function loadBranding() {
       previewLogoUrl(data.logo_url);
     }
     if (data.org_name) document.getElementById('brand-org').value = data.org_name;
+    document.getElementById('brand-login-logo').value = data.login_logo_url || '';
+    _setLogoPreview(data.login_logo_url || null, 'brand-login-logo');
   } catch (_) {}
 }
 
-function _setLogoPreview(src) {
-  const el = document.getElementById('brand-logo-preview');
+function _setLogoPreview(src, field = 'brand-logo') {
+  const el = document.getElementById(`${field}-preview`);
   if (src) {
     el.innerHTML = `<img src="${esc(src)}" style="width:100%;height:100%;object-fit:contain">`;
   } else {
@@ -170,15 +172,22 @@ function previewLogoUrl(val) {
   _setLogoPreview(val || null);
 }
 
-function handleLogoUpload(input) {
+function clearLogo(field) {
+  document.getElementById(field).value = '';
+  _setLogoPreview(null, field);
+}
+
+function handleLogoUpload(input, field = 'brand-logo') {
   const file = input.files[0];
   if (!file) return;
   if (file.size > 512 * 1024) { toast('Logo must be under 512 KB', 'error'); return; }
+  if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type)) { toast('Use a PNG, JPEG, WebP or GIF image', 'error'); return; }
   const reader = new FileReader();
   reader.onload = e => {
     const dataUrl = e.target.result;
-    document.getElementById('brand-logo').value = dataUrl;
-    _setLogoPreview(dataUrl);
+    document.getElementById(field).value = dataUrl;
+    _setLogoPreview(dataUrl, field);
+    toast('Logo ready. Click Save to use it.', 'success');
   };
   reader.readAsDataURL(file);
 }
@@ -202,6 +211,7 @@ async function saveBranding() {
     title: document.getElementById('brand-title').value.trim() || null,
     accent_color: document.getElementById('brand-color-hex').value.trim() || document.getElementById('brand-color').value,
     logo_url: document.getElementById('brand-logo').value.trim() || null,
+    login_logo_url: document.getElementById('brand-login-logo').value.trim() || '',
     org_name: document.getElementById('brand-org').value.trim() || null,
   };
   try {
@@ -219,6 +229,7 @@ async function resetBranding() {
     document.getElementById('brand-color-preview').style.background = '#f5a623';
     document.getElementById('brand-logo').value = '';
     _setLogoPreview(null);
+    clearLogo('brand-login-logo');
     document.getElementById('brand-org').value = '';
     toast('Branding reset to defaults. Reload to see changes.', 'success');
   } catch (e) { toast(e.message, 'error'); }

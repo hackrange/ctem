@@ -50,7 +50,7 @@
           render: e => (revocable(e) ? `<input type="checkbox" data-pick="${esc(e.id)}" aria-label="Select"${picked.has(e.id) ? ' checked' : ''}>` : '') }] : []),
         { label: 'Vulnerability', render: vulnCell },
         { label: 'Covers', render: e => `<span class="text-sm">${esc(e.covers)}</span>` },
-        { label: 'Status', render: e => chip(e.status) },
+        { label: 'Status', render: e => chip(e.status) + (e.kind === 'false_positive' ? ' <span class="chip chip--info" style="font-size:.7rem">False positive</span>' : '') },
         { label: 'Ends', render: e => esc(day(e.expires_at)) },
         { label: 'Requested by', render: e => `<span class="text-sm">${esc(e.requested_by)}</span><div class="text-sm text-muted">${esc(day(e.requested_at))}</div>` },
         { label: 'Decided by', render: e => (e.decided_by ? `<span class="text-sm">${esc(e.decided_by)}</span><div class="text-sm text-muted">${esc(day(e.decided_at))}</div>` : R.date(null)) },

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import re
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -51,7 +51,7 @@ class PreviewIn(BaseModel):
 
 class ResolveIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    tags: list[str] = Field(default_factory=list, max_length=10)
+    tags: list[str] = Field(default_factory=list, max_length=10)   # a value may join alternatives with "|"
 
 
 def _out(r: TagRole) -> dict:
@@ -86,11 +86,30 @@ async def list_roles(_: User = Depends(get_current_user), db: AsyncSession = Dep
 
 
 @router.get("/filters")
-async def filters(_: User = Depends(get_current_user), db: AsyncSession = Depends(get_session)):
-    """The dashboard dropdowns: each role marked as a filter, with the tags in use that map to it."""
+async def filters(_: User = Depends(get_current_user), db: AsyncSession = Depends(get_session),
+                  asset: str | None = Query(None, pattern="^(hosts|repositories|sites)$")):
+    """The dashboard dropdowns: each role marked as a filter, with the tags in use that map to it. asset: only the
+    values found on hosts, repositories or sites (the Security Overview's tabs)."""
+    from api.routes.device_query import card_filters
     roles = await tr.ensure(db)
-    opts = await tr.options(db, roles)
-    return {"filters": [{"key": r.key, "name": r.name, "options": opts.get(r.key, [])} for r in roles if r.show_filter]}
+    cond = None
+    if asset:
+        from sqlalchemy import and_
+        cond = and_(*card_filters({"asset": asset}))
+    opts = await tr.options(db, roles, cond)
+    return {"filters": [{"key": r.key, "name": r.name, "options": merged(opts.get(r.key, []))} for r in roles if r.show_filter]}
+
+
+def merged(options: list[dict]) -> list[dict]:
+    """One choice per value: the same application or owner tagged by two tools ("app:MuleSoft" and
+    "r7:app:MuleSoft", or a different case) is one entry whose tag lists both, joined by "|"."""
+    groups: dict[str, dict] = {}
+    for o in options:
+        key = " ".join(str(o["value"]).replace("_", " ").lower().split())
+        g = groups.setdefault(key, {"value": o["value"], "tags": []})
+        if o["tag"] not in g["tags"]:
+            g["tags"].append(o["tag"])
+    return [{"tag": "|".join(g["tags"][:10]), "value": g["value"]} for g in groups.values()]
 
 
 @router.post("/resolve")
@@ -98,8 +117,8 @@ async def resolve(body: ResolveIn, _: User = Depends(get_current_user), db: Asyn
     """How to show some tag names: role name and value, for the tag-focus chips."""
     roles = await tr.ensure(db)
     out = []
-    for t in [t for t in body.tags if isinstance(t, str) and 0 < len(t) <= 128]:
-        m = tr.match(t, roles)
+    for t in [t for t in body.tags if isinstance(t, str) and 0 < len(t) <= 1400]:
+        m = tr.match(t.split("|")[0][:128], roles)   # alternatives share one meaning: name it by the first
         out.append({"tag": t, "role": m[0] if m else None, "role_name": tr.name_of(m[0]) if m else None,
                     "value": m[1] if m else t})
     return {"tags": out}

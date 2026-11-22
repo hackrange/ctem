@@ -55,6 +55,7 @@ class NewException(BaseModel):
     model_config = ConfigDict(extra="forbid")
     vuln_id: uuid.UUID
     scope: Literal["finding", "devices", "all", "tag"]
+    kind: Literal["exception", "false_positive"] = "exception"
     device_ids: list[uuid.UUID] = Field(default_factory=list, max_length=vx.MAX_DEVICES)
     tag_id: uuid.UUID | None = None
     reason: Text = Field(min_length=10)
@@ -105,9 +106,8 @@ async def _overlap(db, body: NewException, devices: list[str]) -> str | None:
     return None
 
 
-@router.post("")
-async def create(body: NewException, u: User = Depends(_requester), db: AsyncSession = Depends(get_session)):
-    """Admin/cyber: in effect at once. IT users: a request for admin/cyber to decide."""
+async def _create_one(db, u: User, body: NewException):
+    """One exception, checked and applied (not committed). Returns (exception, devices touched), or a refusal."""
     from api.models.device import Device, DeviceTag
     from api.models.tag import Tag
     decide = _decider(u)
@@ -137,7 +137,7 @@ async def create(body: NewException, u: User = Depends(_requester), db: AsyncSes
     exc = VulnException(vuln_id=vuln.id, scope=ExceptionScope(body.scope),
                         device_ids=devices if body.scope in ("finding", "devices") else None,
                         tag_id=str(body.tag_id) if body.scope == "tag" else None,
-                        reason=body.reason, compensating_controls=body.compensating_controls or None,
+                        kind=body.kind, reason=body.reason, compensating_controls=body.compensating_controls or None,
                         expires_at=vx.end_of_day(body.expires_on),
                         status=ExceptionStatus.approved if decide else ExceptionStatus.pending,
                         requested_by_id=str(u.id), requested_by=u.username, requested_at=at,
@@ -147,9 +147,59 @@ async def create(body: NewException, u: User = Depends(_requester), db: AsyncSes
     _audit(db, u, "exception.create" if decide else "exception.request", str(exc.id),
            f"{vuln.cve_id or vuln.title[:60]} {body.scope} until {body.expires_on.isoformat()}")
     touched = await vx.apply(db, exc) if decide else []
+    return exc, touched
+
+
+@router.post("")
+async def create(body: NewException, u: User = Depends(_requester), db: AsyncSession = Depends(get_session)):
+    """Admin/cyber: in effect at once. IT users: a request for admin/cyber to decide. Rescoring and telling the
+    source tools happen in the background, so this answers at once."""
+    made = await _create_one(db, u, body)
+    if isinstance(made, dict):
+        return made
+    exc, touched = made
     await db.commit()
-    await vx.rescore(db, touched)
+    _after(touched, [exc])
     return {"ok": True, "id": str(exc.id), "status": exc.status.value, "findings_covered": exc.findings_covered}
+
+
+class NewExceptions(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    items: list[NewException] = Field(min_length=1, max_length=200)
+
+
+@router.post("/batch")
+async def create_many(body: NewExceptions, u: User = Depends(_requester), db: AsyncSession = Depends(get_session)):
+    """Many exceptions at once (the same form over many findings): each is checked like a single one, all are saved
+    together, and the rescoring runs once, in the background."""
+    results, made, touched = [], [], []
+    for item in body.items:
+        r = await _create_one(db, u, item)
+        if isinstance(r, dict):
+            results.append({"ok": False, "error": r.get("error") or "Not saved"})
+            continue
+        exc, t = r
+        made.append(exc)
+        touched += t
+        results.append({"ok": True, "id": str(exc.id), "status": exc.status.value, "findings_covered": exc.findings_covered})
+    await db.commit()
+    _after(touched, made)
+    return {"ok": any(x["ok"] for x in results), "results": results,
+            "saved": sum(1 for x in results if x["ok"]), "rescoring": bool(touched)}
+
+
+def _after(touched: list[str], excs: list) -> None:
+    """After exceptions change findings: rescore those devices and refresh the counts once, in the background, then
+    mirror approved ones to the tools the findings came from."""
+    ids = list(dict.fromkeys(str(i) for i in touched))
+    if ids:
+        try:
+            from api.core.tasks import rescore_devices
+            rescore_devices.delay(ids)
+        except Exception:  # noqa: BLE001 -- the next sync's rescoring catches up
+            log.warning("could not queue the rescore")
+    for e in excs:
+        _tell_tools(e)
 
 
 async def _own_or_decider(db, u: User, exc_id: uuid.UUID) -> VulnException:
@@ -164,6 +214,17 @@ def _decider_only(u: User = Depends(_requester)) -> User:
     if not _decider(u):
         raise HTTPException(404)
     return u
+
+
+def _tell_tools(exc) -> None:
+    """Mirror an approved exception to the tools its findings came from (GCR), in the background."""
+    if exc.status != ExceptionStatus.approved:
+        return
+    try:
+        from api.core.tasks import push_exceptions_to_tools
+        push_exceptions_to_tools.delay([str(exc.id)])
+    except Exception:  # noqa: BLE001 -- the next sync sends it
+        log.warning("could not queue the exception write-back")
 
 
 @router.post("/{exc_id}/approve")
@@ -184,7 +245,8 @@ async def approve(exc_id: uuid.UUID, body: Decision, u: User = Depends(_decider_
     touched = await vx.apply(db, exc)
     _audit(db, u, "exception.approve", str(exc.id), body.note)
     await db.commit()
-    await vx.rescore(db, touched)
+    _after(touched, [])   # rescoring in the background
+    _tell_tools(exc)
     return {"ok": True, "status": exc.status.value, "findings_covered": exc.findings_covered}
 
 
@@ -202,7 +264,7 @@ async def _close(db, u: User, exc_id: uuid.UUID, body: Decision, want: Exception
     exc.decision_note = body.note or exc.decision_note
     _audit(db, u, action, str(exc.id), body.note)
     await db.commit()
-    await vx.rescore(db, touched)
+    _after(touched, [])   # rescoring in the background
     return {"ok": True, "status": exc.status.value}
 
 
@@ -272,7 +334,7 @@ def _row(e: VulnException, hosts: dict, tags: dict, full: bool = False) -> dict:
            "expires_at": vx._aware(e.expires_at).isoformat(), "requested_by": e.requested_by,
            "requested_at": vx._aware(e.requested_at).isoformat(), "decided_by": e.decided_by,
            "decided_at": vx._aware(e.decided_at).isoformat() if e.decided_at else None,
-           "findings_covered": e.findings_covered, "reason": e.reason}
+           "findings_covered": e.findings_covered, "reason": e.reason, "kind": e.kind or "exception"}
     if full:
         out.update({"compensating_controls": e.compensating_controls, "decision_note": e.decision_note, "rule": e.rule,
                     "device_ids": devs, "devices": [{"id": d, "hostname": hosts.get(d)} for d in devs]})

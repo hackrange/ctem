@@ -45,10 +45,11 @@ async def _filtered(user, db, q, grade, device_type, source, tag, status=None, a
 def _card(os_family: str | None = Query(None, pattern="^(windows|linux|macos|network|mobile|hypervisor|unix|other|unknown)$"),
           missing: str | None = Query(None, pattern="^(edr|scanner|either)$"),
           active_days: int | None = Query(None, ge=1, le=3650), new_days: int | None = Query(None, ge=1, le=3650),
-          compute: bool = Query(False), ad_tools_quiet_days: int | None = Query(None, ge=1, le=3650)) -> dict:
+          compute: bool = Query(False), ad_tools_quiet_days: int | None = Query(None, ge=1, le=3650),
+          asset: str | None = Query(None, pattern="^(hosts|repositories|sites)$")) -> dict:
     """Filters a dashboard card links with (see device_query.card_filters)."""
     return {"os_family": os_family, "missing": missing, "active_days": active_days, "new_days": new_days, "compute": compute,
-            "ad_tools_quiet_days": ad_tools_quiet_days}
+            "ad_tools_quiet_days": ad_tools_quiet_days, "asset": asset}
 
 
 _STATUS_FILTER = Query(None, pattern="^(assigned|shipped|lost|stolen|returned|contained|edr_hidden|out_of_scope)$")
@@ -94,8 +95,10 @@ async def device_summary(
     tag: list[str] | None = _TAGS,
     ad_stale_days: int | None = _STALE,
     card: dict = Depends(_card),
+    by: str = Query("environment", pattern="^(environment|application)$"),
 ):
-    """Dashboard counts across every device the user can see (not one page of them)."""
+    """Dashboard counts across every device the user can see (not one page of them). by: the tag role to break
+    the counts down by (environment for hosts and sites, application for repositories)."""
     stmt = await _filtered(current_user, db, q, grade, device_type, source, tag, status, ad_stale_days, card)
     grades = {g: 0 for g in ("A", "B", "C", "D", "F")}
     ungraded = kev_devices = 0
@@ -107,11 +110,11 @@ async def device_summary(
             grades[g.value if hasattr(g, "value") else str(g)] = n
     from api.core import tag_roles
     roles = await tag_roles.ensure(db)
-    rules = next((r.rules for r in roles if r.key == "environment"), ())
+    rules = next((r.rules for r in roles if r.key == by), ())
     merged: dict[str, dict] = {}
     for env, n, avg, crit in (await db.execute(dq.env_breakdown_query(stmt, rules))).all():
         m = tag_roles.match(env, roles) if env else None
-        label = m[1] if m and m[0] == "environment" else "Unknown"
+        label = m[1] if m and m[0] == by else "Unknown"
         e = merged.setdefault(label, {"env": label, "devices": 0, "_sum": 0.0, "critical": 0})
         e["devices"] += n
         e["_sum"] += float(avg or 0) * n
@@ -119,8 +122,9 @@ async def device_summary(
     envs = [{"env": e["env"], "devices": e["devices"], "critical": e["critical"],
              "avg_score": round(e["_sum"] / e["devices"], 1) if e["devices"] else None} for e in merged.values()]
     envs.sort(key=lambda e: -e["devices"])
+    exposed = (await db.execute(stmt.order_by(None).with_only_columns(func.count()).where(Device.is_internet_exposed.is_(True)))).scalar_one()
     return {"total": sum(grades.values()) + ungraded, "grades": grades, "ungraded": ungraded,
-            "kev_devices": kev_devices, "environments": envs}
+            "kev_devices": kev_devices, "internet_exposed": exposed, "environments": envs, "by": by}
 
 
 @router.get("/export")
@@ -189,8 +193,51 @@ async def get_device(
         "detected_user_title": device.owner.title if device.owner is not None else None,
         "out_of_scope": exempt_view(device),
         "can_set_scope": bool({"admin", "cyber"}.intersection(current_user.role_names)),
+        "score_why": await _score_why(db, device.id),
+        "related_owners": await _related_owners(db, device.id),
     })
     return base
+
+
+async def _related_owners(db, device_id: str) -> dict:
+    """Owner roles this asset's own tags don't give, from other assets of the same application (for example a site
+    whose scanner sends no application owner, while the application's repository has one). Read through the tag
+    mapping, so any tool's owner tags count. Only roles the asset lacks; at most 500 related assets are read."""
+    from api.core import tag_roles
+    from api.models.tag import Tag
+    roles = await tag_roles.ensure(db)
+    mine = [n for (n,) in (await db.execute(select(Tag.name).join(DeviceTag, DeviceTag.tag_id == Tag.id)
+                                            .where(DeviceTag.device_id == device_id))).all()]
+    keys = ("executive_owner", "technical_owner", "application_owner")
+    missing = [k for k in keys if not tag_roles.values(mine, k, roles)]
+    app_tags = [t for t in mine if (m := tag_roles.match(t, roles)) and m[0] == "application"]
+    if not missing or not app_tags:
+        return {}
+    via = tag_roles.values(app_tags, "application", roles)[0]
+    others = select(DeviceTag.device_id).join(Tag, Tag.id == DeviceTag.tag_id).where(
+        Tag.name.in_(app_tags), DeviceTag.device_id != device_id).limit(500)
+    names = [n for (n,) in (await db.execute(select(Tag.name).join(DeviceTag, DeviceTag.tag_id == Tag.id)
+                                             .where(DeviceTag.device_id.in_(others)).distinct())).all()]
+    out = {}
+    for k in missing:
+        vals = tag_roles.values(names, k, roles)
+        if vals:
+            out[k] = {"values": vals[:5], "via": via}
+    return out
+
+
+async def _score_why(db, device_id: str) -> dict | None:
+    """Why a repository or site scored what it did (kept by the scoring engine), for the asset page."""
+    import json
+
+    from api.models.risk import RiskScore
+    raw = (await db.execute(select(RiskScore.score_breakdown).where(RiskScore.entity_type == "device",
+                                                                    RiskScore.entity_id == device_id))).scalar_one_or_none()
+    try:
+        out = json.loads(raw) if raw else None
+    except ValueError:
+        return None
+    return out if isinstance(out, dict) else None
 
 
 def _findings_query(device_id: str, status: str | None, q: str | None):
@@ -288,6 +335,8 @@ def _finding_summary(f: Finding, contained: bool = False, cloud_ports: list | No
         "raw_grade": f.raw_grade,
         "status": f.status.value,
         "source": f.source,
+        "domain": f.domain,
+        "details": f.details if f.domain in ("code", "web") else None,   # where and how, for Code and Web app findings
         "exception_id": f.exception_id,
         "is_reachable": f.is_reachable,
         "reachability_source": f.reachability_source,

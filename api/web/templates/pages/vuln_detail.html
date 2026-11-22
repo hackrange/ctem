@@ -22,10 +22,16 @@
   </div>
 </div>
 
+<div class="panel" style="margin-top:16px" id="v-found-panel" hidden>
+  <div class="panel__header"><span class="panel__title">What the scanner found</span><span class="text-sm text-muted" id="v-found-where"></span></div>
+  <div class="panel__body" id="v-found"></div>
+</div>
+
 <div class="panel" style="padding:0;margin-top:16px" id="v-affected-panel">
   <div class="panel__header" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
-    <span class="panel__title">Affected devices</span>
+    <span class="panel__title" id="v-affected-title">Affected devices</span>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <button type="button" id="fp-btn" class="btn btn--ghost btn--sm" hidden disabled>False positive</button>
       <button type="button" id="ex-btn" class="btn btn--primary btn--sm" hidden disabled>Create exception</button>
       <div class="search-bar-wrap">
         <svg class="search-icon" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
@@ -46,6 +52,7 @@
 
 {% block extra_scripts %}
 <script src="{{ static('js/data_table.js') }}"></script>
+<script src="{{ static('js/asset_detail.js') }}"></script>
 <script src="{{ static('js/ticket_modal.js') }}"></script>
 <script src="{{ static('js/exception_modal.js') }}"></script>
 <script>
@@ -74,13 +81,32 @@ async function loadVuln() {
     info('EPSS', v.epss_score == null ? txt(null) : esc((v.epss_score * 100).toFixed(2) + '%')),
     info('KEV added', txt(v.kev_added_date)),
     info('Attack vector', txt(v.attack_vector)),
-    info('Affected devices', R.num(v.affected_devices)),
+    info(AssetDetail.affectedLabel(v.domain), R.num(v.affected_devices)),
+    info('Type', esc({ infra: 'Infrastructure', code: 'Code', web: 'Web app' }[v.domain] || 'Infrastructure')),
     info('Source', txt(v.source)),
     info('Scanner ID', `<span class="text-mono text-sm">${txt(v.source_vuln_id)}</span>`),
   ].join('');
   // Scanner descriptions can carry markup; show it as plain text
   $('v-desc').textContent = (v.description || '').replace(/<[^>]*>/g, ' ').replace(/\s+\n/g, '\n').trim();
+  vdomain = v.domain;
+  vtitle = v.cve_id || v.title;
+  vkev = !!v.is_kev;
+  $('v-affected-title').textContent = AssetDetail.affectedLabel(v.domain);
+  if (v.domain === 'code' || v.domain === 'web') $('a-search').placeholder = v.domain === 'code' ? 'Repository' : 'Site';
   if (!table) startAffected();
+  if (v.domain === 'code' || v.domain === 'web') showFound(v);
+}
+
+// For Code and Web app findings: the scanner's write-up, evidence and fix, from the most recent open finding
+async function showFound(v) {
+  try {
+    const r = await fetch(`/api/v1/vulns/${encodeURIComponent(vulnId)}/findings?status=active&sort=last_seen&order=desc&limit=1`, { headers: { Accept: 'application/json' } });
+    const f = r.ok ? ((await r.json()).findings || [])[0] : null;
+    if (!f || !f.details) return;
+    $('v-found').innerHTML = AssetDetail.panel({ ...f, title: v.title, vuln_id: vulnId });
+    $('v-found-where').textContent = f.hostname ? `Most recent: ${f.hostname}` : '';
+    $('v-found-panel').hidden = false;
+  } catch (e) { /* the page works without it */ }
 }
 
 function notFound() {
@@ -89,7 +115,7 @@ function notFound() {
   $('v-affected-panel').style.display = 'none';
 }
 
-let table;
+let table, vdomain = 'infra', vtitle = '', vkev = false;
 function startAffected() {
   const base = `/api/v1/vulns/${encodeURIComponent(vulnId)}/findings`;
   const dim = (f, html) => f.contained ? `<span style="opacity:.45">${html}</span>` : html;
@@ -101,11 +127,15 @@ function startAffected() {
     listKey: 'findings',
     defaultSort: 'risk_score',
     defaultOrder: 'desc',
-    emptyText: 'No affected devices with this status',
-    rowHref: dev,
+    emptyText: `No ${AssetDetail.affectedLabel(vdomain).toLowerCase()} with this status`,
+    rowHref: f => (vdomain === 'infra' ? dev(f) : null),
     params: () => ({ status: $('a-status').value, q: $('a-search').value.trim(), tag: TagFocus.get() }),
     onLoad: () => syncPicks && syncPicks(),
-    columns: [
+    columns: vdomain !== 'infra' ? [
+      ...(canExcept ? [{ label: 'Select', head: CtemFindings.PICK_HEAD, render: f => ['open', 'in_progress'].includes(f.status)
+        ? `<input type="checkbox" data-pick="${esc(f.id)}" aria-label="Select ${esc(f.hostname)}"${picked.has(f.id) ? ' checked' : ''}>` : '' }] : []),
+      ...AssetDetail.affectedColumns(vdomain, { dim, R, dev }),
+    ] : [
       ...(canExcept ? [{ label: 'Select', head: CtemFindings.PICK_HEAD, render: f => ['open', 'in_progress'].includes(f.status)
         ? `<input type="checkbox" data-pick="${esc(f.id)}" aria-label="Select ${esc(f.hostname)}"${picked.has(f.id) ? ' checked' : ''}>` : '' }] : []),
       { label: 'Hostname', sort: 'hostname', render: f => dim(f, R.link(dev(f), f.hostname)) + (f.contained ? ' <span class="chip chip--info" style="font-size:.7rem">Contained</span>' : '') },
@@ -127,27 +157,39 @@ function startAffected() {
 }
 
 $('affected-table').addEventListener('click', e => {
+  const dt = e.target.closest('button[data-detail]');   // Code and Web app findings: where it is and how to fix it
+  if (dt) {
+    const row = (table ? table.rows() : []).find(r => r.id === dt.dataset.detail);
+    if (row) AssetDetail.open({ ...row, title: vtitle, vuln_id: vulnId, is_kev: vkev });
+    return;
+  }
   const b = e.target.closest('button[data-ticket]');
   if (b) openTicketModal(vulnId, `${$('v-title').textContent} on ${b.dataset.host}`, b.dataset.ticket);
   const p = e.target.closest('button[data-proof]');
   if (p) CtemFindings.proof(p.dataset.proof, `${$('v-title').textContent} on ${p.dataset.host}`);
 });
 
-// Exceptions: admin and cyber tick affected devices and create one for them (or for all devices, or a tag)
-let canExcept = false;
+// Exceptions and false positives: admin and cyber create them for the ticked assets (or all, or a tag); anyone
+// else who can see them sends a request that cyber or an admin approves
+let canExcept = false, canDecide = false;
 const picked = new Map();   // finding id -> {id: device id, hostname}
 function pickedLabel() {
+  const n = picked.size ? ` (${picked.size})` : '';
   $('ex-btn').disabled = !picked.size;
-  $('ex-btn').textContent = picked.size ? `Create exception (${picked.size})` : 'Create exception';
+  $('fp-btn').disabled = !picked.size;
+  $('ex-btn').textContent = `${canDecide ? 'Create' : 'Request'} exception${n}`;
+  $('fp-btn').textContent = `${canDecide ? 'False positive' : 'Report false positive'}${n}`;
 }
 const syncPicks = CtemFindings.picker({
   mount: $('affected-table'), rows: () => (table ? table.rows() : []), picked, onChange: pickedLabel,
   entry: row => ({ id: row.device_id, hostname: row.hostname }),
 });
-$('ex-btn').addEventListener('click', () => CtemFindings.exceptionForm({
-  vulnId, label: $('v-title').textContent, devices: [...picked.values()], canDecide: true,
+const openForm = kind => CtemFindings.exceptionForm({
+  vulnId, label: $('v-title').textContent, devices: [...picked.values()], canDecide, kind,
   onDone: () => { picked.clear(); pickedLabel(); table && table.reload(); },
-}));
+});
+$('ex-btn').addEventListener('click', () => openForm('exception'));
+$('fp-btn').addEventListener('click', () => openForm('false_positive'));
 
 let timer;
 $('a-search').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => table && table.reload(), 300); });
@@ -156,7 +198,13 @@ $('a-status').addEventListener('change', () => table && table.reload());
 TagFocus.chips($('tag-focus'), 'Viewing');
 window.addEventListener('tag-focus-changed', () => { loadVuln(); table && table.reload(); });
 fetch('/api/v1/exceptions/summary', { headers: { Accept: 'application/json' } })
-  .then(r => (r.ok ? r.json() : {})).catch(() => ({}))
-  .then(s => { canExcept = !!s.can_decide; $('ex-btn').hidden = !canExcept; loadVuln(); });
+  .then(r => (r.ok ? r.json() : null)).catch(() => null)
+  .then(s => {
+    canExcept = !!s;
+    canDecide = !!(s && s.can_decide);
+    $('ex-btn').hidden = $('fp-btn').hidden = !canExcept;
+    pickedLabel();
+    loadVuln();
+  });
 </script>
 {% endblock %}

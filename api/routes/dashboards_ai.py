@@ -58,6 +58,7 @@ class EditBody(AskBody):
     """A change, optionally on top of unsaved work (the widgets on screen) and after earlier requests in the same
     session, so people can keep clarifying ("now make the 44-day card red")."""
     widgets: list[dict] | None = Field(None, max_length=cat.MAX_WIDGETS)
+    filters: dict | None = None   # the dashboard-wide filters on screen: {"filters": [...], "match": "all"|"any"}
     history: list[Ask] = Field(default_factory=list, max_length=8)
 
 
@@ -208,12 +209,18 @@ async def ai_edit(dash_id: uuid.UUID, body: EditBody, u: User = Depends(_member)
     from api.routes.dashboards import _editing
     base = body.widgets if body.widgets is not None else _editing(d)["widgets"]   # on-screen work wins; it's cleaned
     current = [x for x in map(cat.clean_widget, base) if x][:cat.MAX_WIDGETS]
+    from api.routes.dashboards import _dfilters, _fl
+    dnow = _dfilters(*_fl(body.filters if body.filters is not None else _editing(d)["filters"]))
     earlier = ("\n\nEarlier requests in this session, already applied to the dashboard above (the new request may "
                "refine or correct them):\n" + "\n".join(f"- {h}" for h in body.history[-8:])) if body.history else ""
     prompt = ("Catalog:\n" + _catalog_for_ai(ctx) + "\n\nThe dashboard now (keep each widget's id; change only what the "
               "request asks; keep positions unless asked to move or resize):\n" + json.dumps(current, separators=(",", ":"))[:20000] +
-              '\n\nReturn {"widgets": [the full new list, each {"id"?, "metric", "viz", "title", "params", "style", "x", "y", '
-              '"w", "h"}; new widgets have no id], "note": "<one sentence saying what you changed>"}. Never claim a change you '
+              "\n\nDashboard filters now (they apply to every widget that counts devices, on top of each widget's own): "
+              + json.dumps(dnow or {"filters": [], "match": "all"}, separators=(",", ":")) +
+              '\n\nReturn {"widgets": [the full new list, each {"id"?, "metric", "viz", "title", "params", "style", "filters"?, '
+              '"filter_match"?, "x", "y", "w", "h"}; new widgets have no id], "filters": [the full dashboard filter list], '
+              '"filter_match": "all"|"any", "note": "<one sentence saying what you changed>"}. For a request about the whole '
+              'dashboard (leave out an OU, hostnames, a tool, an owner), change the dashboard filters, not each widget. Never claim a change you '
               'didn\'t make: if part of the request can\'t be done with the catalog and filters, start the note with '
               '"Couldn\'t:" and say what. Only if nothing in '
               'the catalog can do it, return {"error": "<one friendly sentence>"}.' + earlier + _request(body))
@@ -227,19 +234,21 @@ async def ai_edit(dash_id: uuid.UUID, body: EditBody, u: User = Depends(_member)
     if not isinstance(out, dict) or not isinstance(out.get("widgets"), list):
         return {"available": True, "error": str((out or {}).get("error", "The AI couldn't make that change."))[:300]}
     widgets = [w for w in _widgets(out["widgets"]) if cat.allowed(cat.REGISTRY[w["metric"]], ctx)]
+    dnew = _dfilters(out["filters"], out.get("filter_match")) if isinstance(out.get("filters"), list) else dnow
     if not widgets:
         return {"available": True, "error": "The AI's version has no widgets you can use. Try rewording it."}
     same = lambda ws: sorted(json.dumps({k: v for k, v in w.items() if k not in ("id", "x", "y", "w", "h")}, sort_keys=True)  # noqa: E731
                              for w in ws)
     note = out.get("note") if isinstance(out.get("note"), str) else None
-    if same(widgets) == same(current):   # nothing changed: say so rather than look like it worked
+    if same(widgets) == same(current) and dnew == dnow:   # nothing changed: say so rather than look like it worked
         why = " ".join((note or "").split())[:300]
         why = why[9:].strip() if why.lower().startswith("couldn't:") else "nothing in the widget options can do that yet"
         return {"available": True, "error": f"The AI couldn't make that change: {why}"}
     if any(w["y"] >= 499 for w in widgets) or len({(w["x"], w["y"]) for w in widgets}) < len(widgets):
         widgets = _layout(widgets)   # it lost the positions: lay them out cleanly instead
     note = out.get("note") if isinstance(out.get("note"), str) else None
-    return {"available": True, "widgets": widgets, "note": " ".join(note.split())[:300] if note else None}
+    return {"available": True, "widgets": widgets, "filters": dnew or {"filters": [], "match": "all"},
+            "note": " ".join(note.split())[:300] if note else None}
 
 
 def _numbers(metric: str, data: dict) -> dict:
@@ -269,7 +278,7 @@ async def ai_explain(dash_id: uuid.UUID, u: User = Depends(_member), db: AsyncSe
     ctx = await cat.context(db, u)
     facts = []
     for w in [x for x in map(cat.clean_widget, d.widgets or []) if x][:cat.MAX_WIDGETS]:
-        data = await cat.evaluate(ctx, w)
+        data = await cat.evaluate(ctx, w, d.filters)
         if "error" not in data:
             facts.append({"widget": w["title"], **_numbers(w["metric"], data)})
     if not facts:

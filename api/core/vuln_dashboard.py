@@ -23,7 +23,9 @@ log = logging.getLogger("open-ctem.vuln_dashboard")
 SEVERITIES = ("critical", "high", "medium", "low")
 RANGES = {"30d": 30, "90d": 90, "180d": 180, "365d": 365, "all": None}
 SOURCES = ("rapid7_insightvm", "rapid7_appsec", "rapid7_cloudsec", "qualys", "tenable", "msdefender", "snyk",
-           "github_advanced", "forgerepo", "crowdstrike")
+           "github_advanced", "forgerepo", "crowdstrike", "github_code_review")
+# The type of work (api.core.finding_domain): infra, code or web. "all" applies no type filter (dashboard widgets).
+KINDS = ("infra", "code", "web", "all")
 SLA_DAYS = {"critical": 15, "high": 30, "medium": 90, "low": 180}   # matches the GRC SLA check's defaults
 AGE_BUCKETS = ((0, 30, "0-30 days"), (31, 60, "31-60"), (61, 90, "61-90"), (91, 180, "91-180"), (181, None, "180+"))
 OPEN = (FindingStatus.open, FindingStatus.in_progress)
@@ -35,11 +37,40 @@ def _sev():
     return case((c >= 9.0, "critical"), (c >= 7.0, "high"), (c >= 4.0, "medium"), else_="low")
 
 
-def _where(source: str | None, device_type: str | None) -> list:
+async def forget_cached() -> int:
+    """Drop every cached dashboard view (all sources and filters) after a sync changes the data, so a newly
+    synced source shows at once instead of after the cache runs out. The next visit rebuilds it."""
+    import redis.asyncio as aioredis
+
+    from api.core.config import get_settings
+    r = aioredis.from_url(get_settings().redis_url)
+    n = 0
+    try:
+        for pattern in ("vulndash:*", "dashw:*"):
+            async for key in r.scan_iter(match=pattern, count=500):
+                n += await r.delete(key)
+    except Exception:  # noqa: BLE001 -- a stale view for a few more minutes is the worst case
+        log.warning("dashboard cache not cleared")
+    finally:
+        await r.aclose()
+    return n
+
+
+async def configured_sources(db) -> list[str]:
+    """The finding sources this install actually has an integration for (enabled or not), in SOURCES order."""
+    from api.models.integration import IntegrationConfig
+    have = {v.value if hasattr(v, "value") else str(v) for (v,) in (await db.execute(select(IntegrationConfig.vendor).distinct())).all()}
+    return [s for s in SOURCES if s in have]
+
+
+def _where(source: str | None, device_type: str | None, kind: str = "all") -> list:
     """Allow-listed filters only, so nothing a client sends reaches SQL as text.
-    Contained and Not In Scope devices never count (their findings can't be reached right now)."""
+    Contained and Not In Scope devices never count (their findings can't be reached right now).
+    kind: infra, code or web findings only, or "all" for every one."""
     from api.core.device_scope_exempt import in_scope_findings
     out = [in_scope_findings()]
+    if kind in ("infra", "code", "web"):
+        out.append(Finding.domain == kind)
     if source in SOURCES:
         out.append(Finding.source == source)
     if device_type in DeviceType.__members__:
@@ -156,22 +187,29 @@ async def _mttr(db, w) -> dict:
     return out
 
 
-async def _breakdowns(db, w) -> dict:
+async def _breakdowns(db, w, kind: str = "all") -> dict:
     by_source = (await db.execute(select(Finding.source, func.count()).where(Finding.status.in_(OPEN), *w)
                                   .group_by(Finding.source).order_by(func.count().desc()).limit(10))).all()
     by_type = (await db.execute(select(Device.device_type, func.count()).select_from(Finding).join(Device, Device.id == Finding.device_id)
                                 .where(Finding.status.in_(OPEN), *w).group_by(Device.device_type)
                                 .order_by(func.count().desc()))).all()
     cols = (Vulnerability.id, Vulnerability.cve_id, Vulnerability.title, Vulnerability.cvss_base, Vulnerability.is_kev)
-    filtered = len(w) > 1   # w[0] is always the "counts" condition from _where; the rest are real filters
+    # w[0] is always the "counts" condition from _where, and a kind adds one more; the rest are real filters
+    filtered = len(w) > (1 if kind == "all" else 2)
+    other = select(Finding.device_id).where(Finding.domain.in_(("code", "web")))   # few rows, through the index
     if filtered:   # one finding per device and vulnerability, so counting findings counts devices
         n = func.count()
         top_v = (await db.execute(select(*cols, n).select_from(Finding).join(Vulnerability, Vulnerability.id == Finding.vuln_id)
                                   .where(Finding.status.in_(OPEN), *w).group_by(*cols).order_by(n.desc()).limit(10))).all()
     else:   # the scoring engine keeps this count up to date already (it skips contained devices too)
-        top_v = (await db.execute(select(*cols, Vulnerability.affected_devices).where(Vulnerability.affected_devices > 0)
+        vk = [Vulnerability.domain == kind] if kind != "all" else []
+        top_v = (await db.execute(select(*cols, Vulnerability.affected_devices).where(Vulnerability.affected_devices > 0, *vk)
                                   .order_by(Vulnerability.affected_devices.desc()).limit(10))).all()
     dev_w = [Device.open_findings > 0]
+    if not filtered and kind in ("code", "web"):
+        dev_w.append(Device.id.in_(select(Finding.device_id).where(Finding.domain == kind)))
+    elif not filtered and kind == "infra":   # repositories and web apps have their own tabs
+        dev_w.append(Device.id.not_in(other))
     top_d = (await db.execute(select(Device.id, Device.hostname, Device.risk_score, Device.risk_grade, Device.open_findings,
                                      Device.kev_findings).where(*dev_w, *([Device.id.in_(select(Finding.device_id).where(*w))] if filtered else []))
                               .order_by(Device.risk_score.desc().nulls_last()).limit(10))).all()
@@ -201,13 +239,13 @@ def scoped(scope) -> list:
     return [] if scope is None else [Finding.device_id.in_(select(Device.id).where(scope))]
 
 
-async def build(db: AsyncSession, source: str | None, device_type: str | None, scope=None) -> dict:
+async def build(db: AsyncSession, source: str | None, device_type: str | None, scope=None, kind: str = "all") -> dict:
     """Everything for one filter combination, with the trend over the whole history (ranges are sliced later)."""
-    w = _where(source, device_type) + scoped(scope)
+    w = _where(source, device_type, kind) + scoped(scope)
     k = await _kpis(db, w)
     return {"generated_at": _now().isoformat(), "tracking_since": k.pop("_fixes_since"), "sla_days": SLA_DAYS,
             "kpis": k, "trend": await _trend(db, w, None), "aging": await _aging(db, w), "mttr": await _mttr(db, w),
-            **await _breakdowns(db, w),
+            **await _breakdowns(db, w, kind),
             # exception counts are fleet-wide, so scoped viewers don't get them
             "exceptions": await _exceptions(db) if scope is None else {"active": None, "pending": 0, "ending_14d": 0}}
 
@@ -222,13 +260,14 @@ def sliced(out: dict, range_key: str) -> dict:
 
 
 async def cached(db: AsyncSession, range_key: str, source: str | None, device_type: str | None, fresh: bool = False,
-                 scope=None, viewer: str | None = None) -> dict:
+                 scope=None, viewer: str | None = None, kind: str = "all") -> dict:
     """Fleet-wide numbers change with syncs, not by the second: keep each filter combination for 15 minutes."""
     import redis.asyncio as aioredis
 
     from api.core.config import get_settings
     # a scoped viewer's numbers are theirs alone, so their cache entry is too
-    key = f"vulndash:v2:{source or '-'}:{device_type or '-'}:{viewer if scope is not None else 'all'}"
+    kind = kind if kind in KINDS else "all"
+    key = f"vulndash:v3:{kind}:{source or '-'}:{device_type or '-'}:{viewer if scope is not None else 'all'}"
     r = aioredis.from_url(get_settings().redis_url)
     try:
         try:
@@ -237,7 +276,7 @@ async def cached(db: AsyncSession, range_key: str, source: str | None, device_ty
                 return sliced(json.loads(hit), range_key)
         except Exception:  # noqa: BLE001 -- no Redis means no cache, not no dashboard
             log.warning("vuln dashboard cache unavailable")
-        out = await build(db, source, device_type, scope)
+        out = await build(db, source, device_type, scope, kind)
         try:
             await r.set(key, json.dumps(out, default=str), ex=CACHE_SECONDS)
         except Exception:  # noqa: BLE001 -- the answer is still good, it just won't be cached

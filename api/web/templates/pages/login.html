@@ -10,8 +10,8 @@
     :root {
       --accent:   {{ accent_color | default('#f5a623') }};
       --accent2:  color-mix(in srgb, {{ accent_color | default('#f5a623') }} 80%, #000);
-      --bg:       #eef1f6;
-      --surface:  #ffffff;
+      --bg:       #e2e6ed;
+      --surface:  #f3f4f6;   /* the sign-in box: light grey, with white fields inside */
       --border:   #d8dde6;
       --border2:  #c4ccd8;
       --text:     #111827;
@@ -133,7 +133,7 @@
 
     .field input {
       width: 100%;
-      background: #f8f9fb;
+      background: #ffffff;
       border: 1px solid var(--border2);
       border-radius: 8px;
       padding: 10px 14px;

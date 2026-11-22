@@ -43,7 +43,7 @@ def test_filters_are_allow_listed():
 
 @pytest.mark.asyncio
 async def test_only_fleet_wide_roles_see_it(client_it_user, client_admin, monkeypatch):
-    async def fake(db, range_key, source, device_type, fresh=False, scope=None, viewer=None):
+    async def fake(db, range_key, source, device_type, fresh=False, scope=None, viewer=None, kind="all"):
         return {"range": range_key, "kpis": {"open": 1}, "trend": {}, "source": source}
     monkeypatch.setattr(vd, "cached", fake)
     assert (await client_it_user.get("/api/v1/vuln-dashboard")).status_code == 404
@@ -57,9 +57,64 @@ async def test_only_fleet_wide_roles_see_it(client_it_user, client_admin, monkey
 async def test_read_only_numbers_are_limited_to_their_devices(client_read_only, monkeypatch):
     seen = {}
 
-    async def fake(db, range_key, source, device_type, fresh=False, scope=None, viewer=None):
+    async def fake(db, range_key, source, device_type, fresh=False, scope=None, viewer=None, kind="all"):
         seen["scope"] = scope
         return {"kpis": {}, "trend": {}}
     monkeypatch.setattr(vd, "cached", fake)
     r = (await client_read_only.get("/api/v1/vuln-dashboard")).json()
     assert r["scoped"] is True and seen["scope"] is not None
+
+
+@pytest.mark.asyncio
+async def test_source_lists_show_only_tools_this_install_uses(db, client_admin, monkeypatch):
+    """Not every supported tool: a configured integration (enabled or not), or one with open findings left."""
+    from api.core import vuln_dashboard as vd
+    from api.models.integration import IntegrationConfig, Vendor
+
+    async def fake(db, range_key, source, device_type, **kw):   # the trend query is Postgres-only
+        return {"by_source": [{"source": "tenable", "open": 3}]}
+    monkeypatch.setattr(vd, "cached", fake)
+    db.add(IntegrationConfig(vendor=Vendor.qualys, name="Qualys", is_enabled=False, config={}))
+    await db.commit()
+    srcs = (await client_admin.get("/api/v1/vuln-dashboard")).json()["filters"]["sources"]
+    assert "qualys" in srcs and "tenable" in srcs and "snyk" not in srcs   # tenable: findings left behind
+    cat = (await client_admin.get("/api/v1/dashboards/catalog")).json()["metrics"]
+    picker = next(p for m in cat if m["id"] == "vuln.kpi" for p in m["params"] if p["key"] == "source")
+    values = [c["value"] for c in picker["choices"]]
+    assert values[0] == "any" and "qualys" in values and "snyk" not in values
+
+
+
+def test_the_three_types_split_the_findings():
+    from sqlalchemy.dialects import postgresql
+    from api.core import vuln_dashboard as vd
+    sql = lambda kind: " ".join(str(c.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}))  # noqa: E731
+                                for c in vd._where(None, None, kind))
+    for k in ("infra", "code", "web"):
+        assert f"findings.domain = '{k}'" in sql(k)
+    assert "domain" not in sql("all")
+
+
+@pytest.mark.asyncio
+async def test_dashboard_defaults_to_infrastructure_and_lists_sources_by_type(db, client_admin, monkeypatch):
+    from api.core import vuln_dashboard as vd
+    from api.models.integration import IntegrationConfig, Vendor
+    db.add_all([IntegrationConfig(vendor=Vendor.github_code_review, name="GCR", is_enabled=True, config={}),
+                IntegrationConfig(vendor=Vendor.rapid7_appsec, name="AppSec", is_enabled=True, config={}),
+                IntegrationConfig(vendor=Vendor.rapid7_insightvm, name="IVM", is_enabled=True, config={})])
+    await db.commit()
+    seen = []
+
+    async def fake(db, range_key, source, device_type, **kw):
+        seen.append(kw.get("kind"))
+        return {"by_source": []}
+    monkeypatch.setattr(vd, "cached", fake)
+    r = (await client_admin.get("/api/v1/vuln-dashboard")).json()
+    by = r["filters"]["by_type"]
+    assert r["kind"] == "infra" and "rapid7_insightvm" in by["infra"]
+    assert "github_code_review" in by["code"] and "github_code_review" in by["web"] and "rapid7_appsec" in by["web"]
+    assert "github_code_review" not in by["infra"]
+    for k in ("code", "web"):
+        await client_admin.get("/api/v1/vuln-dashboard", params={"kind": k})
+    assert seen == ["infra", "code", "web"]
+    assert (await client_admin.get("/api/v1/vuln-dashboard", params={"kind": "app"})).status_code == 422

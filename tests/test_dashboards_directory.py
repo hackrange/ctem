@@ -62,7 +62,7 @@ async def test_ai_composes_the_stale_dashboard_and_edits_on_request(db, client_a
         async def complete(self, prompt, **kw):
             calls.append(prompt)
             if "The dashboard now" in prompt:   # an edit: recolor the trend, keep the rest
-                now = json.loads(prompt.split("The dashboard now", 1)[1].split(":\n", 1)[1].split("\n\nReturn", 1)[0])
+                now = json.loads(prompt.split("The dashboard now", 1)[1].split(":\n", 1)[1].split("\n\nDashboard filters now", 1)[0])
                 for w in now:
                     if w["metric"] == "directory.stale_trend":
                         w["style"] = {"color": "blue"}
@@ -123,7 +123,7 @@ async def test_ai_edit_builds_on_unsaved_work_and_earlier_requests(client_admin,
     class Fake:
         async def complete(self, prompt, **kw):
             seen.append(prompt)
-            now = json.loads(prompt.split("The dashboard now", 1)[1].split(":\n", 1)[1].split("\n\nReturn", 1)[0])
+            now = json.loads(prompt.split("The dashboard now", 1)[1].split(":\n", 1)[1].split("\n\nDashboard filters now", 1)[0])
             for w in now:
                 w["style"] = {"color": "red"}
             return json.dumps({"widgets": now, "note": "Made it red."})

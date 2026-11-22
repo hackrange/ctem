@@ -4,10 +4,10 @@ import enum
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, Enum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, event, Date, DateTime, Enum, Float, ForeignKey, Integer, JSON, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from api.core.encryption import EncryptedString
+from api.core.encryption import EncryptedJSON, EncryptedString
 from api.models.base import Base, TimestampMixin, UUIDPrimaryKey
 
 
@@ -36,6 +36,8 @@ class Vulnerability(Base, UUIDPrimaryKey, TimestampMixin):
     exploit_available: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     exploit_maturity: Mapped[str | None] = mapped_column(String(32))            # poc, functional, weaponized
     source: Mapped[str] = mapped_column(String(64), nullable=False)             # qualys, rapid7, defender...
+    # infra (hosts, network, cloud) | code (SAST, packages, secrets, IaC) | web (DAST): see api.core.finding_domain
+    domain: Mapped[str] = mapped_column(String(8), nullable=False, default="infra", server_default=text("'infra'"), index=True)
     source_vuln_id: Mapped[str | None] = mapped_column(String(256))
     # Devices with an open finding, refreshed by each scoring run (global view only)
     affected_devices: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False, index=True)
@@ -52,6 +54,10 @@ class Finding(Base, UUIDPrimaryKey, TimestampMixin):
     vuln_id: Mapped[str] = mapped_column(ForeignKey("vulnerabilities.id", ondelete="CASCADE"), nullable=False, index=True)
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str | None] = mapped_column(String(256))
+    domain: Mapped[str] = mapped_column(String(8), nullable=False, default="infra", server_default=text("'infra'"), index=True)
+    # Where and how, by type (code: repository, branch, file, line, rule, package and fixed version; web: URL,
+    # parameter, CWE, evidence), plus the fix and a link back to the tool. Encrypted: it can hold paths and names.
+    details: Mapped[dict | None] = mapped_column(EncryptedJSON)
     status: Mapped[FindingStatus] = mapped_column(Enum(FindingStatus), default=FindingStatus.open, nullable=False)
     first_detected: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -146,6 +152,8 @@ class VulnException(Base, UUIDPrimaryKey, TimestampMixin):
     # None for a rule exception, which can cover many vulnerabilities
     vuln_id: Mapped[str | None] = mapped_column(ForeignKey("vulnerabilities.id", ondelete="CASCADE"), nullable=True, index=True)
     scope: Mapped[ExceptionScope] = mapped_column(Enum(ExceptionScope), nullable=False)
+    # exception: the risk is accepted until expires_at | false_positive: it isn't real (re-checked on expires_at)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False, default="exception", server_default=text("'exception'"))
     name: Mapped[str | None] = mapped_column(String(120))            # rule exceptions
     rule: Mapped[dict | None] = mapped_column(JSON)                  # open-ctem/exception-rule@1
     device_ids: Mapped[list | None] = mapped_column(JSON)            # finding / devices scopes
@@ -163,3 +171,11 @@ class VulnException(Base, UUIDPrimaryKey, TimestampMixin):
     findings_covered: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
 
     vuln: Mapped[Vulnerability] = relationship()
+
+
+@event.listens_for(Finding, "before_insert")
+@event.listens_for(Vulnerability, "before_insert")
+def _set_domain(mapper, connection, target):  # noqa: ARG001 -- SQLAlchemy listener signature
+    """Every finding and vulnerability gets a type (infra, code or web) when it is written."""
+    from api.core.finding_domain import set_default
+    set_default(target)

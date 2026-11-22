@@ -40,6 +40,7 @@ class Vendor(str, enum.Enum):
     snyk = "snyk"
     github_advanced = "github_advanced"
     forgerepo = "forgerepo"
+    github_code_review = "github_code_review"   # GCR: SAST and DAST
     ai = "ai"
     anthropic = "anthropic"
     openai = "openai"

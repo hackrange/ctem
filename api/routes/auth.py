@@ -61,7 +61,7 @@ async def _render_login(request: Request, db: AsyncSession, *, error: str | None
         "enroll": enroll,
         "app_title": branding.get("title", "open-ctem"),
         "accent_color": branding.get("accent_color", "#f5a623"),
-        "logo_url": branding.get("logo_url"),
+        "logo_url": branding.get("login_logo_url") or branding.get("logo_url"),   # its own logo, else the menu's
         "org_name": branding.get("org_name"),
     }, status_code=status)
 
@@ -237,6 +237,7 @@ async def _create_session(request: Request, user: User, db: AsyncSession):
     request.session["session_id"] = secrets.token_hex(16)
     request.session["access_token"] = create_access_token(str(user.id), user.username)
     request.session["user_id"] = str(user.id)
+    request.session["signed_in_at"] = int(time.time())   # the hard limit on a session counts from here
     await db.commit()
     return RedirectResponse(nxt or "/", status_code=302)
 

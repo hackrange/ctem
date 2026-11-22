@@ -17,6 +17,8 @@ class DeviceType(str, enum.Enum):
     server = "server"
     network_device = "network_device"
     cloud_instance = "cloud_instance"
+    code_repository = "code_repository"   # a source repository a SAST tool scans
+    website = "website"                   # an external site a DAST tool scans
     unknown = "unknown"
 
 

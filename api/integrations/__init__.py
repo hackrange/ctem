@@ -4,6 +4,7 @@ from api.integrations import (  # noqa: F401
     ai_connector,
     crowdstrike,
     fairtprm,
+    github_code_review,
     guardicore,
     ldap,
     qualys,

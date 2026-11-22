@@ -53,6 +53,16 @@ def _check_vendor_config(vendor: Vendor, config: dict) -> None:
         except ValueError as exc:
             raise HTTPException(400, str(exc).capitalize()) from exc
         return
+    if vendor == Vendor.github_code_review:
+        from api.integrations.gcr_client import GcrError, base_url
+        from api.integrations.github_code_review import tag_map
+        try:
+            if config.get("base_url"):
+                base_url(config)
+            tag_map(config.get("tag_map"))
+        except (GcrError, ValueError) as exc:
+            raise HTTPException(400, f"Tag map or URL: {exc}") from exc
+        return
     if vendor != Vendor.bedrock:
         return
     from api.integrations.ai_bedrock import BedrockConfigError, validate_config
@@ -64,7 +74,7 @@ def _check_vendor_config(vendor: Vendor, config: dict) -> None:
         raise HTTPException(400, str(exc)) from exc
 
 router = APIRouter(prefix="/api/v1/integrations", tags=["integrations"])
-_VENDOR_LABELS = {"aws": "AWS (cloud exposure)", "azure": "Azure (cloud exposure)", "oci": "Oracle Cloud OCI (cloud exposure)"}
+_VENDOR_LABELS = {"github_code_review": "GitHub Code Review (SAST and DAST)", "aws": "AWS (cloud exposure)", "azure": "Azure (cloud exposure)", "oci": "Oracle Cloud OCI (cloud exposure)"}
 
 
 @router.get("")
@@ -73,7 +83,17 @@ async def list_integrations(
     db: AsyncSession = Depends(get_session),
 ):
     result = await db.execute(select(IntegrationConfig).order_by(IntegrationConfig.vendor))
-    return {"integrations": [_summary(i) for i in result.scalars()]}
+    owned = await _shipper_owned(db)
+    return {"integrations": [{**_summary(i), "shipper_managed": str(i.id) in owned} for i in result.scalars()]}
+
+
+async def _shipper_owned(db) -> set[str]:
+    """Integration ids a shipper still owns (any of its sources, enabled or not)."""
+    from api.models.collector import CollectorProfile
+    out = set()
+    for prof in (await db.execute(select(CollectorProfile))).scalars():
+        out.update(str(m["integration_id"]) for m in (prof.modules or {}).values() if m.get("integration_id"))
+    return out
 
 
 @router.get("/vendors")
@@ -199,6 +219,14 @@ async def get_integration(
     return _summary(cfg)
 
 
+async def _not_shipper_run(db, cfg: IntegrationConfig) -> None:
+    """While a shipper owns an integration it is changed and removed on the Shippers tab only (its connection,
+    credentials and schedule live on the shipper), so the integration routes refuse to touch it. Once no shipper
+    owns it (the shipper or that source was removed), it can be cleaned up here."""
+    if str(cfg.id) in await _shipper_owned(db):
+        raise HTTPException(409, "Managed by a shipper: change or remove it under Settings > Shippers")
+
+
 @router.put("/{integration_id}")
 async def update_integration(
     integration_id: uuid.UUID,
@@ -210,6 +238,7 @@ async def update_integration(
     cfg = result.scalar_one_or_none()
     if cfg is None:
         raise HTTPException(404)
+    await _not_shipper_run(db, cfg)
     if body.name is not None:
         cfg.name = body.name
     if body.is_enabled is not None:
@@ -219,21 +248,21 @@ async def update_integration(
             _validate_base_url(body.config["base_url"])
         # Merge: keep existing secret values when the client sends back the redacted sentinel
         existing = dict(cfg.config or {})
+        # A saved secret is only reused for the same endpoint, so it can't be pointed at another server. Blank
+        # and missing are the same (an empty form field).
+        norm = lambda v: str(v if v is not None else "").strip().rstrip("/").lower()  # noqa: E731
         moved = any(
-            k in body.config and body.config[k] != existing.get(k)
+            k in body.config and norm(body.config[k]) != norm(existing.get(k))
             for k in _ENDPOINT_KEYS
         )
         if moved and "__REDACTED__" in body.config.values():
             raise HTTPException(400, "Re-enter credentials when changing the endpoint")
         merged = {
-            k: existing.get(k, v) if v == "__REDACTED__" else v
+            k: existing[k] if v == "__REDACTED__" else v
             for k, v in body.config.items()
-            if v not in ("", None)
+            if v not in ("", None) and (v != "__REDACTED__" or existing.get(k) not in ("", None))   # never store the sentinel
         }
         _check_vendor_config(cfg.vendor, merged)
-        if existing.get("mode") == "collector":
-            # Collector wiring is server-owned; the edit form doesn't know about it
-            merged["mode"], merged["collector"] = "collector", existing.get("collector")
         cfg.config = merged
     if body.sync_schedule is not None:
         cfg.sync_schedule = body.sync_schedule
@@ -251,6 +280,7 @@ async def delete_integration(
     cfg = result.scalar_one_or_none()
     if cfg is None:
         raise HTTPException(404)
+    await _not_shipper_run(db, cfg)
     await db.delete(cfg)
     await db.commit()
     return {"deleted": True}

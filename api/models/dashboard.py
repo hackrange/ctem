@@ -33,6 +33,8 @@ class Dashboard(Base, UUIDPrimaryKey, TimestampMixin):
     # ({"widgets", "theme"}) and viewers keep seeing the published version until the owner publishes again.
     published: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("true"))
     draft: Mapped[dict | None] = mapped_column(JSON)
+    # Dashboard-wide conditions every widget honors: {"filters": [...], "match": "all"|"any"} (see dashboards.filters)
+    filters: Mapped[dict | None] = mapped_column(JSON)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 

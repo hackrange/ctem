@@ -19,8 +19,36 @@ from api.scoring.user_score import compute_user_score
 log = logging.getLogger("open-ctem.scoring")
 
 
+async def _app_scores(device: Device, findings: list, db: AsyncSession) -> tuple[float, str, list, str]:
+    """Code (repository) and Web app (site) scoring: see api.scoring.app_score. Returns score, grade, per-finding
+    (score, grade) and the breakdown kept with the score."""
+    from api.core import tag_roles
+    from api.models.device import DeviceTag
+    from api.models.tag import Tag
+    from api.scoring import app_score
+    names = [n for (n,) in (await db.execute(select(Tag.name).join(DeviceTag, DeviceTag.tag_id == Tag.id)
+                                             .where(DeviceTag.device_id == device.id))).all()]
+    env = tag_roles.values(names, "environment")
+    holds = sorted({h for f in findings for h in ((f.details or {}).get("asset") or {}).get("holds", [])})
+    holds += [n.split(":", 1)[1] for n in names if n.lower().startswith("gcr:") and any(k in n.lower() for k in app_score.SENSITIVE)]
+    kind = "web" if device.device_type.value == "website" else "code"
+    crit = app_score.impact(device.criticality, holds, env)
+    expo = app_score.exposure(kind, bool(device.is_internet_exposed))
+    per, reasons = [], {}
+    for f in findings:
+        v = f.vuln
+        sc, why = app_score.score_finding((v.cvss_base or 0.0) if v else 0.0, (v.epss_score or 0.0) if v else 0.0,
+                                          bool(v and v.is_kev), f.details or {}, kind, crit, expo)
+        per.append((sc, device_grade(sc), why))
+        reasons[sc] = why
+    score, why = app_score.roll_up([p[0] for p in per])
+    worst = max(reasons) if reasons else None
+    breakdown = json.dumps({"model": kind, "why": why, "worst": reasons.get(worst, []), "impact": crit[1], "exposure": expo[1]})[:1000]
+    return score, device_grade(score), per, breakdown
+
+
 async def recalculate_device(device: Device, db: AsyncSession) -> RiskScore:
-    """Recalculate and persist the risk score for a single device."""
+    """Recalculate and persist the risk score for a single device (a repository or a site by their own model)."""
     findings_result = await db.execute(
         select(Finding)
         .options(selectinload(Finding.vuln))
@@ -58,7 +86,12 @@ async def recalculate_device(device: Device, db: AsyncSession) -> RiskScore:
             "control_context": ctx,
         })
 
-    score, grade = compute_device_score(findings_data)
+    app = device.device_type.value in ("code_repository", "website")
+    breakdown = None
+    if app:
+        score, grade, per_finding, breakdown = await _app_scores(device, findings, db)
+    else:
+        score, grade = compute_device_score(findings_data)
     from api.core.device_scope_exempt import is_exempt
     exempt = is_exempt(device)
     # isolated by the EDR (nothing on it is reachable right now) or marked Not In Scope: nothing counts
@@ -68,15 +101,31 @@ async def recalculate_device(device: Device, db: AsyncSession) -> RiskScore:
         score, grade = 0.0, "A"
 
     # Per-finding scores feed the sortable finding lists on the device and vuln pages
-    for f, data in zip(findings, findings_data):
-        fs, _ = score_finding(
-            cvss_base=data["cvss_base"], epss_score=data["epss_score"], is_kev=data["is_kev"],
-            asset_criticality=data["asset_criticality"], is_reachable=data["is_reachable"],
-            ctx=data["control_context"],
-        )
+    worst = (-1.0, [])
+    for i, (f, data) in enumerate(zip(findings, findings_data)):
+        if app:
+            fs, why = per_finding[i][0], per_finding[i][2]
+            f.details = {**(f.details or {}), "score_why": why}   # the reason for this finding's score
+        else:
+            fs, mult = score_finding(
+                cvss_base=data["cvss_base"], epss_score=data["epss_score"], is_kev=data["is_kev"],
+                asset_criticality=data["asset_criticality"], is_reachable=data["is_reachable"],
+                ctx=data["control_context"],
+            )
+            if fs > worst[0]:
+                base = [f"CVSS {data['cvss_base']:.1f}", f"EPSS {data['epss_score'] * 100:.1f}%"]
+                base += ["known exploited (KEV)"] if data["is_kev"] else []
+                base += [f"asset criticality {data['asset_criticality']:.2f}"]
+                worst = (fs, base + list(mult))
         f.raw_score, f.raw_grade = round(fs, 1), device_grade(fs)
         f.composite_score = 0.0 if contained else f.raw_score
         f.risk_grade = "A" if contained else f.raw_grade
+    if not app:   # hosts: the score is the average of the worst tenth of their findings
+        top = max(1, len(findings) // 10)
+        why = (f"average of the worst {top} of {len(findings)} findings" if findings else "no open findings")
+        if contained:
+            why = "contained by the EDR or not in scope, so nothing counts right now"
+        breakdown = json.dumps({"model": "host", "why": why, "worst": worst[1]})[:1000]
     # Contained or Not In Scope: the findings stay stored and shown, but none of them count
     device.open_findings = 0 if contained else len(findings)
     device.kev_findings = 0 if contained else sum(1 for f in findings if f.vuln and f.vuln.is_kev)
@@ -92,6 +141,7 @@ async def recalculate_device(device: Device, db: AsyncSession) -> RiskScore:
     changed = risk.score != score or risk.grade != grade
     risk.score = score
     risk.grade = grade
+    risk.score_breakdown = breakdown
     risk.calculated_at = datetime.now(timezone.utc)
 
     # Also update the device row for quick access

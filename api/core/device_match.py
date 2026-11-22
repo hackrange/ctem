@@ -101,7 +101,8 @@ def remember_fqdn(dev, name: str | None) -> None:
 SOURCE_CODES = {"ldap": "AD", "rapid7_insightvm": "R7", "crowdstrike": "CS", "qualys": "QL",
                 "msdefender": "MDE", "sentinelone": "S1", "cortex_xdr": "XDR", "tanium": "TAN",
                 "guardicore": "GC", "rapid7_appsec": "R7-APP", "rapid7_cloudsec": "R7-CLOUD",
-                "aws": "AWS", "azure": "AZ", "oci": "OCI"}
+                "aws": "AWS", "azure": "AZ", "oci": "OCI",
+                "github_code_review": "GCR"}
 
 
 def source_list(dev) -> list[str]:

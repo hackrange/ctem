@@ -181,8 +181,9 @@ def clean_style(s, shape: str) -> dict:
     return out
 
 
-async def evaluate(ctx: Ctx, widget: dict) -> dict:
-    """One widget's data for this viewer, cached briefly per metric, options and viewer scope."""
+async def evaluate(ctx: Ctx, widget: dict, base: dict | None = None) -> dict:
+    """One widget's data for this viewer, cached briefly per metric, options and viewer scope. base: the
+    dashboard's own filters ({"filters", "match"}), applied together with the widget's."""
     m = REGISTRY.get(widget.get("metric"))
     if m is None:
         return {"error": "This widget's metric no longer exists."}
@@ -193,7 +194,9 @@ async def evaluate(ctx: Ctx, widget: dict) -> dict:
     from api.dashboards import filters as flt
     conds = flt.clean(widget.get("filters")) if m.filterable else []
     match = "any" if widget.get("filter_match") == "any" else "all"
-    if conds:   # narrow the devices like a scope does; every device-based metric already honors the scope
+    dconds = flt.clean((base or {}).get("filters")) if m.filterable else []
+    dmatch = "any" if (base or {}).get("match") == "any" else "all"
+    if conds or dconds:   # narrow the devices like a scope does; every device-based metric already honors the scope
         import dataclasses
         import hashlib
 
@@ -201,11 +204,12 @@ async def evaluate(ctx: Ctx, widget: dict) -> dict:
 
         from api.core import tag_roles
         await tag_roles.ensure(ctx.db)
-        cond = await flt.where(ctx.db, conds, match, ctx.user)
-        if flt.personal(conds):
+        parts = [await flt.where(ctx.db, c, mt, ctx.user) for c, mt in ((dconds, dmatch), (conds, match)) if c]
+        cond = parts[0] if len(parts) == 1 else and_(*parts)
+        if flt.personal(conds + dconds):
             viewer = f"u{ctx.user.id}"
         ctx = dataclasses.replace(ctx, scope=cond if ctx.scope is None else and_(ctx.scope, cond), filtered=True)
-        viewer += ":f" + hashlib.sha256(json.dumps([conds, match], sort_keys=True).encode()).hexdigest()[:16]
+        viewer += ":f" + hashlib.sha256(json.dumps([conds, match, dconds, dmatch], sort_keys=True).encode()).hexdigest()[:16]
     key = "dashw:v1:" + m.id + ":" + json.dumps(params, sort_keys=True) + ":" + viewer
     import redis.asyncio as aioredis
 
@@ -222,7 +226,7 @@ async def evaluate(ctx: Ctx, widget: dict) -> dict:
             out = {"shape": m.shape, **await m.run(ctx, params)}
             if conds and isinstance(out.get("href"), str) and out["href"].startswith("/devices"):
                 from urllib.parse import urlencode
-                extra = flt.link_params(conds, match)
+                extra = flt.link_params(conds + dconds, "any" if "any" in (match if conds else "all", dmatch if dconds else "all") else "all")
                 if extra:
                     out["href"] += ("&" if "?" in out["href"] else "?") + urlencode(extra, doseq=True)
         except Exception:  # noqa: BLE001 -- one broken widget must not break the dashboard

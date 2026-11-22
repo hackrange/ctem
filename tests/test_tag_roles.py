@@ -111,3 +111,57 @@ async def test_preview_counts_only_tags_the_role_would_win(db):
     judged = await tr.preview(db, [{"match": "prefix", "value": "location:"}], key="location", others=others)
     assert alone["tags"] > judged["tags"]   # alone, the ENV tags count as locations; judged, Environment takes them
     assert all(not v.startswith("ENV:") for v in judged["sample"])
+
+
+@pytest.mark.asyncio
+async def test_same_value_from_two_tools_is_one_choice_that_matches_both(db, client_admin):
+    """'app:MuleSoft' from one tool and 'r7:app:mulesoft' from another are one dropdown entry, and picking it
+    finds devices with either tag."""
+    import uuid
+
+    from api.core.device_tags import sync_tags
+    from api.models.device import Device, DeviceType
+    from api.routes.tag_roles import merged
+    n = uuid.uuid4().hex[:6]
+    assert merged([{"tag": f"app:Mule_Soft{n}", "value": f"Mule_Soft{n}"}, {"tag": f"r7:app:mule soft{n}", "value": f"mule soft{n}"},
+                   {"tag": "app:Other", "value": "Other"}]) == [
+        {"tag": f"app:Mule_Soft{n}|r7:app:mule soft{n}", "value": f"Mule_Soft{n}"}, {"tag": "app:Other", "value": "Other"}]
+    a = Device(hostname=f"ta-{n}.acme.example", device_type=DeviceType.server)
+    b = Device(hostname=f"tb-{n}.acme.example", device_type=DeviceType.server)
+    db.add_all([a, b])
+    await db.flush()
+    await sync_tags(db, a.id, {f"app:MuleSoft{n}", f"env:prod{n}"}, ("app:", "env:"), "manual", {})
+    await sync_tags(db, b.id, {f"r7:app:mulesoft{n}"}, ("r7:app:",), "manual", {})
+    await db.commit()
+    either = f"app:MuleSoft{n}|r7:app:mulesoft{n}"
+    r = (await client_admin.get("/api/v1/devices", params={"tag": either, "q": n})).json()
+    assert sorted(d["hostname"].lower()[:2] for d in r["devices"]) == ["ta", "tb"]
+    r = (await client_admin.get("/api/v1/devices", params=[("tag", either), ("tag", f"env:prod{n}"), ("q", n)])).json()
+    assert [d["hostname"].lower()[:2] for d in r["devices"]] == ["ta"]   # still AND across dropdowns
+    lab = (await client_admin.post("/api/v1/tag-roles/resolve", json={"tags": [either]})).json()["tags"][0]
+    assert lab["role"] == "application" and lab["tag"] == either
+
+
+@pytest.mark.asyncio
+async def test_filter_dropdowns_follow_the_overview_tab(db, client_admin):
+    import uuid
+
+    from api.core.device_tags import sync_tags
+    from api.models.device import Device, DeviceType
+    n = uuid.uuid4().hex[:6]
+    host = Device(hostname=f"fh-{n}", device_type=DeviceType.server)
+    site = Device(hostname=f"fs-{n}.acme.example", device_type=DeviceType.website)
+    db.add_all([host, site])
+    await db.flush()
+    await sync_tags(db, host.id, {f"app:HostApp{n}"}, ("app:",), "manual", {})
+    await sync_tags(db, site.id, {f"app:SiteApp{n}"}, ("app:",), "manual", {})
+    await db.commit()
+
+    async def apps(**p):
+        r = (await client_admin.get("/api/v1/tag-roles/filters", params=p)).json()
+        return {o["value"] for f in r["filters"] if f["key"] == "application" for o in f["options"]}
+    every, sites, hosts = await apps(), await apps(asset="sites"), await apps(asset="hosts")
+    assert {f"HostApp{n}", f"SiteApp{n}"} <= every
+    assert f"SiteApp{n}" in sites and f"HostApp{n}" not in sites
+    assert f"HostApp{n}" in hosts and f"SiteApp{n}" not in hosts
+    assert (await client_admin.get("/api/v1/tag-roles/filters", params={"asset": "x"})).status_code == 422
