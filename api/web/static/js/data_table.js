@@ -182,6 +182,7 @@
     reach(f) {
       const why = f.reach ? ` title="${esc(f.reach)}"` : '';
       const chip = (cls, text) => `<span class="chip chip--${cls}" style="font-size:.7rem"${why}>${esc(text)}</span>`;
+      if (/^Not reachable: NodeZero/.test(f.reach || '')) return chip('low', 'NOT REACHABLE (NODEZERO)');
       const av = { physical: 'PHYSICAL ACCESS', local: 'LOCAL ACCESS', adjacent: 'ADJACENT NETWORK' }[f.attack_vector];
       if (f.exposure === 'listening' && !av) return chip('high', `LISTENING${f.ports ? ' ' + f.ports.toUpperCase() : ''}`);
       if (av) return chip('low', av);

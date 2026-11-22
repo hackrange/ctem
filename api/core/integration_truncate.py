@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 log = logging.getLogger(__name__)
 
-NOT_DATA = frozenset({"ai", "anthropic", "openai", "custom_ai", "bedrock", "fairtprm", "servicenow"})
+NOT_DATA = frozenset({"ai", "anthropic", "openai", "custom_ai", "bedrock", "fairtprm", "servicenow", "email"})
 BATCH = 20000
 KEY = "truncating:{}"   # Redis: set while a truncate runs (ingest and syncs of that source wait)
 _EDR_FIELDS = {"edr_vendor": None, "edr_active": False, "edr_last_seen": None, "edr_device_id": None,

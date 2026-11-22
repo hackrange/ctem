@@ -173,7 +173,7 @@ async function loadCompliance() {
     head.textContent = 'Requirements marked implemented in FairTPRM';
     head.hidden = false;
     row.innerHTML = live.map(f => `
-      <div class="panel" style="margin:0;padding:14px 16px">
+      <div class="panel" style="margin:0;padding:14px 16px;border:2px solid #fff">
         <div class="text-muted text-sm" style="margin-bottom:6px;font-weight:700;text-transform:uppercase;letter-spacing:.04em">${esc(f.name)}</div>
         <div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden;margin-bottom:6px">
           <div style="height:100%;width:${f.score}%;background:${f.score>=80?'var(--severity-low,#43a047)':f.score>=60?'var(--severity-medium,#f9a825)':'var(--severity-critical,#e53935)'}"></div>

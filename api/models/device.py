@@ -72,6 +72,7 @@ class Device(Base, UUIDPrimaryKey, TimestampMixin):
     edr_firewall_policy: Mapped[str | None] = mapped_column(String(64))
     edr_usb_policy: Mapped[str | None] = mapped_column(String(64))
     edr_posture: Mapped[dict | None] = mapped_column(JSON)   # the EDR's posture checks (Falcon Zero Trust Assessment)
+    pentest: Mapped[dict | None] = mapped_column(JSON)       # the newest autonomous pentest's view of it (NodeZero)
 
     # Network exposure
     is_internet_exposed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

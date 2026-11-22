@@ -93,6 +93,7 @@ def create_app() -> FastAPI:
     from api.routes.integration_truncate import router as truncate_router
     from api.routes.device_edr import router as device_edr_router
     from api.routes.hunt_data import router as hunt_data_router
+    from api.routes.email_test import router as email_test_router
     from api.routes.sla_settings import router as sla_router
     from api.routes.dashboards import fav_router as favorites_router
     from api.routes.dashboards import router as dashboards_router
@@ -151,6 +152,7 @@ def create_app() -> FastAPI:
     app.include_router(truncate_router)
     app.include_router(device_edr_router)
     app.include_router(hunt_data_router)
+    app.include_router(email_test_router)
     app.include_router(software_router)
     app.include_router(sla_router)
     app.include_router(dashboards_ai_router)

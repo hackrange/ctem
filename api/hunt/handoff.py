@@ -55,11 +55,12 @@ def ticket_text(issue: dict) -> tuple[str, str, str]:
 
 async def ticket_options(db: AsyncSession) -> dict:
     from api.core.config import get_settings
+    from api.core.email import configured as email_configured
     cfg = await _servicenow(db)
     s = get_settings()
     inbound = ((cfg.config or {}).get("inbound_email") if cfg else None) or s.servicenow_inbound_email
     return {"api": bool(cfg and (cfg.config or {}).get("base_url")),
-            "email": bool(inbound and s.email_mode != "disabled"), "inbound_email": inbound}
+            "email": bool(inbound and await email_configured()), "inbound_email": inbound}
 
 
 async def _servicenow(db: AsyncSession):

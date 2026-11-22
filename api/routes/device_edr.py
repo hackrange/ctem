@@ -124,3 +124,13 @@ async def device_posture(device_id: uuid.UUID, u: User = Depends(require_permiss
     if not d.edr_posture:
         return {"available": False, "edr": d.edr_vendor}
     return {"available": True, "edr": d.edr_vendor, **posture_view(d.edr_posture)}
+
+
+@router.get("/{device_id}/pentest")
+async def device_pentest(device_id: uuid.UUID, u: User = Depends(require_permission("devices", "read")),
+                         db: AsyncSession = Depends(get_session)):
+    """The newest autonomous pentest's view of this asset (NodeZero): its rating, attack paths, credentials, shares."""
+    d = await _device(device_id, u, db)
+    if not d.pentest:
+        return {"available": False}
+    return {"available": True, **d.pentest}

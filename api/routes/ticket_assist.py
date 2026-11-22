@@ -26,7 +26,8 @@ async def ticket_options(
     snow = (await db.execute(select(IntegrationConfig.id).where(
         IntegrationConfig.vendor == Vendor.servicenow, IntegrationConfig.is_enabled.is_(True)).limit(1))).first()
     s = get_settings()
-    email = bool(s.servicenow_inbound_email) and s.email_mode != "disabled"
+    from api.core.email import configured
+    email = bool(s.servicenow_inbound_email) and await configured()
     return {"api": snow is not None, "email": email, "copy": True}
 
 

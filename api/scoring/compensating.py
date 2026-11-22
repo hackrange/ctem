@@ -27,6 +27,7 @@ class ControlContext:
     memory_flaw: bool = False               # the flaw is memory corruption (what exploit mitigations target)
     host_firewall: tuple | None = None      # (factor, reason) for this finding's ports
     threat_actors: list | None = None       # adversaries the EDR's threat intel ties to this flaw
+    port_closed: str | None = None          # NodeZero tested the host and the port wasn't open: why, for the reason
 
 
 def apply_multipliers(base_score: float, ctx: ControlContext) -> tuple[float, list[str]]:
@@ -123,14 +124,28 @@ def reach_view(finding, contained: bool = False, attack_vector: str | None = Non
                 "reach": "Contained or not in scope: not reachable"}
     _, why = reachability(ControlContext(attack_vector=av, exposure=finding.exposure, ports=finding.ports, cloud_ports=cloud_ports,
                                          nodezero_confirmed_exploitable=bool(
-                                             finding.is_reachable and finding.reachability_source == "horizon3")))
+                                             finding.is_reachable and finding.reachability_source == "horizon3"),
+                                         port_closed=port_closed_note(finding)))
     return {"exposure": finding.exposure, "ports": finding.ports, "attack_vector": av, "reach": why or None}
 
 
+def port_closed_note(finding) -> str | None:
+    """The reason when NodeZero tested this finding's host and its port wasn't open (api/integrations/horizon3_apply.py)."""
+    if finding.is_reachable is not False or finding.reachability_source != "horizon3_closed":
+        return None
+    c = (finding.details or {}).get("nodezero_closed") or {}
+    ports = ", ".join(str(p) for p in c.get("ports") or []) or (finding.ports or "its port")
+    when = str(c.get("tested_at") or "")[:10]
+    return f"Not reachable: NodeZero tested this host{' on ' + when if when else ''} and port {ports} wasn't open (-100%)"
+
+
 def reachability(ctx: ControlContext) -> tuple[float, str]:
-    """(multiplier, reason). A finding confirmed exploitable by NodeZero is never discounted."""
+    """(multiplier, reason). A finding confirmed exploitable by NodeZero is never discounted; one whose port NodeZero
+    found closed on a host it tested isn't reachable from where an attacker would come."""
     if ctx.nodezero_confirmed_exploitable:
         return 1.0, ""
+    if ctx.port_closed:
+        return 0.0, ctx.port_closed
     av = (ctx.attack_vector or "").lower()
     if av in _AV_FACTOR:
         return _AV_FACTOR[av]

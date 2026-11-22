@@ -2,7 +2,7 @@
 // goes, what's shared with other integrations of the same vendor, and needs the integration's name typed to confirm.
 (() => {
   const $ = id => document.getElementById(id);
-  const NO_DATA = new Set(['ai', 'anthropic', 'openai', 'custom_ai', 'bedrock', 'fairtprm', 'servicenow']);
+  const NO_DATA = new Set(['ai', 'anthropic', 'openai', 'custom_ai', 'bedrock', 'fairtprm', 'servicenow', 'email']);
   const n = v => Number(v || 0).toLocaleString();
 
   window.truncateBtn = i => window._canTruncate && !NO_DATA.has(i.vendor)

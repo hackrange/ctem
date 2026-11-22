@@ -74,7 +74,7 @@ def _check_vendor_config(vendor: Vendor, config: dict) -> None:
         raise HTTPException(400, str(exc)) from exc
 
 router = APIRouter(prefix="/api/v1/integrations", tags=["integrations"])
-_VENDOR_LABELS = {"github_code_review": "GitHub Code Review (SAST and DAST)", "aws": "AWS (cloud exposure)", "azure": "Azure (cloud exposure)", "oci": "Oracle Cloud OCI (cloud exposure)"}
+_VENDOR_LABELS = {"email": "Email (SMTP or Microsoft 365)", "github_code_review": "GitHub Code Review (SAST and DAST)", "aws": "AWS (cloud exposure)", "azure": "Azure (cloud exposure)", "oci": "Oracle Cloud OCI (cloud exposure)"}
 
 
 @router.get("")

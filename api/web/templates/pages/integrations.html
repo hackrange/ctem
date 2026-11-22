@@ -116,9 +116,9 @@ const VENDOR_FIELDS = {
   ],
   // ── Pen testing ───────────────────────────────────────────────────────────
   horizon3: [
-    {key:'base_url',   label:'NodeZero URL',    type:'text',     placeholder:'https://app.horizon3.ai', required:true},
-    {key:'api_key',    label:'API Key',         type:'password', placeholder:'', required:true},
-    {key:'org_id',     label:'Organization ID', type:'text',     placeholder:'', required:false},
+    {key:'region',     label:'Region',          type:'select',   options:['us','eu','au'], optionLabels:{us:'US (api.gateway.horizon3ai.com)', eu:'EU', au:'Australia'}, required:true},
+    {key:'api_key',    label:'API Key',         type:'password', placeholder:'NodeZero portal > User > API Keys', required:true},
+    {key:'op_days',    label:'Pentests from the last (days)', type:'number', placeholder:'30', required:false},
   ],
 };
 
@@ -167,12 +167,12 @@ function _renderCards(list) {
         ${lastLabel}: ${i.last_sync_at ? new Date(i.last_sync_at).toLocaleString() : 'Never'}
         ${i.sync_schedule && !isAI ? `&nbsp;&bull;&nbsp;<span title="cron: ${esc(i.sync_schedule)}">Scheduled</span>` : ''}
       </div>${syncNote(i)}
-      <div style="display:flex;gap:8px;align-items:center">${shipper
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${shipper
         ? `<span class="chip chip--info" title="Its connection, credentials and schedule live on the shipper">Managed by a shipper</span>
            <a class="btn btn--ghost btn--sm" href="/settings/shippers">Open Shippers</a>${truncateBtn(i)}`
         : `${actionBtn}
         <button class="btn btn--ghost btn--sm" onclick="editIntegration('${esc(i.id)}')">Edit</button>
-        <button class="btn btn--ghost btn--sm" style="color:var(--severity-critical)" onclick="deleteIntegration('${esc(i.id)}')">Remove</button>${truncateBtn(i)}`}
+        <button class="btn btn--ghost btn--sm" style="color:var(--severity-critical)" onclick="deleteIntegration('${esc(i.id)}')">Remove</button>${truncateBtn(i)}${window.emailTestBtn ? emailTestBtn(i) : ''}`}
       </div>
     </div>`;
   }).join('');
@@ -494,4 +494,5 @@ document.addEventListener('DOMContentLoaded', loadIntegrations);
 </script>
 <script src="{{ static('js/integrations_rapid7.js') }}"></script>
 <script src="{{ static('js/integration_truncate.js') }}"></script>
+<script src="{{ static('js/integrations_email.js') }}"></script>
 {% endblock %}

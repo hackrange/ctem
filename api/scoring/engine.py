@@ -12,7 +12,7 @@ from sqlalchemy.orm import selectinload
 from api.models.device import Device, RiskGrade
 from api.models.risk import RiskScore, RiskScoreHistory
 from api.models.vuln import Finding, FindingStatus
-from api.scoring.compensating import ControlContext
+from api.scoring.compensating import ControlContext, port_closed_note
 from api.scoring.device_score import compute_device_score, device_grade, score_finding
 from api.scoring.user_score import compute_user_score
 
@@ -100,6 +100,7 @@ async def recalculate_device(device: Device, db: AsyncSession) -> RiskScore:
             attack_vector=f.vuln.attack_vector if f.vuln else None,
             exposure=f.exposure, ports=f.ports, cloud_ports=cloud_ports,
             threat_actors=(f.vuln.threat_actors or None) if f.vuln else None,
+            port_closed=port_closed_note(f),
             **_edr_context(edr, f),
         )
         findings_data.append({

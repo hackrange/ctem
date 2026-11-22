@@ -35,7 +35,7 @@
 </div>
 
 <div class="panel" id="dev-cloud-panel" style="margin-top:16px" hidden>
-  <div class="panel__header"><span class="panel__title">Cloud exposure</span>
+  <div class="panel__header"><span class="panel__title">Cloud firewall</span>
     <span class="text-sm text-muted">From the cloud firewall rules (security groups, NSGs, security lists)</span></div>
   <div class="panel__body" id="dev-cloud"></div>
 </div>
@@ -377,8 +377,8 @@ function firewallDialog(list) {
 // Each cloud record: where it lives, its addresses, and every open port with who can reach it
 const REACH = { internet: ['critical', 'Internet'], any_internal: ['medium', 'Any address (no public IP)'], restricted: ['low', 'Listed sources only'] };
 function cloudPanel(list) {
-  $('dev-cloud-panel').hidden = !list.length;
   if (!list.length) return;
+  AssetEdr.adopt('cloud', 'Cloud Firewall', $('dev-cloud-panel'));   // a tab beside Software, not its own panel
   $('dev-cloud').innerHTML = list.map(c => {
     const rows = (c.ports || []).map(p => {
       const [cls, label] = REACH[p.reach] || ['info', p.reach];

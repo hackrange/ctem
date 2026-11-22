@@ -93,6 +93,29 @@ window.AssetEdr = (() => {
         || '<tr><td colspan="4" class="text-muted text-sm" style="text-align:center;padding:14px">No checks reported.</td></tr>'}</tbody></table></div>`;
   }
 
+  function pentest(panel, d) {
+    const sev = { CRITICAL: 'chip--critical', HIGH: 'chip--high', MEDIUM: 'chip--medium', LOW: 'chip--low' };
+    const list = (title, head, rows) => rows.length ? `<div class="panel__header"><span class="panel__title">${esc(title)}</span></div>
+      <div style="overflow:auto"><table class="data-table"><thead><tr>${head.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table></div>` : '';
+    panel.innerHTML = `<div class="panel__header" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+        <span class="panel__title">Attacker view (autonomous pentest)${d.severity ? ` <span class="chip ${sev[d.severity] || 'chip--info'}" style="font-size:.7rem;vertical-align:middle">${esc(d.severity)}${d.score != null ? ` ${esc(d.score)}` : ''}</span>` : ''}</span>
+        <span class="text-sm text-muted">${esc(d.pentest || '')}${d.tested_at ? ` · tested ${esc(new Date(d.tested_at).toLocaleDateString())}` : ''}</span></div>
+      <div style="display:flex;gap:18px;flex-wrap:wrap;padding:10px 14px" class="text-sm">
+        ${d.domain_controller ? '<span class="chip chip--high">Domain controller</span>' : ''}${d.os ? `<span>OS <b>${esc(d.os)}</b></span>` : ''}
+        <span>Open services <b>${esc(d.services ?? '--')}</b></span><span>Weaknesses <b>${esc(d.weaknesses ?? '--')}</b></span>
+        <span>Credentials found <b>${esc(d.credentials_found ?? '--')}</b></span>${d.cloud ? `<span>Cloud <b>${esc(d.cloud)}</b></span>` : ''}</div>
+      ${list('Attack paths through this asset', ['Impact', 'How', 'Score', 'Found in'], (d.attack_paths || []).map(p => `<tr>
+          <td class="text-sm"><b>${esc(p.impact || p.impact_type || '')}</b></td><td class="text-sm">${esc(p.name || '')}<div class="text-muted" style="font-size:.75rem">${esc(p.where || '')}</div></td>
+          <td><span class="chip ${sev[p.severity] || 'chip--info'}">${esc(p.score ?? '')}</span></td>
+          <td class="text-sm text-muted">${p.minutes_to_find != null ? `${esc(p.minutes_to_find)} min` : ''}</td></tr>`))}
+      ${list('Credentials it found here', ['Account', 'Type', 'How'], (d.credentials || []).map(c => `<tr>
+          <td class="text-sm text-mono">${esc(c.user || '')}${c.domain_admin ? ' <span class="chip chip--critical" style="font-size:.65rem">domain admin</span>' : ''}</td>
+          <td class="text-sm">${esc((c.type || '').replace(/_/g, ' ').toLowerCase())}</td>
+          <td class="text-sm text-muted">${[c.cracked ? 'cracked' : '', c.proved ? 'proved working' : ''].filter(Boolean).join(', ') || 'found'}</td></tr>`))}
+      ${list('Data it could reach', ['Where', 'Type'], (d.data_stores || []).map(s => `<tr><td class="text-sm text-mono">${esc(s.name || '')}${s.port ? `:${esc(s.port)}` : ''}</td>
+          <td class="text-sm">${esc(s.type || '')}</td></tr>`))}`;
+  }
+
   async function one(id, kind, label, draw) {
     let d;
     try {
@@ -107,10 +130,30 @@ window.AssetEdr = (() => {
     if (location.hash === `#${kind}`) AssetSoftware.show(kind);
   }
 
+  // An existing panel of the page (the cloud firewall) shown as a tab instead
+  function adopt(key, label, panel) {
+    const bar = document.querySelector('.dev-tabs');
+    if (!bar || !panel || $(`tab-${key}`)) return;
+    const tab = document.createElement('button');
+    Object.assign(tab, { type: 'button', id: `tab-${key}`, textContent: label });
+    tab.setAttribute('role', 'tab');
+    tab.setAttribute('aria-controls', panel.id);
+    tab.setAttribute('aria-selected', 'false');
+    tab.onclick = () => AssetSoftware.show(key);
+    bar.insertBefore(tab, $('tab-software') ? $('tab-software').nextSibling : null);
+    panel.setAttribute('role', 'tabpanel');
+    panel.setAttribute('aria-labelledby', tab.id);
+    panel.style.marginTop = '0';
+    panel.hidden = true;
+    $('dev-software-panel').after(panel);
+    if (location.hash === `#${key}`) AssetSoftware.show(key);
+  }
+
   function mount(id) {
     one(id, 'firewall', 'Firewall', firewall);
     one(id, 'usb', 'USB', usb);
     one(id, 'posture', 'Posture', posture);
+    one(id, 'pentest', 'Pentest', pentest);
   }
-  return { mount };
+  return { mount, adopt };
 })();
