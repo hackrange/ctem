@@ -9,12 +9,20 @@ from __future__ import annotations
 import re
 
 _SUFFIX = re.compile(r"[,\s]+(inc|incorporated|corp|corporation|co|company|llc|l\.l\.c|ltd|limited|gmbh|ag|s\.a|sa|bv|"
-                     r"b\.v|plc|pty|srl|s\.r\.l|oy|ab|as|kk)\.?$", re.I)
+                     r"b\.v|plc|pty|srl|s\.r\.l|s\.r\.o|sro|spol|oy|ab|as|kk|nv|n\.v|pte|sas|spa|s\.p\.a|ltda|sl|s\.l|a\.s)\.?$", re.I)
 _ALIASES = {"microsoft corporation": "Microsoft", "google llc": "Google", "google inc": "Google", "mozilla": "Mozilla",
             "the mozilla organization": "Mozilla", "adobe systems": "Adobe", "adobe systems incorporated": "Adobe",
             "oracle america": "Oracle", "oracle corporation": "Oracle", "vmware": "VMware", "vmware, inc.": "VMware",
             "apple": "Apple", "apple inc": "Apple", "cisco systems": "Cisco", "zoom video communications": "Zoom",
-            "the apache software foundation": "Apache", "apache software foundation": "Apache"}
+            "the apache software foundation": "Apache", "apache software foundation": "Apache",
+            "hewlett-packard": "HP", "hewlett packard": "HP", "hewlett-packard development company": "HP",
+            "hewlett packard enterprise": "HPE", "hp inc": "HP", "adobe inc": "Adobe", "citrix systems": "Citrix",
+            "dell inc": "Dell", "dell technologies": "Dell", "lenovo group": "Lenovo"}
+# Words that don't identify a vendor in a product name ("Reolink" does for "Shenzhen Reolink Technology")
+_GENERIC = {"the", "software", "technology", "technologies", "systems", "solutions", "group", "international",
+            "development", "computer", "corporation", "labs", "studio", "studios", "digital", "network", "networks",
+            "foundation", "team", "project", "community"}
+_HOST = re.compile(r"\s+[a-z0-9-]+(?:\.[a-z0-9-]+){2,}\s*$", re.I)   # a server name some installers append
 _ARCH = re.compile(r"\([^()]*\b(?:x64|x86|amd64|arm64|64-bit|32-bit|[a-z]{2}-[a-z]{2})\b[^()]*\)|"
                    r"\b(?:x64|x86|amd64|arm64|win64|win32|64-bit|32-bit|64 bit|32 bit)\b", re.I)
 _EMPTY = re.compile(r"\(\s*\)|\[\s*\]|\s+-\s+[a-z]{2}-[a-z]{2}\s*$", re.I)
@@ -39,7 +47,7 @@ _SYSTEM_NAMES = re.compile(
 
 def vendor(raw: str | None) -> str:
     v = " ".join(str(raw or "").replace("®", "").replace("™", "").split()).strip(" ,.")
-    if not v:
+    if not v or re.search(r"[\\/]", v):   # a registry or file path some installers leave as the publisher
         return ""
     low = v.lower()
     if low in _ALIASES:
@@ -54,7 +62,7 @@ def title(name: str | None, vendor_name: str = "") -> str:
     n = " ".join(str(name or "").replace("®", "").replace("™", "").split())
     for _ in range(3):
         before = n
-        n = _EMPTY.sub(" ", _ARCH.sub(" ", n))
+        n = _EMPTY.sub(" ", _ARCH.sub(" ", _HOST.sub("", n)))
         n = _SPACE.sub(" ", n).strip(" -_,")
         n = _VERSION.sub("", n).strip(" -_,")
         cut = _EDITION.sub("", n).strip(" -_,")
@@ -64,8 +72,10 @@ def title(name: str | None, vendor_name: str = "") -> str:
             break
     if not n:
         return ""
-    first = vendor_name.split(" ")[0].lower() if vendor_name else ""
-    if first and not n.lower().startswith(first) and first not in ("the",):
+    words = [w for w in re.findall(r"[a-z0-9+]+", vendor_name.lower()) if w not in _GENERIC and len(w) > 1]
+    named = set(re.findall(r"[a-z0-9+]+", n.lower()))
+    if words and not named & set(words) and not vendor_name.lower().startswith("the "):   # led by its vendor
+        # unless the name already says who makes it (or the vendor is an organization: "The Document Foundation")
         n = f"{vendor_name} {n}"
     return n[:200]
 

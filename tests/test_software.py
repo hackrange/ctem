@@ -210,3 +210,50 @@ async def test_per_asset_exceptions_and_file_details(db, client_admin, client_it
     assert next(s for s in (await client_admin.get(f"/api/v1/software/device/{a.id}")).json()["software"] if s["id"] == tid)["status_here"] == "unauthorized"
     assert (await client_admin.delete(f"/api/v1/software/{chrome}/exceptions/{b.id}")).json()["ok"]
     assert (await client_admin.delete(f"/api/v1/software/{chrome}/exceptions/{b.id}")).status_code == 404
+
+
+def test_names_from_real_inventories():
+    from api.core.software_norm import normalize as n
+    assert n("JetBrains s.r.o.", "PyCharm Community")["title"] == "JetBrains PyCharm"
+    assert n("Hewlett-Packard", "HP Smart")["vendor"] == "HP" and n("HP Inc.", "HP Smart")["key"] == n("Hewlett-Packard", "HP Smart")["key"]
+    assert n("AcmeSoftware\\Acme-Browser", "Acme OnlineExpress") == {"key": "|acme onlineexpress", "vendor": "",
+                                                                    "title": "Acme OnlineExpress", "system": False}
+    assert n("Shenzhen Acmecam Technology Co., Ltd.", "Acmecam")["title"] == "Acmecam"
+    assert n("BeyondTrust", "Remote Support Jump Client remotesupport.acme.example.com")["title"] == "BeyondTrust Remote Support Jump Client"
+    assert n("The Document Foundation", "LibreOffice 24.2")["title"] == "LibreOffice"
+    assert n("Node.js Foundation", "Node.js")["title"] == "Node.js"
+
+
+@pytest.mark.asyncio
+async def test_renormalize_regroups_and_a_software_run_mirrors_the_source(db):
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import select
+
+    from api.core.software_ingest import prune_run
+    from api.maintenance.renormalize_software import run
+    from api.models.device import Device, DeviceType
+    from api.models.software import SoftwareInstall, SoftwareTitle
+    n = uuid.uuid4().hex[:6]
+    d = Device(hostname=f"ws-rn-{n}", device_type=DeviceType.workstation)
+    old = SoftwareTitle(key=f"jetbrains s.r.o|jetbrains s.r.o pycharm{n}", vendor="JetBrains s.r.o", title=f"JetBrains s.r.o PyCharm{n}")
+    db.add_all([d, old])
+    await db.flush()
+    db.add(SoftwareInstall(title_id=old.id, device_id=d.id, version="2024.1", source="t_rn", product=f"PyCharm{n} Community",
+                           last_seen=datetime.now(timezone.utc)))
+    await db.commit()
+    out = await run(db)
+    assert out["installs_moved"] >= 1
+    t = (await db.execute(select(SoftwareTitle).where(SoftwareTitle.key == f"jetbrains|jetbrains pycharm{n}"))).scalar_one()
+    assert (await db.execute(select(SoftwareInstall).where(SoftwareInstall.title_id == t.id))).scalar_one().version == "2024.1"
+    assert (await db.execute(select(SoftwareTitle).where(SoftwareTitle.key == old.key))).scalar_one_or_none() is None
+
+    start = datetime.now(timezone.utc)
+    stale = SoftwareInstall(title_id=t.id, device_id=d.id, version="2023.1", source="t_rn", last_seen=start - timedelta(hours=1))
+    db.add(stale)
+    await db.commit()
+    assert await prune_run(db, "t_rn", start) == 0        # this run sent no software: nothing touched
+    (await db.execute(select(SoftwareInstall).where(SoftwareInstall.version == "2024.1", SoftwareInstall.source == "t_rn"))
+     ).scalar_one().last_seen = datetime.now(timezone.utc)
+    await db.commit()
+    assert await prune_run(db, "t_rn", start) == 1        # it did: what it no longer reports goes

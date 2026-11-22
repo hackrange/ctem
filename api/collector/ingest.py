@@ -130,6 +130,9 @@ async def track_run(db: AsyncSession, cfg: IntegrationConfig, run_id: str, count
     if final:
         job.status, job.finished_at = SyncStatus.success, now
         cfg.last_sync_at, cfg.last_sync_status, cfg.last_sync_error = now, SyncStatus.success, job.error_message
+        if KIND_FOR_VENDOR.get(cfg.vendor) == "rapid7_console" and job.started_at:
+            from api.core.software_ingest import prune_run
+            await prune_run(db, "rapid7_insightvm", job.started_at)   # a full software pass mirrors the console
     return job
 
 

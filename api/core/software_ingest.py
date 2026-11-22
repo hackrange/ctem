@@ -90,3 +90,18 @@ async def prune(db: AsyncSession) -> int:
     r = await db.execute(delete(SoftwareInstall).where(SoftwareInstall.last_seen < cut))
     await db.commit()
     return r.rowcount or 0
+
+
+async def prune_run(db: AsyncSession, source: str, started) -> int:
+    """After a run that reported software, drop that source's installs it no longer reports (uninstalled, or
+    named differently now). A run that sent no software leaves everything as it was."""
+    from sqlalchemy import delete, exists
+
+    from api.models.software import SoftwareInstall
+    sent = (await db.execute(select(exists().where(SoftwareInstall.source == source,
+                                                   SoftwareInstall.last_seen >= started)))).scalar()
+    if not sent:
+        return 0
+    r = await db.execute(delete(SoftwareInstall).where(SoftwareInstall.source == source, SoftwareInstall.last_seen < started)
+                         .execution_options(synchronize_session=False))
+    return r.rowcount or 0
