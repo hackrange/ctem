@@ -38,14 +38,30 @@ def regions_of(config: dict) -> list[str]:
     return [r.strip().lower() for r in raw.split(",") if r.strip()][:30]
 
 
+# The only AWS actions CTEM may call. The SDK signs them all as POST, so the action is what's checked
+READ_ONLY = frozenset({"AssumeRole", "GetCallerIdentity", "DescribeRegions", "DescribeInstances",
+                       "DescribeNetworkInterfaces", "DescribeSecurityGroups", "DescribeNetworkAcls"})
+
+
+def _only_reads(model, **_):
+    if model.name not in READ_ONLY:
+        raise PermissionError(f"AWS action {model.name} is not on CTEM's read-only list")
+
+
+def _guarded(s):
+    s.events.register("before-call", _only_reads)   # every client made from this session inherits it
+    return s
+
+
 def _session(config: dict):
     import boto3
-    s = boto3.session.Session(aws_access_key_id=config["access_key_id"], aws_secret_access_key=config["secret_access_key"])
+    s = _guarded(boto3.session.Session(aws_access_key_id=config["access_key_id"],
+                                       aws_secret_access_key=config["secret_access_key"]))
     if config.get("role_arn"):
         creds = s.client("sts", region_name="us-east-1").assume_role(
             RoleArn=config["role_arn"], RoleSessionName="open-ctem", DurationSeconds=3600)["Credentials"]
-        s = boto3.session.Session(aws_access_key_id=creds["AccessKeyId"], aws_secret_access_key=creds["SecretAccessKey"],
-                                  aws_session_token=creds["SessionToken"])
+        s = _guarded(boto3.session.Session(aws_access_key_id=creds["AccessKeyId"], aws_secret_access_key=creds["SecretAccessKey"],
+                                           aws_session_token=creds["SessionToken"]))
     return s
 
 

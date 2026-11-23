@@ -6,6 +6,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 ## [Unreleased]
 
 ### Security
+- **Vendor tenants are read, never changed.** The AWS connector can now run only seven read-only actions (DescribeRegions, DescribeInstances, DescribeNetworkInterfaces, DescribeSecurityGroups, DescribeNetworkAcls, GetCallerIdentity, AssumeRole); anything else is refused before it leaves the server, even if IAM would allow it. Tests pin each Rapid7 connector and OCI to the calls they make today: OCI and InsightCloudSec send only GET, InsightVM Cloud only its two read-only searches, and InsightAppSec only its read-only search.
 - **Only admins do admin things.** The cyber role could open the Admin, Integrations, API tokens, SSO and shippers pages, saw them in the sidebar, could read integration settings and the API docs, and any signed-in user could mint their own API tokens. Those pages, the API docs and the integration endpoints are now admin-only (a page tag can't open them either), and only admins mint API tokens. An admin can mint one that runs as another account (for example an inventory service account for scripts), and it carries that account's own permissions; every token minted is in the Audit Log.
 
 ### Fixed
