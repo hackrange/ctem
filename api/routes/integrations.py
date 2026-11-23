@@ -14,8 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 log = logging.getLogger("open-ctem.integrations")
 
-from api.auth.middleware import get_current_user
-from api.auth.rbac import require_admin, require_cyber_or_admin
+from api.auth.rbac import require_admin
 from api.core.db import get_session
 from api.models.integration import IntegrationConfig, SyncJob, Vendor
 from api.models.user import User
@@ -79,7 +78,7 @@ _VENDOR_LABELS = {"email": "Email (SMTP or Microsoft 365)", "github_code_review"
 
 @router.get("")
 async def list_integrations(
-    u: User = Depends(require_cyber_or_admin),
+    u: User = Depends(require_admin),
     db: AsyncSession = Depends(get_session),
 ):
     result = await db.execute(select(IntegrationConfig).order_by(IntegrationConfig.vendor))
@@ -99,7 +98,7 @@ async def _shipper_owned(db) -> set[str]:
 
 @router.get("/vendors")
 async def list_vendors(
-    _: User = Depends(require_cyber_or_admin),
+    _: User = Depends(require_admin),
 ):
     """All vendor slugs supported by this instance -- for the add-integration modal."""
     return {
@@ -210,7 +209,7 @@ async def create_integration(
 @router.get("/{integration_id}")
 async def get_integration(
     integration_id: uuid.UUID,
-    _: User = Depends(require_cyber_or_admin),
+    _: User = Depends(require_admin),
     db: AsyncSession = Depends(get_session),
 ):
     result = await db.execute(select(IntegrationConfig).where(IntegrationConfig.id == str(integration_id)))
@@ -340,7 +339,7 @@ async def test_connection(
 @router.get("/{integration_id}/jobs")
 async def list_sync_jobs(
     integration_id: uuid.UUID,
-    _: User = Depends(require_cyber_or_admin),
+    _: User = Depends(require_admin),
     db: AsyncSession = Depends(get_session),
 ):
     result = await db.execute(

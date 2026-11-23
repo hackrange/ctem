@@ -35,7 +35,10 @@ do_backup() {
         "SELECT extversion FROM pg_extension WHERE extname = 'timescaledb'" </dev/null | tr -d '\r') \
     || die "Could not read from the database."
 
-  mkdir -p "$outdir"; chmod 700 "$outdir"
+  # The app reads ./backups (group root, read-only mount) to list and download them; anywhere else stays root-only
+  local dmode=700 fmode=600
+  [[ "$(realpath -m -- "$outdir")" != "$(realpath -m -- "${INSTALL_DIR}/backups")" ]] || { dmode=750; fmode=640; }
+  mkdir -p "$outdir"; chmod "$dmode" "$outdir"
   stamp=$(date -u +%Y%m%d-%H%M%SZ)
   BACKUP_FILE="${outdir%/}/ctem-$(hostname -s)-${stamp}.ctembak"
   tmp=$(mktemp -d); chmod 700 "$tmp"
@@ -72,7 +75,7 @@ do_backup() {
 
   say "Checking the backup opens and every file inside matches its checksum..."
   CTEM_BACKUP_PASSWORD="$pw" archive verify --in "$BACKUP_FILE" >/dev/null || { rm -f "$BACKUP_FILE"; die "The new backup did not verify; nothing was kept."; }
-  chmod 600 "$BACKUP_FILE"
+  chown 0:0 "$BACKUP_FILE"; chmod "$fmode" "$BACKUP_FILE"
   ok "Backup ready: ${BACKUP_FILE} ($(du -h "$BACKUP_FILE" | cut -f1))"
   if (( custom )); then
     hint "It opens only with the password you just typed. Keep it in a password manager."

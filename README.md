@@ -343,6 +343,24 @@ sudo bash /data/docker/ctem/install.sh --restore /root/ctem-server001-20261123-0
 
 It asks you to type `RESTORE`, takes a safety backup of the current server first, keeps the old `.env` as `.env.pre-restore-<time>`, and signs everyone out. A backup only restores onto the same or newer open-ctem code; restoring onto older code is refused. For unattended runs, `CTEM_BACKUP_PASSWORD` supplies the password and `CTEM_RESTORE_CONFIRM=RESTORE` the confirmation.
 
+### Admin > Maintenance
+
+Admins get the same backups and restores in the web UI under **Admin > Maintenance**:
+
+- **Backups:** take one now (locked with the server's password, or one you type for that backup), download or delete backups, and turn on daily backups at a set hour (UTC) that keep the newest N. Backups you take by hand, safety backups and uploads are never deleted automatically. The page warns when daily backups are on but the newest is over 26 hours old, or when `BACKUP_ENCRYPTION_PASSWORD` is missing or weak.
+- **Restore:** pick a backup on the server or upload one, enter its password and check it opens (it shows where and when it was taken), type `RESTORE`, and follow the progress while the app restarts. Very large backups are easier to copy into the install's `backups/` folder with scp; they show up in the list.
+
+The web app never touches the host itself. A small root-owned agent (`api/maintenance/host_agent.py`, run by the systemd units `ctem-maintenance.path` and `ctem-maintenance.timer`) picks up requests the page drops into `run/spool/inbox`, checks each one as untrusted input and runs the same `install.sh --backup` or `--restore` described above. The app can write only to `run/spool`; the agent's status and the backups are mounted into it read-only. Passwords sent to the agent are sealed to its own key (X25519 + AES-256-GCM) and never sit on disk in plain text.
+
+Controls on top of admin-only access:
+
+- Downloading or deleting a backup, changing the schedule and anything to do with restore need a fresh **step-up**: your password again (plus your TOTP code when enrolled). SSO-only accounts must have signed in within the last 10 minutes. A step-up lasts 10 minutes, five wrong tries lock it for 15, and API tokens never qualify.
+- A restore started from the page keeps this server's `docker-compose.override.yml` and `nginx.conf`, and every restore drops `COMPOSE_*` and `DOCKER_*` settings from the backup's `.env`, so a backup file can't decide what containers may touch on the host.
+- `MAINTENANCE_UI_RESTORE=false` in `.env` turns restores from the page off (command line only). `MAINTENANCE_UPLOAD_MAX_GB` (default 50) caps uploads.
+- Every request is in the Audit Log, and Recent activity on the page shows each job with its full log.
+
+A command-line and a page job never overlap: they take turns on one lock. New installs set the agent up automatically. A server installed before it existed gets it on the next `--upgrade` after this one, or right away with `sudo bash /data/docker/ctem/install.sh --maintenance-setup`.
+
 ### Development without the installer
 
 ```bash
@@ -350,7 +368,7 @@ cp .env.example .env
 # Fill in real values (generate keys with: python3 -c "import secrets; print(secrets.token_hex(32))")
 docker compose -f docker/docker-compose.yml --env-file .env up -d
 # App:   https://localhost
-# Docs:  https://localhost/api/docs  (signed-in admin or cyber analyst)
+# Docs:  https://localhost/api/docs  (signed-in admins)
 ```
 
 ### Upgrading a server
@@ -393,8 +411,8 @@ python3 -m venv /tmp/sbom-env && /tmp/sbom-env/bin/pip install -r requirements.t
 
 | Role | Access |
 |---|---|
-| `admin` | Everything -- user management, config, all data |
-| `cyber` | All risk data, threat module, hunt, integrations (read) |
+| `admin` | Everything -- user management, config, all data. The only role that sees Admin, Integrations, API tokens, SSO, shippers, Maintenance and the API docs |
+| `cyber` | All risk data, threat module, hunt, exceptions; nothing administrative |
 | `it_user` | Devices and findings scoped to their assigned tags |
 | `business_stakeholder` | Dashboard and risk summary scoped to their tags |
 | `read_only` | Dashboard only |
@@ -412,7 +430,7 @@ Roles are fully customizable -- create new ones, duplicate existing ones, assign
 | `PUT /api/v1/devices/{id}/status` `{"status", "carrier", "tracking_number", "note"}` | Set status; `shipped` needs a carrier and tracking number, `null` puts it back in use |
 | `GET /api/v1/devices/assignable-users?q=` | Directory users for a picker |
 
-Use an API token (`Authorization: Bearer ...`) owned by an admin or inventory user. Interactive docs for every endpoint are at `/api/docs` for signed-in admins and cyber analysts.
+Use an API token (`Authorization: Bearer ...`). Only admins mint tokens; for a script that should run with inventory rights, an admin fills in **Runs as** with the inventory account's username, and the token carries that account's permissions. Interactive docs for every endpoint are at `/api/docs` for signed-in admins.
 
 ---
 
@@ -449,13 +467,13 @@ api/
   core/        Config, DB, encryption, SSRF client, Celery tasks, security middleware
   collector/   On-prem shipper: ingest + profile rules (server) and agent/ (the code installed on the box)
   integrations/ Vendor connectors (one file per vendor)
-  maintenance/ Data repair commands, backup archive format, post-restore key check
+  maintenance/ Data repair commands, backup archive format, post-restore key check, host maintenance agent
   models/      SQLAlchemy ORM models
   routes/      FastAPI route handlers
   scoring/     Risk engine: compensating controls, CVE chains, device/user scores
   web/         Jinja2 templates + static assets
 docker/        Dockerfile, docker-compose.yml, nginx.conf
-scripts/installer/  install.sh helpers: dependencies, backup, restore
+scripts/installer/  install.sh helpers: dependencies, backup, restore, maintenance agent
 get-ctem.sh    One-line bootstrap: checks Ubuntu, installs git, clones, runs install.sh
 ```
 

@@ -1,10 +1,10 @@
-"""REST API docs for signed-in admins and cyber analysts; anonymous visitors don't get a map of the API."""
+"""REST API docs for signed-in admins; anonymous visitors don't get a map of the API."""
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from api.auth.rbac import require_cyber_or_admin
+from api.auth.rbac import require_admin
 from api.models.user import User
 
 router = APIRouter(include_in_schema=False)
@@ -28,10 +28,10 @@ window.ui = SwaggerUIBundle({{ url: "/api/openapi.json", dom_id: "#swagger-ui", 
 
 
 @router.get("/api/openapi.json")
-async def openapi_json(request: Request, _: User = Depends(require_cyber_or_admin)):
+async def openapi_json(request: Request, _: User = Depends(require_admin)):
     return JSONResponse(request.app.openapi())
 
 
 @router.get("/api/docs")
-async def api_docs(_: User = Depends(require_cyber_or_admin)):
+async def api_docs(_: User = Depends(require_admin)):
     return HTMLResponse(_PAGE)

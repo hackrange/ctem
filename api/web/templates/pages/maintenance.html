@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+{% set active_nav = 'admin' %}
+{% set admin_tab = 'maintenance' %}
+
+{% block title %}Maintenance -- open-ctem{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-header__title">Maintenance</h1>
+    <p class="page-header__sub">Encrypted backups of everything on this server, and restores from them</p>
+  </div>
+</div>
+{% include "partials/admin_tabs.html" %}
+
+<nav class="mt-subtabs" aria-label="Maintenance sections">
+  <a href="#backups" data-sub="backups" class="mt-subtab is-active">Backups</a>
+  <a href="#restore" data-sub="restore" class="mt-subtab">Restore</a>
+</nav>
+
+<div id="mt-alerts"></div>
+
+<!-- Backups -->
+<section id="sub-backups">
+  <div class="mt-cards">
+    <div class="panel mt-card"><div class="mt-card__label">Maintenance agent</div><div id="mt-agent" class="mt-card__value">...</div></div>
+    <div class="panel mt-card"><div class="mt-card__label">Newest backup</div><div id="mt-newest" class="mt-card__value">...</div></div>
+    <div class="panel mt-card"><div class="mt-card__label">Free space for backups</div><div id="mt-disk" class="mt-card__value">...</div></div>
+    <div class="panel mt-card"><div class="mt-card__label">Server backup password</div><div id="mt-defpw" class="mt-card__value">...</div></div>
+  </div>
+
+  <div class="panel mt-panel">
+    <div class="mt-row mt-row--split">
+      <h2 class="mt-h">Backups on this server</h2>
+      <button class="btn btn--primary btn--sm" id="mt-new-backup">Back up now</button>
+    </div>
+    <p class="mt-help">Each backup is one encrypted file with the database, settings and encryption keys, TLS certificate,
+      local overrides and uploaded files. Anyone with a backup and its password has everything, so keep both safe and apart.</p>
+    <table class="data-table">
+      <thead><tr><th>File</th><th>Taken</th><th>Size</th><th>Type</th><th>Password</th><th></th></tr></thead>
+      <tbody id="mt-backups"><tr><td colspan="6" class="text-muted text-sm mt-empty">Loading...</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="panel mt-panel">
+    <h2 class="mt-h">Daily backups</h2>
+    <div class="mt-row">
+      <label class="mt-check"><input type="checkbox" id="mt-sched-on"> Back up every day</label>
+      <label class="mt-inline">at <select id="mt-sched-hour" class="form-input mt-small"></select> <span id="mt-sched-local" class="text-muted text-sm"></span></label>
+      <label class="mt-inline">keep the newest <input id="mt-sched-keep" type="number" min="1" max="90" class="form-input mt-small"> daily backups</label>
+      <button class="btn btn--ghost btn--sm" id="mt-sched-save">Save</button>
+    </div>
+    <p class="mt-help">Daily backups use BACKUP_ENCRYPTION_PASSWORD from the server's .env. Backups you take by hand,
+      safety backups and uploads are never deleted automatically. <span id="mt-sched-last"></span></p>
+  </div>
+
+  <div class="panel mt-panel">
+    <h2 class="mt-h">Recent activity</h2>
+    <table class="data-table">
+      <thead><tr><th>Started</th><th>What</th><th>By</th><th>Result</th><th></th></tr></thead>
+      <tbody id="mt-jobs"><tr><td colspan="5" class="text-muted text-sm mt-empty">Loading...</td></tr></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- Restore -->
+<section id="sub-restore" style="display:none">
+  <div class="panel mt-panel mt-warn">
+    <b>A restore replaces everything on this server</b> with the backup: data, users, settings and encryption keys.
+    The agent takes a safety backup first, and the app is offline for a few minutes while it runs. Everyone,
+    you included, may need to sign in again afterward. This server keeps its own docker-compose.override.yml and nginx.conf.
+  </div>
+  <div id="mt-restore-off" class="panel mt-panel mt-warn" style="display:none">
+    Restores from this page are turned off on this server (MAINTENANCE_UI_RESTORE=false).
+    Run <code>sudo bash install.sh --restore FILE</code> on the server instead.
+  </div>
+
+  <div class="panel mt-panel">
+    <h2 class="mt-h">1. Pick the backup</h2>
+    <div class="mt-row">
+      <select id="mt-r-source" class="form-input mt-wide"></select>
+    </div>
+    <div class="mt-row">
+      <label class="btn btn--ghost btn--sm mt-file">Upload a .ctembak file<input type="file" id="mt-upload" accept=".ctembak" hidden></label>
+      <span id="mt-upload-status" class="text-sm text-muted"></span>
+    </div>
+    <p class="mt-help">Large backups upload slowly through a browser. You can also copy the file into the
+      <code>backups</code> folder of the open-ctem install on the server (for example with scp); it shows up in the list above.</p>
+  </div>
+
+  <div class="panel mt-panel">
+    <h2 class="mt-h">2. Check it opens</h2>
+    <div class="mt-row">
+      <input id="mt-r-password" type="password" class="form-input mt-wide" autocomplete="off" maxlength="1024" placeholder="The backup's password">
+      <button class="btn btn--ghost btn--sm" id="mt-r-check">Check backup</button>
+    </div>
+    <div id="mt-r-manifest"></div>
+  </div>
+
+  <div class="panel mt-panel" id="mt-r-go-panel" style="display:none">
+    <h2 class="mt-h">3. Restore</h2>
+    <div class="mt-row">
+      <input id="mt-r-confirm" class="form-input mt-small" autocomplete="off" maxlength="10" placeholder="RESTORE">
+      <span class="text-sm text-muted">Type RESTORE to confirm.</span>
+      <button class="btn btn--danger btn--sm" id="mt-r-go" disabled>Restore this backup</button>
+    </div>
+  </div>
+
+  <div class="panel mt-panel" id="mt-r-progress" style="display:none">
+    <h2 class="mt-h">Restore progress</h2>
+    <div id="mt-r-state" class="mt-state"></div>
+    <pre id="mt-r-log" class="mt-log"></pre>
+  </div>
+</section>
+
+<!-- Back up now -->
+<div id="mt-backup-modal" class="modal-overlay" style="display:none">
+  <div class="modal-box" style="max-width:480px">
+    <div class="modal-header"><h2 class="modal-title">Back up now</h2>
+      <button class="modal-close" data-close="mt-backup-modal" aria-label="Close">&times;</button></div>
+    <div class="modal-body">
+      <label class="mt-radio"><input type="radio" name="mt-pwmode" value="default" checked>
+        Lock it with the server's backup password (BACKUP_ENCRYPTION_PASSWORD)</label>
+      <label class="mt-radio"><input type="radio" name="mt-pwmode" value="custom"> Set a password for this backup only</label>
+      <div id="mt-custom-pw" style="display:none">
+        <input id="mt-pw1" type="password" class="form-input" autocomplete="new-password" maxlength="1024" placeholder="Password (16+ characters)">
+        <input id="mt-pw2" type="password" class="form-input" autocomplete="new-password" maxlength="1024" placeholder="Same password again">
+        <p class="mt-help">Use three of lowercase, uppercase, digits and symbols, or 24+ characters. It is never stored;
+          lose it and the backup can't be opened.</p>
+      </div>
+      <div id="mt-backup-err" class="mt-err"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn--ghost btn--sm" data-close="mt-backup-modal">Cancel</button>
+      <button class="btn btn--primary btn--sm" id="mt-backup-go">Start backup</button>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm it's you -->
+<div id="mt-stepup-modal" class="modal-overlay" style="display:none">
+  <div class="modal-box" style="max-width:420px">
+    <div class="modal-header"><h2 class="modal-title">Confirm it's you</h2>
+      <button class="modal-close" data-close="mt-stepup-modal" aria-label="Close">&times;</button></div>
+    <div class="modal-body">
+      <p class="mt-help">Backups hold every secret on this server, so this needs a fresh check. It lasts 10 minutes.</p>
+      <input id="mt-su-password" type="password" class="form-input" autocomplete="current-password" maxlength="1024" placeholder="Your password">
+      <input id="mt-su-code" class="form-input" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6-digit code from your authenticator app">
+      <p id="mt-su-sso" class="mt-help" style="display:none">Your account signs in with SSO. If this fails, sign out and back in, then try again within 10 minutes.</p>
+      <div id="mt-su-err" class="mt-err"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn--ghost btn--sm" data-close="mt-stepup-modal">Cancel</button>
+      <button class="btn btn--primary btn--sm" id="mt-su-go">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- Job log -->
+<div id="mt-log-modal" class="modal-overlay" style="display:none">
+  <div class="modal-box" style="max-width:820px">
+    <div class="modal-header"><h2 class="modal-title" id="mt-log-title">Log</h2>
+      <button class="modal-close" data-close="mt-log-modal" aria-label="Close">&times;</button></div>
+    <div class="modal-body"><pre id="mt-log-body" class="mt-log"></pre></div>
+  </div>
+</div>
+
+<style>
+  .mt-subtabs{display:flex;gap:4px;margin:-8px 0 16px}
+  .mt-subtab{padding:6px 14px;border-radius:6px;color:var(--fg-muted);text-decoration:none;font-size:.9rem}
+  .mt-subtab.is-active{background:var(--accent-dim);color:var(--accent);font-weight:600}
+  .mt-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px;margin-bottom:16px}
+  .mt-card{padding:14px 16px}
+  .mt-card__label{font-size:.78rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em}
+  .mt-card__value{font-size:1rem;font-weight:600;margin-top:6px}
+  .mt-panel{padding:18px 20px;margin-bottom:16px}
+  .mt-h{font-size:1rem;margin:0 0 10px}
+  .mt-help{font-size:.82rem;color:var(--text-muted);margin:8px 0}
+  .mt-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:8px}
+  .mt-row--split{justify-content:space-between}
+  .mt-inline,.mt-check{display:flex;gap:6px;align-items:center;font-size:.9rem}
+  .mt-small{width:auto;min-width:90px}
+  .mt-wide{flex:1;min-width:240px}
+  .mt-radio{display:flex;gap:8px;align-items:flex-start;margin-bottom:10px;font-size:.9rem}
+  #mt-custom-pw .form-input,#mt-stepup-modal .form-input{margin-bottom:8px;width:100%}
+  .mt-err{color:var(--severity-critical);font-size:.85rem;min-height:1em}
+  .mt-warn{border-left:3px solid var(--severity-high);font-size:.9rem;line-height:1.5}
+  .mt-ok{color:var(--severity-low)} .mt-bad{color:var(--severity-critical)} .mt-meh{color:var(--severity-medium)}
+  .mt-log{max-height:420px;overflow:auto;font-size:.78rem;background:var(--surface);border:1px solid var(--border);
+          border-radius:6px;padding:10px;white-space:pre-wrap;word-break:break-word;margin:0}
+  .mt-state{font-weight:600;margin-bottom:10px}
+  .mt-empty{text-align:center;padding:20px}
+  .mt-file{cursor:pointer}
+  .mt-manifest{display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;font-size:.88rem;margin-top:10px}
+  .mt-manifest dt{color:var(--text-muted)} .mt-manifest dd{margin:0;word-break:break-all}
+  .data-table td .btn{margin-left:4px}
+</style>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ static('js/maintenance.js') }}"></script>
+<script src="{{ static('js/maintenance_restore.js') }}"></script>
+{% endblock %}

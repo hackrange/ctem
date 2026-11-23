@@ -13,6 +13,10 @@ services:
     restart: unless-stopped
     volumes:
       - app_uploads:/app/uploads
+      # Admin > Maintenance: the host agent's spool (requests, uploads), its status and the backups, read-only
+      - ../run/spool:/srv/ctem/spool
+      - ../run/state:/srv/ctem/state:ro
+      - ../backups:/srv/ctem/backups:ro
 
   worker:
     build:

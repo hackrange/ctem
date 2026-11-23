@@ -181,7 +181,7 @@ async def test_inventory_rest_api_with_a_bearer_token(db, client, api_token_for)
 
 
 @pytest.mark.asyncio
-async def test_api_docs_only_for_signed_in_admin_or_cyber(client_no_auth, client_read_only, client_admin):
+async def test_api_docs_only_for_signed_in_admins(client_no_auth, client_read_only, client_admin):
     for path in ("/api/docs", "/api/openapi.json"):
         assert (await client_no_auth.get(path)).status_code in (401, 403)
         assert (await client_read_only.get(path)).status_code == 403

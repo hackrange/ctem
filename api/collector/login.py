@@ -2,10 +2,10 @@
 from __future__ import annotations
 
 from fastapi import HTTPException
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from api.core.accounts import find_login
 from api.core.config import get_settings
 from api.models.user import User
 
@@ -23,10 +23,7 @@ async def check_admin_password(db: AsyncSession, username: str, password: str) -
     if await _pw_locked(username):
         local.verify_password(password, _DUMMY_HASH)  # same timing as a real check
         raise HTTPException(429, detail="Too many attempts")
-    user = (await db.execute(
-        select(User).where(User.username == username, User.is_local == True)  # noqa: E712
-        .options(selectinload(User.roles))
-    )).scalar_one_or_none()
+    user = await find_login(db, username, User.is_local == True, options=[selectinload(User.roles)])  # noqa: E712
     ok = local.verify_password(password, user.password_hash if user and user.password_hash else _DUMMY_HASH)
     if not ok or user is None or not user.is_active or user.is_locked:
         if not ok:

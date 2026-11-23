@@ -9,7 +9,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -17,7 +17,7 @@ from api.auth.middleware import get_current_user
 from api.auth.rbac import require_admin
 from api.auth import local as local_auth
 from api.core.db import get_session
-from api.core.accounts import ctem_account
+from api.core.accounts import ctem_account, same_name
 from api.core.encryption import search_hash
 from api.models.user import ApiToken, Permission, Role, RolePermission, User, UserRole
 from api.core.user_devices import NO_DEVICES as _NO_DEVICES
@@ -77,8 +77,10 @@ async def create_user(
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_session),
 ):
-    existing = await db.execute(select(User).where(User.username == body.username))
-    if existing.scalar_one_or_none():
+    # a sign-in name is taken whatever its case; the directory row check keeps the DB constraint happy
+    taken = (await db.execute(select(User.id).where(
+        or_(and_(same_name(body.username), ctem_account()), User.username == body.username)).limit(1))).first()
+    if taken:
         raise HTTPException(409, detail="Username already exists")
     await _require_roles_exist(body.roles, db)
 

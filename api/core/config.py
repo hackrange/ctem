@@ -51,6 +51,11 @@ class Settings(BaseSettings):
     ip_auth_max_attempts: int = 20
     ip_auth_window_seconds: int = 600
 
+    # ── Admin > Maintenance (the host agent's folders are mounted here) ──────
+    maintenance_dir: str = "/srv/ctem"
+    maintenance_ui_restore: bool = True       # MAINTENANCE_UI_RESTORE=false keeps restores on the command line
+    maintenance_upload_max_gb: int = Field(50, ge=1, le=1024)
+
     # ── App ───────────────────────────────────────────────────────────────────
     app_env: Literal["development", "production"] = "production"
     debug: bool = False

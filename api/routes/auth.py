@@ -19,6 +19,7 @@ from api.auth import local, oidc, sso_config
 from api.auth.return_to import SESSION_KEY as RETURN_KEY
 from api.auth.return_to import safe_next
 from api.auth.middleware import create_access_token, get_current_user
+from api.core.accounts import find_login, same_name
 from api.core.config import get_settings
 from api.core.db import get_session
 from api.core.encryption import decrypt, encrypt, search_hash
@@ -152,8 +153,7 @@ async def browser_login(
         local.verify_password(password, _DUMMY_HASH)
         return await _render_login(request, db, error=_LOGIN_FAILED)
 
-    result = await db.execute(select(User).where(User.username == username, User.is_local == True))  # noqa: E712
-    user = result.scalar_one_or_none()
+    user = await find_login(db, username, User.is_local == True)  # noqa: E712
     ok = local.verify_password(password, user.password_hash if user and user.password_hash else _DUMMY_HASH)
     if not ok or user is None or not user.is_active or user.is_locked:
         if not ok:
@@ -407,7 +407,7 @@ async def _upsert_oidc_user(info: dict, db: AsyncSession, cfg) -> User | None:
     if user is None:
         base = re.sub(r"[^A-Za-z0-9._@+-]", "", info.get("username") or "")[:100] or f"sso-{sub[:12]}"
         name = base
-        while (await db.execute(select(User.id).where(User.username == name))).first():
+        while (await db.execute(select(User.id).where(same_name(name)))).first():
             name = f"{base}~{secrets.token_hex(3)}"  # someone else has that name; don't take over their account
         user = User(username=name, oidc_sub=sub, is_local=False, is_active=True, is_locked=False)
         db.add(user)

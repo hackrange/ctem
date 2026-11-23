@@ -3,9 +3,12 @@ Page-level access control.
 
 Each page has a set of tags and a minimum role requirement.
 Access is granted when ANY of these match for the requesting user:
-  - User has admin or cyber role (always gets everything)
+  - User has admin or cyber role (gets everything except admin-only pages)
   - User's role is in the page's allowed_roles
   - User has at least one tag that intersects the page's tags (ABAC)
+
+Admin-only pages (Admin, Integrations, API tokens, SSO, shippers, API docs) are open to the admin
+role and nothing else: not cyber, not a page tag.
 
 Tags are free-form strings assigned to users by admins (e.g. "identity", "vuln", "grc").
 They let orgs give business stakeholders or IT users targeted access without
@@ -25,6 +28,7 @@ class PagePolicy:
     tags: list[str] = field(default_factory=list)
     allowed_roles: list[str] = field(default_factory=list)
     min_role: str | None = None  # kept for future strict ordering; unused today
+    admin_only: bool = False
 
 
 # slug -> policy
@@ -58,16 +62,12 @@ _PAGES: dict[str, PagePolicy] = {p.slug: p for p in [
     PagePolicy("/cloud",           allowed_roles=["admin","cyber"]),   # matches the API: the whole estate's exposure
     PagePolicy("/cmdb",            allowed_roles=["admin","cyber","it_user","read_only"],
                                    tags=["cmdb","devices"]),
-    PagePolicy("/settings/integrations", allowed_roles=["admin"],
-                                         tags=["admin"]),
-    PagePolicy("/settings/sso",    allowed_roles=["admin"],
-                                   tags=["admin"]),
-    PagePolicy("/settings/shippers", allowed_roles=["admin"],
-                                     tags=["admin"]),
-    PagePolicy("/settings/tokens", allowed_roles=["admin"],
-                                   tags=["admin"]),
-    PagePolicy("/admin",           allowed_roles=["admin"],
-                                   tags=["admin"]),
+    PagePolicy("/settings/integrations", allowed_roles=["admin"], admin_only=True),
+    PagePolicy("/settings/sso",    allowed_roles=["admin"], admin_only=True),
+    PagePolicy("/settings/shippers", allowed_roles=["admin"], admin_only=True),
+    PagePolicy("/settings/tokens", allowed_roles=["admin"], admin_only=True),
+    PagePolicy("/admin",           allowed_roles=["admin"], admin_only=True),   # Maintenance too
+    PagePolicy("/api/docs",        allowed_roles=["admin"], admin_only=True),
 ]}
 
 _ALWAYS_ALLOW = {"admin", "cyber"}
@@ -78,10 +78,13 @@ def can_access_page(slug: str, user_roles: list[str], user_tags: list[str]) -> b
     Returns True if the user may view this page.
     Caller should 404 on False -- never 403 (no info leakage).
     """
+    policy = _PAGES.get(slug)
+    if policy is not None and policy.admin_only:
+        return "admin" in user_roles
+
     if any(r in _ALWAYS_ALLOW for r in user_roles):
         return True
 
-    policy = _PAGES.get(slug)
     if policy is None:
         return True  # unknown pages are open (404 from template loader anyway)
 

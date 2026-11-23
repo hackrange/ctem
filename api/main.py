@@ -41,7 +41,7 @@ def create_app() -> FastAPI:
         title="open-ctem",
         version=settings.app_version,
         # No public API map in production
-        # Docs are served by api.routes.api_docs to signed-in admins and cyber analysts only
+        # Docs are served by api.routes.api_docs to signed-in admins only
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
@@ -113,6 +113,8 @@ def create_app() -> FastAPI:
     from api.routes.grc_service_token import router as grc_service_token_router
     from api.routes.directory_users import router as directory_users_router
     from api.routes.admin_sso import router as admin_sso_router
+    from api.routes.admin_maintenance import router as maintenance_router
+    from api.routes.admin_maintenance_restore import router as maintenance_restore_router
 
     app.include_router(auth_router)
     app.include_router(user_access_router)   # before admin's /users/{id} routes
@@ -165,6 +167,8 @@ def create_app() -> FastAPI:
     app.include_router(grc_service_token_router)
     app.include_router(directory_users_router)
     app.include_router(admin_sso_router)
+    app.include_router(maintenance_router)
+    app.include_router(maintenance_restore_router)
 
     # ── Web UI (must come after API routes) ───────────────────────────────────
     app.mount("/static", StaticFiles(directory="api/web/static"), name="static")
@@ -186,7 +190,7 @@ def create_app() -> FastAPI:
                 from api.auth.return_to import login_url_for
                 target = login_url_for(request.url.path, request.url.query) if request.method == "GET" else "/login"
                 return RedirectResponse(url=target, status_code=302)
-        return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+        return JSONResponse({"detail": exc.detail}, status_code=exc.status_code, headers=exc.headers)
 
     # ── Generic error handler -- never leak internals ─────────────────────────
     @app.exception_handler(Exception)
@@ -308,6 +312,7 @@ def _register_web_routes(app: FastAPI) -> None:
 
     # ── Admin ─────────────────────────────────────────────────────────────────
     app.get("/admin", response_class=HTMLResponse, include_in_schema=False)(_render("pages/admin.html", "/admin"))
+    app.get("/admin/maintenance", response_class=HTMLResponse, include_in_schema=False)(_render("pages/maintenance.html", "/admin"))
 
     # ── Profile ───────────────────────────────────────────────────────────────
     app.get("/profile", response_class=HTMLResponse, include_in_schema=False)(_render("pages/profile.html", "/"))

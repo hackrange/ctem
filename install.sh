@@ -6,7 +6,7 @@
 # New server, restored from a backup:
 #   curl -fsSL https://raw.githubusercontent.com/hackrange/ctem/main/get-ctem.sh | sudo bash -s -- --restore /root/ctem.ctembak
 #
-# From a checkout: sudo ./install.sh [--restore FILE | --backup [--password] [--out DIR] | --upgrade]
+# From a checkout: sudo ./install.sh [--restore FILE | --backup [--password] [--out DIR] | --upgrade | --maintenance-setup]
 set -euo pipefail
 
 # Piped in on its own (old one-liner)? Hand over to the bootstrapper, which clones the project first.
@@ -22,11 +22,14 @@ source "${INSTALL_DIR}/scripts/installer/common.sh"
 source "${INSTALL_DIR}/scripts/installer/backup.sh"
 # shellcheck source=scripts/installer/restore.sh
 source "${INSTALL_DIR}/scripts/installer/restore.sh"
+# shellcheck source=scripts/installer/agent.sh
+source "${INSTALL_DIR}/scripts/installer/agent.sh"
 
 MODE=install RESTORE_FILE="" CUSTOM_PW=0 OUT_DIR=""
 while (( $# )); do
   case "$1" in
     --upgrade|-u) MODE=upgrade; shift ;;
+    --maintenance-setup) MODE=msetup; shift ;;
     --restore)    MODE=restore; [[ -n "${2:-}" ]] || die "--restore needs a backup file"
                   RESTORE_FILE=$(readlink -f -- "$2" 2>/dev/null || true); RESTORE_FILE=${RESTORE_FILE:-$2}; shift 2 ;;
     --backup)     MODE=backup; shift ;;
@@ -46,6 +49,7 @@ open-ctem installer
   install.sh --backup --password  Same, but asks you for the password to lock it with.
              [--out DIR]          Write the backup somewhere else.
   install.sh --upgrade            Back up, pull the latest code, rebuild, restart.
+  install.sh --maintenance-setup  (Re)install the agent behind Admin > Maintenance.
 
 Unattended runs can set CTEM_BACKUP_PASSWORD and CTEM_RESTORE_CONFIRM=RESTORE.
 USAGE
@@ -59,6 +63,12 @@ done
 require_root
 cd "${INSTALL_DIR}"
 [[ "$MODE" == install ]] || ensure_py_crypto
+
+if [[ "$MODE" == msetup ]]; then
+  setup_maintenance
+  exit 0
+fi
+maintenance_lock
 
 # ── Backup ────────────────────────────────────────────────────────────────────
 if [[ "$MODE" == backup ]]; then
@@ -105,6 +115,8 @@ if [[ "$MODE" == upgrade ]]; then
   [[ "$PRE_REV" != "$POST_REV" ]] || { ok "Already up to date."; exit 0; }
   ok "Code: ${PRE_REV:0:8} -> ${POST_REV:0:8}"
   git log --oneline "${PRE_REV}..${POST_REV}" | sed 's/^/     /'
+  # the new code's own setup, so its compose mounts find their folders
+  bash "${INSTALL_DIR}/install.sh" --maintenance-setup || warn "Admin > Maintenance agent setup failed; run --maintenance-setup later."
 
   say "Pulling base images and rebuilding the app..."
   _compose pull --quiet --ignore-buildable
@@ -159,6 +171,7 @@ if [[ "$MODE" == restore ]]; then
     have=$(df -Pk /var/lib/docker 2>/dev/null | awk 'NR == 2 { print $4 }')
     (( ${have:-0} > need )) || die "Not enough disk space: need about $((need / 1024 / 1024)) GB free for Docker."
   fi
+  [[ "${CTEM_RESTORE_FROM_UI:-}" == 1 ]] || setup_maintenance
   do_restore "$RESTORE_FILE" "$RMODE"
   echo
   printf '%s  open-ctem is restored and running%s\n\n' "$c_ok" "$c_off"
@@ -241,6 +254,7 @@ umask 022
 ok ".env written and locked down (chmod 600)."
 
 make_self_signed_cert
+setup_maintenance
 
 say "Pulling and building the containers (a few minutes)..."
 _compose pull --quiet --ignore-buildable </dev/null || die "Could not pull the container images."
@@ -261,7 +275,7 @@ printf '  Admin password:   %s\n' "${ADMIN_PASS}"
 printf '  Backup password:  %s\n' "${BACKUP_PASS}"
 echo
 hint "Keep the backup password off this server; backups cannot be opened without it."
-hint "Backup:    sudo bash ${INSTALL_DIR}/install.sh --backup"
+hint "Backups:   Admin > Maintenance, or sudo bash ${INSTALL_DIR}/install.sh --backup"
 hint "Upgrade:   sudo bash ${INSTALL_DIR}/install.sh --upgrade"
 hint "Logs:      docker compose -f ${COMPOSE_FILE} logs -f"
 hint "Creds:     cat ${ENV_FILE}  (chmod 600, root-only)"

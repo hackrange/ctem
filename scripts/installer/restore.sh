@@ -44,6 +44,11 @@ _build_env() {
     [[ "$(env_get "$k" "$src")" =~ ^[0-9a-fA-F]{64}$ ]] || die "The backup's ${k} is missing or malformed."
   done
   install -m 600 "$src" "$out"
+  # Compose reads COMPOSE_* (and the Docker CLI DOCKER_*) from this file; a backup has no business steering those
+  if grep -qE '^[[:space:]]*(export[[:space:]]+)?(COMPOSE_|DOCKER_)' "$out"; then
+    sed -i -E '/^[[:space:]]*(export[[:space:]]+)?(COMPOSE_|DOCKER_)/d' "$out"
+    warn "Dropped COMPOSE_* and DOCKER_* settings from the backup's .env."
+  fi
   if [[ "$mode" == fresh ]]; then
     db_user=$(env_get DB_USER "$src"); db_name=$(env_get DB_NAME "$src"); db_pw=$(genpass); redis_pw=$(genpass)
   else
@@ -71,6 +76,13 @@ _put_host_files() {
     install -m 644 "$d/certs/server.crt" "${INSTALL_DIR}/docker/certs/server.crt"
     install -m 600 "$d/certs/server.key" "${INSTALL_DIR}/docker/certs/server.key"
     ok "TLS certificate restored."
+  fi
+  # From the web page, the server keeps its own: an override decides what containers may touch on the host
+  if [[ "${CTEM_RESTORE_FROM_UI:-}" == 1 ]]; then
+    [[ ! -f "$d/docker-compose.override.yml" && ! -f "$d/nginx.conf" ]] \
+      || hint "Kept this server's docker-compose.override.yml and nginx.conf (restores from the web page never replace them)."
+    make_self_signed_cert
+    return 0
   fi
   if [[ -f "$d/docker-compose.override.yml" ]]; then
     install -m 644 "$d/docker-compose.override.yml" "${INSTALL_DIR}/docker/docker-compose.override.yml"

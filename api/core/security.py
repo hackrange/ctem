@@ -84,7 +84,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     _AUTH_PATHS = {"/api/v1/auth/token", "/api/v1/auth/login", "/auth/login", "/auth/totp",
                    "/api/v1/profile/password", "/api/v1/auth/totp/verify",
                    "/api/v1/collector/enroll", "/api/v1/collector/enroll-login",
-                   "/api/v1/collector/login-check"}
+                   "/api/v1/collector/login-check", "/api/v1/admin/maintenance/step-up"}
 
     def __init__(self, app: ASGIApp, redis_url: str) -> None:
         super().__init__(app)

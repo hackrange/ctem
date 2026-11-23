@@ -18,15 +18,16 @@ async def test_list_integrations_read_only_denied(client_read_only):
 
 
 @pytest.mark.asyncio
-async def test_list_integrations_cyber_allowed(client_cyber):
-    r = await client_cyber.get("/api/v1/integrations")
+async def test_list_integrations_admin_only(client_cyber, client_admin):
+    assert (await client_cyber.get("/api/v1/integrations")).status_code == 403
+    r = await client_admin.get("/api/v1/integrations")
     assert r.status_code == 200
     assert "integrations" in r.json()
 
 
 @pytest.mark.asyncio
-async def test_list_vendors(client_cyber):
-    r = await client_cyber.get("/api/v1/integrations/vendors")
+async def test_list_vendors(client_admin):
+    r = await client_admin.get("/api/v1/integrations/vendors")
     assert r.status_code == 200
     d = r.json()
     assert "vendors" in d
@@ -59,14 +60,14 @@ async def test_create_integration_admin_allowed(client_admin):
 
 
 @pytest.mark.asyncio
-async def test_get_integration_nonexistent(client_cyber):
-    r = await client_cyber.get(f"/api/v1/integrations/{uuid.uuid4()}")
+async def test_get_integration_nonexistent(client_admin):
+    r = await client_admin.get(f"/api/v1/integrations/{uuid.uuid4()}")
     assert r.status_code == 404
 
 
 @pytest.mark.asyncio
-async def test_get_integration_bad_uuid(client_cyber):
-    r = await client_cyber.get("/api/v1/integrations/not-a-uuid")
+async def test_get_integration_bad_uuid(client_admin):
+    r = await client_admin.get("/api/v1/integrations/not-a-uuid")
     assert r.status_code in (404, 422)
 
 
@@ -94,7 +95,7 @@ async def test_delete_integration_requires_admin(client_cyber, db):
 
 
 @pytest.mark.asyncio
-async def test_delete_integration_admin(client_admin, client_cyber, db):
+async def test_delete_integration_admin(client_admin, db):
     from api.models.integration import IntegrationConfig, Vendor
     cfg = IntegrationConfig(id=str(uuid.uuid4()), vendor=Vendor.splunk,
                             name="Delete Me", is_enabled=False, config={})
@@ -104,7 +105,7 @@ async def test_delete_integration_admin(client_admin, client_cyber, db):
     assert r.status_code in (200, 204)
 
     # Confirm gone -- same UUID returns 404
-    r2 = await client_cyber.get(f"/api/v1/integrations/{cfg.id}")
+    r2 = await client_admin.get(f"/api/v1/integrations/{cfg.id}")
     assert r2.status_code == 404
 
 

@@ -120,3 +120,6 @@ static/dist/
 
 # Test infrastructure -- never committed
 test-infra/
+
+# Admin > Maintenance agent: spool, status and keys
+/run/
