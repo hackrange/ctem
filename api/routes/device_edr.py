@@ -48,9 +48,10 @@ def ruleset(policy) -> dict:
     rows = []
     for i, r in enumerate(b.get("rules") or [], 1):
         act = _ACTION.get(str(r.get("action") or "").upper(), r.get("action") or "?")
-        rows.append({"n": i, "action": "Watch" if r.get("monitor_only") and act == "Allow" else act,
+        rows.append({"n": i, "action": act, "logged": bool(r.get("logged") or r.get("monitor_only")),
                      "direction": _DIR.get(str(r.get("direction") or "").upper(), r.get("direction") or "Any"),
                      "protocol": r.get("protocol") or "Any", "remote": _addrs(r.get("remote_address")),
+                     "fqdn": "; ".join(r.get("fqdn") or []) or None, "program": r.get("program"),
                      "remote_port": _ports(r.get("remote_port")), "local": _addrs(r.get("local_address")),
                      "local_port": _ports(r.get("local_port")), "name": r.get("name"), "description": r.get("description"),
                      "enabled": bool(r.get("enabled"))})

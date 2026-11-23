@@ -248,7 +248,10 @@ class _FwRule(_Lax):
     remote_address: list[Annotated[str, StringConstraints(max_length=49, pattern=r"^[0-9a-fA-F:.*/]+$")]] = Field(default_factory=list, max_length=50)
     local_port: list[tuple[Annotated[int, Field(ge=0, le=65535)], Annotated[int, Field(ge=0, le=65535)]]] = Field(default_factory=list, max_length=50)
     remote_port: list[tuple[Annotated[int, Field(ge=0, le=65535)], Annotated[int, Field(ge=0, le=65535)]]] = Field(default_factory=list, max_length=50)
-    monitor_only: bool = False
+    fqdn: list[Annotated[str, StringConstraints(max_length=253, pattern=r"^[A-Za-z0-9*][A-Za-z0-9*._-]*$")]] = Field(default_factory=list, max_length=50)
+    program: Txt(260) | None = None
+    logged: bool = False
+    monitor_only: bool = False   # shippers before 1.5.1 called "logged" this; it never meant watch-only
 
 
 class _UsbAllowed(_Lax):

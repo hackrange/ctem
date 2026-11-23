@@ -72,6 +72,26 @@ def _addrs(v):
     return out[:50]
 
 
+_FQDN = re.compile(r"^[A-Za-z0-9*][A-Za-z0-9*._-]{0,252}$")
+
+
+def _fqdns(r):
+    """The rule's domain names (Falcon keeps them as one ";"-separated string), when the rule matches on them."""
+    if r.get("fqdn_enabled") is False or not isinstance(r.get("fqdn"), str):
+        return []
+    return [n for n in (p.strip() for p in re.split(r"[;,\s]+", r["fqdn"])) if n and _FQDN.match(n)][:50]
+
+
+def _program(r):
+    """The executable a rule is limited to (Falcon's "image_name" field), if any."""
+    for f in r.get("fields") or []:
+        if isinstance(f, dict) and f.get("name") == "image_name":
+            v = f.get("value") or next((x for x in f.get("values") or [] if isinstance(x, str) and x), None)
+            if isinstance(v, str) and v.strip():
+                return _txt(v.strip(), 260)
+    return None
+
+
 def rule_summary(r):
     """One Falcon firewall rule as a plain ruleset row."""
     proto = str(r.get("protocol") or "*")
@@ -81,8 +101,9 @@ def rule_summary(r):
             "protocol": {"6": "TCP", "17": "UDP", "1": "ICMP", "58": "ICMPv6", "*": "Any"}.get(proto, proto[:8]),
             "local_address": _addrs(r.get("local_address")), "remote_address": _addrs(r.get("remote_address")),
             "local_port": _ports(r.get("local_port")), "remote_port": _ports(r.get("remote_port")),
-            # Falcon sends the watch count as text ("0" when the rule isn't in watch mode)
-            "monitor_only": str((r.get("monitor") or {}).get("count") or "0").strip() not in ("", "0") if isinstance(r.get("monitor"), dict) else False}
+            "fqdn": _fqdns(r), "program": _program(r),
+            # Falcon's "monitoring" logs matches (count as text, "0" when off); the rule still acts
+            "logged": str((r.get("monitor") or {}).get("count") or "0").strip() not in ("", "0") if isinstance(r.get("monitor"), dict) else False}
 
 
 def _hex(v, n=4):

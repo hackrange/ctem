@@ -29,11 +29,15 @@ SPOOL_MAX_AGE = 7 * 86400
 MAX_BODY = 768 * 1024  # load balancers commonly stop at 1 MB
 
 
-def _state(update=None):
-    path = os.path.join(core.STATE_DIR, "state.json")
+def _state(update=None, kind=None):
+    """A source's own state (state.<kind>.json), so sources running side by side never overwrite each other's.
+    A source's first file starts from the shared state.json older shippers kept, so nothing restarts from zero."""
+    path = os.path.join(core.STATE_DIR, f"state.{kind}.json" if kind else "state.json")
     if update is not None:
         core.write_json(path, update, 0o600)
         return update
+    if kind and not os.path.exists(path):
+        return dict(core.read_json(os.path.join(core.STATE_DIR, "state.json"), {}))
     return core.read_json(path, {})
 
 
@@ -102,15 +106,49 @@ def _prune_spool(keep):
 
 
 # ── the run ───────────────────────────────────────────────────────────────────
-def run(force=False):
+# Each source runs under its own lock and state, so sources run side by side: a long console pass never holds up
+# the EDR. systemd starts one instance per source (open-ctem-collector-source@<kind>); Docker mode starts one process
+# per source; a plain "run" (run-now, older units) does every due source in turn, skipping any already running.
+def run(force=False, only=None):
     os.makedirs(core.STATE_DIR, exist_ok=True)
-    with open(os.path.join(core.STATE_DIR, "run.lock"), "w") as lock:
+    # A run from a shipper before 1.5.0 holds the one shared lock; let it finish rather than run alongside it
+    with open(os.path.join(core.STATE_DIR, "run.lock"), "w") as legacy:
         try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(legacy, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
-            cc.say("another run is still going; skipping this one")
+            cc.say("a run from the previous shipper version is still going; starting once it's done")
             return 0
-        return _run_locked(force)
+    sh = core.Shipper()
+    cfg = sh.checkin()
+    mods = [m for m in sh.modules() if only is None or m["kind"] == only]
+    if only is None:
+        _prune_spool({m["integration_id"] for m in sh.modules()})
+    if not mods:
+        return 0
+    secrets, problems = None, {}
+    worst = 0
+    for m in mods:
+        kind = m["kind"]
+        with open(os.path.join(core.STATE_DIR, f"run.{kind}.lock"), "w") as lock:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                if only:
+                    cc.say(f"{kind}: still running from an earlier start; skipping")
+                continue
+            state = _state(kind=kind)
+            if not _due(m, cfg, state, time.time(), force):
+                continue
+            if secrets is None:
+                secrets, problems = sh.secrets()
+            err = _run_source(sh, m, cfg, state, secrets, problems)
+            state.setdefault("errors", {}).pop(kind, None)
+            if err:
+                state["errors"][kind] = err
+                worst = 1
+            _state(state, kind=kind)   # this source's run is recorded now, whatever the others do
+            sh.checkin({kind: err} if err else {}, ran=True)
+    return worst
 
 
 def _every(m, cfg):
@@ -123,64 +161,50 @@ def _due(m, cfg, state, now, force):
     return force or now - last >= _every(m, cfg) * 60 - 60  # a minute of slack for cron jitter
 
 
-def _run_locked(force):
-    state = _state()
-    sh = core.Shipper()
-    cfg = sh.checkin()
-    now = time.time()
-    due = [m for m in sh.modules() if _due(m, cfg, state, now, force)]
-    if not due:
-        return 0
-    _prune_spool({m["integration_id"] for m in sh.modules()})
-    secrets, problems = sh.secrets()
-    # Sources that weren't due keep reporting their last problem, so CTEM's status doesn't flap
-    errors = {k: v for k, v in (state.get("errors") or {}).items() if k in {m["kind"] for m in sh.modules()}}
-    last_by_kind = state.setdefault("last_by_kind", {})
-    for m in due:
-        kind = m["kind"]
-        errors.pop(kind, None)
-        last_by_kind[kind] = time.time()
-        s = sh.settings_for(m)
-        if s is None:
-            errors[kind] = "destination changed in CTEM; waiting for `open-ctem-collector approve` on the box"
-            continue
-        if kind in problems:
-            errors[kind] = problems[kind]
-            continue
-        secret = secrets.get(kind, {})
-        missing = [f for f in core.mod(kind).SECRETS if f not in secret]
-        if missing:
-            errors[kind] = f"no {', '.join(missing)} set in CTEM yet"
-            continue
+def _run_source(sh, m, cfg, state, secrets, problems):
+    """Ship one source; returns its error, or None."""
+    kind = m["kind"]
+    state.setdefault("last_by_kind", {})[kind] = time.time()
+    s = sh.settings_for(m)
+    if s is None:
+        return "destination changed in CTEM; waiting for `open-ctem-collector approve` on the box"
+    if kind in problems:
+        return problems[kind]
+    secret = secrets.get(kind, {})
+    missing = [f for f in core.mod(kind).SECRETS if f not in secret]
+    if missing:
+        return f"no {', '.join(missing)} set in CTEM yet"
+    if kind == "splunk":
+        gap = (time.time() - float(state.get("splunk_ok", 0))) / 60
+        s["lookback_minutes"] = int(min(max(gap, _every(m, cfg)) + 5, 7 * 1440))
+    started = time.time()
+    try:
+        n = ship(sh.api, m, s, secret, state)
+        cc.say(f"{kind}: shipped {n} records in {time.time() - started:.0f}s")
         if kind == "splunk":
-            gap = (time.time() - float(state.get("splunk_ok", 0))) / 60
-            s["lookback_minutes"] = int(min(max(gap, _every(m, cfg)) + 5, 7 * 1440))
-        started = time.time()
-        try:
-            n = ship(sh.api, m, s, secret, state)
-            cc.say(f"{kind}: shipped {n} records in {time.time() - started:.0f}s")
-            if kind == "splunk":
-                state["splunk_ok"] = started
-                core.mod(kind).deliver(sh.api, m, s, secret, state, os.path.join(core.STATE_DIR, "alerts"))
-        except Exception as e:
-            errors[kind] = cc.short_error(e)
-            cc.say(f"{kind}: FAILED {errors[kind]}")
-    state.update(last_run=time.time(), errors=errors)
-    _state(state)
-    sh.checkin(errors, ran=True)
-    return 1 if errors else 0
+            state["splunk_ok"] = started
+            core.mod(kind).deliver(sh.api, m, s, secret, state, os.path.join(core.STATE_DIR, "alerts"))
+        return None
+    except Exception as e:
+        err = cc.short_error(e)
+        cc.say(f"{kind}: FAILED {err}")
+        return err
 
 
 def daemon():
-    """Docker mode: no cron in the container, so tick here."""
+    """Docker mode: no cron in the container, so tick here, each source in its own process (side by side)."""
+    import subprocess  # nosec B404 - runs this same script, fixed arguments
     while not os.path.exists(os.path.join(core.CONF_DIR, "collector.json")):
         cc.say("waiting for setup; run the installer first")
         time.sleep(60)
+    running = {}
     while True:
-        try:
-            run()
-        except Exception as e:
-            cc.say(f"run failed: {cc.short_error(e)}")
+        for kind, proc in list(running.items()):
+            if proc.poll() is not None:
+                running.pop(kind)
+        for kind in core.MODULES:
+            if kind not in running:
+                running[kind] = subprocess.Popen([sys.executable, os.path.abspath(__file__), "run", "--only", kind])  # nosec B603
         time.sleep(TICK + random.randint(0, 30))  # nosec B311 - jitter, not crypto
 
 
@@ -228,7 +252,9 @@ def main(argv=None):
     t.add_argument("--url", default="")
     t.add_argument("--ca-file", default=None)
     sub.add_parser("test")
-    sub.add_parser("run").add_argument("--force", action="store_true")
+    rp = sub.add_parser("run")
+    rp.add_argument("--force", action="store_true")
+    rp.add_argument("--only", choices=sorted(core.MODULES), help="run just this source (one per systemd instance)")
     sub.add_parser("daemon")
     args = p.parse_args(argv)
     cc.say(f"open-ctem shipper {core.AGENT_VERSION}")   # first line of every command, run and log
@@ -254,7 +280,7 @@ def main(argv=None):
             cc.say(f"  CTEM test failed: {core.explain(e)}")
             return 1
     if args.cmd == "run":
-        return run(args.force)
+        return run(args.force, args.only)
     return daemon() if args.cmd == "daemon" else test()
 
 

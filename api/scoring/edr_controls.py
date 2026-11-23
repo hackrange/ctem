@@ -73,29 +73,35 @@ def firewall(policy, ports: str | None) -> tuple[float, str] | None:
         return None
     verdicts = []
     for port, proto in _ports(ports):
-        hit = None
+        # Follows traffic from an arbitrary source: a rule limited to some remote addresses or domain names only
+        # decides traffic from those, so evaluation goes on for everyone else. ("Logged" rules still act.)
+        allowed_from, decided = [], None
         for r in b.get("rules") or []:
-            if not r.get("enabled") or r.get("monitor_only") or str(r.get("direction") or "").upper() not in ("IN", "BOTH"):
+            if not r.get("enabled") or str(r.get("direction") or "").upper() not in ("IN", "BOTH"):
                 continue
             rp = str(r.get("protocol") or "Any").upper()
             if rp not in ("ANY", "*", proto) or not _in(port, r.get("local_port")):
                 continue
-            hit = r
+            block = str(r.get("action") or "").upper() in ("DENY", "BLOCK")
+            narrow = r.get("fqdn") or not _any_remote(r.get("remote_address"))
+            if block and (narrow or r.get("program")):
+                continue      # blocks only some sources, or one program: not the service for everyone
+            if narrow:
+                allowed_from.append(r)
+                continue
+            decided = ("block" if block else "open", f"rule \"{r.get('name') or 'unnamed'}\"")
             break
-        if hit is None:
+        if decided is None:
             act = str(b.get("default_inbound") or "").upper()
-            if act not in ("DENY", "BLOCK"):
-                return None   # nothing blocks it: open
-            verdicts.append(("block", f"{port}/{proto.lower()} by the default inbound block"))
-            continue
-        act = str(hit.get("action") or "").upper()
-        if act in ("DENY", "BLOCK"):
-            verdicts.append(("block", f"{port}/{proto.lower()} by rule \"{hit.get('name') or 'unnamed'}\""))
-        elif _any_remote(hit.get("remote_address")):
+            decided = ("block" if act in ("DENY", "BLOCK") else "open", "the default inbound block")
+        if decided[0] == "open":
             return None       # allowed from anywhere
+        if allowed_from:
+            r = allowed_from[0]
+            src = ", ".join(((r.get("remote_address") if not _any_remote(r.get("remote_address")) else None) or r.get("fqdn") or [])[:3])
+            verdicts.append(("restricted", f"{port}/{proto.lower()} only from {src} (rule \"{r.get('name') or 'unnamed'}\")"))
         else:
-            src = ", ".join((hit.get("remote_address") or [])[:3])
-            verdicts.append(("restricted", f"{port}/{proto.lower()} only from {src} (rule \"{hit.get('name') or 'unnamed'}\")"))
+            verdicts.append(("block", f"{port}/{proto.lower()} by {decided[1]}"))
     if not verdicts:
         return None
     if all(v == "block" for v, _ in verdicts):

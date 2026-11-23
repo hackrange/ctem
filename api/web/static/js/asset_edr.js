@@ -37,16 +37,20 @@ window.AssetEdr = (() => {
             <label class="tk-radio text-sm"><input type="checkbox" id="fw-off"${showOff ? ' checked' : ''}> Disabled rules${hidden ? ` (${hidden})` : ''}</label></span></div>
         <p class="text-sm text-muted" style="margin:8px 14px">Evaluated top to bottom; the first rule that matches decides. ${d.enforced ? '' : 'The policy isn\'t enforced, so these rules only describe what it would do.'}</p>
         <div style="overflow:auto"><table class="data-table"><thead><tr><th>#</th><th>Action</th><th>Direction</th><th>Protocol</th>
-          <th>Remote address</th><th>Remote port</th><th>Local address</th><th>Local port</th><th>Rule</th></tr></thead><tbody>
+          <th>Remote address</th><th>FQDN</th><th>Remote port</th><th>Local address</th><th>Local port</th><th>Rule</th></tr></thead><tbody>
         ${rules.map(r => `<tr${r.enabled ? '' : ' style="opacity:.55"'}${r.default ? ' class="fw-default"' : ''}>
             <td class="text-sm text-muted">${r.n == null ? '' : esc(r.n)}</td>
-            <td><span class="chip ${CHIP[r.action] || 'chip--info'}">${esc(r.action)}</span></td>
+            <td><span class="chip ${CHIP[r.action] || 'chip--info'}">${esc(r.action)}</span>${
+              r.logged ? '<div class="text-muted" style="font-size:.7rem;margin-top:2px" title="Falcon logs each match">Logged</div>' : ''}</td>
             <td class="text-sm">${esc(r.direction)}</td><td class="text-sm">${esc(r.protocol)}</td>
-            <td class="text-sm text-mono">${esc(r.remote)}</td><td class="text-sm text-mono">${esc(r.remote_port)}</td>
+            <td class="text-sm text-mono">${esc(r.remote)}</td>
+            <td class="text-sm text-mono">${r.fqdn ? esc(r.fqdn) : '<span class="text-muted">--</span>'}</td>
+            <td class="text-sm text-mono">${esc(r.remote_port)}</td>
             <td class="text-sm text-mono">${esc(r.local)}</td><td class="text-sm text-mono">${esc(r.local_port)}</td>
             <td class="text-sm">${r.default ? `<i>${esc(r.name)}</i>` : esc(r.name || '')}${r.enabled ? '' : ' <span class="text-muted">(disabled)</span>'}${
+              r.program ? `<div style="font-size:.75rem">Program: <span class="text-mono">${esc(r.program)}</span></div>` : ''}${
               r.description ? `<div class="text-muted" style="font-size:.75rem">${esc(r.description)}</div>` : ''}</td></tr>`).join('')
-          || '<tr><td colspan="9" class="text-muted text-sm" style="text-align:center;padding:14px">No rules reported.</td></tr>'}
+          || '<tr><td colspan="10" class="text-muted text-sm" style="text-align:center;padding:14px">No rules reported.</td></tr>'}
         </tbody></table></div>`;
       $('fw-off').onchange = e => { showOff = e.target.checked; draw(); };
     };

@@ -17,6 +17,8 @@ async def test_nodezero_findings_proof_and_closed_ports(db, monkeypatch):
     from api.scoring.compensating import ControlContext, port_closed_note, reachability
     n = uuid.uuid4().hex[:6]
     ip = f"198.51.100.{int(n[:2], 16) % 250 + 1}"
+    k = int(n[4:6], 16) % 120
+    alias_ip, quiet_ip = f"192.0.2.{k + 1}", f"192.0.2.{k + 130}"   # never the same, and never the printer's 203.0.113.x
     d = Device(hostname=f"srv-h3-{n}", device_type=DeviceType.server, ip=ip, ip_hash=search_hash(ip))
     cve, other = f"CVE-2026-{7000 + int(n[2:5], 16) % 999}", f"CVE-2026-{6000 + int(n[2:5], 16) % 999}"
     v1 = Vulnerability(source="t_h3", source_vuln_id=f"a{n}", cve_id=cve, title="SMB flaw", attack_vector="network", cvss_base=9.0)
@@ -46,10 +48,10 @@ async def test_nodezero_findings_proof_and_closed_ports(db, monkeypatch):
                  "host_name": f"printer-{n}", "has_proof": True}]}}
         if "hosts_page" in query:
             return {"hosts_page": {"hosts": [] if page > 1 else [
-                {"ip": "192.0.2.200", "ip_addresses": ["192.0.2.200", ip], "host_name": f"alias-{n}", "host_names": [f"alias-{n}"], "is_in_scope": True,
+                {"ip": alias_ip, "ip_addresses": [alias_ip, ip], "host_name": f"alias-{n}", "host_names": [f"alias-{n}"], "is_in_scope": True,
                  "score": 10.0, "severity": "CRITICAL", "os_names": ["Windows"], "is_domain_controller": True, "services_count": 3,
                  "weaknesses_count": 1, "credentials_count": 1},
-                {"ip": f"192.0.2.{int(n[:2], 16) % 250 + 1}", "ip_addresses": [], "host_name": f"quiet-{n}", "host_names": [], "is_in_scope": True,
+                {"ip": quiet_ip, "ip_addresses": [], "host_name": f"quiet-{n}", "host_names": [], "is_in_scope": True,
                  "weaknesses_count": 0}]}}
         if "attack_paths_page" in query:
             return {"attack_paths_page": {"attack_paths": [] if page > 1 else [
@@ -113,3 +115,50 @@ def test_horizon3_is_registered():
     import api.integrations  # noqa: F401 -- importing registers the connectors
     from api.integrations.base import get_connector
     assert type(get_connector("horizon3", {"api_key": "k"})).__name__ == "Horizon3Connector"
+
+
+@pytest.mark.asyncio
+async def test_a_deadlock_is_retried(monkeypatch):
+    from sqlalchemy.exc import DBAPIError
+
+    from api.integrations.horizon3 import Horizon3Connector
+    calls = []
+
+    class Apply:
+        @staticmethod
+        async def op(db, *a):
+            calls.append(1)
+            if len(calls) == 1:
+                raise DBAPIError("UPDATE devices", {}, Exception("deadlock detected"))
+            return 7
+
+    class Db:
+        async def rollback(self):
+            calls.append("rollback")
+    async def no_wait(_):
+        return None
+    monkeypatch.setattr("asyncio.sleep", no_wait)
+    assert await Horizon3Connector({"api_key": "k"})._apply(Db(), Apply, {"op_id": "x"}, [], None, {}) == 7
+    assert calls == [1, "rollback", 1]
+
+
+@pytest.mark.asyncio
+async def test_a_database_failure_never_puts_sql_on_the_card(db, monkeypatch):
+    from sqlalchemy.exc import DBAPIError
+
+    from api.integrations import base
+    from api.models.integration import IntegrationConfig, Vendor
+
+    class Boom:
+        integration_id = None
+
+        async def sync(self, _db):
+            raise DBAPIError("UPDATE devices SET pentest=$1", {"secret": "row data"}, Exception("deadlock detected"))
+
+    monkeypatch.setattr(base, "get_connector", lambda *a: Boom())
+    cfg = IntegrationConfig(vendor=Vendor.horizon3, name="nodezero", is_enabled=True, config={})
+    db.add(cfg)
+    await db.commit()
+    assert await base._sync_by_id(db, str(cfg.id)) is False
+    await db.refresh(cfg)
+    assert "deadlock" in cfg.last_sync_error and "UPDATE" not in cfg.last_sync_error and "row data" not in cfg.last_sync_error

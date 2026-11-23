@@ -161,6 +161,8 @@ def _software(s, secret, names):
                 hosts.append(host)
                 refs += 1
         done += 1
+        if done % 1000 == 0:   # a long pass says it's working (the journal shows it)
+            cc.say(f"  Rapid7: software, {done:,} of {len(names):,} assets read")
         if done % CHUNK_ASSETS == 0 or refs >= 40000:
             yield from flush()
             refs = 0
@@ -209,6 +211,11 @@ def collect(s, secret, state):
     key = f"rapid7_vulns_at:{s['host']}"
     if time.time() - float(state.get(key, 0)) < float(s.get("vuln_catalog_hours", 24)) * 3600:
         return
+    seen = 0
     for rows in _pages(s, secret, "/api/3/vulnerabilities"):
+        seen += len(rows)
+        if seen % 10000 < len(rows):   # the catalog takes a while; say so in the journal
+            cc.say(f"  Rapid7: vulnerability catalog, {seen:,} read")
         yield {"vulnerabilities": [v for v in map(_vuln, rows) if v]}
+    cc.say(f"  Rapid7: vulnerability catalog done, {seen:,}")
     state[key] = time.time()

@@ -121,6 +121,8 @@ Quick key check: `GET https://<region>.api.insight.rapid7.com/validate` returns 
 
 ## On-prem shippers (internal LDAP, Rapid7 console, CrowdStrike, Splunk)
 
+Each source runs side by side in its own systemd instance (`open-ctem-collector-source@ldap`, `@rapid7_console`, `@crowdstrike`, `@splunk`), so a long console pass never delays the EDR. `sudo open-ctem-collector logs` and `status` cover them all.
+
 When CTEM is hosted outside your network it can't reach your domain controllers, Rapid7 Security Console, or Splunk search head. A **shipper** is a small agent on one internal box that reads those sources locally and pushes the data to CTEM's REST API over outbound HTTPS. Nothing inside your network has to accept a connection from CTEM.
 
 **Setting one up**

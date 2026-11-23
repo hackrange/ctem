@@ -24,6 +24,7 @@ CRYPTO_VERSION='50.0.2'
 BOTO3_VERSION='1.43.120'
 
 APP=/opt/open-ctem-collector
+SOURCES='ldap rapid7_console crowdstrike splunk'
 CONF=/etc/open-ctem-collector
 STATE=/var/lib/open-ctem-collector
 SVC_USER=octem-collector
@@ -79,7 +80,8 @@ uninstall() {
   rm -f "$CRON" "$HELPER"
   if command -v systemctl >/dev/null; then
     systemctl stop "$UNIT.service" 2>/dev/null || true
-    rm -f "/etc/systemd/system/$UNIT.service"
+    systemctl stop "$UNIT-source@*.service" 2>/dev/null || true
+    rm -f "/etc/systemd/system/$UNIT.service" "/etc/systemd/system/$UNIT-source@.service"
     systemctl daemon-reload 2>/dev/null || true
   fi
   if command -v docker >/dev/null; then
@@ -170,12 +172,25 @@ store_identity() {
   fi
 }
 
+write_source_unit() {
+  # One instance per source (open-ctem-collector-source@<kind>), so sources run side by side: a long console pass
+  # never holds up the EDR. Same user, sealed key, sandbox and proxy settings as the main unit.
+  [[ -f "/etc/systemd/system/$UNIT.service" ]] || return 0
+  sed -e "s|^Description=.*|Description=open-ctem shipper source %i|" \
+      -e "s|ctem_collector.py run\$|ctem_collector.py run --only %i|" \
+      -e "s|^TimeoutStartSec=.*|TimeoutStartSec=6h|" \
+      "/etc/systemd/system/$UNIT.service" > "/etc/systemd/system/$UNIT-source@.service"
+  systemctl daemon-reload
+}
+
 install_cron() {
-  # Every 5 minutes the shipper checks in; each source ships only when its own schedule says so
-  printf '# open-ctem shipper: check in with CTEM, ship what is due. Schedules live in CTEM.\n*/5 * * * * root systemctl start --no-block %s.service\n' \
-    "$UNIT" > "$CRON"
+  # Every 5 minutes each source's instance is started; one still running from before is left alone (start on an
+  # active unit is a no-op), and each ships only when its own schedule in CTEM says so
+  write_source_unit
+  printf '# open-ctem shipper: each source checks in and ships when due, side by side. Schedules live in CTEM.\n*/5 * * * * root for k in %s; do systemctl start --no-block %s-source@$k.service; done\n' \
+    "$SOURCES" "$UNIT" > "$CRON"
   chmod 644 "$CRON"
-  ok "cron check-in every 5 minutes ($CRON)"
+  ok "cron check-in every 5 minutes, each source in parallel ($CRON)"
 }
 
 write_local_helper() {
@@ -192,8 +207,8 @@ case "\${1:-}" in
   secrets)   exec \$PY secrets "\${@:2}" ;;
   test)      exec \$PY test ;;
   test-ctem) exec \$PY test-ctem ;;
-  status)    systemctl status $UNIT.service --no-pager; exit 0 ;;
-  logs)      exec journalctl -u $UNIT.service -n "\${2:-100}" --no-pager ;;
+  status)    systemctl status "$UNIT.service" "$UNIT-source@*.service" --no-pager; exit 0 ;;
+  logs)      exec journalctl -u "$UNIT.service" -u "$UNIT-source@*.service" -n "\${2:-100}" --no-pager ;;
   *) echo "usage: open-ctem-collector run-now|approve|secrets [--all]|set-url URL|test|test-ctem|status|logs [n]"; exit 2 ;;
 esac
 HELP

@@ -134,6 +134,22 @@ class Horizon3Connector(BaseConnector):
                 log.warning("Horizon3 %s not available: %s", key, str(e)[:160])
         return out
 
+    async def _apply(self, db, apply, op, weak, services, extra, tries: int = 3) -> int:
+        """Apply one pentest; a deadlock with another writer to the same assets is retried (the work is idempotent)."""
+        import asyncio
+
+        from sqlalchemy.exc import DBAPIError
+        for attempt in range(tries):
+            try:
+                return await apply.op(db, op, weak, services, extra)
+            except DBAPIError as e:
+                await db.rollback()
+                if "deadlock" not in str(e).lower() or attempt == tries - 1:
+                    raise
+                log.warning("Horizon3: deadlock applying %s; retrying", op.get("op_id"))
+                await asyncio.sleep(2 * (attempt + 1))
+        return 0
+
     async def sync(self, db: AsyncSession) -> int:
         self.notes = []
         days = int(self.config.get("op_days") or 30)
@@ -154,7 +170,7 @@ class Horizon3Connector(BaseConnector):
                 services = (await self._pages(client, svc_q, "services_page", "services", {"op_id": op["op_id"]}, cap=2000)
                             if svc_q and str(op.get("op_type") or "") == "NodeZero" else None)
                 extra = await self._extras(client, op["op_id"]) if str(op.get("op_type") or "") == "NodeZero" else {}
-                n += await apply.op(db, op, weak, services, extra)
+                n += await self._apply(db, apply, op, weak, services, extra)
         if self.notes:
             log.info("Horizon3: %s", "; ".join(self.notes))
         return n

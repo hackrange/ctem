@@ -76,10 +76,17 @@ async def apply(db, pentest: dict, when, extra: dict, cache: dict, find) -> None
         from sqlalchemy import select
 
         from api.models.device import Device
-        for d in (await db.execute(select(Device).where(Device.id.in_(list(views))))).scalars():
-            old = d.pentest or {}
-            if not old.get("tested_at") or old["tested_at"] <= views[str(d.id)]["tested_at"]:   # the newest pentest wins
-                d.pentest = views[str(d.id)]
+        # In id order and in small batches, so other writers to the same assets (a directory or EDR upload) wait
+        # briefly instead of deadlocking against one long transaction
+        ids = sorted(views)
+        for i in range(0, len(ids), 200):
+            chunk = ids[i:i + 200]
+            for d in (await db.execute(select(Device).where(Device.id.in_(chunk)).order_by(Device.id)
+                                       .with_for_update())).scalars():
+                old = d.pentest or {}
+                if not old.get("tested_at") or old["tested_at"] <= views[str(d.id)]["tested_at"]:   # the newest pentest wins
+                    d.pentest = views[str(d.id)]
+            await db.commit()
     have = await existing(db, [a[0] for a in alerts])
     for key, sev, title, body in alerts:
         await _add(db, have, key, key.split(":", 1)[0], sev, title, body)

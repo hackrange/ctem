@@ -72,6 +72,24 @@ def test_host_firewall_verdicts_follow_rule_order_and_defaults():
     assert ec.firewall(pol, "445/tcp 443/tcp") is None                               # one port open: the finding is reachable
 
 
+def test_host_firewall_rules_limited_to_some_sources_only_decide_those():
+    one_ip = {"name": "Emergency block IP", "enabled": True, "action": "DENY", "direction": "BOTH", "protocol": "*",
+              "remote_address": ["192.0.2.1/32"]}
+    by_name = {"name": "Emergency block FQDN", "enabled": True, "action": "DENY", "direction": "BOTH", "protocol": "*",
+               "remote_address": ["*"], "fqdn": ["badsite.example"]}
+    one_app = {"name": "Tunnel only", "enabled": True, "action": "DENY", "direction": "IN", "protocol": "TCP",
+               "local_port": [[9000, 9000]], "remote_address": ["*"], "program": "tunnel.exe"}
+    # blocking one address, one domain or one program says nothing about everyone else
+    assert ec.firewall(_fw([one_ip, by_name, one_app], default_in="ALLOW"), "9000/tcp") is None
+    f, why = ec.firewall(_fw([one_ip, by_name, one_app]), "9000/tcp")
+    assert f == 0.5 and "default inbound block" in why and "Emergency" not in why
+    smb = {"name": "SMB from vault", "enabled": True, "action": "ALLOW", "direction": "IN", "protocol": "TCP",
+           "local_port": [[445, 445]], "remote_address": ["198.51.100.7/32"], "logged": True}
+    f, why = ec.firewall(_fw([one_ip, smb]), "445/tcp")
+    assert f == 0.7 and "only from 198.51.100.7/32" in why                           # logged rules still act
+    assert ec.firewall(_fw([smb], default_in="ALLOW"), "445/tcp") is None            # everyone else falls through to allow
+
+
 @pytest.mark.asyncio
 async def test_policies_upload_and_tabs_are_for_admins_and_cyber(client, client_admin, client_it_user, db):
     from api.collector.ingest import apply_batch

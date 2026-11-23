@@ -439,5 +439,10 @@ def test_device_control_v2_layout_and_watch_counts():
     assert p.usb_blocked(host("c" * 32)) is None            # says nothing about USB storage: unknown, not "off"
     s = csp.usb_summary("a" * 32, v2)
     assert s["classes"][0]["id"] == "MASS_STORAGE" and s["classes"][0]["allowed"][0]["match"] == "VID_PID_SERIAL"
-    assert csp.rule_summary({"monitor": {"count": "0", "period_ms": "0"}})["monitor_only"] is False
-    assert csp.rule_summary({"monitor": {"count": "5", "period_ms": "60000"}})["monitor_only"] is True
+    assert csp.rule_summary({"monitor": {"count": "0", "period_ms": "0"}})["logged"] is False
+    assert csp.rule_summary({"monitor": {"count": "5", "period_ms": "60000"}})["logged"] is True
+    r = csp.rule_summary({"fqdn_enabled": True, "fqdn": "*.badsite.example;badsite.example; bad name",
+                          "fields": [{"name": "image_name", "value": "C:\\Program Files\\Acme\\tunnel.exe"}]})
+    assert r["fqdn"] == ["*.badsite.example", "badsite.example", "bad", "name"] and r["program"].endswith("tunnel.exe")
+    assert csp.rule_summary({"fqdn_enabled": False, "fqdn": "badsite.example"})["fqdn"] == []
+

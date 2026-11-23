@@ -177,9 +177,17 @@ async def _sync_by_id(db: AsyncSession, integration_id: str) -> bool:
         ok = True
     except Exception as e:
         await db.rollback()
-        # Some errors (timeouts, dropped connections) carry no text: never record an empty reason
-        why = str(e).strip() or f"{type(e).__name__} (no details from the connector)"
-        log.warning("sync of %s failed: %s", cfg_id, type(e).__name__)
+        from sqlalchemy.exc import SQLAlchemyError
+        if isinstance(e, SQLAlchemyError):
+            # A database error's text carries the SQL and the row's data: it goes to the log, never to the card
+            low = str(e).lower()
+            kind = "a deadlock with another job" if "deadlock" in low else "a timeout" if "timeout" in low else "a database error"
+            why = f"Saving the results failed ({kind}); the next sync retries. Details are in the worker log."
+            log.warning("sync of %s failed saving its results", cfg_id, exc_info=True)
+        else:
+            # Some errors (timeouts, dropped connections) carry no text: never record an empty reason
+            why = str(e).strip() or f"{type(e).__name__} (no details from the connector)"
+            log.warning("sync of %s failed: %s", cfg_id, type(e).__name__)
         job_vals = {"status": SyncStatus.failed, "error_message": why[:1000]}
         cfg_vals = {"last_sync_status": SyncStatus.failed, "last_sync_error": why[:500]}
     finally:
