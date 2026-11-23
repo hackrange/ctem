@@ -27,7 +27,7 @@ async def dashboard(u: User = Depends(_viewer), db: AsyncSession = Depends(get_s
                     range: str = Query("90d", pattern="^(30d|90d|180d|365d|all)$"),  # noqa: A002
                     source: str | None = Query(None, max_length=64),
                     device_type: str | None = Query(None, max_length=32),
-                    kind: str = Query("infra", pattern="^(infra|code|web)$"),
+                    kind: str = Query("infra", pattern="^(infra|code|web|cloud)$"),
                     org: str | None = Query(None, max_length=200),
                     app: str | None = Query(None, max_length=128),
                     repo: str | None = Query(None, max_length=253)):
@@ -36,7 +36,7 @@ async def dashboard(u: User = Depends(_viewer), db: AsyncSession = Depends(get_s
     if device_type and device_type not in DeviceType.__members__:
         raise HTTPException(422, detail="unknown device type")
     if kind != "infra":
-        device_type = None   # Code is all repositories and Web apps all sites; a host type left in a link matches nothing
+        device_type = None   # Code is all repositories, Web apps all sites, Cloud all resources; a host type left in a link matches nothing
     from api.auth.device_scope import device_scope
     scope = await device_scope(u, db)   # None for fleet-wide roles; otherwise only the devices this person may see
     # Code picks must be names this person may see; missing and out-of-scope get the same 422

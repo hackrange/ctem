@@ -102,7 +102,7 @@ async function loadVuln() {
     info('KEV added', txt(v.kev_added_date)),
     info('Attack vector', txt(v.attack_vector)),
     info(AssetDetail.affectedLabel(v.domain), R.num(v.affected_devices)),
-    info('Type', esc({ infra: 'Infrastructure', code: 'Code', web: 'Web app' }[v.domain] || 'Infrastructure')),
+    info('Type', esc({ infra: 'Infrastructure', code: 'Code', web: 'Web app', cloud: 'Cloud' }[v.domain] || 'Infrastructure')),
     info('Source', txt(v.source)),
     info('Scanner ID', `<span class="text-mono text-sm">${txt(v.source_vuln_id)}</span>`),
   ].join('');
@@ -120,6 +120,7 @@ async function loadVuln() {
       + 'It may be on assets you can\'t see; ask cyber if you think one of yours should be here.';
   }
   if (v.domain === 'code' || v.domain === 'web') $('a-search').placeholder = v.domain === 'code' ? 'Repository' : 'Site';
+  if (v.domain === 'cloud') $('a-search').placeholder = 'Resource';
   if (!table) startAffected();
   if (v.domain === 'code' || v.domain === 'web') showFound(v);
 }

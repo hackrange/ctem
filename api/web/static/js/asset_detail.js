@@ -252,6 +252,6 @@
   }
 
   const LABEL = { code: 'Code repository', web: 'Web application' };
-  const AFFECTED = { code: 'Affected repositories', web: 'Affected sites', infra: 'Affected devices' };
+  const AFFECTED = { code: 'Affected repositories', web: 'Affected sites', infra: 'Affected devices', cloud: 'Affected resources' };
   window.AssetDetail = { kind, info, columns, affectedColumns, open, panel, label: k => LABEL[k], affectedLabel: k => AFFECTED[k] || AFFECTED.infra };
 })();

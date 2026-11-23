@@ -1,4 +1,5 @@
-"""Saves InsightCloudSec findings: cloud resources become non-host devices, Insights become vulnerabilities."""
+"""Saves InsightCloudSec findings: Insights become vulnerabilities, resources become cloud resources (not hosts),
+and a finding on an instance CTEM already has from AWS or OCI lands on that instance."""
 from __future__ import annotations
 
 import uuid
@@ -8,6 +9,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.integrations import rapid7_common as r7
+from api.models.cloud import CloudAsset
 from api.models.device import Device, DeviceType
 from api.models.integration import IntegrationConfig
 from api.models.vuln import Finding, FindingStatus, Vulnerability
@@ -16,6 +18,19 @@ SRC = "rapid7_cloudsec"
 _OPEN = (FindingStatus.open, FindingStatus.in_progress)
 # Insight severity is 1 (Info) to 5 (Critical); map it onto a CVSS-ish number for scoring
 _SEVERITY_CVSS = {5: 9.5, 4: 7.5, 3: 5.0, 2: 3.0, 1: 0.0}
+
+
+def instance_key(row: dict) -> str | None:
+    """The provider's own id for an instance ("i-0abc...", "ocid1.instance..."), to find it among CTEM's cloud assets."""
+    rid, ns = str(row.get("resource_id") or ""), str(row.get("namespace_id") or "")
+    if not rid.startswith("instance:"):
+        return None
+    if ns.startswith("ocid1.instance."):
+        return ns
+    if "instance/" in ns:
+        return ns.rsplit("instance/", 1)[1] or None
+    parts = rid.split(":")
+    return parts[3] if len(parts) > 3 and parts[3] else None
 
 
 def account_of(finding_source_id: str) -> str | None:
@@ -39,6 +54,7 @@ class Saver:
         self.vulns: dict[str, str] = {}
         self.devices: dict[str, str] = {}
         self.findings: dict[str, tuple[str, FindingStatus]] = {}
+        self.instances: dict[str, str] = {}   # provider instance id -> the device AWS or OCI made for it
         self.seen: set[str] = set()
         self.refreshed: set[str] = set()
         self.count = 0
@@ -50,6 +66,8 @@ class Saver:
                                          .where(Vulnerability.source == SRC))).all())
         s.devices = dict((await db.execute(select(Device.source_id, Device.id)
                                            .where(Device.source == SRC))).all())
+        s.instances = dict((await db.execute(select(CloudAsset.resource_id, CloudAsset.device_id)
+                                             .where(CloudAsset.device_id.is_not(None)))).all())
         s.findings = {sid: (fid, st) for sid, fid, st in (await db.execute(
             select(Finding.source_id, Finding.id, Finding.status).where(Finding.source == SRC))).all()}
         return s
@@ -72,10 +90,13 @@ class Saver:
     def _device(self, rid: str, row: dict) -> str:
         did = self.devices.get(rid)
         if did is None:
-            did = str(uuid.uuid4())
-            name = row.get("resource_name") or row.get("namespace_id") or rid
-            self.db.add(Device(id=did, hostname=str(name)[:253], device_type=DeviceType.cloud_instance,
-                               source=SRC, source_id=rid))
+            if str(row.get("resource_id") or "").startswith("instance:"):
+                did = self.instances.get(str(row.get("namespace_id") or "")) or self.instances.get(instance_key(row) or "")
+            if did is None:   # not an instance CTEM knows: its own cloud resource
+                did = str(uuid.uuid4())
+                name = row.get("resource_name") or row.get("namespace_id") or rid
+                self.db.add(Device(id=did, hostname=str(name)[:253], device_type=DeviceType.cloud_resource,
+                                   source=SRC, source_id=rid))
             self.devices[rid] = did
         return did
 

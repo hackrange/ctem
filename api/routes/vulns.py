@@ -51,7 +51,7 @@ def _oldest(scope):
 
 
 _AGE = Query(None, ge=0, le=36500, description="Only vulnerabilities whose oldest open finding is at least this many days old")
-_TYPE = Query(None, alias="type", pattern="^(infra|code|web)$", description="Infrastructure, Code or Web apps; none = all")
+_TYPE = Query(None, alias="type", pattern="^(infra|code|web|cloud)$", description="Infrastructure, Code, Web apps or Cloud; none = all")
 
 
 def _vuln_query(scope, q, is_kev, min_cvss, source, affected_only, vtype=None, min_age_days=None, exploited=None):
@@ -170,7 +170,7 @@ async def export_vulns(
         out = []
         for v, n, old in rows:
             a = age.view(old, None, "open", v.cvss_base)
-            out.append([v.cve_id, v.title, {"infra": "Infrastructure", "code": "Code", "web": "Web app"}.get(v.domain, v.domain),
+            out.append([v.cve_id, v.title, {"infra": "Infrastructure", "code": "Code", "web": "Web app", "cloud": "Cloud"}.get(v.domain, v.domain),
                         v.cvss_base, v.epss_score, v.is_kev, v.kev_added_date, v.exploit_available, n,
                         _iso(old), a["age_days"], a["past_sla"], v.source, v.source_vuln_id])
         db.expunge_all()

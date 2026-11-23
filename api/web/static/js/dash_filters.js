@@ -69,7 +69,7 @@
       const sel = list => `<select class="form-input" data-v="${i}"><option value="">Pick one</option>${list.map(([val, lab]) =>
         `<option value="${esc(val)}"${val === f.value ? ' selected' : ''}>${esc(lab)}</option>`).join('')}</select>`;
       if (f.field === 'source') return sel(o.sources.map(s => [s.value, s.label]));
-      if (f.field === 'device_type') return sel(o.device_types.map(t => [t, ({ code_repository: 'Code (SAST)', website: 'Web application (DAST)' })[t] || t.replace(/_/g, ' ')]));
+      if (f.field === 'device_type') return sel(o.device_types.map(t => [t, ({ code_repository: 'Code (SAST)', website: 'Web application (DAST)', cloud_resource: 'Cloud resource (CSPM)' })[t] || t.replace(/_/g, ' ')]));
       if (f.field === 'os_family') return sel(o.os_families.map(x => [x.value, x.label]));
       if (f.field === 'grade') return sel(o.grades.map(g => [g, `Grade ${g}`]));
       if (f.field === 'criticality') return sel(['Very High', 'High', 'Medium', 'Low', 'Very Low'].map(c => [c, c]));

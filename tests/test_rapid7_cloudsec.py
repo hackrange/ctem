@@ -130,3 +130,59 @@ async def test_disabled_integration_stops_mid_run(db, monkeypatch):
     assert await c.sync(db) == 0
     assert "disabled mid-run" in c.warnings[0]
     assert methods == ["GET", "GET"]   # the two lists, then it stopped before reading any account
+
+
+@pytest.mark.asyncio
+async def test_resources_are_cloud_resources_with_cloud_findings(db, monkeypatch):
+    from api.models.device import Device, DeviceType
+    from api.models.vuln import Vulnerability
+    a = str(random.randint(100_000_000, 999_999_999))
+    monkeypatch.setattr(rapid7_cloudsec, "safe_client", _tenant({a: [[{**_row("custom:7", a, "x"), "resource_id": f"storagecontainer:{a}:acme-bucket:"}]]}, []))
+    await _conn().sync(db)
+    f = (await db.execute(select(Finding).where(Finding.source_id.like(f"%storagecontainer:{a}:%")))).scalar_one()
+    dev = await db.get(Device, f.device_id)
+    vuln = await db.get(Vulnerability, f.vuln_id)
+    assert dev.device_type == DeviceType.cloud_resource and dev.host_key is None
+    assert f.domain == "cloud" and vuln.domain == "cloud"
+
+
+@pytest.mark.asyncio
+async def test_instance_finding_lands_on_the_instance_aws_already_found(db, monkeypatch):
+    from datetime import datetime, timezone
+
+    from api.models.cloud import CloudAsset
+    from api.models.device import Device, DeviceType
+    a = str(random.randint(1_000_000_000, 9_999_999_999))
+    iid = f"i-0{a}"
+    ec2 = Device(hostname=f"web-{a}", device_type=DeviceType.cloud_instance, source="aws")
+    db.add(ec2)
+    await db.flush()
+    db.add(CloudAsset(integration_id="00000000-0000-0000-0000-0000000000aa", provider="aws", account="111111111111",
+                      region="us-east-1", resource_id=iid, name=f"web-{a}", device_id=ec2.id,
+                      seen_at=datetime.now(timezone.utc)))
+    await db.commit()
+    row = {**_row("backoffice:59", a, iid), "namespace_id": f"arn:aws:ec2:us-east-1:111111111111:instance/{iid}"}
+    monkeypatch.setattr(rapid7_cloudsec, "safe_client", _tenant({a: [[row]]}, []))
+    await _conn().sync(db)
+    f = (await db.execute(select(Finding).where(Finding.source_id.like(f"%:instance:{a}:%")))).scalar_one()
+    assert f.device_id == ec2.id   # one asset with both its exposure and its posture
+    made = (await db.execute(select(Device).where(Device.source == "rapid7_cloudsec", Device.source_id.like(f"%{iid}%")))).all()
+    assert made == []
+
+
+@pytest.mark.asyncio
+async def test_device_lists_leave_cloud_resources_out_unless_asked(db):
+    from api.models.device import Device, DeviceType
+    from api.routes.device_query import build_query
+    tag = f"cspm-{random.randint(1, 10**9)}"
+    db.add_all([Device(hostname=f"{tag}-bucket", device_type=DeviceType.cloud_resource, source="rapid7_cloudsec"),
+                Device(hostname=f"{tag}-server", device_type=DeviceType.server, source="rapid7_insightvm")])
+    await db.commit()
+
+    async def names(**kw):
+        stmt = build_query(None, tag, None, kw.get("device_type"), None, None, card=kw.get("card"))
+        return sorted(d.hostname for d in (await db.execute(stmt)).scalars())
+    assert await names() == [f"{tag}-server"]
+    assert await names(device_type=DeviceType.cloud_resource) == [f"{tag}-bucket"]
+    assert await names(card={"asset": "cloud"}) == [f"{tag}-bucket"]
+    assert await names(card={"asset": "hosts"}) == [f"{tag}-server"]

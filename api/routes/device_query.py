@@ -15,7 +15,7 @@ import api.models.tag  # noqa: F401  -- aliased() below configures mappers, so e
 import api.models.vuln  # noqa: F401
 from api.core.device_match import SOURCE_CODES, source_list
 from api.core.encryption import search_hash
-from api.models.device import Device, DeviceAssignment, DeviceTag, DeviceType, RiskGrade
+from api.models.device import Device, DeviceAssignment, DeviceTag, DeviceType, RiskGrade, HIDDEN_BY_DEFAULT, NON_HOST_TYPES
 from api.models.user import User
 
 Owner = aliased(User)
@@ -90,7 +90,8 @@ def card_filters(card: dict) -> list:
 
     from api.dashboards import fleet
     from api.dashboards.m_assets import where
-    out = where(type("V", (), {"scope": None})(), {"device_type": "compute" if card.get("compute") else "any",
+    dtype = "compute" if card.get("compute") else "cloud_resource" if card.get("asset") == "cloud" else "any"
+    out = where(type("V", (), {"scope": None})(), {"device_type": dtype,
                                                    "os_family": card.get("os_family") or "any",
                                                    "missing": card.get("missing") or "none"})
     if card.get("active_days"):
@@ -100,7 +101,9 @@ def card_filters(card: dict) -> list:
     elif card.get("asset") == "sites":       # its Web apps tab
         out.append(Device.device_type == DeviceType.website)
     elif card.get("asset") == "hosts":       # its Infrastructure tab: everything but repositories and sites
-        out.append(Device.device_type.not_in((DeviceType.code_repository, DeviceType.website)))
+        out.append(Device.device_type.not_in(NON_HOST_TYPES))
+    elif card.get("asset") == "cloud":       # its Cloud tab: resources a CSPM tool checks
+        out.append(Device.device_type == DeviceType.cloud_resource)
     if card.get("repo"):   # one code repository, by its "org/name"
         out += [Device.device_type == DeviceType.code_repository, Device.hostname == card["repo"]]
     if card.get("repo_org"):   # every repository of one organization; its own _ and % are not LIKE wildcards
@@ -131,6 +134,8 @@ def build_query(scope, q: str | None, grade: str | None, device_type: DeviceType
         stmt = stmt.where(*stale_computers(int(ad_stale_days), None, int(quiet) if quiet else None))
     if device_type:
         stmt = stmt.where(Device.device_type == device_type)
+    elif not (card or {}).get("asset") == "cloud":
+        stmt = stmt.where(Device.device_type.not_in(HIDDEN_BY_DEFAULT))
     if grade:
         g = grade.strip().upper()
         if g == "NONE":
@@ -277,7 +282,7 @@ def short_name(name: str | None) -> str | None:
 
 def display_name(d: Device) -> str | None:
     """A host's short name; a repository ("acme/payments") or a site ("shop.acme.example") keeps its whole name."""
-    if d.device_type in (DeviceType.code_repository, DeviceType.website):
+    if d.device_type in NON_HOST_TYPES:
         return d.hostname
     return short_name(d.hostname)
 
@@ -375,7 +380,7 @@ def summary(d: Device) -> dict:
     return {
         "id": str(d.id),
         "hostname": display_name(d),
-        "fqdn": full_name(d) if d.device_type not in (DeviceType.code_repository, DeviceType.website) else None,
+        "fqdn": full_name(d) if d.device_type not in NON_HOST_TYPES else None,
         "user": user_label(d),
         "assigned_user": assigned_user(d),
         "inventory_status": inventory_status(d),

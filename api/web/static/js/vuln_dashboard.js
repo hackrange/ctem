@@ -8,9 +8,9 @@
   const charts = {};
   const init = new URLSearchParams(location.search);   // read before the first load rewrites the address
   let data = null;
-  // Infrastructure (default), Code, Web apps, or All side by side. The last choice is remembered per browser.
-  const KINDS = ['infra', 'code', 'web', 'all'];
-  const KIND_NAME = { infra: 'Infrastructure', code: 'Code', web: 'Web apps' };
+  // Infrastructure (default), Code, Web apps, Cloud, or All side by side. The last choice is remembered per browser.
+  const KINDS = ['infra', 'code', 'web', 'cloud', 'all'];
+  const KIND_NAME = { infra: 'Infrastructure', code: 'Code', web: 'Web apps', cloud: 'Cloud' };
   const remembered = (() => { try { return localStorage.getItem('ctem.vulnType'); } catch (e) { return null; } })();
   let kind = KINDS.includes(init.get('kind')) ? init.get('kind') : KINDS.includes(remembered) ? remembered : 'infra';
   let allSources = [], byType = {};
@@ -22,7 +22,7 @@
   const code = { org: init.get('org') || '', app: init.get('app') || '', repo: init.get('repo') || '' };
   let codeOpts = null;   // { orgs, apps, repos: [{ name, org, apps }] }, from the server for this viewer
   const NOUN = { infra: ['Devices', 'Device', 'devices'], code: ['Repositories', 'Repository', 'repositories'],
-                 web: ['Sites', 'Site', 'sites'] };
+                 web: ['Sites', 'Site', 'sites'], cloud: ['Resources', 'Resource', 'cloud resources'] };
 
   const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   const theme = () => ({
@@ -60,7 +60,7 @@
     const u = unit !== 'findings' && data.units ? data.units[unit] : k;
     const vl = extra => `/vulns?type=${kind}${extra ? `&${extra}` : ''}`;
     const dl = (() => {
-      const p = new URLSearchParams({ asset: { infra: 'hosts', code: 'repositories', web: 'sites' }[kind] });
+      const p = new URLSearchParams({ asset: { infra: 'hosts', code: 'repositories', web: 'sites', cloud: 'cloud' }[kind] });
       if (kind === 'code') { if (code.org) p.set('repo_org', code.org); if (code.repo) p.set('repo', code.repo); }
       // the same application can be tagged by several tools: any of its tags ("a|b")
       if (kind === 'code' && code.app) p.append('tag', ((codeOpts && codeOpts.appTags[code.app]) || []).join('|'));
@@ -234,8 +234,8 @@
     $('vd-topv-th').textContent = NOUN[kind][0];
     tables(data);
     const at = new Date(data.generated_at);
-    const what = { infra: 'Infrastructure: hosts, network and cloud', code: 'Code: repositories (SAST, packages, secrets, IaC)',
-                   web: 'Web apps: DAST and web application scanning' }[kind];
+    const what = { infra: 'Infrastructure: hosts, network and cloud instances', code: 'Code: repositories (SAST, packages, secrets, IaC)',
+                   web: 'Web apps: DAST and web application scanning', cloud: 'Cloud: CSPM checks on accounts, buckets, roles and networks' }[kind];
     const narrowed = kind === 'code' && (code.repo || code.org || code.app)
       ? ` (${[code.repo || code.org, code.app && `application ${code.app}`].filter(Boolean).join(', ')})` : '';
     $('vd-sub').textContent = `${what}${narrowed}, ${data.scoped ? `for the ${NOUN[kind][2]} you can see` : `across every ${NOUN[kind][1].toLowerCase()}`}. Updated ${at.toLocaleTimeString()}.`;
@@ -258,7 +258,7 @@
       } catch (e) { return null; }
     };
     if (pending) { pending.abort(); pending = null; }   // a single-tab answer still on its way no longer applies
-    const [a, b, c] = await Promise.all(['infra', 'code', 'web'].map(one));
+    const [a, b, c, d] = await Promise.all(['infra', 'code', 'web', 'cloud'].map(one));
     if (kind !== 'all') return;   // they moved on while it loaded
     if (a) fillFilters(a.filters);
     const spark = tr => {
@@ -275,11 +275,11 @@
       return `<section class="vd-col"><div style="display:flex;justify-content:space-between;align-items:baseline"><h2>${KIND_NAME[k]}</h2>
         <button type="button" class="btn btn--ghost btn--sm" data-open="${k}">Open tab</button></div>
         ${row('Open findings', x.open)}${row('Critical', x.critical)}${row('Known exploited (KEV)', x.kev)}${row('Past SLA', x.past_sla)}
-        ${row(k === 'infra' ? 'Hosts affected' : k === 'code' ? 'Repositories affected' : 'Sites affected', x.devices)}${spark(d.trend || {})}</section>`;
+        ${row({ infra: 'Hosts affected', code: 'Repositories affected', web: 'Sites affected', cloud: 'Resources affected' }[k], x.devices)}${spark(d.trend || {})}</section>`;
     };
-    $('vd-all').innerHTML = col('infra', a) + col('code', b) + col('web', c)
-      + '<p class="vd-col__note" style="grid-column:1/-1">The three are shown side by side and never added together: different work for different teams.</p>';
-    $('vd-sub').textContent = 'Infrastructure, Code and Web apps side by side.';
+    $('vd-all').innerHTML = col('infra', a) + col('code', b) + col('web', c) + col('cloud', d)
+      + '<p class="vd-col__note" style="grid-column:1/-1">Shown side by side and never added together: different work for different teams.</p>';
+    $('vd-sub').textContent = 'Infrastructure, Code, Web apps and Cloud side by side.';
   }
 
   // Count by findings, unique vulnerabilities, or fixes (remembered, and kept in the link)

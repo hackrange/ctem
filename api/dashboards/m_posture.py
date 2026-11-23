@@ -11,7 +11,7 @@ from api.core import vuln_dashboard as vd
 from api.core.device_scope_exempt import in_scope_findings
 from api.dashboards import fleet
 from api.dashboards.catalog import Metric, Param, metric
-from api.models.device import Device, DeviceTag, DeviceType
+from api.models.device import Device, DeviceTag, DeviceType, NON_HOST_TYPES
 from api.models.vuln import Finding, FindingStatus, Vulnerability
 
 OPEN = (FindingStatus.open, FindingStatus.in_progress)
@@ -82,7 +82,7 @@ async def _rows(ctx, area: str) -> list[tuple]:
     """(label, source, (count, avg, max), tone, href) per issue in an area."""
     from api.core import sla
     await sla.load(ctx.db)
-    hosts = Device.device_type.not_in(APPS)
+    hosts = Device.device_type.not_in(NON_HOST_TYPES)
     compute = Device.device_type.in_(fleet.COMPUTE)
     active = fleet.active(30)
     crit_high, kev = Vulnerability.cvss_base >= 7.0, Vulnerability.is_kev == True  # noqa: E712

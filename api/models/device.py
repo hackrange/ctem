@@ -19,7 +19,14 @@ class DeviceType(str, enum.Enum):
     cloud_instance = "cloud_instance"
     code_repository = "code_repository"   # a source repository a SAST tool scans
     website = "website"                   # an external site a DAST tool scans
+    cloud_resource = "cloud_resource"     # a bucket, role, security group... a CSPM tool checks
     unknown = "unknown"
+
+
+# Not hosts: kept out of host views and host counts
+NON_HOST_TYPES = (DeviceType.code_repository, DeviceType.website, DeviceType.cloud_resource)
+# So many of these that lists and counts leave them out unless someone asks for them by type
+HIDDEN_BY_DEFAULT = (DeviceType.cloud_resource,)
 
 
 class RiskGrade(str, enum.Enum):

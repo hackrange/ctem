@@ -12,7 +12,7 @@ from sqlalchemy.orm import selectinload
 from api.auth.middleware import get_current_user
 from api.auth.rbac import get_accessible_device_tag_ids, require_cyber_or_admin
 from api.core.db import get_session
-from api.models.device import Device, DeviceTag, DeviceType
+from api.models.device import Device, DeviceTag, DeviceType, HIDDEN_BY_DEFAULT
 from api.models.user import User
 from api.routes.device_query import (ASSIGNMENT_LOAD, environment, full_name, location, owner_label, short_name,
                                      source_codes)
@@ -54,6 +54,8 @@ async def list_cmdb(
     stmt = _scoped(select(Device), tag_ids)
     if device_type:
         stmt = stmt.where(Device.device_type == device_type)
+    else:   # cloud resources (buckets, roles...) aren't configuration items
+        stmt = stmt.where(Device.device_type.not_in(HIDDEN_BY_DEFAULT))
     if q and q.strip():
         like = _like(q.strip()[:200])
         stmt = stmt.where(or_(Device.hostname.ilike(like, escape="\\"), Device.fqdn.ilike(like, escape="\\"),
@@ -154,6 +156,8 @@ async def export_cmdb(
     stmt = _scoped(stmt, tag_ids)
     if device_type:
         stmt = stmt.where(Device.device_type == device_type)
+    else:   # cloud resources (buckets, roles...) aren't configuration items
+        stmt = stmt.where(Device.device_type.not_in(HIDDEN_BY_DEFAULT))
 
     if tag:
         from api.models.tag import Tag

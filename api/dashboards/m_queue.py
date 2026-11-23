@@ -14,8 +14,8 @@ from api.dashboards.m_vulns import KEV, LIMIT, SEVERITY, SOURCE, _sev_cond
 from api.models.device import Device, DeviceTag
 from api.models.vuln import Finding, Vulnerability
 
-TYPE = Param("type", "Type", ("any", "infra", "code", "web"),
-             labels={"any": "Infrastructure, Code and Web apps", "infra": "Infrastructure", "code": "Code", "web": "Web apps"})
+TYPE = Param("type", "Type", ("any", "infra", "code", "web", "cloud"),
+             labels={"any": "Every type", "infra": "Infrastructure", "code": "Code", "web": "Web apps", "cloud": "Cloud"})
 SEV_TONE = {"critical": "critical", "high": "high", "medium": "medium", "low": "low"}
 MEASURES = ("count", "avg_age", "max_age")
 MEASURE_LABEL = {"count": "How many (with average and oldest age)", "avg_age": "Average age (days)", "max_age": "Oldest (days)"}
@@ -98,7 +98,8 @@ async def _age_kpi(ctx, p):
     n, avg, top = (await ctx.db.execute(select(func.count(), func.avg(age), func.max(age)).select_from(Finding)
                                         .join(Vulnerability, Vulnerability.id == Finding.vuln_id).where(*_w(ctx, p)))).one()
     avg_d, top_d = (None if avg is None else int(round(float(avg)))), (None if top is None else int(round(float(top))))
-    what = {"any": "open findings", "infra": "open infrastructure findings", "code": "open code findings", "web": "open web app findings"}[p["type"]]
+    what = {"any": "open findings", "infra": "open infrastructure findings", "code": "open code findings", "web": "open web app findings",
+            "cloud": "open cloud findings"}[p["type"]]
     sev = "" if p["severity"] == "any" else SEVERITY.labels.get(p["severity"], p["severity"]).lower() + " "
     note = f"{n:,} {sev}{what}" + (f" · average age {avg_d} days · oldest {top_d} days" if n else "")
     value = {"count": n, "avg_age": avg_d, "max_age": top_d}[p["measure"]]

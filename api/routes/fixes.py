@@ -74,7 +74,7 @@ async def _ranked(db, kind: str, source: str | None, scope, viewer: str) -> list
 
 @router.get("")
 async def list_fixes(u: User = Depends(_viewer), db: AsyncSession = Depends(get_session),
-                     kind: str = Query("infra", pattern="^(infra|code|web|all)$"),
+                     kind: str = Query("infra", pattern="^(infra|code|web|cloud|all)$"),
                      source: str | None = Query(None, max_length=64),
                      q: str | None = Query(None, max_length=120),
                      severity: str | None = Query(None, pattern="^(critical|high|kev|exploitable)$"),

@@ -39,10 +39,11 @@
   </div>
   <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
     <div class="vd-kind" id="vd-kind" role="group" aria-label="Which vulnerabilities">
-      <button type="button" data-kind="infra" aria-pressed="true" title="Hosts, network devices and cloud: fixed by IT and operations">Infrastructure</button>
+      <button type="button" data-kind="infra" aria-pressed="true" title="Hosts, network devices and cloud instances: fixed by IT and operations">Infrastructure</button>
       <button type="button" data-kind="code" aria-pressed="false" title="Repositories: SAST, open-source packages, secrets and IaC, fixed by developers">Code</button>
       <button type="button" data-kind="web" aria-pressed="false" title="Web applications: DAST and web scanning, fixed by application owners">Web apps</button>
-      <button type="button" data-kind="all" aria-pressed="false" title="The three side by side">All</button>
+      <button type="button" data-kind="cloud" aria-pressed="false" title="Cloud configuration: CSPM checks on accounts, buckets, roles and networks, fixed by cloud teams">Cloud</button>
+      <button type="button" data-kind="all" aria-pressed="false" title="Every type side by side">All</button>
     </div>
     <div class="vd-kind" id="vd-unit" role="group" aria-label="Count by">
       <button type="button" data-unit="findings" aria-pressed="true" title="Every vulnerability on every asset, one each">Findings</button>

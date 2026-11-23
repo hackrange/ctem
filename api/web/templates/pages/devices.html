@@ -50,6 +50,7 @@
       <option value="cloud_instance">Cloud instance</option>
       <option value="code_repository">Code (SAST)</option>
       <option value="website">Web application (DAST)</option>
+      <option value="cloud_resource">Cloud resource (CSPM)</option>
       <option value="unknown">Unknown</option>
     </select>
     <select id="filter-status" class="filter-select" aria-label="Inventory status">
@@ -94,6 +95,7 @@ const TYPE_ICONS = {
   cloud_instance: ['Cloud instance', '<path d="M7 18h10a4 4 0 0 0 .5-7.97A6 6 0 0 0 6 9.5 4.25 4.25 0 0 0 7 18z"/>'],
   code_repository: ['Code (repository)', '<path d="m8 8-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14"/>'],
   website: ['Web application', '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>'],
+  cloud_resource: ['Cloud resource', '<path d="M7 18h10a4 4 0 0 0 .5-7.97A6 6 0 0 0 6 9.5 4.25 4.25 0 0 0 7 18z"/><path d="M10 13h4"/>'],
   unknown: ['Unknown', '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6M12 17h.01"/>'],
 };
 function typeIcon(t) {

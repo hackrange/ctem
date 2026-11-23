@@ -3,6 +3,7 @@
   infra  hosts, network devices and cloud instances (InsightVM, Qualys, Tenable, Defender...): IT and operations
   code   repositories: SAST, open-source packages, secrets, infrastructure as code (Snyk, GitHub, GCR...): developers
   web    web applications: DAST and web application scanning (Rapid7 AppSec, GCR's external sites...): app owners
+  cloud  cloud configuration: CSPM checks on accounts, buckets, roles, networks (InsightCloudSec...): cloud teams
 
 Connectors that know set it as they write (GCR splits by asset: a repository's findings are code, a site's are
 web). Anything else takes its source's type when inserted, and fill() brings existing rows in line."""
@@ -13,15 +14,18 @@ import logging
 from sqlalchemy import case, select, update
 
 log = logging.getLogger("open-ctem.finding_domain")
-DOMAINS = ("infra", "code", "web")
-LABELS = {"infra": "Infrastructure", "code": "Code", "web": "Web apps"}
+DOMAINS = ("infra", "code", "web", "cloud")
+LABELS = {"infra": "Infrastructure", "code": "Code", "web": "Web apps", "cloud": "Cloud"}
 # Sources whose findings are always one type. A source missing here is infrastructure, except mixed ones below.
 CODE_SOURCES = ("snyk", "github_advanced", "forgerepo")
 WEB_SOURCES = ("rapid7_appsec",)
+CLOUD_SOURCES = ("rapid7_cloudsec",)
 MIXED_SOURCES = ("github_code_review",)   # sets the type per finding
 
 
 def for_source(source: str | None) -> str:
+    if source in CLOUD_SOURCES:
+        return "cloud"
     return "code" if source in CODE_SOURCES else "web" if source in WEB_SOURCES else "infra"
 
 
@@ -50,11 +54,12 @@ async def fill(db) -> int:
     n = 0
     gcr = case((Vulnerability.source_vuln_id.like("dast:%"), "web"), else_="code")
     for cond, value in ((Vulnerability.source.in_(CODE_SOURCES), "code"), (Vulnerability.source.in_(WEB_SOURCES), "web"),
+                        (Vulnerability.source.in_(CLOUD_SOURCES), "cloud"),
                         (Vulnerability.source.in_(MIXED_SOURCES), gcr)):
         r = await db.execute(update(Vulnerability).where(cond, Vulnerability.domain == "infra").values(domain=value)
                              .execution_options(synchronize_session=False))
         n += r.rowcount or 0
-    for d in ("code", "web"):   # through the vuln_id index: only the few non-infrastructure vulnerabilities
+    for d in ("code", "web", "cloud"):   # through the vuln_id index: only the non-infrastructure vulnerabilities
         ids = select(Vulnerability.id).where(Vulnerability.domain == d)
         r = await db.execute(update(Finding).where(Finding.vuln_id.in_(ids), Finding.domain != d).values(domain=d)
                              .execution_options(synchronize_session=False))

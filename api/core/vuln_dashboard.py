@@ -26,7 +26,7 @@ RANGES = {"30d": 30, "90d": 90, "180d": 180, "365d": 365, "all": None}
 SOURCES = ("rapid7_insightvm", "rapid7_appsec", "rapid7_cloudsec", "qualys", "tenable", "msdefender", "snyk",
            "github_advanced", "forgerepo", "crowdstrike", "crowdstrike_spotlight", "github_code_review", "horizon3")
 # The type of work (api.core.finding_domain): infra, code or web. "all" applies no type filter (dashboard widgets).
-KINDS = ("infra", "code", "web", "all")
+KINDS = ("infra", "code", "web", "cloud", "all")
 # Days to fix by severity; updated in place from the install's setting (api/core/sla.py, Change SLAs)
 SLA_DAYS = {"critical": 15, "high": 30, "medium": 90, "low": 180}
 AGE_BUCKETS = ((0, 30, "0-30 days"), (31, 60, "31-60"), (61, 90, "61-90"), (91, 180, "91-180"), (181, None, "180+"))
@@ -75,7 +75,7 @@ def _where(source: str | list | None, device_type: str | None, kind: str = "all"
     kind: infra, code or web findings only, or "all" for every one. code: Code tab picks, pre-checked."""
     from api.core.device_scope_exempt import in_scope_findings
     out = [in_scope_findings()]
-    if kind in ("infra", "code", "web"):
+    if kind in ("infra", "code", "web", "cloud"):
         out.append(Finding.domain == kind)
     srcs = [x for x in ([source] if isinstance(source, str) else list(source or [])) if x in SOURCES]
     if len(srcs) == 1:
@@ -399,7 +399,7 @@ async def warm(db: AsyncSession, refresh) -> None:
 
     from api.core.config import get_settings
     await cached(db, "90d", None, None, fresh=True)                  # dashboards' widgets: every finding
-    for kind in ("infra", "code", "web"):                           # the Vulnerability Dashboard's tabs
+    for kind in ("infra", "code", "web", "cloud"):                  # the Vulnerability Dashboard's tabs
         await cached(db, "90d", None, None, fresh=True, kind=kind)
     r = aioredis.from_url(get_settings().redis_url, decode_responses=True)
     try:
@@ -411,7 +411,7 @@ async def warm(db: AsyncSession, refresh) -> None:
     finally:
         await r.aclose()
     for v in viewers:
-        for kind in ("infra", "code", "web"):
+        for kind in ("infra", "code", "web", "cloud"):
             try:
                 await refresh(None, None, kind, v)
             except Exception:  # noqa: BLE001 -- one person's view failing doesn't stop the rest

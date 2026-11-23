@@ -11,14 +11,15 @@ from sqlalchemy import func, or_, select
 
 from api.dashboards import fleet
 from api.dashboards.catalog import Metric, Param, metric
-from api.models.device import Device, DeviceTag, DeviceType, RiskGrade
+from api.models.device import Device, DeviceTag, DeviceType, RiskGrade, HIDDEN_BY_DEFAULT
 from api.models.vuln import Finding, FindingStatus, Vulnerability
 
 OPEN = (FindingStatus.open, FindingStatus.in_progress)
 TYPES = ("any", "compute", *DeviceType.__members__)
 TYPE_LABEL = {"any": "All types", "compute": "Workstations and servers", "network_device": "Network devices",
               "workstation": "Workstations", "server": "Servers", "unknown": "Other devices",
-              "code_repository": "Code (SAST)", "website": "Web applications (DAST)", "cloud_instance": "Cloud instances"}
+              "code_repository": "Code (SAST)", "website": "Web applications (DAST)", "cloud_instance": "Cloud instances",
+              "cloud_resource": "Cloud resources (CSPM)"}
 MISSING = ("none", "edr", "scanner", "either")
 MISSING_LABEL = {"none": "Everything", "edr": "Without EDR", "scanner": "Without a vulnerability scanner",
                  "either": "Without EDR or a scanner"}
@@ -48,6 +49,8 @@ def where(ctx, p) -> list:
         w.append(Device.device_type.in_(fleet.COMPUTE))
     elif t in DeviceType.__members__:
         w.append(Device.device_type == DeviceType[t])
+    else:
+        w.append(Device.device_type.not_in(HIDDEN_BY_DEFAULT))
     if p.get("os_family", "any") in fleet.OS_FAMILIES:
         w.append(fleet.os_family() == p["os_family"])
     m = p.get("missing", "none")
