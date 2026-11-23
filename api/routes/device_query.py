@@ -101,6 +101,11 @@ def card_filters(card: dict) -> list:
         out.append(Device.device_type == DeviceType.website)
     elif card.get("asset") == "hosts":       # its Infrastructure tab: everything but repositories and sites
         out.append(Device.device_type.not_in((DeviceType.code_repository, DeviceType.website)))
+    if card.get("repo"):   # one code repository, by its "org/name"
+        out += [Device.device_type == DeviceType.code_repository, Device.hostname == card["repo"]]
+    if card.get("repo_org"):   # every repository of one organization; its own _ and % are not LIKE wildcards
+        org = card["repo_org"].replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        out += [Device.device_type == DeviceType.code_repository, Device.hostname.like(f"{org}/%", escape="\\")]
     if card.get("new_days"):
         out.append(Device.created_at >= fleet.now().replace(tzinfo=None) - timedelta(days=int(card["new_days"])))
     if card.get("fix"):   # the assets one fix applies to: those with an open finding it resolves

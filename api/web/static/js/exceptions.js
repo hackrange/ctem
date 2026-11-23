@@ -23,10 +23,11 @@
 
   function tabs(pending) {
     const list = canDecide
-      ? [['pending', `Waiting for approval${pending ? ` (${pending})` : ''}`], ['active', 'Active'], ['rejected', 'Rejected'], ['ended', 'Ended'], ['mine', 'My requests'], ['all', 'All']]
+      ? [['pending', 'Waiting for approval', pending], ['active', 'Active'], ['rejected', 'Rejected'], ['ended', 'Ended'], ['mine', 'My requests'], ['all', 'All']]
       : [['all', 'My requests'], ['pending', 'Waiting'], ['active', 'Approved'], ['rejected', 'Rejected'], ['ended', 'Ended']];
-    $('ex-tabs').innerHTML = list.map(([v, l]) =>
-      `<button type="button" role="tab" class="btn btn--sm ${v === tab ? 'btn--primary' : 'btn--ghost'}" data-tab="${v}" aria-selected="${v === tab}">${esc(l)}</button>`).join('');
+    $('ex-tabs').innerHTML = list.map(([v, l, count]) =>
+      `<button type="button" role="tab" class="btn btn--sm ${v === tab ? 'btn--primary' : 'btn--ghost'}" data-tab="${v}" aria-selected="${v === tab}">${esc(l)}${
+        count ? ` <span class="count-bubble" title="${esc(count)} waiting for approval">${esc(count > 99 ? '99+' : count)}</span>` : ''}</button>`).join('');
   }
 
   function vulnCell(e) {
@@ -162,6 +163,7 @@
     const s = await fetch(`${API}/summary`, { headers: { Accept: 'application/json' } }).then(r => (r.ok ? r.json() : {})).catch(() => ({}));
     canDecide = !!s.can_decide;
     tabs(s.pending || 0);
+    window.dispatchEvent(new Event('exceptions-changed'));   // the menu bubble follows approvals made here
     if (table) table.reload(false); else start();
   }
 

@@ -14,6 +14,15 @@
   const remembered = (() => { try { return localStorage.getItem('ctem.vulnType'); } catch (e) { return null; } })();
   let kind = KINDS.includes(init.get('kind')) ? init.get('kind') : KINDS.includes(remembered) ? remembered : 'infra';
   let allSources = [], byType = {};
+  // Admin and cyber approve requests: they see how many are waiting on the Exceptions tile
+  let canDecide = false;
+  fetch('/api/v1/exceptions/summary', { headers: { Accept: 'application/json' } }).then(r => (r.ok ? r.json() : null))
+    .then(s => { canDecide = !!(s && s.can_decide); if (canDecide && data) render(); }).catch(() => {});
+  // Code only: organization, application and repository, kept in the link like the other filters
+  const code = { org: init.get('org') || '', app: init.get('app') || '', repo: init.get('repo') || '' };
+  let codeOpts = null;   // { orgs, apps, repos: [{ name, org, apps }] }, from the server for this viewer
+  const NOUN = { infra: ['Devices', 'Device', 'devices'], code: ['Repositories', 'Repository', 'repositories'],
+                 web: ['Sites', 'Site', 'sites'] };
 
   const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   const theme = () => ({
@@ -45,10 +54,19 @@
   }
 
   function kpis(k, ex) {
-    const tile = (label, value, href, cls = '', hint = '') => `<a class="vd-kpi ${cls}" href="${esc(href)}"${hint ? ` title="${esc(hint)}"` : ''}>
-        <span class="vd-kpi__label">${esc(label)}</span><span class="vd-kpi__value">${esc(n(value))}</span></a>`;
+    const tile = (label, value, href, cls = '', hint = '', bubble = 0) => `<a class="vd-kpi ${cls}" href="${esc(href)}"${hint ? ` title="${esc(hint)}"` : ''}>
+        <span class="vd-kpi__label">${esc(label)}${bubble ? ` <span class="count-bubble" aria-label="${esc(bubble)} waiting for approval">${esc(bubble > 99 ? '99+' : bubble)}</span>` : ''}</span><span class="vd-kpi__value">${esc(n(value))}</span></a>`;
     // The first five count in the chosen unit: findings, unique vulnerabilities, or fixes
     const u = unit !== 'findings' && data.units ? data.units[unit] : k;
+    const vl = extra => `/vulns?type=${kind}${extra ? `&${extra}` : ''}`;
+    const dl = (() => {
+      const p = new URLSearchParams({ asset: { infra: 'hosts', code: 'repositories', web: 'sites' }[kind] });
+      if (kind === 'code') { if (code.org) p.set('repo_org', code.org); if (code.repo) p.set('repo', code.repo); }
+      // the same application can be tagged by several tools: any of its tags ("a|b")
+      if (kind === 'code' && code.app) p.append('tag', ((codeOpts && codeOpts.appTags[code.app]) || []).join('|'));
+      [...p.keys()].forEach(key => { if (!p.get(key)) p.delete(key); });
+      return `/devices?${p}`;
+    })();
     const fx = s => `/vulns/fixes?kind=${kind}${s ? `&severity=${s}` : ''}`;
     const head = unit === 'fixes' ? [
       tile('Fixes to apply', u.open, fx(''), '', `Each patch, upgrade or rollup once. ${n(u.unassigned_findings)} findings have no fix named by their source.`),
@@ -57,19 +75,20 @@
       tile('Fix KEV', u.kev, fx('kev'), 'vd-kpi--critical', 'Fixes that resolve a known exploited vulnerability'),
       tile('Fix exploitable', u.exploitable, fx('exploitable'), 'vd-kpi--high', 'Fixes that resolve a vulnerability with a public exploit'),
     ] : [
-      tile(unit === 'vulns' ? 'Unique vulnerabilities' : 'Open findings', u.open, '/vulns'),
-      tile('Critical', u.critical, '/vulns?min_cvss=9', 'vd-kpi--critical'),
-      tile('High', u.high, '/vulns?min_cvss=7', 'vd-kpi--high'),
-      tile('KEV', u.kev, '/vulns?is_kev=true', 'vd-kpi--critical', 'Known exploited (CISA KEV)'),
-      tile('Exploit available', u.exploitable, '/vulns', 'vd-kpi--high'),
+      tile(unit === 'vulns' ? 'Unique vulnerabilities' : 'Open findings', u.open, vl('')),
+      tile('Critical', u.critical, vl('min_cvss=9'), 'vd-kpi--critical'),
+      tile('High', u.high, vl('min_cvss=7'), 'vd-kpi--high'),
+      tile('KEV', u.kev, vl('is_kev=true'), 'vd-kpi--critical', 'Known exploited (CISA KEV)'),
+      tile('Exploit available', u.exploitable, vl(''), 'vd-kpi--high'),
     ];
     $('vd-kpis').innerHTML = [
       ...head,
       tile('Past SLA', k.past_sla, '/grc/checks/ctem_vuln_sla', 'vd-kpi--high', 'Critical and high open longer than their SLA'),
-      tile('Devices affected', k.devices, '/devices'),
-      tile('New (7 days)', k.new_7d, '/vulns'),
-      tile('Fixed (7 days)', k.fixed_7d, '/vulns', 'vd-kpi--low'),
-      tile('Exceptions', ex.active, '/exceptions', '', `${ex.pending} waiting for approval, ${ex.ending_14d} ending within 14 days`),
+      tile(`${NOUN[kind][0]} affected`, k.devices, dl),
+      tile('New (7 days)', k.new_7d, vl('')),
+      tile('Fixed (7 days)', k.fixed_7d, vl(''), 'vd-kpi--low'),
+      tile('Exceptions', ex.active, '/exceptions', '', `${ex.pending} waiting for approval, ${ex.ending_14d} ending within 14 days`,
+           canDecide ? ex.pending : 0),
     ].join('');
   }
 
@@ -126,7 +145,11 @@
     }, true);
   }
 
-  function types(rows) {
+  // Infrastructure: by device type. Code and Web apps are one type each, so there it's by source (which scanner)
+  function types(d) {
+    const bySource = kind !== 'infra';
+    $('vd-types-title').textContent = bySource ? 'Open findings by source' : 'Open findings by device type';
+    const rows = bySource ? (d.by_source || []).map(r => ({ type: r.source, open: r.open, src: true })) : d.by_type;
     const t = theme();
     const palette = [t.info, t.accent, t.sev.low, t.sev.high, t.sev.medium, t.muted, t.sev.critical, t.fg];
     const c = chart('c-types');
@@ -140,7 +163,11 @@
                  data: rows.map(r => ({ name: r.type.replace(/_/g, ' '), value: r.open, raw: r.type })) }],
     }, true);
     c.off('click');
-    c.on('click', p => { if (p.data && p.data.raw) location.href = `/devices?device_type=${encodeURIComponent(p.data.raw)}`; });
+    c.on('click', p => {
+      if (!p.data || !p.data.raw) return;
+      location.href = bySource ? `/vulns?type=${kind}&source=${encodeURIComponent(p.data.raw)}`
+        : `/devices?device_type=${encodeURIComponent(p.data.raw)}`;
+    });
   }
 
   // Sortable by any column; % of findings is each fix's share of the open findings in this view
@@ -201,12 +228,17 @@
     flow(data.trend);
     aging(data.aging, data.sla_days);
     mttr(data.mttr);
-    types(data.by_type);
+    types(data);
+    $('vd-topd-title').textContent = `Riskiest ${NOUN[kind][2]}`;
+    $('vd-topd-th').textContent = NOUN[kind][1];
+    $('vd-topv-th').textContent = NOUN[kind][0];
     tables(data);
     const at = new Date(data.generated_at);
     const what = { infra: 'Infrastructure: hosts, network and cloud', code: 'Code: repositories (SAST, packages, secrets, IaC)',
                    web: 'Web apps: DAST and web application scanning' }[kind];
-    $('vd-sub').textContent = `${what}, ${data.scoped ? 'for the devices you can see' : 'across every device'}. Updated ${at.toLocaleTimeString()}.`;
+    const narrowed = kind === 'code' && (code.repo || code.org || code.app)
+      ? ` (${[code.repo || code.org, code.app && `application ${code.app}`].filter(Boolean).join(', ')})` : '';
+    $('vd-sub').textContent = `${what}${narrowed}, ${data.scoped ? `for the ${NOUN[kind][2]} you can see` : `across every ${NOUN[kind][1].toLowerCase()}`}. Updated ${at.toLocaleTimeString()}.`;
     $('vd-trend-note').textContent = data.tracking_since
       ? `CTEM has tracked fixes since ${new Date(data.tracking_since).toLocaleDateString()}; earlier points read low` : '';
   }
@@ -273,6 +305,7 @@
   async function load() {
     try { localStorage.setItem('ctem.vulnType', kind); } catch (e) { /* not remembered, still works */ }
     $('vd-source').disabled = kind === 'all';
+    $('vd-code-row').hidden = kind !== 'code';
     if (kind === 'all') { status(''); return loadAll(); }
     $('vd-all').hidden = true;
     $('vd-kpis').hidden = false;
@@ -280,6 +313,7 @@
     const q = new URLSearchParams({ range: $('vd-range').value, kind });
     if ($('vd-source').value) q.set('source', $('vd-source').value);
     if (kind === 'infra' && $('vd-type').value) q.set('device_type', $('vd-type').value);
+    if (kind === 'code') ['org', 'app', 'repo'].forEach(k => { if (code[k]) q.set(k, code[k]); });
     if (unit !== 'findings') q.set('count', unit);
     history.replaceState(null, '', `?${q}`);
     // Only the latest click counts: an earlier, slower answer is dropped instead of replacing the newer one
@@ -292,11 +326,18 @@
     const limit = setTimeout(() => { mine.timedOut = true; mine.abort(); }, 120000);
     try {
       const res = await fetch(`/api/v1/vuln-dashboard?${q}`, { headers: { Accept: 'application/json' }, signal: mine.signal });
+      if (res.status === 422 && kind === 'code' && (code.org || code.app || code.repo)) {
+        // an organization, application or repository from an old link that no longer exists (or isn't yours)
+        code.org = code.app = code.repo = '';
+        pending = null;
+        return load();
+      }
       if (!res.ok) throw new Error(res.status);
       const got = await res.json();
       if (mine !== pending) return;
       data = got;
       fillFilters(data.filters);
+      if (got.filters && got.filters.code) fillCode(got.filters.code);
       document.querySelector('.vd-grid').hidden = false;
       status('');
       render();
@@ -372,9 +413,50 @@
       sel.value = hostTypes.includes(hostPick) ? hostPick : '';
     }
     sel.disabled = !!fixed || hostTypes.length === 1;
-    sel.hidden = kind === 'all';
+    sel.hidden = kind !== 'infra';   // Code and Web apps are one type each: nothing to pick, so not shown
     sel.title = fixed ? `The ${kind === 'code' ? 'Code' : 'Web apps'} tab is all ${fixed === 'website' ? 'websites' : 'code repositories'}` : '';
   }
+  // Code: organization and application narrow the repository list, the way the scanner's own pages do
+  function fillCode(f) {
+    codeOpts = { orgs: f.orgs || [], apps: f.apps || [], repos: f.repos || [], appTags: f.app_tags || {} };
+    const opt = (sel, first, vals, cur) => {
+      sel.innerHTML = `<option value="">${esc(first)}</option>`;
+      add(sel, vals, v => v);
+      sel.value = vals.includes(cur) ? cur : '';
+    };
+    opt($('vd-org'), 'All organizations', codeOpts.orgs, code.org);
+    opt($('vd-app'), 'All applications', codeOpts.apps, code.app);
+    repoOptions();
+    $('vd-org').closest('label').hidden = !codeOpts.orgs.length;
+    $('vd-app').closest('label').hidden = !codeOpts.apps.length;   // no Application tags mapped on any repository
+  }
+  function repoOptions() {
+    if (!codeOpts) return;
+    const list = codeOpts.repos.filter(r => (!code.org || r.org === code.org) && (!code.app || (r.apps || []).includes(code.app)))
+      .map(r => r.name);
+    const sel = $('vd-repo');
+    sel.innerHTML = `<option value="">${esc(list.length === codeOpts.repos.length ? 'All repositories' : `All ${list.length} matching repositories`)}</option>`;
+    add(sel, list, v => v);
+    if (code.repo && !list.includes(code.repo)) code.repo = '';   // not under the organization or application picked
+    sel.value = code.repo;
+  }
+  const codePick = k => () => {
+    code[k] = $(`vd-${k}`).value;
+    if (k !== 'repo') repoOptions();
+    else if (code.repo && codeOpts) {   // a repository picked first fills in its organization
+      const r = codeOpts.repos.find(x => x.name === code.repo);
+      if (r && r.org && !code.org) { code.org = r.org; $('vd-org').value = r.org; repoOptions(); }
+    }
+    load();
+  };
+  ['org', 'app', 'repo'].forEach(k => $(`vd-${k}`).addEventListener('change', codePick(k)));
+  $('vd-code-clear').addEventListener('click', () => {
+    code.org = code.app = code.repo = '';
+    ['vd-org', 'vd-app', 'vd-repo'].forEach(id => { $(id).value = ''; });
+    repoOptions();
+    load();
+  });
+
   function pressKind() {
     document.querySelectorAll('#vd-kind [data-kind]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.kind === kind)));
   }

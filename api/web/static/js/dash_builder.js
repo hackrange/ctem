@@ -43,7 +43,7 @@
 
   function item(w) {
     return `<div class="dw"><div class="dw-head"><span class="dw-title" title="${esc(w.title)}">${esc(w.title)}</span>
-      ${!editing && (byMetric()[w.metric] || {}).shape !== 'value' ? `<button type="button" class="dw-tool dw-csv" data-csv="${esc(w.id)}"
+      ${!editing && (byMetric()[w.metric] || {}).shape !== 'value' && w.viz !== 'kpi' ? `<button type="button" class="dw-tool dw-csv" data-csv="${esc(w.id)}"
         title="Download the data as CSV" aria-label="Download ${esc(w.title)} as CSV">CSV</button>` : ''}
       <span class="dw-tools" ${editing ? '' : 'hidden'}><button type="button" class="dw-tool" data-edit="${esc(w.id)}" title="All settings" aria-label="Edit widget">&#9998;</button>
       <button type="button" class="dw-tool" data-dup="${esc(w.id)}" title="Duplicate" aria-label="Duplicate widget">&#10697;</button>
@@ -186,6 +186,7 @@
     btn('Copy', 'btn--ghost', copy, 'Make your own copy to change');
     if (dash.can_edit) {
       btn('Edit with AI', 'btn--ghost', aiEdit, 'Describe changes and keep refining them');
+      btn('Rename', 'btn--ghost', () => DashRename.open(dash, `${API}/${id}`, () => open(showing)), 'Change the name and description');
       btn('Share', 'btn--ghost', settings);
       if (dash.has_draft) btn('Discard draft', 'btn--ghost', discard);
       if (dash.published) btn('Unpublish', 'btn--ghost', unpublish, 'Back to a draft only you and admins see');

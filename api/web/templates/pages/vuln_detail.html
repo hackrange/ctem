@@ -76,7 +76,26 @@ async function loadVuln() {
   $('v-sub').textContent = v.cve_id ? v.title : (v.source_vuln_id || '');
   $('v-badges').innerHTML = (v.is_kev ? '<span class="chip chip--critical">CISA KEV</span>' : '')
     + (v.exploit_available ? '<span class="chip chip--high">Exploit available</span>' : '');
-  $('v-info').innerHTML = [
+  const app = v.domain === 'code' || v.domain === 'web';
+  const SEV_OF = c => (c == null ? null : c >= 9 ? 'critical' : c >= 7 ? 'high' : c >= 4 ? 'medium' : c > 0 ? 'low' : 'info');
+  const SRC_NAME = { github_code_review: 'GitHub Code Review' };
+  // Code and Web apps: only what the tool actually gives; host-scanner fields (vector, EPSS, KEV date) are left out when empty
+  if (app) {
+    const sev = SEV_OF(v.cvss_base);
+    $('v-info').innerHTML = [
+      info('Grade', sev ? `<span class="chip chip--${esc(sev)}">${esc(sev)}</span>${v.source === 'github_code_review'
+        ? ' <span class="text-sm text-muted">as graded in GitHub Code Review</span>' : ''}` : txt(null)),
+      v.cvss_vector ? info('CVSS vector', `<span class="text-mono text-sm">${esc(v.cvss_vector)}</span>`) : '',
+      v.epss_score != null ? info('EPSS', esc((v.epss_score * 100).toFixed(2) + '%')) : '',
+      v.kev_added_date ? info('KEV added', txt(v.kev_added_date)) : '',
+      v.attack_vector ? info('Attack vector', txt(v.attack_vector)) : '',
+      info(AssetDetail.affectedLabel(v.domain), R.num(v.affected_devices)),
+      info('Type', esc(v.domain === 'code' ? 'Code' : 'Web app')),
+      info('Source', esc(SRC_NAME[v.source] || v.source || '')),
+      v.source_vuln_id ? info('Scanner ID', `<span class="text-mono text-sm">${esc(String(v.source_vuln_id).split('@')[0])}</span>`) : '',
+      '<span id="v-info-tool" style="display:contents"></span>',
+    ].join('');
+  } else $('v-info').innerHTML = [
     info('CVSS', txt(v.cvss_base)),
     info('CVSS vector', `<span class="text-mono text-sm">${txt(v.cvss_vector)}</span>`),
     info('EPSS', v.epss_score == null ? txt(null) : esc((v.epss_score * 100).toFixed(2) + '%')),
@@ -112,6 +131,22 @@ async function showFound(v) {
     const f = r.ok ? ((await r.json()).findings || [])[0] : null;
     if (!f || !f.details) return;
     $('v-found').innerHTML = AssetDetail.panel({ ...f, title: v.title, vuln_id: vulnId });
+    // The tool's headline facts in Details: the advisory's own score next to the grade here, reach, and the fix
+    const d = f.details, slot = $('v-info-tool');
+    if (slot) {
+      const r = d.reachability || {}, p = d.package || {}, k = d.gcr_risk || {};
+      slot.innerHTML = [
+        d.advisory ? info('Advisory', `<span class="text-mono text-sm">${esc(d.advisory)}</span>`) : '',
+        d.advisory_cvss != null ? info('Advisory CVSS', esc(d.advisory_cvss)) : '',
+        d.epss != null && v.epss_score == null ? info('EPSS', esc((d.epss * 100).toFixed(2) + '%')) : '',
+        d.kev ? info('Known exploited', '<span class="chip chip--critical">KEV</span>') : '',
+        k.score != null ? info('Risk in GitHub Code Review', `<b>${esc(k.score)}</b> of 100${k.likelihood ? ` <span class="text-sm text-muted">likelihood ${esc(k.likelihood)}, impact ${esc(k.impact || '?')}</span>` : ''}`) : '',
+        r.verdict ? info('Reachable', `${esc(r.verdict)}${r.direct ? ` <span class="text-sm text-muted">${esc(r.direct)}${r.scope ? `, ${esc(r.scope)}` : ''}</span>` : ''}`) : '',
+        p.name ? info('Package', `<span class="text-mono text-sm">${esc(p.name)}${p.version ? `@${esc(p.version)}` : ''}</span>${p.ecosystem ? ` <span class="text-sm text-muted">${esc(p.ecosystem)}</span>` : ''}`) : '',
+        p.fixed_in ? info('Fixed in', `<span class="text-mono text-sm">${esc(p.fixed_in)}</span>`) : '',
+        d.validation && d.validation.rating ? info('Validation', `${esc(d.validation.rating)}${d.validation.confidence ? ` <span class="text-sm text-muted">${esc(d.validation.confidence)} confidence</span>` : ''}`) : '',
+      ].join('');
+    }
     $('v-found-where').textContent = f.hostname ? `Most recent: ${f.hostname}` : '';
     $('v-found-panel').hidden = false;
   } catch (e) { /* the page works without it */ }

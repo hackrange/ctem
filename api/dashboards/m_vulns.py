@@ -11,7 +11,7 @@ from api.models.vuln import Finding, Vulnerability
 
 SEVERITY = Param("severity", "Severity", ("any", "critical_high", "critical", "high", "medium", "low"),
                  labels={"any": "Any severity", "critical_high": "Critical and high"})
-SOURCE = Param("source", "Source", ("any", *vd.SOURCES), labels={"any": "All sources"})
+SOURCE = Param("source", "Sources", ("any", *vd.SOURCES), labels={"any": "All sources"}, multi=True)
 DTYPE = Param("device_type", "Device type", ("any", *DeviceType.__members__), labels={"any": "All device types"})
 KEV = Param("kev_only", "Known exploited (KEV) only", default=False)
 RANGE = Param("range", "Range", ("90d", "30d", "180d", "365d", "all"),
@@ -34,8 +34,14 @@ def _sev_cond(sev: str):
             "low": (c < 4.0) | c.is_(None), "critical_high": c >= 7.0}.get(sev)
 
 
+def _srcs(p) -> list:
+    """The sources a widget picked (none means all). Older widgets saved one source, or "any", as text."""
+    s = p.get("source")
+    return [s] if isinstance(s, str) and s != "any" else list(s or []) if isinstance(s, (list, tuple)) else []
+
+
 def _w(ctx, p) -> list:
-    w = vd._where(None if p.get("source") == "any" else p.get("source"),
+    w = vd._where(_srcs(p) or None,
                   None if p.get("device_type") == "any" else p.get("device_type")) + vd.scoped(ctx.scope)
     cond = _sev_cond(p.get("severity", "any"))
     if cond is not None:
@@ -49,7 +55,10 @@ async def _ready(ctx, p) -> dict | None:
     """The Vuln Dashboard's cached answer, when it covers this widget."""
     if ctx.scope is not None or p.get("severity", "any") != "any" or p.get("kev_only"):
         return None
-    src = None if p.get("source") in (None, "any") else p["source"]
+    srcs = _srcs(p)
+    if len(srcs) > 1:   # the ready-made answers are per single source
+        return None
+    src = srcs[0] if srcs else None
     dt = None if p.get("device_type") in (None, "any") else p["device_type"]
     return await vd.cached(ctx.db, p.get("range", "all"), src, dt)
 
@@ -103,6 +112,28 @@ async def _mttr(ctx, p):
             "series": [{"name": SEV_LABEL[s], "data": m[s], "color": COLORS[s]} for s in ("critical", "high", "medium")]}
 
 
+MTTR_DAYS = Param("days", "As a number: fixes in the last", ("90", "30", "180", "365"),
+                  labels={"30": "30 days", "90": "90 days", "180": "180 days", "365": "1 year"})
+
+
+async def _mttr_number(ctx, p):
+    """Mean days from detection to fix, for the findings fixed in the window, against the window before it."""
+    from datetime import timedelta
+
+    from api.dashboards import fleet
+    from api.dashboards.m_risk import _mttr_between
+    from api.models.vuln import FindingStatus
+    days, end = int(p.get("days") or 90), fleet.now()
+    w = _w(ctx, p) + [Finding.status == FindingStatus.remediated, Finding.first_detected.is_not(None)]
+    cur, n = await _mttr_between(ctx, w, end - timedelta(days=days), end)
+    was, _ = await _mttr_between(ctx, w, end - timedelta(days=2 * days), end - timedelta(days=days))
+    srcs = _srcs(p)
+    which = f" from {', '.join(s.replace('_', ' ') for s in srcs)}" if srcs else ""
+    return {"value": cur, "unit": " days", "delta": fleet.delta(cur, was), "href": "/vulns?status=remediated",
+            "note": (f"{n:,} finding{'' if n == 1 else 's'}{which} fixed in the last {days} days" if n
+                     else f"Nothing{which} fixed in the last {days} days")}
+
+
 async def _breakdown(ctx, p) -> dict:
     ready = await _ready(ctx, p)
     return ready if ready else await vd._breakdowns(ctx.db, _w(ctx, p))
@@ -147,7 +178,9 @@ metric(Metric("vuln.trend", "Open findings over time", C, "series",
 metric(Metric("vuln.flow", "New vs fixed per day", C, "series", (RANGE, SEVERITY, KEV, *FILTERS), _flow))
 metric(Metric("vuln.aging", "Age of open findings", C, "series", (SEVERITY, KEV, *FILTERS), _aging,
               "Open findings by how long they have been open."))
-metric(Metric("vuln.mttr", "Mean days to remediate", C, "series", (SEVERITY, KEV, *FILTERS), _mttr))
+metric(Metric("vuln.mttr", "Mean days to remediate", C, "series", (SEVERITY, KEV, *FILTERS, MTTR_DAYS), _mttr,
+              "By month as a chart, or as one number (choose Number in Show as) for the fixes in a window you pick.",
+              as_number=_mttr_number))
 metric(Metric("vuln.by_device_type", "Open findings by device type", C, "parts", (SEVERITY, KEV, SOURCE), _by_type))
 metric(Metric("vuln.by_source", "Open findings by source", C, "parts", (SEVERITY, KEV, DTYPE), _by_source))
 metric(Metric("vuln.top_vulns", "Most widespread vulnerabilities", C, "table", (LIMIT, SEVERITY, KEV, *FILTERS), _top_vulns))

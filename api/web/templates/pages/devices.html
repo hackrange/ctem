@@ -123,6 +123,8 @@ const CARD = {
   new_days: [/^\d{1,4}$/, v => `New in ${v} days`],
   compute: [/^(1|true)$/, () => 'Workstations and servers'],
   fix: [/^[A-Za-z0-9._:@\/+\-]{1,160}$/, v => `Needs fix: ${v.split(':').slice(1).join(':').slice(0, 60)}`],
+  repo_org: [/^[A-Za-z0-9._\-]{1,100}$/, v => `Organization: ${v}`],
+  repo: [/^[A-Za-z0-9._\-]{1,100}\/[A-Za-z0-9._\-]{1,150}$/, v => `Repository: ${v}`],
 };
 const card = {};
 Object.entries(CARD).forEach(([k, [re]]) => { const v = initial.get(k); if (v && re.test(v)) card[k] = v; });

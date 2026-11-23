@@ -65,6 +65,12 @@
       if (w && w.metric === m.id) $('dwe-viz').value = w.viz;
       $('dwe-params').innerHTML = m.params.map(p => {
         const id = `dwp-${p.key}`, cur = params && params[p.key] != null ? params[p.key] : p.default;
+        if (p.type === 'multi') {   // several at once; none ticked means all
+          const on = new Set(Array.isArray(cur) ? cur : cur && cur !== 'any' ? [cur] : []);
+          return `<span class="form-label" style="margin-top:8px;display:block">${esc(p.label)} <span class="text-muted">(none ticked: ${esc(String(p.all_label || 'all').toLowerCase())})</span></span>
+            <div data-multi="${esc(p.key)}" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:2px 12px;max-height:160px;overflow:auto;border:1px solid var(--border);border-radius:6px;padding:6px 8px">${
+              p.choices.map(c => `<label class="tk-radio"><input type="checkbox" value="${esc(c.value)}"${on.has(c.value) ? ' checked' : ''}> ${esc(c.label)}</label>`).join('')}</div>`;
+        }
         if (p.choices) return `<label class="form-label" for="${id}" style="margin-top:8px">${esc(p.label)}</label>
           <select id="${id}" class="form-input" data-p="${esc(p.key)}">${p.choices.map(c =>
             `<option value="${esc(c.value)}"${String(c.value) === String(cur) ? ' selected' : ''}>${esc(c.label)}</option>`).join('')}</select>`;
@@ -75,18 +81,23 @@
         return `<label class="tk-radio" style="margin-top:10px"><input id="${id}" type="checkbox" data-p="${esc(p.key)}"${cur ? ' checked' : ''}> ${esc(p.label)}</label>`;
       }).join('');
       if (!titleTouched) $('dwe-title').value = m.label;
-      $('dwe-thresholds').hidden = m.shape !== 'value';
+      $('dwe-thresholds').hidden = !isNumber(m);
       $('dwe-filters').hidden = m.filterable === false;
       refresh();
     }
+    // A single number: a number metric, or a chart metric shown as Number
+    const isNumber = m => m.shape === 'value' || (m.number && $('dwe-viz').value === 'kpi');
     function current() {
       const m = byId[$('dwe-metric').value];
       const params = {};
+      d.body.querySelectorAll('[data-multi]').forEach(box => {
+        params[box.dataset.multi] = [...box.querySelectorAll('input:checked')].map(x => x.value);
+      });
       d.body.querySelectorAll('[data-p]').forEach(el => {
         const p = m.params.find(x => x.key === el.dataset.p);
         params[p.key] = el.type === 'checkbox' ? el.checked : p.type === 'int' ? Number(el.value) : el.value;
       });
-      const small = m.shape === 'value';
+      const small = isNumber(m);
       const style = {};
       if ($('dwe-color').value) style.color = $('dwe-color').value;
       if (Number($('dwe-op').value) < 100) style.opacity = Number($('dwe-op').value);
@@ -106,7 +117,7 @@
                                    () => refresh());
     $('dwe-cat').onchange = () => fillMetrics();
     $('dwe-metric').onchange = () => fillMetric();
-    $('dwe-viz').onchange = refresh;
+    $('dwe-viz').onchange = () => { $('dwe-thresholds').hidden = !isNumber(byId[$('dwe-metric').value]); refresh(); };
     $('dwe-params').addEventListener('change', refresh);
     $('dwe-title').addEventListener('input', () => { titleTouched = true; });
     ['dwe-color', 'dwe-op', 'dwe-warn', 'dwe-bad', 'dwe-higher'].forEach(id => $(id).addEventListener('change', refresh));

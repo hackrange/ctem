@@ -91,13 +91,24 @@
     {% if can_see(user, '/exceptions') %}
     <a href="/exceptions" class="sidebar__link {% if active_nav == 'exceptions' %}active{% endif %}">
       <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
-      Exceptions <span id="nav-ex-badge" class="chip chip--medium" style="font-size:.65rem;margin-left:auto" hidden></span>
+      Exceptions <span id="nav-ex-badge" class="count-bubble" style="margin-left:auto" hidden></span>
     </a>
     <script>
-      fetch('/api/v1/exceptions/summary', { headers: { Accept: 'application/json' } }).then(r => (r.ok ? r.json() : null))
-        .then(s => { const n = s && (s.can_decide ? s.pending : 0); const b = document.getElementById('nav-ex-badge');
-                     if (n) { b.textContent = n > 99 ? '99+' : String(n); b.hidden = false; b.title = n + ' waiting for approval'; } })
-        .catch(() => {});
+      // Requests waiting for approval (admin and cyber decide them): a bubble that stays current while the page is open
+      (() => {
+        const show = () => fetch('/api/v1/exceptions/summary', { headers: { Accept: 'application/json' } }).then(r => (r.ok ? r.json() : null))
+          .then(s => {
+            const n = s && s.can_decide ? Number(s.pending) || 0 : 0;
+            const b = document.getElementById('nav-ex-badge');
+            b.textContent = n > 99 ? '99+' : String(n);
+            b.hidden = !n;
+            b.title = n + (n === 1 ? ' exception request' : ' exception requests') + ' waiting for approval';
+            b.setAttribute('aria-label', b.title);
+          }).catch(() => {});
+        show();
+        setInterval(show, 60000);
+        window.addEventListener('exceptions-changed', show);
+      })();
     </script>
     {% endif %}
   </div>

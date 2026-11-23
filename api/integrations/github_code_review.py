@@ -9,7 +9,7 @@ What comes in:
     belongs to a device CTEM already knows marks that device internet exposed
 
 Findings GCR no longer reports are marked remediated, but only after a complete read. Exceptions approved in
-GCR arrive as risk accepted. Nothing is written back to GCR."""
+GCR arrive as risk accepted. Exceptions approved in CTEM are written back by gcr_writeback.py."""
 from __future__ import annotations
 
 import fnmatch
@@ -66,8 +66,14 @@ def mapped(name: str, rules) -> set[str]:
     return set().union(*[t for p, t in rules if fnmatch.fnmatchcase((name or "").lower(), p)]) if rules else set()
 
 
-def _status(state: str | None, excepted: bool):
+def _status(state: str | None, excepted: bool, exception: dict | None = None):
+    """GCR doesn't reopen a finding when its waiver runs out, so an approved waiver past its end date counts as open."""
+    from datetime import datetime, timezone
+
     from api.models.vuln import FindingStatus
+    ends = parse_dt((exception or {}).get("expires_at")) if (exception or {}).get("status") == "approved" else None
+    if ends is not None and _utc(ends) <= datetime.now(timezone.utc):
+        return FindingStatus.remediated if state == "fixed" else FindingStatus.open
     if excepted or state == "waived":
         return FindingStatus.risk_accepted
     return FindingStatus.remediated if state == "fixed" else FindingStatus.open
@@ -135,6 +141,13 @@ def code_details(f: dict, base: str) -> dict:
                           "ecosystem": pkg.get("ecosystem"), "declared_in": pkg.get("declared_in") or None,
                           "image": pkg.get("image") or None, "scope": pkg.get("scope") or None}
         out["advisory"] = info.get("id") or None
+        # the advisory's own numbers, since the grade here can differ
+        if isinstance(info.get("cvss_score"), (int, float)):
+            out["advisory_cvss"] = float(info["cvss_score"])
+        if isinstance(info.get("epss_score"), (int, float)):
+            out["epss"] = float(info["epss_score"])
+        if info.get("known_exploited"):
+            out["kev"] = True
         if pkg.get("malicious") or f.get("malicious"):
             m = f.get("malicious") or {}
             out["supply_chain"] = {"signal": _text(m.get("signal") or pkg.get("malicious"), 120), "reason": _text(m.get("reason"), 600)}
@@ -304,6 +317,13 @@ class GitHubCodeReviewConnector(BaseConnector):
         vulns = {v.source_vuln_id: v for v in (await db.execute(select(Vulnerability).where(Vulnerability.source == SRC))).scalars()}
         have = {(f.device_id, f.vuln_id): f for f in (await db.execute(select(Finding).where(Finding.source == SRC))).scalars()}
         seen: set = set()
+        # Each repo keeps its own grade ("pkg:GHSA-x@info"); a regraded finding moves rows instead of closing
+        key_of = {v.id: k for k, v in vulns.items()}
+        family: dict = {}
+        for (dev_id, vid), f in have.items():
+            k = key_of.get(vid)
+            if k and k.startswith("pkg:"):
+                family.setdefault((dev_id, k.split("@", 1)[0]), []).append(f)
 
         def vuln(key: str, title: str, cve: str | None, sev: str) -> Vulnerability:
             v = vulns.get(key)
@@ -317,10 +337,17 @@ class GitHubCodeReviewConnector(BaseConnector):
                 v.cvss_base = CVSS.get(sev, 5.0)
             return v
 
-        async def finding(dev: Device, v: Vulnerability, gid, status, first, last, details=None) -> Finding:
+        async def finding(dev: Device, v: Vulnerability, gid, status, first, last, details=None, fam=None) -> Finding:
             if v.id is None:
                 await db.flush()
             f = have.get((dev.id, v.id))
+            if f is None and fam:   # the same advisory on this repository under another grade: move it here
+                f = next((x for x in family.get((dev.id, fam), []) if x.vuln_id != v.id and (dev.id, x.vuln_id) not in seen
+                          and have.get((dev.id, x.vuln_id)) is x), None)
+                if f is not None:
+                    del have[(dev.id, f.vuln_id)]
+                    f.vuln_id = v.id
+                    have[(dev.id, v.id)] = f
             if f is None:
                 f = Finding(device_id=dev.id, vuln_id=v.id, source=SRC, source_id=str(gid)[:256])
                 db.add(f)
@@ -351,9 +378,12 @@ class GitHubCodeReviewConnector(BaseConnector):
                 continue
             key, title, cve = vuln_key(fd)
             sev = str(fd.get("severity") or "medium").lower()   # GCR's current grade (after regrades), not as first found
-            v = vuln(key, title, cve, sev)
             info = fd.get("vulnerability") or {}
             adv = float(info["cvss_score"]) if isinstance(info.get("cvss_score"), (int, float)) else None
+            fam = key if key.startswith("pkg:") else None
+            if fam and sev in CVSS and sev != (_band(adv) if adv is not None else "medium"):
+                key, title = f"{fam}@{sev}", f"{title} (graded {sev} here)"[:512]
+            v = vuln(key, title, cve, sev)
             was = graded.get(key)
             if was is None or _RANK.get(sev, 2) > _RANK.get(was[0], 2):
                 graded[key] = (sev, adv if adv is not None else (was[1] if was else None))
@@ -364,8 +394,8 @@ class GitHubCodeReviewConnector(BaseConnector):
             review = fd.get("ai_review") or {}
             v.description = "\n".join(x for x in (fd.get("description") or "", f"Fix: {review['fix']}" if review.get("fix") else "",
                                                   fd.get("url") or "") if x)[:4000] or None
-            f = await finding(dev, v, fd.get("id"), _status(fd.get("state"), bool(fd.get("excepted"))),
-                              parse_dt(fd.get("first_found")), parse_dt(fd.get("last_found")), code_details(fd, base))
+            f = await finding(dev, v, fd.get("id"), _status(fd.get("state"), bool(fd.get("excepted")), fd.get("exception")),
+                              parse_dt(fd.get("first_found")), parse_dt(fd.get("last_found")), code_details(fd, base), fam)
             verdict = (fd.get("reachability") or {}).get("verdict")
             if verdict in ("reachable", "unlikely"):
                 f.is_reachable, f.reachability_source = verdict == "reachable", SRC

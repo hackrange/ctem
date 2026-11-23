@@ -23,6 +23,11 @@
 .vd-sort[aria-sort="ascending"]::after{content:" \2191"}
 .vd-pct{display:flex;align-items:center;gap:6px}
 .vd-pct span{display:inline-block;height:6px;border-radius:3px;background:var(--accent);min-width:2px}
+.vd-code-row{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px;margin:-4px 0 16px;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:10px}
+.vd-code-row[hidden]{display:none}
+.vd-code-row label{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600;color:var(--fg-muted);min-width:0}
+.vd-code-row select{min-width:200px;max-width:min(420px,100%)}
+.vd-code-row label.vd-code-repo select{min-width:280px}
 </style>
 {% endblock %}
 
@@ -57,6 +62,14 @@
   </div>
 </div>
 
+<!-- Code only: which organization, application and repository (a second row: the first one is full) -->
+<div class="vd-code-row" id="vd-code-row" role="group" aria-label="Code filters" hidden>
+  <label>Organization<select id="vd-org" class="filter-select"><option value="">All organizations</option></select></label>
+  <label>Application<select id="vd-app" class="filter-select"><option value="">All applications</option></select></label>
+  <label class="vd-code-repo">Code repository<select id="vd-repo" class="filter-select"><option value="">All repositories</option></select></label>
+  <button type="button" class="btn btn--ghost btn--sm" id="vd-code-clear">Clear</button>
+</div>
+
 <div id="vd-kpis" class="vd-kpis" aria-live="polite"></div>
 <div id="vd-all" class="vd-all" hidden aria-live="polite"></div>
 
@@ -67,7 +80,7 @@
   <div class="panel"><div class="panel__header"><h2 class="panel__title">Age of open findings</h2>
     <span class="text-muted text-sm" id="vd-sla-note"></span></div><div class="vd-chart" id="c-aging"></div></div>
   <div class="panel"><div class="panel__header"><h2 class="panel__title">Mean days to remediate</h2></div><div class="vd-chart" id="c-mttr"></div></div>
-  <div class="panel"><div class="panel__header"><h2 class="panel__title">Open findings by device type</h2></div><div class="vd-chart" id="c-types"></div></div>
+  <div class="panel"><div class="panel__header"><h2 class="panel__title" id="vd-types-title">Open findings by device type</h2></div><div class="vd-chart" id="c-types"></div></div>
   <div class="panel vd-wide" style="padding:0"><div class="panel__header"><h2 class="panel__title">Fixes that remove the most risk</h2>
     <a class="btn btn--ghost btn--sm" id="vd-allfixes" href="/vulns/fixes">All fixes</a></div>
     <div style="overflow-x:auto"><table class="data-table"><thead><tr id="vd-topf-head">
@@ -81,9 +94,9 @@
     </tr></thead>
     <tbody id="vd-topf"></tbody></table></div></div>
   <div class="panel" style="padding:0"><div class="panel__header"><h2 class="panel__title">Most widespread vulnerabilities</h2></div>
-    <table class="data-table"><thead><tr><th>Vulnerability</th><th>CVSS</th><th>Devices</th></tr></thead><tbody id="vd-topv"></tbody></table></div>
-  <div class="panel" style="padding:0"><div class="panel__header"><h2 class="panel__title">Riskiest devices</h2></div>
-    <table class="data-table"><thead><tr><th>Device</th><th>Grade</th><th>Score</th><th>Open</th><th>KEV</th></tr></thead><tbody id="vd-topd"></tbody></table></div>
+    <table class="data-table"><thead><tr><th>Vulnerability</th><th>CVSS</th><th id="vd-topv-th">Devices</th></tr></thead><tbody id="vd-topv"></tbody></table></div>
+  <div class="panel" style="padding:0"><div class="panel__header"><h2 class="panel__title" id="vd-topd-title">Riskiest devices</h2></div>
+    <table class="data-table"><thead><tr><th id="vd-topd-th">Device</th><th>Grade</th><th>Score</th><th>Open</th><th>KEV</th></tr></thead><tbody id="vd-topd"></tbody></table></div>
 </div>
 {% endblock %}
 

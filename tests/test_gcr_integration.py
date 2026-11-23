@@ -393,11 +393,46 @@ async def test_score_follows_the_current_grade_not_the_advisory(db):
     await c.store(db, [{"full_name": f"acme/claims-portal-{n}"}, {"full_name": other}], found, [], {},
                   {"critical", "high", "medium", "low", "info"})
 
-    async def score(ghsa):
+    async def score(key):
         v = (await db.execute(select(Vulnerability).where(Vulnerability.source == "github_code_review",
-                                                          Vulnerability.source_vuln_id.like(f"%{ghsa}%")))).scalar_one()
+                                                          Vulnerability.source_vuln_id == key))).scalar_one()
         return v.cvss_base, v.description or ""
-    s, why = await score(f"GHSA-{n}-info")
+    s, why = await score(f"pkg:GHSA-{n}-info@info")
     assert s == 0.0 and "Advisory CVSS 9.8; Code Review grades it info" in why
-    assert (await score(f"GHSA-{n}-mix"))[0] == 7.5        # the highest current grade where it's found: high
-    assert (await score(f"GHSA-{n}-keep"))[0] == 9.8       # still critical: the advisory's own score
+    # each repository keeps its own grade (reachability differs): info in one, high in the other, never the worst for both
+    assert (await score(f"pkg:GHSA-{n}-mix@info"))[0] == 0.0
+    assert (await score(f"pkg:GHSA-{n}-mix@high"))[0] == 7.5
+    assert (await score(f"pkg:GHSA-{n}-keep"))[0] == 9.8   # still critical: the advisory's own score and row
+
+
+@pytest.mark.asyncio
+async def test_a_regrade_moves_the_finding_instead_of_closing_it(db):
+    from sqlalchemy import select
+
+    from api.models.vuln import Finding, FindingStatus, Vulnerability
+    n = uuid.uuid4().hex[:6]
+    repo = f"acme/claims-portal-{n}"
+    dep = dict(kind="dependency", file="requirements.txt", rule="", package={"name": "urllib3", "version": "1.0"})
+    adv = {"id": f"GHSA-{n}-move", "cvss_score": 8.9}
+    c = GitHubCodeReviewConnector({"base_url": "https://gcr.acme.example", "api_token": "gcr_x"})
+    every = {"critical", "high", "medium", "low", "info"}
+    await c.store(db, [{"full_name": repo}], [_finding(n, 1, severity="high", vulnerability=adv, **dep)], [], {}, every)
+    first = (await db.execute(select(Finding).join(Vulnerability, Vulnerability.id == Finding.vuln_id)
+                              .where(Vulnerability.source_vuln_id == f"pkg:GHSA-{n}-move"))).scalar_one()
+    born = first.first_detected.replace(tzinfo=None)
+    await c.store(db, [{"full_name": repo}], [_finding(n, 1, severity="info", vulnerability=adv, **dep)], [], {}, every)
+    rows = (await db.execute(select(Finding, Vulnerability.source_vuln_id).join(Vulnerability, Vulnerability.id == Finding.vuln_id)
+                             .where(Vulnerability.source_vuln_id.like(f"pkg:GHSA-{n}-move%")))).all()
+    assert len(rows) == 1                                    # moved, not a fixed one plus a new one
+    f, key = rows[0]
+    assert key == f"pkg:GHSA-{n}-move@info" and f.status == FindingStatus.open and f.first_detected.replace(tzinfo=None) == born
+
+
+def test_a_waiver_past_its_end_date_counts_as_open_again():
+    from api.integrations.github_code_review import _status
+    from api.models.vuln import FindingStatus
+    old = {"status": "approved", "expires_at": "2020-01-01T00:00:00Z"}
+    new = {"status": "approved", "expires_at": "2099-01-01T00:00:00Z"}
+    assert _status("waived", True, old) == FindingStatus.open
+    assert _status("waived", True, new) == FindingStatus.risk_accepted
+    assert _status("waived", True, None) == FindingStatus.risk_accepted

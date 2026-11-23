@@ -49,10 +49,12 @@ def _card(os_family: str | None = Query(None, pattern="^(windows|linux|macos|net
           active_days: int | None = Query(None, ge=1, le=3650), new_days: int | None = Query(None, ge=1, le=3650),
           compute: bool = Query(False), ad_tools_quiet_days: int | None = Query(None, ge=1, le=3650),
           asset: str | None = Query(None, pattern="^(hosts|repositories|sites)$"),
-          fix: str | None = Query(None, max_length=160, pattern=r"^[A-Za-z0-9._:@/+\-]+$")) -> dict:
-    """Filters a dashboard card links with (see device_query.card_filters)."""
+          fix: str | None = Query(None, max_length=160, pattern=r"^[A-Za-z0-9._:@/+\-]+$"),
+          repo_org: str | None = Query(None, max_length=100, pattern=r"^[A-Za-z0-9._\-]+$"),
+          repo: str | None = Query(None, max_length=253, pattern=r"^[A-Za-z0-9._\-]+/[A-Za-z0-9._\-]+$")) -> dict:
+    """Filters a dashboard card links with (see device_query.card_filters), including the Code tab's org and repo."""
     return {"os_family": os_family, "missing": missing, "active_days": active_days, "new_days": new_days, "compute": compute,
-            "ad_tools_quiet_days": ad_tools_quiet_days, "asset": asset, "fix": fix}
+            "ad_tools_quiet_days": ad_tools_quiet_days, "asset": asset, "fix": fix, "repo_org": repo_org, "repo": repo}
 
 
 _STATUS_FILTER = Query(None, pattern="^(assigned|shipped|lost|stolen|returned|contained|edr_hidden|out_of_scope)$")

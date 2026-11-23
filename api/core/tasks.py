@@ -102,12 +102,12 @@ async def _warm_vuln_dashboard():
 
 
 @celery_app.task(name="api.core.tasks.refresh_vuln_view", ignore_result=True, time_limit=600, soft_time_limit=540)
-def refresh_vuln_view(source, device_type, kind, viewer=None):
+def refresh_vuln_view(source, device_type, kind, viewer=None, code=None):
     """Rebuild one out-of-date Vulnerability Dashboard view (a viewer's own when they see only some devices)."""
-    asyncio.run(_refresh_vuln_view(source, device_type, kind, viewer))
+    asyncio.run(_refresh_vuln_view(source, device_type, kind, viewer, code))
 
 
-async def _refresh_vuln_view(source, device_type, kind, viewer):
+async def _refresh_vuln_view(source, device_type, kind, viewer, code=None):
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
 
@@ -122,7 +122,7 @@ async def _refresh_vuln_view(source, device_type, kind, viewer):
             if u is None:
                 return
             scope = await device_scope(u, db)
-        await cached(db, "90d", source, device_type, fresh=True, scope=scope, viewer=viewer, kind=kind)
+        await cached(db, "90d", source, device_type, fresh=True, scope=scope, viewer=viewer, kind=kind, code=code)
         break
 
 

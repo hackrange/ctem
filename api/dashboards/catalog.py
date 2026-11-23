@@ -47,8 +47,13 @@ class Param:
     labels: dict = field(default_factory=dict)
     pattern: str | None = None        # a free-text option (a name), checked against this pattern; "" when it doesn't match
     hint: str = ""                    # for a free-text option: what to type
+    multi: bool = False               # several of the choices at once (a list); none picked means all of them
 
     def clean(self, value):
+        if self.multi and self.choices is not None:
+            # allowed values only; "any" means all, and an old single string becomes a list of one
+            vals = value if isinstance(value, (list, tuple)) else ([value] if isinstance(value, str) and value else [])
+            return [v for v in dict.fromkeys(vals) if isinstance(v, str) and v in self.choices[1:]]
         if self.choices is not None:
             v = value if value in self.choices else (self.default if self.default is not None else self.choices[0])
             return v
@@ -67,7 +72,10 @@ class Param:
     def spec(self) -> dict:
         out = {"key": self.key, "label": self.label, "default": self.default if self.default is not None
                else (self.choices[0] if self.choices else None)}
-        if self.choices is not None:
+        if self.multi and self.choices is not None:
+            out.update(type="multi", default=[], all_label=self.labels.get(self.choices[0], "All"),
+                       choices=[{"value": c, "label": self.labels.get(c, str(c).replace("_", " "))} for c in self.choices[1:]])
+        elif self.choices is not None:
             out["choices"] = [{"value": c, "label": self.labels.get(c, str(c).replace("_", " "))} for c in self.choices]
         elif self.pattern is not None:
             out.update(type="text", hint=self.hint)
@@ -106,11 +114,19 @@ class Metric:
     needs: str | None = None          # "grc" | "threats": hidden from people who can't see that data
     per_user: bool = False            # result depends on the person even for fleet-wide roles (e.g. own requests)
     filterable: bool = True           # counts devices, so widget filters (tags, sources...) apply
+    as_number: Callable[[Ctx, dict], Awaitable[dict]] | None = None   # a chart that can also show as one number
+
+    def vizzes(self) -> tuple:
+        return VIZ_FOR[self.shape] + (("kpi",) if self.as_number and "kpi" not in VIZ_FOR[self.shape] else ())
+
+    def shape_for(self, viz: str | None) -> str:
+        """What the widget returns when shown this way: a single number for "kpi" on a chart that offers one."""
+        return "value" if viz == "kpi" and self.as_number else self.shape
 
     def spec(self) -> dict:
         return {"id": self.id, "label": self.label, "category": self.category, "shape": self.shape,
-                "viz": list(VIZ_FOR[self.shape]), "description": self.description, "filterable": self.filterable,
-                "params": [p.spec() for p in self.params]}
+                "viz": list(self.vizzes()), "description": self.description, "filterable": self.filterable,
+                "number": bool(self.as_number), "params": [p.spec() for p in self.params]}
 
 
 REGISTRY: dict[str, Metric] = {}
@@ -143,7 +159,8 @@ def clean_widget(w) -> dict | None:
     if not isinstance(w, dict) or w.get("metric") not in REGISTRY:
         return None
     m = REGISTRY[w["metric"]]
-    viz = w.get("viz") if w.get("viz") in VIZ_FOR[m.shape] else VIZ_FOR[m.shape][0]
+    viz = w.get("viz") if w.get("viz") in m.vizzes() else m.vizzes()[0]
+    shape = m.shape_for(viz)
     raw = w.get("params") if isinstance(w.get("params"), dict) else {}
     params = {p.key: p.clean(raw.get(p.key)) for p in m.params}
     title = " ".join(str(w.get("title") or m.label).split())[:120] or m.label
@@ -158,10 +175,10 @@ def clean_widget(w) -> dict | None:
     wid = wid if wid.replace("-", "").isalnum() and len(wid) <= 40 else ""
     from api.dashboards import filters as flt
     conds = flt.clean(w.get("filters")) if m.filterable else []
-    return {"id": wid, "metric": m.id, "viz": viz, "title": title, "params": params, "style": clean_style(w.get("style"), m.shape),
+    return {"id": wid, "metric": m.id, "viz": viz, "title": title, "params": params, "style": clean_style(w.get("style"), shape),
             "filters": conds, "filter_match": "any" if conds and w.get("filter_match") == "any" else "all",
             "x": num("x", 0, GRID_COLS - 1, 0), "y": num("y", 0, 500, 0),
-            "w": num("w", 1, GRID_COLS, 4 if m.shape != "value" else 3), "h": num("h", 1, 12, 4 if m.shape != "value" else 2)}
+            "w": num("w", 1, GRID_COLS, 4 if shape != "value" else 3), "h": num("h", 1, 12, 4 if shape != "value" else 2)}
 
 
 def clean_style(s, shape: str) -> dict:
@@ -219,7 +236,9 @@ async def evaluate(ctx: Ctx, widget: dict, base: dict | None = None) -> dict:
             viewer = f"u{ctx.user.id}"
         ctx = dataclasses.replace(ctx, scope=cond if ctx.scope is None else and_(ctx.scope, cond), filtered=True)
         viewer += ":f" + hashlib.sha256(json.dumps([conds, match, dconds, dmatch], sort_keys=True).encode()).hexdigest()[:16]
-    key = "dashw:v1:" + m.id + ":" + json.dumps(params, sort_keys=True) + ":" + viewer
+    shape = m.shape_for(widget.get("viz"))
+    run = m.as_number if shape != m.shape else m.run
+    key = "dashw:v1:" + m.id + (":n" if shape != m.shape else "") + ":" + json.dumps(params, sort_keys=True) + ":" + viewer
     import redis.asyncio as aioredis
 
     from api.core.config import get_settings
@@ -232,7 +251,7 @@ async def evaluate(ctx: Ctx, widget: dict, base: dict | None = None) -> dict:
         except Exception:  # noqa: BLE001 -- no cache, still an answer
             log.warning("widget cache unavailable")
         try:
-            out = {"shape": m.shape, **await m.run(ctx, params)}
+            out = {"shape": shape, **await run(ctx, params)}
             if conds and isinstance(out.get("href"), str) and out["href"].startswith("/devices"):
                 from urllib.parse import urlencode
                 extra = flt.link_params(conds + dconds, "any" if "any" in (match if conds else "all", dmatch if dconds else "all") else "all")

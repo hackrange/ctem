@@ -69,19 +69,57 @@ async def configured_sources(db) -> list[str]:
     return [s for s in SOURCES if s in have]
 
 
-def _where(source: str | None, device_type: str | None, kind: str = "all") -> list:
+def _where(source: str | list | None, device_type: str | None, kind: str = "all", code: dict | None = None) -> list:
     """Allow-listed filters only, so nothing a client sends reaches SQL as text.
     Contained and Not In Scope devices never count (their findings can't be reached right now).
-    kind: infra, code or web findings only, or "all" for every one."""
+    kind: infra, code or web findings only, or "all" for every one. code: Code tab picks, pre-checked."""
     from api.core.device_scope_exempt import in_scope_findings
     out = [in_scope_findings()]
     if kind in ("infra", "code", "web"):
         out.append(Finding.domain == kind)
-    if source in SOURCES:
-        out.append(Finding.source == source)
+    srcs = [x for x in ([source] if isinstance(source, str) else list(source or [])) if x in SOURCES]
+    if len(srcs) == 1:
+        out.append(Finding.source == srcs[0])
+    elif srcs:   # several sources picked (a dashboard widget)
+        out.append(Finding.source.in_(srcs))
     if device_type in DeviceType.__members__:
         out.append(Finding.device_id.in_(select(Device.id).where(Device.device_type == DeviceType[device_type])))
+    if code and kind == "code":
+        repos = select(Device.id).where(Device.device_type == DeviceType.code_repository)
+        if code.get("repo"):
+            out.append(Finding.device_id.in_(repos.where(Device.hostname == code["repo"])))
+        if code.get("org"):   # a repository is named "org/name"; the org's own _ and % are not wildcards
+            esc = code["org"].replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            out.append(Finding.device_id.in_(repos.where(Device.hostname.like(f"{esc}/%", escape="\\"))))
+        if code.get("app_tags"):
+            from api.models.device import DeviceTag
+            from api.models.tag import Tag
+            out.append(Finding.device_id.in_(select(DeviceTag.device_id).join(Tag, Tag.id == DeviceTag.tag_id)
+                                             .where(Tag.name.in_(list(code["app_tags"])[:50]))))
     return out
+
+
+async def code_filters(db, scope=None) -> dict:
+    """Repos this viewer may see, with org and apps; client picks are checked against this list."""
+    from api.core import tag_roles
+    from api.models.device import DeviceTag
+    from api.models.tag import Tag
+    cond = [Device.device_type == DeviceType.code_repository] + ([scope] if scope is not None else [])
+    rows = (await db.execute(select(Device.id, Device.hostname).where(*cond).order_by(Device.hostname))).all()
+    roles = await tag_roles.ensure(db)
+    tags = (await db.execute(select(DeviceTag.device_id, Tag.name).join(Tag, Tag.id == DeviceTag.tag_id)
+                             .where(DeviceTag.device_id.in_(select(Device.id).where(*cond))))).all()
+    apps_of: dict = {}
+    app_tags: dict[str, set] = {}
+    for did, name in tags:
+        m = tag_roles.match(name, roles)
+        if m and m[0] == "application":
+            apps_of.setdefault(did, set()).add(m[1])
+            app_tags.setdefault(m[1], set()).add(name)
+    repos = [{"name": h, "org": h.split("/", 1)[0] if "/" in h else "", "apps": sorted(apps_of.get(i, ()), key=str.lower)}
+             for i, h in rows if h]
+    return {"orgs": sorted({r["org"] for r in repos if r["org"]}, key=str.lower), "repos": repos,
+            "apps": [{"value": v, "tags": sorted(t)} for v, t in sorted(app_tags.items(), key=lambda x: x[0].lower())]}
 
 
 def _now() -> datetime:
@@ -281,11 +319,12 @@ def scoped(scope) -> list:
     return [] if scope is None else [Finding.device_id.in_(select(Device.id).where(scope))]
 
 
-async def build(db: AsyncSession, source: str | None, device_type: str | None, scope=None, kind: str = "all") -> dict:
+async def build(db: AsyncSession, source: str | None, device_type: str | None, scope=None, kind: str = "all",
+                code: dict | None = None) -> dict:
     """Everything for one filter combination, with the trend over the whole history (ranges are sliced later)."""
     from api.core import sla
     await sla.load(db)
-    w = _where(source, device_type, kind) + scoped(scope)
+    w = _where(source, device_type, kind, code) + scoped(scope)
     k = await _kpis(db, w)
     return {"generated_at": _now().isoformat(), "tracking_since": k.pop("_fixes_since"), "sla_days": SLA_DAYS,
             "kpis": k, "trend": await _trend(db, w, None), "aging": await _aging(db, w), "mttr": await _mttr(db, w),
@@ -294,10 +333,10 @@ async def build(db: AsyncSession, source: str | None, device_type: str | None, s
             "exceptions": await _exceptions(db) if scope is None else {"active": None, "pending": 0, "ending_14d": 0}}
 
 
-def _rebuild_later(source, device_type, kind, viewer) -> None:
+def _rebuild_later(source, device_type, kind, viewer, code=None) -> None:
     try:
         from api.core.tasks import refresh_vuln_view
-        refresh_vuln_view.delay(source, device_type, kind, viewer)
+        refresh_vuln_view.delay(source, device_type, kind, viewer, code)
     except Exception:  # noqa: BLE001 -- the view runs out within CACHE_SECONDS anyway
         log.warning("vuln dashboard rebuild not queued")
 
@@ -312,18 +351,25 @@ def sliced(out: dict, range_key: str) -> dict:
 
 
 async def cached(db: AsyncSession, range_key: str, source: str | None, device_type: str | None, fresh: bool = False,
-                 scope=None, viewer: str | None = None, kind: str = "all") -> dict:
+                 scope=None, viewer: str | None = None, kind: str = "all", code: dict | None = None) -> dict:
     """Fleet-wide numbers change with syncs, not by the second: keep each filter combination for 15 minutes."""
     import redis.asyncio as aioredis
 
     from api.core.config import get_settings
     # a scoped viewer's numbers are theirs alone, so their cache entry is too
     kind = kind if kind in KINDS else "all"
+    code = {k: v for k, v in (code or {}).items() if v} if kind == "code" else {}
+    code_key = "-"
+    if code:   # names can be long and hold ":"; a digest keeps the key short and unambiguous
+        import hashlib
+        code_key = hashlib.sha256(json.dumps(code, sort_keys=True, default=sorted).encode()).hexdigest()[:24]
     key = f"vulndash:v5:{kind}:{source or '-'}:{device_type or '-'}:{viewer if scope is not None else 'all'}"
+    if code:
+        key += f":c:{code_key}"
     r = aioredis.from_url(get_settings().redis_url)
     try:
         try:
-            if scope is not None and viewer and not fresh and not source and not device_type:
+            if scope is not None and viewer and not fresh and not source and not device_type and not code:
                 await r.zadd(VIEWERS_KEY, {viewer: time.time()})   # warmed by warm() while they keep coming back
             hit = None if fresh else await r.get(key)
             if hit:
@@ -332,11 +378,11 @@ async def cached(db: AsyncSession, range_key: str, source: str | None, device_ty
                 if dirty and datetime.fromisoformat(out["generated_at"]).timestamp() < float(dirty):
                     # out of date: answer now with it, and rebuild once in the background
                     if await r.set(f"vulndash:rebuilding:{key}", "1", nx=True, ex=600):
-                        _rebuild_later(source, device_type, kind, viewer if scope is not None else None)
+                        _rebuild_later(source, device_type, kind, viewer if scope is not None else None, code or None)
                 return sliced(out, range_key)
         except Exception:  # noqa: BLE001 -- no Redis means no cache, not no dashboard
             log.warning("vuln dashboard cache unavailable")
-        out = await build(db, source, device_type, scope, kind)
+        out = await build(db, source, device_type, scope, kind, code or None)
         try:
             await r.set(key, json.dumps(out, default=str), ex=CACHE_SECONDS)
         except Exception:  # noqa: BLE001 -- the answer is still good, it just won't be cached

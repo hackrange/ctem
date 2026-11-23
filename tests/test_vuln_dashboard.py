@@ -43,7 +43,7 @@ def test_filters_are_allow_listed():
 
 @pytest.mark.asyncio
 async def test_fleet_wide_roles_see_everything_and_it_users_their_own(client_it_user, client_admin, monkeypatch):
-    async def fake(db, range_key, source, device_type, fresh=False, scope=None, viewer=None, kind="all"):
+    async def fake(db, range_key, source, device_type, fresh=False, scope=None, viewer=None, kind="all", **kw):
         return {"range": range_key, "kpis": {"open": 1}, "trend": {}, "source": source}
     monkeypatch.setattr(vd, "cached", fake)
     assert (await client_it_user.get("/api/v1/vuln-dashboard")).json()["scoped"] is True   # their own assets only
@@ -57,7 +57,7 @@ async def test_fleet_wide_roles_see_everything_and_it_users_their_own(client_it_
 async def test_read_only_numbers_are_limited_to_their_devices(client_read_only, monkeypatch):
     seen = {}
 
-    async def fake(db, range_key, source, device_type, fresh=False, scope=None, viewer=None, kind="all"):
+    async def fake(db, range_key, source, device_type, fresh=False, scope=None, viewer=None, kind="all", **kw):
         seen["scope"] = scope
         return {"kpis": {}, "trend": {}}
     monkeypatch.setattr(vd, "cached", fake)
@@ -81,7 +81,7 @@ async def test_source_lists_show_only_tools_this_install_uses(db, client_admin, 
     cat = (await client_admin.get("/api/v1/dashboards/catalog")).json()["metrics"]
     picker = next(p for m in cat if m["id"] == "vuln.kpi" for p in m["params"] if p["key"] == "source")
     values = [c["value"] for c in picker["choices"]]
-    assert values[0] == "any" and "qualys" in values and "snyk" not in values
+    assert picker["type"] == "multi" and "any" not in values and "qualys" in values and "snyk" not in values
 
 
 
@@ -153,7 +153,7 @@ async def test_after_a_sync_the_old_view_answers_at_once_and_rebuilds_in_the_bac
     monkeypatch.setattr(aioredis, "from_url", lambda *a, **k: _Redis())
     builds, queued = [], []
 
-    async def build(db, source, device_type, scope=None, kind="all"):
+    async def build(db, source, device_type, scope=None, kind="all", code=None):
         builds.append(kind)
         return {"generated_at": vd._now().isoformat(), "trend": {"days": []}, "n": len(builds)}
     monkeypatch.setattr(vd, "build", build)
@@ -169,17 +169,60 @@ async def test_after_a_sync_the_old_view_answers_at_once_and_rebuilds_in_the_bac
     again = await vd.cached(None, "90d", None, None, kind="code")
     assert again["n"] == 1 and len(builds) == 1          # answered from the old view, nobody waited
     await vd.cached(None, "90d", None, None, kind="code")
-    assert queued == [(None, None, "code", None)]        # rebuilt once, not once per visitor
+    assert queued == [(None, None, "code", None, None)]  # rebuilt once, not once per visitor
 
 
 @pytest.mark.asyncio
 async def test_host_device_type_is_ignored_on_code_and_web(client_admin, monkeypatch):
     seen = []
 
-    async def fake(db, range_key, source, device_type, fresh=False, scope=None, viewer=None, kind="all"):
+    async def fake(db, range_key, source, device_type, fresh=False, scope=None, viewer=None, kind="all", **kw):
         seen.append((kind, device_type))
         return {"kpis": {}, "trend": {}}
     monkeypatch.setattr(vd, "cached", fake)
     for kind in ("infra", "code", "web"):
         await client_admin.get("/api/v1/vuln-dashboard", params={"kind": kind, "device_type": "server"})
     assert seen == [("infra", "server"), ("code", None), ("web", None)]
+
+
+def test_code_filters_only_apply_on_the_code_tab():
+    code = {"org": "acme", "repo": "acme/pay", "app_tags": ["app:Pay"]}
+    assert len(vd._where(None, None, "code", code)) == 5   # counts, kind, repo, org, application
+    assert len(vd._where(None, None, "infra", code)) == 2  # ignored off the Code tab
+    sql = str(vd._where(None, None, "code", {"org": "a_b%"})[-1].compile(compile_kwargs={"literal_binds": True}))
+    assert "a\\_b\\%/%" in sql   # the org's own _ and % are not wildcards
+
+
+@pytest.mark.asyncio
+async def test_code_filters_take_only_names_this_viewer_may_see(client_admin, monkeypatch):
+    seen = []
+
+    async def fake(db, range_key, source, device_type, fresh=False, scope=None, viewer=None, kind="all", **kw):
+        seen.append(kw.get("code"))
+        return {"kpis": {}, "trend": {}}
+
+    async def opts(db, scope=None):
+        return {"orgs": ["acme"], "repos": [{"name": "acme/pay", "org": "acme", "apps": ["Pay"]}],
+                "apps": [{"value": "Pay", "tags": ["app:Pay", "r7:app:Pay"]}]}
+    monkeypatch.setattr(vd, "cached", fake)
+    monkeypatch.setattr(vd, "code_filters", opts)
+    r = await client_admin.get("/api/v1/vuln-dashboard", params={"kind": "code", "org": "acme", "app": "Pay", "repo": "acme/pay"})
+    assert r.status_code == 200 and r.json()["filters"]["code"]["repos"][0]["name"] == "acme/pay"
+    assert seen[-1] == {"org": "acme", "repo": "acme/pay", "app_tags": ["app:Pay", "r7:app:Pay"]}
+    for bad in ({"org": "other"}, {"repo": "other/x"}, {"app": "Nope"}):
+        assert (await client_admin.get("/api/v1/vuln-dashboard", params={"kind": "code", **bad})).status_code == 422
+    await client_admin.get("/api/v1/vuln-dashboard", params={"kind": "infra", "org": "whatever"})
+    assert seen[-1] is None   # not read off the Code tab
+
+
+def test_device_list_narrows_to_an_organization_or_repository():
+    from api.routes import device_query as dq
+    sql = " ".join(str(c.compile(compile_kwargs={"literal_binds": True}))
+                   for c in dq.card_filters({"repo_org": "my_org", "repo": "my_org/pay"}))
+    assert "my\\_org/%" in sql and "'my_org/pay'" in sql and "code_repository" in sql.lower()
+
+
+@pytest.mark.asyncio
+async def test_device_repo_filters_reject_anything_but_a_repository_name(client_admin):
+    for bad in ({"repo_org": "a%"}, {"repo": "nope"}, {"repo": "a/b/../c"}):
+        assert (await client_admin.get("/api/v1/devices", params=bad)).status_code == 422

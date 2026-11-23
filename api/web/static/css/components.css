@@ -392,3 +392,9 @@ a.dw-kpi:hover .dw-kpi__value { color: var(--accent); }
 
 /* Device detail tags: one line each, long ones cut with an ellipsis (the full tag is the hover text) */
 .dd-tag { font-size: .7rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; margin: 2px 0; }
+
+/* A count bubble: things waiting on you (exception requests to approve) */
+.count-bubble{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;
+  border-radius:9px;background:var(--severity-critical);color:#fff;font-size:11px;font-weight:700;line-height:1;
+  box-shadow:0 0 0 2px var(--surface);vertical-align:middle}
+.count-bubble[hidden]{display:none}

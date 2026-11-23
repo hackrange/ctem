@@ -25,8 +25,9 @@ def _w(ctx, p) -> list:
     w = [Finding.status.in_(OPEN), in_scope_findings(), *vd.scoped(ctx.scope)]
     if p.get("type", "any") != "any":
         w.append(Finding.domain == p["type"])
-    if p.get("source", "any") != "any":
-        w.append(Finding.source == p["source"])
+    from api.dashboards.m_vulns import _srcs
+    if _srcs(p):
+        w.append(Finding.source.in_(_srcs(p)))
     cond = _sev_cond(p.get("severity", "any"))
     if cond is not None:
         w.append(cond)

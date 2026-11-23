@@ -35,6 +35,12 @@
   </select>
   <button class="btn btn--ghost btn--sm" onclick="clearFilters()">Clear</button>
 </div>
+<!-- Code tab only: which organization and repository (a second row: the first is full of tag filters) -->
+<div class="filter-bar" id="ov-code-row" hidden>
+  <span class="filter-bar__label">Code</span>
+  <select id="filter-org" title="Organization" aria-label="Organization"><option value="">All organizations</option></select>
+  <select id="filter-repo" title="Code repository" aria-label="Code repository" style="min-width:260px"><option value="">All repositories</option></select>
+</div>
 
 <div id="overview-all" class="vd-all" hidden aria-live="polite"></div>
 
@@ -215,8 +221,13 @@ function filterParams(kind) {
   // Owner/app/env filters are tag names; grade is its own filter; the tab picks hosts, repositories or sites
   const p = new URLSearchParams();
   Object.entries(activeFilters).forEach(([k, v]) => p.append(k === 'grade' ? 'grade' : 'tag', v));
-  const t = OverviewTypes.T[kind || OverviewTypes.kind()];
+  const k = kind || OverviewTypes.kind();
+  const t = OverviewTypes.T[k];
   if (t) p.set('asset', t.asset);
+  if (k === 'code' && OverviewTypes.kind() === 'code') {   // the Code tab's own organization and repository (not in All)
+    if (CODE.org) p.set('repo_org', CODE.org);
+    if (CODE.repo) p.set('repo', CODE.repo);
+  }
   return p;
 }
 
@@ -233,6 +244,32 @@ function setCard(id, value, href) {
 // Only the latest request for each part of the page counts: switching tabs quickly, an earlier tab's slower answer
 // must not land on top of the new tab (it looked like the page hadn't refreshed)
 const SEQ = { summary: 0, kev: 0, filters: 0 };
+
+// Code tab: organization and code repository, from the repositories this person may see
+const CODE = { org: '', repo: '', repos: null };
+async function loadCodeFilters() {
+  const row = document.getElementById('ov-code-row');
+  row.hidden = OverviewTypes.kind() !== 'code';
+  if (row.hidden || CODE.repos) return codeRepoOptions();
+  try {
+    const f = await fetchJson(`${API}/vuln-dashboard/code-filters`);
+    CODE.repos = f.repos || [];
+    const org = document.getElementById('filter-org');
+    org.innerHTML = '<option value="">All organizations</option>' + (f.orgs || []).map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('');
+    org.hidden = !(f.orgs || []).length;
+  } catch (e) { row.hidden = true; return; }   // a role without the vulnerability views: no code pickers
+  codeRepoOptions();
+}
+function codeRepoOptions() {
+  if (!CODE.repos) return;
+  const list = CODE.repos.filter(r => !CODE.org || r.org === CODE.org).map(r => r.name);
+  if (CODE.repo && !list.includes(CODE.repo)) CODE.repo = '';
+  const sel = document.getElementById('filter-repo');
+  sel.innerHTML = `<option value="">${esc(CODE.org ? `All ${list.length} repositories in ${CODE.org}` : 'All repositories')}</option>`
+    + list.map(r => `<option value="${esc(r)}">${esc(r)}</option>`).join('');
+  sel.value = CODE.repo;
+  document.getElementById('filter-org').value = CODE.org;
+}
 const latest = (part, n) => n === SEQ[part];
 
 async function loadAllTypes() {
@@ -402,6 +439,8 @@ function applyFilters() {
 
 function clearFilters() {
   [...TAG_SELECTS, 'filter-grade'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  CODE.org = CODE.repo = '';
+  codeRepoOptions();
   activeFilters = {};
   TagFocus.set([]);
   loadSummary();
@@ -431,10 +470,19 @@ document.addEventListener('DOMContentLoaded', () => {
   // A new tab: its own filter values, then its data
   const go = k => OverviewTypes.pick(k, async () => {
     loadKEV();
+    loadCodeFilters();
     if (!(await loadTagFilters())) loadSummary();   // a kept filter reloads the summary itself
   });
   document.getElementById('ov-kind').addEventListener('click', e => { const b = e.target.closest('[data-kind]'); if (b) go(b.dataset.kind); });
   document.getElementById('overview-all').addEventListener('click', e => { const b = e.target.closest('[data-open]'); if (b) go(b.dataset.open); });
+  document.getElementById('filter-org').addEventListener('change', e => { CODE.org = e.target.value; codeRepoOptions(); loadSummary(); });
+  document.getElementById('filter-repo').addEventListener('change', e => {
+    CODE.repo = e.target.value;
+    const r = (CODE.repos || []).find(x => x.name === CODE.repo);
+    if (r && r.org && !CODE.org) { CODE.org = r.org; codeRepoOptions(); }   // a repository picked first fills in its organization
+    loadSummary();
+  });
+  loadCodeFilters();
   loadTagFilters();
   loadSummary();
   loadKEV();
