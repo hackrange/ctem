@@ -431,8 +431,32 @@ async def test_a_regrade_moves_the_finding_instead_of_closing_it(db):
 def test_a_waiver_past_its_end_date_counts_as_open_again():
     from api.integrations.github_code_review import _status
     from api.models.vuln import FindingStatus
-    old = {"status": "approved", "expires_at": "2020-01-01T00:00:00Z"}
-    new = {"status": "approved", "expires_at": "2099-01-01T00:00:00Z"}
+    old = {"exception": {"status": "approved", "expires_at": "2020-01-01T00:00:00Z"}}
+    new = {"exception": {"status": "approved", "expires_at": "2099-01-01T00:00:00Z"}}
     assert _status("waived", True, old) == FindingStatus.open
     assert _status("waived", True, new) == FindingStatus.risk_accepted
     assert _status("waived", True, None) == FindingStatus.risk_accepted
+    # an exclusion or waiver GCR reports with its own end date field
+    assert _status("waived", True, {"exception_source": "exclusion", "exception_expires_at": "2020-01-01"}) == FindingStatus.open
+    assert _status("open", False, {"exception": {"status": "requested", "expires_at": "2020-01-01"}}) == FindingStatus.open
+
+
+def test_new_gcr_fields_are_kept_and_cleaned():
+    from api.integrations import gcr_fields
+    from api.models.vuln import Vulnerability
+    f = {"grade": {"severity": "info", "engine_severity": "high", "source": "ai_validation", "by": "pat@acme.example",
+                   "at": "2026-11-17T10:49:09Z", "reason": "Not reachable from a request", "validation": {"rating": "low", "confidence": "medium"}},
+         "triage": {"state": "work", "reason": "A person should confirm it"}, "confidence": "medium", "engines": ["grype", "osv"],
+         "corroborated": True, "exception_source": "waiver", "exception": {"status": "requested", "reason": "Upgrade planned",
+                                                                             "requested_by": "pat@acme.example", "expires_at": "2027-01-01"}}
+    d = gcr_fields.details(f)
+    assert d["grade"]["engine_severity"] == "high" and d["grade"]["source_label"] == "AI validation"
+    assert d["grade"]["validation"] == {"rating": "low", "confidence": "medium"}
+    assert d["triage"]["state"] == "work" and d["engines"] == ["grype", "osv"] and d["corroborated"] is True
+    assert d["gcr_exception"]["status"] == "requested" and d["gcr_exception"]["source"] == "waiver"
+    assert gcr_fields.details({"grade": {"severity": "evil"}, "engines": None}) == {}
+    v = Vulnerability(title="x")
+    gcr_fields.advisory(v, {"cvss_vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:N/A:H", "kev_added": "2026-03-04"})
+    assert v.attack_vector == "network" and v.cvss_vector.startswith("CVSS:3.1") and str(v.kev_added_date) == "2026-03-04"
+    gcr_fields.advisory(v, {"cvss_vector": "<script>", "attack_vector": "bogus"})
+    assert v.cvss_vector.startswith("CVSS:3.1") and v.attack_vector == "network"   # junk is ignored, nothing overwritten

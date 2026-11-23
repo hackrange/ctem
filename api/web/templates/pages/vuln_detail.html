@@ -144,6 +144,8 @@ async function showFound(v) {
         r.verdict ? info('Reachable', `${esc(r.verdict)}${r.direct ? ` <span class="text-sm text-muted">${esc(r.direct)}${r.scope ? `, ${esc(r.scope)}` : ''}</span>` : ''}`) : '',
         p.name ? info('Package', `<span class="text-mono text-sm">${esc(p.name)}${p.version ? `@${esc(p.version)}` : ''}</span>${p.ecosystem ? ` <span class="text-sm text-muted">${esc(p.ecosystem)}</span>` : ''}`) : '',
         p.fixed_in ? info('Fixed in', `<span class="text-mono text-sm">${esc(p.fixed_in)}</span>`) : '',
+        d.grade && d.grade.engine_severity && d.grade.engine_severity !== d.grade.severity ? info('Grade changed', `the scanner said <b>${esc(d.grade.engine_severity)}</b>${d.grade.source_label ? ` <span class="text-sm text-muted">set by ${esc(d.grade.source_label)}</span>` : ''}`) : '',
+        d.gcr_exception ? info('In GitHub Code Review', esc(d.gcr_exception.source === 'exclusion' ? 'Excluded by a rule' : `Waiver ${d.gcr_exception.status || ''}`.trim())) : '',
         d.validation && d.validation.rating ? info('Validation', `${esc(d.validation.rating)}${d.validation.confidence ? ` <span class="text-sm text-muted">${esc(d.validation.confidence)} confidence</span>` : ''}`) : '',
       ].join('');
     }

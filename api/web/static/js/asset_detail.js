@@ -97,6 +97,19 @@
   }
 
   // What happened when CTEM's exception was sent to the tool the finding came from
+  // Why GCR gives this grade: what the scanner said, what changed it, who and why
+  const gradeHtml = g => {
+    if (!g || !g.severity) return '';
+    const moved = g.engine_severity && g.engine_severity !== g.severity;
+    const who = [g.source_label ? `set by ${g.source_label}` : '', g.by, g.at ? new Date(g.at).toLocaleDateString() : ''].filter(Boolean).join(' · ');
+    return `<span class="chip chip--${esc(g.severity)}" style="font-size:.7rem">${esc(g.severity)}</span>${moved ? ` <span class="text-sm text-muted">the scanner said ${esc(g.engine_severity)}</span>` : ''}
+      ${who ? `<div class="text-sm text-muted">${esc(who)}</div>` : ''}${g.validation ? `<div class="text-sm">Validation: <b>${esc(g.validation.rating)}</b>${g.validation.confidence ? `, ${esc(g.validation.confidence)} confidence` : ''}</div>` : ''}
+      ${g.reason ? `<div class="text-sm" style="white-space:pre-wrap;margin-top:2px">${esc(g.reason)}</div>` : ''}`;
+  };
+  // A GCR waiver (requested, approved...) or an exclusion rule
+  const gcrExc = e => (!e ? '' : `<b>${esc(e.source === 'exclusion' ? 'Excluded by a rule' : `Waiver${e.status ? ` ${e.status}` : ''}`)}</b>${
+    e.category === 'not_deployed' ? ' <span class="text-sm text-muted">(not deployed)</span>' : ''}${e.expires ? ` <span class="text-sm text-muted">until ${esc(String(e.expires).slice(0, 10))}</span>` : ''}${
+    e.by ? ` <span class="text-sm text-muted">· ${esc(e.by)}</span>` : ''}${e.reason ? `<div class="text-sm">${esc(e.reason)}</div>` : ''}`);
   const tx = t => {
     if (!t) return '';
     const label = { approved: ['low', 'Approved there too'], requested: ['medium', 'Requested there, waiting for an admin'], already: ['info', 'Already had one there'],
@@ -137,6 +150,10 @@
       row('Risk in GitHub Code Review', x.gcr_risk ? `<b>${esc(x.gcr_risk.score)}</b> of 100${x.gcr_risk.evidence ? ` <span class="chip chip--info" style="font-size:.7rem">${esc(x.gcr_risk.evidence)}</span>` : ''}
         ${x.gcr_risk.likelihood ? `<div>Likelihood <b>${esc(x.gcr_risk.likelihood)}</b>${x.gcr_risk.likelihood_reason ? ` <span class="text-sm text-muted">${esc(x.gcr_risk.likelihood_reason)}</span>` : ''}</div>` : ''}
         ${x.gcr_risk.impact ? `<div>Impact <b>${esc(x.gcr_risk.impact)}</b>${x.gcr_risk.impact_reason ? ` <span class="text-sm text-muted">${esc(x.gcr_risk.impact_reason)}</span>` : ''}</div>` : ''}` : ''),
+      row('Grade here', gradeHtml(x.grade)),
+      row('Triage', x.triage ? `${x.triage.state ? `<b>${esc(x.triage.state.replace(/_/g, ' '))}</b> ` : ''}${x.triage.reason ? `<span class="text-sm">${esc(x.triage.reason)}</span>` : ''}` : ''),
+      row('Found by', (x.engines || []).length ? `${esc(x.engines.join(', '))}${x.corroborated ? ' <span class="chip chip--info" style="font-size:.7rem">corroborated</span>' : ''}${x.confidence ? ` <span class="text-sm text-muted">${esc(x.confidence)} confidence</span>` : ''}` : ''),
+      row('In GitHub Code Review', gcrExc(x.gcr_exception) + (x.out_of_scope ? ' <span class="chip chip--info" style="font-size:.7rem">out of scope</span>' : '')),
       row('Validation', x.validation ? `<b>${esc(x.validation.rating || '')}</b>${x.validation.confidence ? ` <span class="text-sm text-muted">${esc(x.validation.confidence)} confidence</span>` : ''}${x.validation.reviewed_at ? ` <span class="text-sm text-muted">· ${esc(new Date(x.validation.reviewed_at).toLocaleDateString())}</span>` : ''}
         ${x.validation.summary ? `<div style="white-space:pre-wrap;margin-top:4px">${esc(x.validation.summary)}</div>` : ''}
         ${fold('Why this rating', x.validation.why)}${fold('What to check', x.validation.what_to_check)}${fold('Compensating controls', x.validation.compensating_controls)}` : ''),

@@ -273,4 +273,4 @@ def load_metrics() -> None:
     """Importing the metric modules is what registers them."""
     from api.dashboards import m_assets, m_devices, m_directory, m_other, m_risk, m_vulns  # noqa: F401
     from api.dashboards import m_posture, m_queue  # noqa: F401  -- after m_vulns, whose filters they reuse
-    from api.dashboards import m_tprm  # noqa: F401  -- after m_risk, whose quarters it reuses
+    from api.dashboards import m_tprm, m_vuln_quarter  # noqa: F401  -- after m_risk and m_vulns, which they reuse

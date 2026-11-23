@@ -27,3 +27,14 @@ def test_mttr_can_show_as_a_number():
                           "style": {"warn_at": 30, "bad_at": 60}})
     assert w["viz"] == "kpi" and w["params"]["source"] == ["snyk"] and w["style"]["bad_at"] == 60 and w["w"] == 3
     assert cat.clean_widget({"metric": "vuln.trend", "viz": "kpi"})["viz"] != "kpi"   # only where a number is offered
+
+
+def test_vulnerabilities_by_quarter_is_offered_with_filters():
+    from api.dashboards import m_vuln_quarter  # noqa: F401
+    m = cat.REGISTRY["vuln.quarter"]
+    keys = [p.key for p in m.params]
+    assert m.category == "Vulnerabilities" and m.shape == "value" and m.filterable
+    assert keys[:2] == ["quarter", "measure"] and "source" in keys and "device_type" in keys
+    w = cat.clean_widget({"metric": "vuln.quarter", "params": {"quarter": "q2", "measure": "mttr", "source": ["snyk"]}})
+    assert w["params"]["quarter"] == "q2" and w["params"]["measure"] == "mttr" and w["viz"] == "kpi"
+    assert cat.clean_widget({"metric": "vuln.quarter", "params": {"measure": "drop table"}})["params"]["measure"] == "open"

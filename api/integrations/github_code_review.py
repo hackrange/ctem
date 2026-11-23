@@ -18,6 +18,7 @@ import logging
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.integrations import gcr_fields
 from api.integrations.base import BaseConnector, register
 from api.integrations.gcr_client import Gcr, GcrError, floor
 from api.integrations.rapid7_common import parse_dt
@@ -66,13 +67,10 @@ def mapped(name: str, rules) -> set[str]:
     return set().union(*[t for p, t in rules if fnmatch.fnmatchcase((name or "").lower(), p)]) if rules else set()
 
 
-def _status(state: str | None, excepted: bool, exception: dict | None = None):
-    """GCR doesn't reopen a finding when its waiver runs out, so an approved waiver past its end date counts as open."""
-    from datetime import datetime, timezone
-
+def _status(state: str | None, excepted: bool, fd: dict | None = None):
+    """GCR doesn't reopen a finding when its waiver runs out, so a waiver past its end date counts as open."""
     from api.models.vuln import FindingStatus
-    ends = parse_dt((exception or {}).get("expires_at")) if (exception or {}).get("status") == "approved" else None
-    if ends is not None and _utc(ends) <= datetime.now(timezone.utc):
+    if gcr_fields.ended(fd or {}):
         return FindingStatus.remediated if state == "fixed" else FindingStatus.open
     if excepted or state == "waived":
         return FindingStatus.risk_accepted
@@ -160,6 +158,7 @@ def code_details(f: dict, base: str) -> dict:
     if cred:
         out["secret"] = {"verified": bool(cred.get("verified")), "status": cred.get("verification_status"), "exposure": cred.get("exposure") or None}
         out["fix"] = out["fix"] or "Revoke and rotate the credential, then remove it from the repository history."
+    out.update(gcr_fields.details(f))
     return {k: v for k, v in out.items() if v not in (None, [], "", {})}
 
 
@@ -384,6 +383,7 @@ class GitHubCodeReviewConnector(BaseConnector):
             if fam and sev in CVSS and sev != (_band(adv) if adv is not None else "medium"):
                 key, title = f"{fam}@{sev}", f"{title} (graded {sev} here)"[:512]
             v = vuln(key, title, cve, sev)
+            gcr_fields.advisory(v, info)
             was = graded.get(key)
             if was is None or _RANK.get(sev, 2) > _RANK.get(was[0], 2):
                 graded[key] = (sev, adv if adv is not None else (was[1] if was else None))
@@ -394,7 +394,7 @@ class GitHubCodeReviewConnector(BaseConnector):
             review = fd.get("ai_review") or {}
             v.description = "\n".join(x for x in (fd.get("description") or "", f"Fix: {review['fix']}" if review.get("fix") else "",
                                                   fd.get("url") or "") if x)[:4000] or None
-            f = await finding(dev, v, fd.get("id"), _status(fd.get("state"), bool(fd.get("excepted")), fd.get("exception")),
+            f = await finding(dev, v, fd.get("id"), _status(fd.get("state"), bool(fd.get("excepted")), fd),
                               parse_dt(fd.get("first_found")), parse_dt(fd.get("last_found")), code_details(fd, base), fam)
             verdict = (fd.get("reachability") or {}).get("verdict")
             if verdict in ("reachable", "unlikely"):
