@@ -6,6 +6,7 @@ import pytest
 
 from api.auth import sso_config
 from api.auth.local import hash_password
+from api.core.config import get_settings
 from api.models.user import User, UserRole
 
 PW = "correct horse battery staple"
@@ -13,10 +14,11 @@ PW = "correct horse battery staple"
 
 @pytest.fixture(autouse=True)
 def _local_sign_in(monkeypatch):
-    # other tests save SSO-only settings; these are about the local form
+    # other tests save SSO-only settings; these are about the local form, not the MFA step after it
     async def local_only(db):
         return "local_only", None
     monkeypatch.setattr(sso_config, "effective", local_only)
+    monkeypatch.setattr(get_settings(), "mfa_required", False)
 
 
 def _csrf(html: str) -> str:
