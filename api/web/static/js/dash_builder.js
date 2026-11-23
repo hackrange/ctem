@@ -296,7 +296,7 @@
     box.hidden = !editing;
     if (!editing) return;
     box.innerHTML = `<div class="db-ai__row"><span class="db-ai__label">Ask the AI</span>
-      <input id="db-ai-text" class="form-input" maxlength="1000" placeholder='e.g. "make the 44-day card red above 50", "add a trend line", "turn the donut into a pie"'>
+      <input id="db-ai-text" class="form-input" maxlength="2000" placeholder='e.g. "make the 44-day card red above 50", "add a trend line", "turn the donut into a pie"'>
       <button type="button" class="btn btn--primary btn--sm" id="db-ai-go">Apply</button></div>
       <div class="db-ai__log" id="db-ai-log">${aiAsked.map(a => `<span class="db-ai__ask" title="Already applied">${esc(a)}</span>`).join('')}</div>
       <div id="db-ai-q" hidden></div><div class="text-sm" id="db-ai-msg"></div>`;

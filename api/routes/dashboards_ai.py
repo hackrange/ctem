@@ -19,7 +19,7 @@ from api.routes.dashboards import _get, _member, _widgets
 
 log = logging.getLogger("open-ctem.dashboards")
 router = APIRouter(prefix="/api/v1/dashboards/ai", tags=["dashboards"])
-Ask = Annotated[str, StringConstraints(strip_whitespace=True, min_length=5, max_length=1000)]
+Ask = Annotated[str, StringConstraints(strip_whitespace=True, min_length=5, max_length=2000)]
 _NO_AI = {"available": False}
 _SYSTEM = ("You help a security team build dashboards in open-ctem from a fixed catalog of metrics. Use only metric ids, "
            "chart types, option values and style values listed in the catalog. Compose: the same metric can appear "
@@ -42,6 +42,12 @@ _EXAMPLE = ('Example: "stale AD objects for the infrastructure team: cards for 9
             '"title": "Stale computers over time", "params": {"kind": "computers", "range": "90d"}, "w": 12, "h": 4}, '
             '{"metric": "directory.stale_computers_list", "viz": "table", "title": "Stalest computers", '
             '"params": {"days": 90, "limit": 15}, "w": 12, "h": 5}]}')
+# The most a described dashboard gets; the dashboard itself holds up to cat.MAX_WIDGETS
+_MAX_AI = 24
+_ROWS = ("When the request lays out rows (\"4 rows, 4 cards each, one per quarter\"), build exactly that, in the order asked: "
+         "every card of a row with the same h and w = 12 divided by the cards in that row, never dropping, merging or "
+         "reordering rows, and one card per period it names (Q1 to Q4 means four cards). A row about one kind of asset "
+         "(servers, workstations) uses the metric's device type option when it has one, otherwise a widget filter.\n")
 _PRIVATE_TABLES = {"vuln.top_devices", "devices.riskiest", "threats.top_hosts", "exceptions.ending"}
 
 
@@ -176,11 +182,11 @@ async def ai_dashboard(body: AskBody, u: User = Depends(_member), db: AsyncSessi
     ctx = await cat.context(db, u)
     prompt = ("Catalog:\n" + _catalog_for_ai(ctx) + '\n\nDesign a dashboard as {"name": "<= 80 chars", "description": '
               '"<one sentence>", "widgets": [{"metric","viz","title","params","style","w","h"}], "note": "<one sentence on '
-              'anything you assumed or couldn\'t do>"}. 3 to 12 widgets: a row of single numbers first (w 3 or 4, h 2), then '
-              "charts (w 6 h 4, or w 12 h 4 for a trend over time), then tables (w 6 or 12, h 5).\n" + _EXAMPLE +
+              'anything you assumed or couldn\'t do>"}. 3 to ' + str(_MAX_AI) + ' widgets: a row of single numbers first (w 3 or 4, h 2), then '
+              "charts (w 6 h 4, or w 12 h 4 for a trend over time), then tables (w 6 or 12, h 5).\n" + _ROWS + _EXAMPLE +
               '\nOnly if nothing in the catalog is close, return {"error": "<one friendly sentence and a way to phrase it '
               'that would work>"}.' + _request(body))
-    ok, out = await _ask(db, u, prompt, 2500)
+    ok, out = await _ask(db, u, prompt, 6000)
     if ok is None:
         return _NO_AI
     if isinstance(out, str):
@@ -225,7 +231,7 @@ async def ai_edit(dash_id: uuid.UUID, body: EditBody, u: User = Depends(_member)
               'didn\'t make: if part of the request can\'t be done with the catalog and filters, start the note with '
               '"Couldn\'t:" and say what. Only if nothing in '
               'the catalog can do it, return {"error": "<one friendly sentence>"}.' + earlier + _request(body))
-    ok, out = await _ask(db, u, prompt, 4000)
+    ok, out = await _ask(db, u, prompt, 6000)
     if ok is None:
         return _NO_AI
     if isinstance(out, str):

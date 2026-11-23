@@ -148,7 +148,7 @@
     const d = DashRender.dialog('dw-ai', 'Describe a widget', 560);
     d.body.innerHTML = `<p class="text-sm text-muted" style="margin-top:0">For example: "critical KEV findings on servers over the last 90 days" or
       "how many devices are hidden in Falcon".</p>
-      <textarea id="dwa-text" class="form-input" rows="3" maxlength="1000"></textarea><div id="dwa-q" hidden></div>`;
+      <textarea id="dwa-text" class="form-input" rows="3" maxlength="2000"></textarea><div id="dwa-q" hidden></div>`;
     let answers = [];
     document.getElementById('dwa-text').addEventListener('input', () => { answers = []; document.getElementById('dwa-q').hidden = true; });
     d.button('Cancel', 'btn--ghost', d.close);

@@ -56,7 +56,7 @@
         ${T.map(t => `<button type="button" class="tpl-card" data-tpl="${esc(t.key)}"><span class="pal-theme__sw">${(SW[t.theme] || SW.default).map(c => `<i style="background:${c}"></i>`).join('')}</span>
           <b>${esc(t.name)}</b><small>${esc(t.description)} (${esc(t.widgets)} widgets)</small></button>`).join('')}</div>
       <label class="form-label" for="dln-ai">Or describe it and let the AI draft it <span class="text-muted">(optional)</span></label>
-      <textarea id="dln-ai" class="form-input" rows="3" maxlength="1000"
+      <textarea id="dln-ai" class="form-input" rows="3" maxlength="2000"
         placeholder="e.g. A weekly patching review for the server team: critical and KEV findings on servers, what's past SLA, the trend, and the worst servers"></textarea>
       <div id="dln-q" hidden></div>
       <p class="text-sm text-muted">It starts as a private draft. Move, resize and restyle widgets, then publish and share it.</p>`;
@@ -95,7 +95,7 @@
       const made = await DashRender.api('POST', API, body);
       go.disabled = false;
       if (!made.ok) return d.msg(made.error || 'Could not create it.', true);
-      if (text && !t) { try { sessionStorage.setItem(`ctem.dashAsk.${made.id}`, text.slice(0, 1000)); } catch (e) { /* refining still works */ } }
+      if (text && !t) { try { sessionStorage.setItem(`ctem.dashAsk.${made.id}`, text.slice(0, 2000)); } catch (e) { /* refining still works */ } }
       location.href = `/dashboards/${encodeURIComponent(made.id)}${t ? '' : '?edit=1'}`;
     });
     $('dln-name').focus();

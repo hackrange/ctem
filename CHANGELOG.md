@@ -6,6 +6,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 ## [Unreleased]
 
 ### Fixed
+- **Describing a dashboard to the AI: rows as asked, up to 24 widgets.** The AI was told to make at most 12 widgets, so a request for four rows of four quarterly cards came back asking which row to drop. It now builds up to 24, keeps every row the request lays out (one card per quarter named, rows in order, never merged), and uses a metric's device type option for rows about servers or workstations. Requests can be up to 2,000 characters (was 1,000), and the AI has room to answer a large dashboard in full.
 - **GitHub Code Review: exclusions with an end date** count as open again once it passes, like waivers.
 - **GitHub Code Review: each repository keeps its own grade.** An advisory in several repositories took the worst grade GCR gave it anywhere, so a repository where GCR graded it Info (not reachable, validated low) showed as high. An advisory graded differently in a repository is now its own vulnerability ("GHSA-... in urllib3 (graded info here)"), so every count, chart, SLA and score uses that repository's grade. A finding whose grade changes moves to its new row instead of being closed and opened again, so trends show no fake fixes, and exceptions on it stay. Updates at the next GCR sync.
 - **GitHub Code Review: an expired waiver counts as open again.** GCR keeps a finding "waived" after its waiver ends; CTEM now checks the end date.

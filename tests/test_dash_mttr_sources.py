@@ -38,3 +38,12 @@ def test_vulnerabilities_by_quarter_is_offered_with_filters():
     w = cat.clean_widget({"metric": "vuln.quarter", "params": {"quarter": "q2", "measure": "mttr", "source": ["snyk"]}})
     assert w["params"]["quarter"] == "q2" and w["params"]["measure"] == "mttr" and w["viz"] == "kpi"
     assert cat.clean_widget({"metric": "vuln.quarter", "params": {"measure": "drop table"}})["params"]["measure"] == "open"
+
+
+def test_described_dashboards_can_have_four_full_rows():
+    from api.routes import dashboards_ai as ai
+    assert ai._MAX_AI >= 16 and ai._MAX_AI <= cat.MAX_WIDGETS
+    assert "never dropping, merging or" in ai._ROWS and "Q1 to Q4 means four cards" in ai._ROWS
+    assert len(ai.AskBody(text="x" * 1800).text) == 1800   # a detailed request fits
+    rows = ai._layout([{"w": 3, "h": 2} for _ in range(16)])
+    assert [(w["x"], w["y"]) for w in rows[::4]] == [(0, 0), (0, 2), (0, 4), (0, 6)]   # four rows of four
