@@ -11,7 +11,7 @@ fields may not match the real API (the Horizon3 connector, for one, called endpo
 
 | Integration | How it was verified |
 |---|---|
-| Rapid7 InsightVM (cloud and console), AppSec, CloudSec | Real tenant |
+| Rapid7 InsightVM (cloud and console), AppSec | Real tenant |
 | CrowdStrike Falcon (shipper) | Real tenant; formats checked against CrowdStrike's gofalcon SDK |
 | LDAP / Active Directory (shipper) | Real directory |
 | Splunk (shipper search) | Real search head |
@@ -22,6 +22,10 @@ fields may not match the real API (the Horizon3 connector, for one, called endpo
 
 ## In progress
 
+- [ ] **Rapid7 InsightCloudSec**: the old connector searched each Insight with `POST /v2/public/resource/query`, which
+  answered 500 to every call on a real tenant (it was listed as verified before any key worked). Rebuilt, GET only, on
+  `GET /v4/insights/findings-per-cloud/{id}/` per cloud account from `GET /v2/public/clouds/list`, joined to
+  `GET /v2/public/insights/list`; all three confirmed against a live tenant. To check off after its first full sync.
 - [ ] **Horizon3.ai NodeZero**: rebuilt on the GraphQL API; auth, pentests, weaknesses, services, hosts, attack
   paths, credentials and data stores confirmed field by field against a live tenant (introspection is disabled). To
   check off after its first full sync.

@@ -1,21 +1,25 @@
-"""Rapid7 InsightCloudSec (CSPM) connector -- resources failing Insights, per the public v2 API."""
+"""Rapid7 InsightCloudSec (CSPM) connector: Insight findings per cloud account, read with GET only."""
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.core.ssrf import safe_client
+from api.integrations import rapid7_cloudsec_store as store
 from api.integrations import rapid7_common as r7
 from api.integrations.base import BaseConnector, register
 from api.models.integration import Vendor
 
 log = logging.getLogger("open-ctem.rapid7-cloudsec")
 
-# Insight severity is 1 (Info) to 5 (Critical); map it onto a CVSS-ish number for scoring
-_SEVERITY_CVSS = {5: 9.5, 4: 7.5, 3: 5.0, 2: 3.0, 1: 0.0}
 _SEVERITY_NAMES = {"critical": 5, "high": 4, "medium": 3, "low": 2, "info": 1}
-_PAGE = 1000  # API max per query
+_MAX_PAGES = 4000  # per account, 500 rows a page; a runaway cursor stops here
+
+
+class CloudSecError(RuntimeError):
+    """A tenant answer we can't build a complete picture from."""
 
 
 @register(Vendor.rapid7_cloudsec)
@@ -33,17 +37,40 @@ class InsightCloudSecConnector(BaseConnector):
             return False
 
     async def sync(self, db: AsyncSession) -> int:
-        insights = await self._list_insights()
-        findings: list[tuple[dict, dict]] = []
+        self.warnings: list[str] = []
+        started = datetime.now(timezone.utc)
         cap = r7.int_cfg(self.config, "max_findings", 0, 0, 10_000_000)  # 0 = no limit
         async with safe_client(timeout=120.0) as client:
-            for insight in insights:
-                room = (cap - len(findings)) if cap else None
-                for res in await self._failing_resources(client, insight, room):
-                    findings.append((insight, res))
-                if cap and len(findings) >= cap:
+            insights = await self._insights(client)
+            clouds, listed_all = await self._clouds(client)
+            saver = await store.Saver.load(db, started)
+            done: set[str] = set()   # accounts read to the last page, safe to close what they no longer list
+            failed = 0
+            for cloud in clouds:
+                if not await store.still_enabled(db, getattr(self, "integration_id", None)):
+                    self.warnings.append("the integration was disabled mid-run, so the rest was skipped")
+                    return saver.count
+                room = (cap - saver.count) if cap else None
+                if room is not None and room <= 0:
                     break
-        return await self._upsert(findings, db)
+                try:
+                    complete = await self._read_account(client, cloud, insights, saver, room)
+                except CloudSecError as e:
+                    failed += 1
+                    log.warning("CloudSec account %s skipped: %s", cloud, e)
+                    continue
+                if complete:
+                    done.add(cloud)
+        if clouds and failed == len(clouds):
+            raise CloudSecError(f"InsightCloudSec refused every cloud account ({failed}); nothing was imported")
+        if failed:
+            self.warnings.append(f"{failed} of {len(clouds)} cloud accounts could not be read and were skipped")
+        if cap and saver.count >= cap:
+            self.warnings.append(f"stopped at the {cap} finding cap, so nothing was closed")
+        else:
+            closed = await saver.close_missing(done, set(clouds) if listed_all else None)
+            log.info("CloudSec sync: %d findings, %d closed, %d accounts", saver.count, closed, len(done))
+        return saver.count
 
     @property
     def _base(self) -> str:
@@ -55,102 +82,64 @@ class InsightCloudSecConnector(BaseConnector):
             raise ValueError("InsightCloudSec needs base_url like https://us1.cloudsec.insight.rapid7.com")
         return f"{base}/v2"
 
+    @property
+    def _root(self) -> str:
+        return self._base[:-3]
+
     def _headers(self) -> dict:
-        return {"Api-Key": self.config["api_key"], "Content-Type": "application/json", "Accept": "application/json"}
+        return {"Api-Key": self.config["api_key"], "Accept": "application/json"}
 
     def _min_severity(self) -> int:
         raw = str(self.config.get("min_severity", "high")).lower()
         return _SEVERITY_NAMES.get(raw, 4)
 
-    async def _list_insights(self) -> list[dict]:
-        async with safe_client(timeout=120.0) as client:
-            resp = await client.get(f"{self._base}/public/insights/list", headers=self._headers(),
-                                    params={"detail": "true"}, follow_redirects=False)
-        resp.raise_for_status()
-        body = resp.json()
+    async def _get(self, client, url: str, params: dict | None = None) -> dict | list:
+        # GET only: this connector never changes anything in the tenant
+        resp = await client.get(url, headers=self._headers(), params=params, follow_redirects=False)
+        if resp.status_code != 200 or "json" not in resp.headers.get("content-type", ""):
+            hint = " (the key was refused)" if resp.status_code in (301, 302, 303, 401, 403) else ""
+            raise CloudSecError(f"HTTP {resp.status_code}{hint}")
+        return resp.json()
+
+    async def _insights(self, client) -> dict[str, dict]:
+        """Insights at or above the severity floor, keyed the way findings name them ("backoffice:59")."""
+        body = await self._get(client, f"{self._base}/public/insights/list")
         rows = body if isinstance(body, list) else body.get("insights", [])
         floor = self._min_severity()
-        keep = [i for i in rows if int(i.get("severity") or 0) >= floor and i.get("insight_id") is not None]
-        keep.sort(key=lambda i: -int(i.get("severity") or 0))  # worst first, in case the cap bites
-        limit = r7.int_cfg(self.config, "max_insights", 0, 0, 100_000)  # 0 = every insight
-        return keep[:limit] if limit else keep
-
-    async def _failing_resources(self, client, insight: dict, room: int | None) -> list[dict]:
-        """Every resource failing this insight; room caps it, None means no cap."""
-        out: list[dict] = []
-        source = insight.get("source") or "backoffice"
-        for rtype in insight.get("resource_types") or []:
-            cursor = None
-            while room is None or len(out) < room:
-                body = {"selected_resource_type": rtype, "resource_types": [rtype], "scopes": [],
-                        "filters": insight.get("filters") or [], "insight": f"{source}:{insight['insight_id']}",
-                        "insight_exemptions": False,
-                        "limit": _PAGE if room is None else min(_PAGE, room - len(out))}
-                if cursor:
-                    body["cursor"] = cursor
-                resp = await client.post(f"{self._base}/public/resource/query", headers=self._headers(),
-                                         json=body, follow_redirects=False)
-                if resp.status_code != 200:
-                    log.warning("CloudSec query for insight %s/%s returned %s", source, insight["insight_id"], resp.status_code)
-                    break
-                data = resp.json()
-                out.extend(r.get(r.get("resource_type") or rtype) or r for r in data.get("resources", []))
-                cursor = data.get("next_cursor")
-                if not cursor or not data.get("resources"):
-                    break
-        return out if room is None else out[:room]
-
-    async def _upsert(self, findings: list[tuple[dict, dict]], db: AsyncSession) -> int:
-        from sqlalchemy import select
-
-        from api.models.device import Device, DeviceType
-        from api.models.vuln import Finding, FindingStatus, Vulnerability
-
-        vulns: dict[str, Vulnerability] = {}
-        devices: dict[str, Device] = {}
-        count = 0
-        for insight, res in findings:
-            common = res.get("common") or res
-            rid = common.get("resource_id")
-            if not rid:
+        out = {}
+        for i in rows:
+            if i.get("insight_id") is None or i.get("disabled"):
                 continue
-            key = f"{insight.get('source') or 'backoffice'}:{insight['insight_id']}"
-            vuln = vulns.get(key)
-            if vuln is None:
-                vuln = (await db.execute(select(Vulnerability).where(
-                    Vulnerability.source == "rapid7_cloudsec", Vulnerability.source_vuln_id == key))).scalar_one_or_none()
-                if vuln is None:
-                    vuln = Vulnerability(source="rapid7_cloudsec", source_vuln_id=key, title="")
-                    db.add(vuln)
-                sev = int(insight.get("severity") or 3)
-                vuln.title = str(insight.get("name") or key)[:512]
-                vuln.description = insight.get("description")
-                vuln.cvss_base = _SEVERITY_CVSS.get(sev, 5.0)
-                await db.flush()
-                vulns[key] = vuln
+            sev = int(i.get("custom_severity") or i.get("severity") or 0)
+            if sev >= floor:
+                out[f"{i.get('source') or 'backoffice'}:{i['insight_id']}"] = {**i, "severity": sev}
+        return out
 
-            dev = devices.get(rid)
-            if dev is None:
-                dev = (await db.execute(select(Device).where(
-                    Device.source == "rapid7_cloudsec", Device.source_id == rid[:256]))).scalar_one_or_none()
-                if dev is None:
-                    name = common.get("resource_name") or common.get("namespace_id") or rid
-                    dev = Device(hostname=str(name)[:253], device_type=DeviceType.cloud_instance,
-                                 source="rapid7_cloudsec", source_id=rid[:256])
-                    db.add(dev)
-                    await db.flush()
-                devices[rid] = dev
+    async def _clouds(self, client) -> tuple[list[str], bool]:
+        """Cloud account ids, and whether the list is the whole set (so a missing account was removed)."""
+        body = await self._get(client, f"{self._base}/public/clouds/list")
+        rows = body.get("clouds", []) if isinstance(body, dict) else body
+        ids = [str(int(c["id"])) for c in rows if str(c.get("id", "")).isdigit()]
+        total = body.get("total_count") if isinstance(body, dict) else None
+        return ids, total is not None and int(total) == len(ids)
 
-            finding = (await db.execute(select(Finding).where(
-                Finding.device_id == dev.id, Finding.vuln_id == vuln.id))).scalar_one_or_none()
-            if finding is None:
-                finding = Finding(device_id=dev.id, vuln_id=vuln.id, source="rapid7_cloudsec",
-                                  source_id=f"{key}:{rid}"[:256], status=FindingStatus.open)
-                db.add(finding)
-            elif finding.status == FindingStatus.remediated:
-                finding.status = FindingStatus.open
-            finding.first_detected = finding.first_detected or r7.parse_dt(common.get("discovered_timestamp"))
-            finding.last_seen = r7.parse_dt(common.get("modified_timestamp")) or finding.last_seen
-            count += 1
-        await db.commit()
-        return count
+    async def _read_account(self, client, cloud: str, insights: dict, saver, room: int | None) -> bool:
+        """Every page of one account's findings. True when it read to the end, uncapped."""
+        url = f"{self._root}/v4/insights/findings-per-cloud/{cloud}/"   # no slash = 308 to another host
+        cursor, seen_cursors, taken = None, set(), 0
+        for _ in range(_MAX_PAGES):
+            page = await self._get(client, url, {"cursor": cursor} if cursor else None)
+            rows = [r for r in page.get("results", []) if r.get("insight_id") in insights and r.get("resource_id")]
+            if room is not None:
+                rows = rows[:max(room - taken, 0)]
+            taken += len(rows)
+            await saver.save(rows, insights)
+            if room is not None and taken >= room:
+                return False
+            cursor = page.get("next_cursor")
+            if not cursor or not page.get("results"):
+                return True
+            if cursor in seen_cursors:
+                raise CloudSecError("the next-page cursor repeated")
+            seen_cursors.add(cursor)
+        raise CloudSecError(f"more than {_MAX_PAGES} pages")

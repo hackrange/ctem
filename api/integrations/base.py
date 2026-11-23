@@ -172,8 +172,10 @@ async def _sync_by_id(db: AsyncSession, integration_id: str) -> bool:
         connector = get_connector(vendor, config)
         connector.integration_id = cfg_id
         count = await connector.sync(db)
-        job_vals = {"status": SyncStatus.success, "records_imported": count}
-        cfg_vals = {"last_sync_status": SyncStatus.success, "last_sync_error": None}
+        # A run that half worked says so on the card, the way collector runs do
+        warned = "; ".join(f"warning: {w}" for w in getattr(connector, "warnings", None) or []) or None
+        job_vals = {"status": SyncStatus.success, "records_imported": count, "error_message": warned and warned[:1000]}
+        cfg_vals = {"last_sync_status": SyncStatus.success, "last_sync_error": warned and warned[:500]}
         ok = True
     except Exception as e:
         await db.rollback()

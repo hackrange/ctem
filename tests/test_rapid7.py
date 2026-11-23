@@ -91,42 +91,6 @@ async def test_cloudsec_login_redirect_is_not_success(monkeypatch):
     assert await good.test_connection() is True
 
 
-@pytest.mark.asyncio
-async def test_cloudsec_pulls_failing_resources_per_spec(monkeypatch):
-    import json
-
-    import httpx
-
-    from api.integrations import rapid7_cloudsec
-
-    calls = []
-
-    def fake_client(**_):
-        def handler(request):
-            calls.append(request.url.path)
-            if request.url.path == "/v2/public/insights/list":
-                return httpx.Response(200, json=[
-                    {"insight_id": 59, "source": "backoffice", "severity": 5, "name": "Instance Exposing SSH",
-                     "resource_types": ["instance"], "filters": [{"name": "divvy.query.ssh", "config": {}}]},
-                    {"insight_id": 2, "severity": 1, "name": "Not Multi-AZ", "resource_types": ["dbinstance"]},
-                ])
-            body = json.loads(request.content)
-            assert body["insight"] == "backoffice:59" and body["selected_resource_type"] == "instance"
-            page = {"resources": [{"resource_type": "instance", "instance": {"common": {"resource_id": "instance:1:us-east-1:i-1:"}}}]}
-            page["next_cursor"] = None if body.get("cursor") else "abc"
-            return httpx.Response(200, json=page)
-        return httpx.AsyncClient(transport=httpx.MockTransport(handler))
-
-    monkeypatch.setattr(rapid7_cloudsec, "safe_client", fake_client)
-    c = get_connector("rapid7_cloudsec", {"api_key": "example-not-a-key", "base_url": "https://acme.insightcloudsec.com/v2"})
-    insights = await c._list_insights()
-    assert [i["insight_id"] for i in insights] == [59]  # severity 1 is below the default "high" floor
-    async with fake_client() as client:
-        res = await c._failing_resources(client, insights[0], 100)
-    assert len(res) == 2 and res[0]["common"]["resource_id"].startswith("instance:")
-    assert calls.count("/v2/public/resource/query") == 2  # followed next_cursor once
-
-
 def test_parse_dt_assumes_utc_for_naive():
     assert r7.parse_dt("2022-04-20 16:48:02").tzinfo is not None
 
