@@ -36,6 +36,8 @@ async def test_nodezero_findings_proof_and_closed_ports(db, monkeypatch):
 
     async def gql(self, client, query, variables=None):
         page = (variables or {}).get("page_input", {}).get("page_num", 1)
+        if "weakness_series_page" in query:   # a tenant without them: the pentests' own weaknesses are read
+            raise ValueError("Horizon3: Cannot query field \"weakness_series_page\" on type \"Query\".")
         if "pentests_page" in query:
             return {"pentests_page": {"pentests": [] if page > 1 else [
                 {"op_id": "op1", "op_type": "NodeZero", "name": "Internal pentest", "state": "done", "completed_at": now[:19]},
@@ -126,7 +128,7 @@ async def test_a_deadlock_is_retried(monkeypatch):
 
     class Apply:
         @staticmethod
-        async def op(db, *a):
+        async def op(db, *a, **k):
             calls.append(1)
             if len(calls) == 1:
                 raise DBAPIError("UPDATE devices", {}, Exception("deadlock detected"))
@@ -162,3 +164,72 @@ async def test_a_database_failure_never_puts_sql_on_the_card(db, monkeypatch):
     assert await base._sync_by_id(db, str(cfg.id)) is False
     await db.refresh(cfg)
     assert "deadlock" in cfg.last_sync_error and "UPDATE" not in cfg.last_sync_error and "row data" not in cfg.last_sync_error
+
+
+@pytest.mark.asyncio
+async def test_open_weakness_series_are_findings_whichever_pentest_saw_them(db, monkeypatch):
+    from api.core.encryption import search_hash
+    from api.integrations.horizon3 import Horizon3Connector
+    from api.models.device import Device, DeviceType
+    from api.models.vuln import Finding, FindingStatus, Vulnerability
+    n = uuid.uuid4().hex[:6]
+    k = int(n[:2], 16) % 120
+    ip, camera = f"198.51.100.{k + 1}", f"198.51.100.{k + 130}"
+    d = Device(hostname=f"srv-s-{n}", device_type=DeviceType.server, ip=ip, ip_hash=search_hash(ip))
+    cve = f"CVE-2017-{1000 + int(n[2:5], 16) % 8999}"
+    scan = Vulnerability(source="t_h3s", source_vuln_id=f"s{n}", cve_id=cve, title="Scanner view", attack_vector="network")
+    gone = Vulnerability(source="horizon3", source_vuln_id=f"H3-OLD-{n}", title="Fixed since")
+    db.add_all([d, scan, gone])
+    await db.flush()
+    other = Finding(device_id=d.id, vuln_id=scan.id, source="t_h3s", exposure="listening", ports="445/tcp")
+    stale = Finding(device_id=d.id, vuln_id=gone.id, source="horizon3", source_id=f"{d.id}:H3-OLD-{n}")
+    db.add_all([other, stale])
+    await db.commit()
+    now = datetime.now(timezone.utc).isoformat()[:19]
+
+    def ser(vid, at, port, first="2026-06-14T16:45:02"):
+        return {"uuid": f"{vid}-{at}-{port}", "vuln_id": vid, "vuln_name": "Camera auth bypass", "severity": "CRITICAL", "score": 9.8,
+                "ip": at, "port": port, "protocol": "tcp", "status": "OPEN", "is_open": True, "first_seen_at": first,
+                "last_seen_at": "2026-06-15T23:14:19", "last_op_id": "june", "attack_paths_count": 1,
+                "vuln": {"aliases": [], "cisa_kev": True, "known_ransomware_campaign_use": False, "base_score": 9.8}}
+
+    async def gql(self, client, query, variables=None):
+        page = (variables or {}).get("page_input", {}).get("page_num", 1)
+        if "weakness_series_page" in query:
+            assert variables["page_input"]["filter_by_inputs"] == [{"field_name": "status", "values": ["OPEN"]}]
+            return {"weakness_series_page": {"weakness_series": [] if page > 1 else [
+                ser(cve, ip, 445), ser(cve, ip, 139), ser(cve, camera, 65014), ser(cve, camera, 65002)]}}
+        if "pentests_page" in query:
+            return {"pentests_page": {"pentests": [] if page > 1 else [
+                {"op_id": "nov", "op_type": "NodeZero", "name": "November", "state": "done", "completed_at": now}]}}
+        if "weaknesses_page" in query:
+            return {"weaknesses_page": {"weaknesses": [] if page > 1 else [{"vuln_id": cve, "ip": ip, "has_proof": True}]}}
+        if "services_page" in query:
+            return {"services_page": {"services": [] if page > 1 else [{"ip": ip, "port": 445, "protocol": "TCP"}, {"ip": ip, "port": 139}]}}
+        if "hosts_page" in query:
+            return {"hosts_page": {"hosts": [] if page > 1 else [{"ip": ip, "ip_addresses": [ip], "is_in_scope": True, "services_count": 2}]}}
+        return {k: {} for k in ("attack_paths_page", "credentials_page", "data_stores_page")}
+    monkeypatch.setattr(Horizon3Connector, "_gql", gql)
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+    monkeypatch.setattr("api.integrations.horizon3.safe_client", lambda **k: Client())
+    assert await Horizon3Connector({"api_key": "k", "region": "us"}).sync(db) >= 2
+
+    def fresh(model, *where):
+        return select(model).where(*where).execution_options(populate_existing=True)
+    mine = (await db.execute(fresh(Finding, Finding.source == "horizon3", Finding.device_id == d.id, Finding.status == FindingStatus.open))).scalars().all()
+    assert len(mine) == 1 and mine[0].ports == "139/tcp 445/tcp" and mine[0].details["has_proof"] and mine[0].is_reachable is True
+    assert (await db.execute(fresh(Finding, Finding.id == stale.id))).scalar_one().status == FindingStatus.remediated   # no longer open
+    assert (await db.execute(fresh(Finding, Finding.id == other.id))).scalar_one().is_reachable is True    # same CVE, other source
+    cam = (await db.execute(select(Device).where(Device.ip_hash == search_hash(camera)))).scalar_one()      # seen in June only: an asset
+    cf = (await db.execute(fresh(Finding, Finding.source == "horizon3", Finding.device_id == cam.id))).scalar_one()
+    assert cf.status == FindingStatus.open and cf.ports == "65002/tcp 65014/tcp" and cf.details["has_proof"] is False and cf.is_reachable
+    v = (await db.execute(select(Vulnerability).where(Vulnerability.source == "horizon3", Vulnerability.source_vuln_id == cve))).scalar_one()
+    assert v.is_kev and v.cvss_base == 9.8
+    dev = (await db.execute(fresh(Device, Device.id == d.id))).scalar_one()
+    assert dev.pentest["open_services"] == [{"port": 445, "protocol": "tcp"}, {"port": 139, "protocol": "tcp"}]

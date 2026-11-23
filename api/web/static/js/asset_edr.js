@@ -104,6 +104,15 @@ window.AssetEdr = (() => {
     panel.innerHTML = `<div class="panel__header" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
         <span class="panel__title">Attacker view (autonomous pentest)${d.severity ? ` <span class="chip ${sev[d.severity] || 'chip--info'}" style="font-size:.7rem;vertical-align:middle">${esc(d.severity)}${d.score != null ? ` ${esc(d.score)}` : ''}</span>` : ''}</span>
         <span class="text-sm text-muted">${esc(d.pentest || '')}${d.tested_at ? ` · tested ${esc(new Date(d.tested_at).toLocaleDateString())}` : ''}</span></div>
+      ${list(`Weaknesses NodeZero has open here (${(d.findings || []).length})`, ['Weakness', 'Score', 'Port', 'Confirmed', 'Last seen'], (d.findings || []).map(f => `<tr>
+          <td class="text-sm"><a href="/vulns/${encodeURIComponent(f.vuln_id)}">${esc(f.name || f.cve || '')}</a>${f.cve && f.name !== f.cve ? ` <span class="text-muted text-mono" style="font-size:.75rem">${esc(f.cve)}</span>` : ''}${
+            f.kev ? ' <span class="chip chip--critical" style="font-size:.65rem">KEV</span>' : ''}</td>
+          <td><span class="chip ${f.score >= 9 ? 'chip--critical' : f.score >= 7 ? 'chip--high' : f.score >= 4 ? 'chip--medium' : 'chip--low'}">${esc(f.score ?? '')}</span></td>
+          <td class="text-sm text-mono">${esc(f.ports || '')}</td>
+          <td class="text-sm">${f.proved ? '<b>Exploited</b>' : 'Reached'}${f.paths ? ` <span class="text-muted">· ${esc(f.paths)} attack path${f.paths === 1 ? '' : 's'}</span>` : ''}</td>
+          <td class="text-sm text-muted">${f.last_seen ? esc(new Date(f.last_seen).toLocaleDateString()) : ''}</td></tr>`))}
+      ${(d.open_services || []).length ? `<div class="panel__header"><span class="panel__title">Open services NodeZero found (${d.open_services.length})</span></div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;padding:8px 14px">${d.open_services.map(s => `<span class="chip chip--info text-mono">${esc(s.port)}/${esc(s.protocol || 'tcp')}</span>`).join('')}</div>` : ''}
       <div style="display:flex;gap:18px;flex-wrap:wrap;padding:10px 14px" class="text-sm">
         ${d.domain_controller ? '<span class="chip chip--high">Domain controller</span>' : ''}${d.os ? `<span>OS <b>${esc(d.os)}</b></span>` : ''}
         <span>Open services <b>${esc(d.services ?? '--')}</b></span><span>Weaknesses <b>${esc(d.weaknesses ?? '--')}</b></span>

@@ -88,9 +88,9 @@ class Horizon3Connector(BaseConnector):
             if attempt == 0 and (r.status_code in (401, 403) or "expired" in expired or "unauthorized" in expired):
                 self._token = None   # sign in again once
                 continue
-            r.raise_for_status()
-            if body.get("errors"):
+            if body.get("errors"):   # before the status: a query the API rejects comes back as a 400 with its reasons
                 raise ValueError("Horizon3: " + "; ".join(str(e.get("message"))[:200] for e in body["errors"][:3]))
+            r.raise_for_status()
             return body.get("data") or {}
         raise PermissionError("Horizon3 refused the token")
 
@@ -103,10 +103,11 @@ class Horizon3Connector(BaseConnector):
             log.warning("Horizon3 test failed: %s", type(e).__name__)
             return False
 
-    async def _pages(self, client, query: str, key: str, inner: str, variables: dict, cap: int = 200) -> list[dict]:
+    async def _pages(self, client, query: str, key: str, inner: str, variables: dict, cap: int = 200,
+                     page_extra: dict | None = None) -> list[dict]:
         out = []
         for page in range(1, cap + 1):
-            data = await self._gql(client, query, {**variables, "page_input": {"page_num": page, "page_size": PAGE}})
+            data = await self._gql(client, query, {**variables, "page_input": {"page_num": page, "page_size": PAGE, **(page_extra or {})}})
             rows = ((data.get(key) or {}).get(inner)) or []
             out += rows
             if len(rows) < PAGE:
@@ -134,14 +135,24 @@ class Horizon3Connector(BaseConnector):
                 log.warning("Horizon3 %s not available: %s", key, str(e)[:160])
         return out
 
-    async def _apply(self, db, apply, op, weak, services, extra, tries: int = 3) -> int:
+    async def _open_series(self, client) -> list[dict] | None:
+        """Every open weakness series (NodeZero's weaknesses tracked across pentests); None if the API has none."""
+        from api.integrations.horizon3_series import OPEN, QUERY
+        try:
+            return await self._pages(client, QUERY, "weakness_series_page", "weakness_series", {}, cap=500, page_extra=OPEN)
+        except ValueError as e:
+            self.notes.append("Horizon3's API offered no weakness series, so only the last pentests' weaknesses are read")
+            log.warning("Horizon3 weakness series refused: %s", str(e)[:200])
+            return None
+
+    async def _apply(self, db, apply, op, weak, services, extra, tries: int = 3, findings: bool = True) -> int:
         """Apply one pentest; a deadlock with another writer to the same assets is retried (the work is idempotent)."""
         import asyncio
 
         from sqlalchemy.exc import DBAPIError
         for attempt in range(tries):
             try:
-                return await apply.op(db, op, weak, services, extra)
+                return await apply.op(db, op, weak, services, extra, findings=findings)
             except DBAPIError as e:
                 await db.rollback()
                 if "deadlock" not in str(e).lower() or attempt == tries - 1:
@@ -164,13 +175,23 @@ class Horizon3Connector(BaseConnector):
             if done and not svc_q:
                 self.notes.append("Horizon3's API offered no services query, so findings aren't marked unreachable yet")
             from api.integrations import horizon3_apply as apply
+            from api.integrations import horizon3_series as series
+            open_series = await self._open_series(client)
+            proof = {}
             for op in done:
                 weak = await self._pages(client, _WEAK, "weaknesses_page", "weaknesses", {"op_id": op["op_id"]})
+                proof.update({(w.get("ip"), str(w.get("vuln_id") or "")[:200]): True for w in weak if w.get("has_proof")})
                 # Open services from the pentests that scan the network (an AD password audit doesn't)
                 services = (await self._pages(client, svc_q, "services_page", "services", {"op_id": op["op_id"]}, cap=2000)
                             if svc_q and str(op.get("op_type") or "") == "NodeZero" else None)
                 extra = await self._extras(client, op["op_id"]) if str(op.get("op_type") or "") == "NodeZero" else {}
-                n += await self._apply(db, apply, op, weak, services, extra)
+                n += await self._apply(db, apply, op, weak, services, extra, findings=open_series is None)
+            if open_series is not None:   # every weakness NodeZero still has open, whichever pentest last saw it
+                cache: dict = {}
+                wrote, seen = await series.apply(db, open_series, proof, lambda ip: apply._device(db, ip, None, cache))
+                closed = await series.close_the_rest(db, seen)
+                log.info("Horizon3: %d open weaknesses from %d series, %d closed", wrote, len(open_series), closed)
+                n += wrote
         if self.notes:
             log.info("Horizon3: %s", "; ".join(self.notes))
         return n

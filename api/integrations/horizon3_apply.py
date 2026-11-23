@@ -58,7 +58,10 @@ async def _device(db, ip: str | None, name: str | None, cache: dict, create: boo
     return d
 
 
-async def op(db: AsyncSession, pentest: dict, weaknesses: list[dict], services: list[dict] | None, extra: dict | None = None) -> int:
+async def op(db: AsyncSession, pentest: dict, weaknesses: list[dict], services: list[dict] | None, extra: dict | None = None,
+             findings: bool = True) -> int:
+    """findings=False when NodeZero's weakness series write the findings (api/integrations/horizon3_series.py): the
+    pentest then adds its closed ports and its attacker view only."""
     from api.integrations import horizon3_view as view
     from api.models.vuln import Finding, FindingStatus, Vulnerability
     when = _dt(pentest.get("completed_at")) or datetime.now(timezone.utc)
@@ -72,7 +75,7 @@ async def op(db: AsyncSession, pentest: dict, weaknesses: list[dict], services: 
         d = await _device(db, None, None, cache, create=bool(set(ips) & busy), ips=ips, names=names)
         if d is not None:
             tested.add(str(d.id))
-    for w in weaknesses:
+    for w in weaknesses if findings else []:
         vid = str(w.get("vuln_id") or "")[:200]
         if not vid:
             continue
@@ -113,11 +116,12 @@ async def op(db: AsyncSession, pentest: dict, weaknesses: list[dict], services: 
     open_ports = await _services(db, services, cache, tested) if services is not None else None
     # NodeZero tested these hosts in this pentest: its weaknesses there that it no longer found are gone
     for f in (await db.execute(select(Finding).where(Finding.source == SOURCE, Finding.device_id.in_(list(tested) or ["-"]),
-                                                     Finding.status == FindingStatus.open, Finding.last_seen < when))).scalars():
+                                                     Finding.status == FindingStatus.open, Finding.last_seen < when))).scalars() if findings else []:
         f.status = FindingStatus.remediated
     if open_ports is not None:
         n += await _closed(db, open_ports, when, pentest)
     if extra:
+        extra = {**extra, "services": services or [], "weaknesses": weaknesses}
         await view.apply(db, pentest, when, extra, cache, lambda ip, name: _device(db, ip, name, cache, create=False))
     await db.commit()
     return n

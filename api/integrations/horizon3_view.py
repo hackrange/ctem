@@ -33,7 +33,8 @@ async def apply(db, pentest: dict, when, extra: dict, cache: dict, find) -> None
         if d is None:
             return None, None
         v = views.setdefault(str(d.id), {"pentest": _txt(pentest.get("name"), 200), "pentest_id": pentest.get("op_id"),
-                                         "tested_at": when.isoformat(), "attack_paths": [], "credentials": [], "data_stores": []})
+                                         "tested_at": when.isoformat(), "attack_paths": [], "credentials": [], "data_stores": [],
+                                         "open_services": []})
         return d, v
 
     for h in extra.get("hosts") or []:
@@ -43,6 +44,14 @@ async def apply(db, pentest: dict, when, extra: dict, cache: dict, find) -> None
                       "domain_controller": bool(h.get("is_domain_controller")), "services": h.get("services_count"),
                       "weaknesses": h.get("weaknesses_count"), "credentials_found": h.get("credentials_count"),
                       "cloud": _txt(h.get("cloud_provider"), 32)})
+    for sv in extra.get("services") or []:   # each open port NodeZero found, on the assets CTEM knows
+        port = sv.get("port")
+        if not isinstance(port, int) or not 0 < port < 65536:
+            continue
+        d, v = await view_of(sv.get("ip"), sv.get("host_name"))
+        row = {"port": port, "protocol": _txt(str(sv.get("protocol") or "tcp").lower(), 8)}
+        if v is not None and len(v["open_services"]) < 200 and row not in v["open_services"]:
+            v["open_services"].append(row)
     alerts = []
     for p in extra.get("paths") or []:
         ips = _IP.findall(str(p.get("affected_asset_text") or ""))

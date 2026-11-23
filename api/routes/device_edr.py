@@ -130,8 +130,20 @@ async def device_posture(device_id: uuid.UUID, u: User = Depends(require_permiss
 @router.get("/{device_id}/pentest")
 async def device_pentest(device_id: uuid.UUID, u: User = Depends(require_permission("devices", "read")),
                          db: AsyncSession = Depends(get_session)):
-    """The newest autonomous pentest's view of this asset (NodeZero): its rating, attack paths, credentials, shares."""
+    """The newest autonomous pentest's view of this asset (NodeZero): its rating, open services, attack paths,
+    credentials and shares, with the weaknesses NodeZero still has open on it from any pentest."""
+    from sqlalchemy import select
+
+    from api.models.vuln import Finding, FindingStatus, Vulnerability
     d = await _device(device_id, u, db)
-    if not d.pentest:
+    rows = (await db.execute(select(Finding, Vulnerability).join(Vulnerability, Vulnerability.id == Finding.vuln_id).where(
+        Finding.device_id == d.id, Finding.source == "horizon3", Finding.status == FindingStatus.open)
+        .order_by(Vulnerability.cvss_base.desc().nulls_last()).limit(200))).all()
+    found = [{"vuln_id": str(v.id), "name": v.title, "cve": v.cve_id, "score": v.cvss_base, "kev": bool(v.is_kev),
+              "ports": f.ports, "proved": bool((f.details or {}).get("has_proof")), "paths": (f.details or {}).get("impact_paths"),
+              "last_seen": f.last_seen.isoformat() if f.last_seen else None} for f, v in rows]
+    if not d.pentest and not found:
         return {"available": False}
-    return {"available": True, **d.pentest}
+    view = dict(d.pentest or {})
+    view["open_services"] = sorted(view.get("open_services") or [], key=lambda s: (s.get("port") or 0, s.get("protocol") or ""))
+    return {"available": True, **view, "findings": found}
