@@ -6,6 +6,14 @@
 > Version: 1.0.1  
 > License: MIT
 
+## Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hackrange/ctem/main/get-ctem.sh | sudo bash
+```
+
+Ubuntu 22.04 or newer. Installs Docker and everything else it needs, then prints how to sign in. Add `-s -- --restore FILE` after `bash` to rebuild a server from a backup. Details in [Installation and backups](#installation-and-backups).
+
 ---
 
 ## What it does
@@ -287,19 +295,63 @@ With `MFA_REQUIRED=true`, a local user without TOTP is walked through enrollment
 
 ---
 
-## Quick start
+## Installation and backups
+
+One line, on a fresh **Ubuntu 22.04 or newer** server (amd64 or arm64):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hackrange/ctem/main/get-ctem.sh | sudo bash
+```
+
+It installs everything it needs (git, python3-cryptography, Docker Engine and the compose plugin from Docker's own repository), clones the project to `/data/docker/ctem`, generates every password and key, makes a self-signed TLS certificate, builds and starts the stack, waits for it to answer, and prints the admin username, admin password and backup password. Save those. It needs ports 80 and 443 free and refuses any other OS.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `CTEM_DIR` | `/data/docker/ctem` | Where the checkout goes |
+| `CTEM_REPO` | `https://github.com/hackrange/ctem.git` | Install from a copy somewhere else |
+| `CTEM_BRANCH` | `main` | Branch to install |
+
+Pass a variable through sudo like this: `curl -fsSL .../get-ctem.sh | sudo CTEM_DIR=/srv/ctem bash`.
+
+### Install from a backup
+
+Copy the `.ctembak` file to the new server, then:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hackrange/ctem/main/get-ctem.sh | sudo bash -s -- --restore /root/ctem-server001-20261123-020000Z.ctembak
+```
+
+Same install, then it asks for the backup's password and rebuilds the old server: every user, role, setting, integration, dashboard, rule, finding and audit entry, the branding, the `.env` settings (SSO, email, AI key, encryption keys), the TLS certificate, a local `docker-compose.override.yml`, and uploaded files. The database and Redis get new passwords of their own. When it is done, sign in with the same accounts as before. If something stops it partway (a full disk, say), run the same command again and it picks up where it left off.
+
+### Backups
+
+```bash
+sudo bash /data/docker/ctem/install.sh --backup                  # locked with BACKUP_ENCRYPTION_PASSWORD from .env
+sudo bash /data/docker/ctem/install.sh --backup --password       # asks you for the password instead
+sudo bash /data/docker/ctem/install.sh --backup --out /mnt/nas   # somewhere other than ./backups
+```
+
+A backup is one `.ctembak` file holding the database (`pg_dump`), `.env`, the TLS certificate and key, a local compose override, a locally edited `nginx.conf`, and the uploads volume. It is encrypted as it is written (AES-256-GCM in 1 MB chunks, key from the password with scrypt), so no unencrypted copy ever touches the disk, and a wrong password, a changed byte or a cut-short file is refused before anything is restored. Each file inside also carries a SHA-256 that is checked on the way out, and every new backup is opened and checked before it is kept.
+
+**The backup holds the encryption keys and every integration credential, so the password is the only thing protecting them.** Passwords need 16+ characters with at least three kinds of character (or 24+ of anything). The installer generates `BACKUP_ENCRYPTION_PASSWORD` (40 random characters); keep a copy in a password manager, off the server, or losing the server loses the only way into its backups. Copy backups off the server too.
+
+To restore onto a server that already runs open-ctem (replacing everything on it):
+
+```bash
+sudo bash /data/docker/ctem/install.sh --restore /root/ctem-server001-20261123-020000Z.ctembak
+```
+
+It asks you to type `RESTORE`, takes a safety backup of the current server first, keeps the old `.env` as `.env.pre-restore-<time>`, and signs everyone out. A backup only restores onto the same or newer open-ctem code; restoring onto older code is refused. For unattended runs, `CTEM_BACKUP_PASSWORD` supplies the password and `CTEM_RESTORE_CONFIRM=RESTORE` the confirmation.
+
+### Development without the installer
 
 ```bash
 cp .env.example .env
-# Edit .env with real values (generate keys with: python3 -c "import secrets; print(secrets.token_hex(32))")
-
+# Fill in real values (generate keys with: python3 -c "import secrets; print(secrets.token_hex(32))")
 docker compose -f docker/docker-compose.yml --env-file .env up -d
-
 # App:   https://localhost
 # Docs:  https://localhost/api/docs  (signed-in admin or cyber analyst)
 ```
-
-Requirements: Docker 24+, Docker Compose v2.
 
 ### Upgrading a server
 
@@ -307,7 +359,7 @@ Requirements: Docker 24+, Docker Compose v2.
 sudo bash /data/docker/ctem/install.sh --upgrade
 ```
 
-It refuses to run over uncommitted local changes, backs up the database to `.backups/`, fast-forwards the checkout from `origin`, pulls the base images, rebuilds the app, worker and beat images, restarts the stack and waits for `/health`. If the app doesn't come up healthy it rolls the code back and rebuilds the previous version. A local `docker/docker-compose.override.yml` is honored. Schema changes apply on startup, so there's no separate migration step. Shippers on other boxes are upgraded separately (see On-prem shippers).
+It refuses to run over uncommitted local changes, takes a full encrypted backup into `backups/` (adding `BACKUP_ENCRYPTION_PASSWORD` to `.env` first if an older install has none), fast-forwards the checkout from `origin`, pulls the base images, rebuilds the app, worker and beat images, restarts the stack and waits for `/health`. If the app doesn't come up healthy it rolls the code back and rebuilds the previous version; restore the backup with `--restore` if you need the data back too. A local `docker/docker-compose.override.yml` is honored. Schema changes apply on startup, so there's no separate migration step. Shippers on other boxes are upgraded separately (see On-prem shippers).
 
 ### Behind an upstream load balancer
 
@@ -397,12 +449,14 @@ api/
   core/        Config, DB, encryption, SSRF client, Celery tasks, security middleware
   collector/   On-prem shipper: ingest + profile rules (server) and agent/ (the code installed on the box)
   integrations/ Vendor connectors (one file per vendor)
-  maintenance/ One-off data repair commands (device merge, sources backfill)
+  maintenance/ Data repair commands, backup archive format, post-restore key check
   models/      SQLAlchemy ORM models
   routes/      FastAPI route handlers
   scoring/     Risk engine: compensating controls, CVE chains, device/user scores
   web/         Jinja2 templates + static assets
 docker/        Dockerfile, docker-compose.yml, nginx.conf
+scripts/installer/  install.sh helpers: dependencies, backup, restore
+get-ctem.sh    One-line bootstrap: checks Ubuntu, installs git, clones, runs install.sh
 ```
 
 ---

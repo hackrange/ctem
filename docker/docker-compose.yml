@@ -55,7 +55,7 @@ services:
       retries: 3
 
   db:
-    image: timescale/timescaledb:latest-pg16
+    image: timescale/timescaledb:2.32.0-pg16  # pinned so a backup restores onto the same extension version
     environment:
       POSTGRES_DB: ${DB_NAME:-openctem}
       POSTGRES_USER: ${DB_USER:-openctem}

@@ -76,6 +76,11 @@ docker-compose.override.yml
 *.sqlite3
 data/
 backups/
+*.ctembak
+*.ctembak.part
+.env.restore.*
+.env.pre-restore-*
+.restore-incomplete
 
 # ── Logs ─────────────────────────────────────────────────────────────────────
 *.log
