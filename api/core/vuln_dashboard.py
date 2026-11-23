@@ -24,7 +24,7 @@ log = logging.getLogger("open-ctem.vuln_dashboard")
 SEVERITIES = ("critical", "high", "medium", "low")
 RANGES = {"30d": 30, "90d": 90, "180d": 180, "365d": 365, "all": None}
 SOURCES = ("rapid7_insightvm", "rapid7_appsec", "rapid7_cloudsec", "qualys", "tenable", "msdefender", "snyk",
-           "github_advanced", "forgerepo", "crowdstrike", "crowdstrike_spotlight", "github_code_review")
+           "github_advanced", "forgerepo", "crowdstrike", "crowdstrike_spotlight", "github_code_review", "horizon3")
 # The type of work (api.core.finding_domain): infra, code or web. "all" applies no type filter (dashboard widgets).
 KINDS = ("infra", "code", "web", "all")
 # Days to fix by severity; updated in place from the install's setting (api/core/sla.py, Change SLAs)

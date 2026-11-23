@@ -45,11 +45,17 @@ class Param:
     high: int | None = None
     default: Any = None
     labels: dict = field(default_factory=dict)
+    pattern: str | None = None        # a free-text option (a name), checked against this pattern; "" when it doesn't match
+    hint: str = ""                    # for a free-text option: what to type
 
     def clean(self, value):
         if self.choices is not None:
             v = value if value in self.choices else (self.default if self.default is not None else self.choices[0])
             return v
+        if self.pattern is not None:
+            import re
+            v = str(value or "").strip()[:128]
+            return v if v and re.fullmatch(self.pattern, v) else (self.default or "")
         if self.low is not None:
             try:
                 v = int(value)
@@ -63,6 +69,8 @@ class Param:
                else (self.choices[0] if self.choices else None)}
         if self.choices is not None:
             out["choices"] = [{"value": c, "label": self.labels.get(c, str(c).replace("_", " "))} for c in self.choices]
+        elif self.pattern is not None:
+            out.update(type="text", hint=self.hint)
         elif self.low is not None:
             out.update(type="int", min=self.low, max=self.high)
         else:
@@ -246,3 +254,4 @@ def load_metrics() -> None:
     """Importing the metric modules is what registers them."""
     from api.dashboards import m_assets, m_devices, m_directory, m_other, m_risk, m_vulns  # noqa: F401
     from api.dashboards import m_posture, m_queue  # noqa: F401  -- after m_vulns, whose filters they reuse
+    from api.dashboards import m_tprm  # noqa: F401  -- after m_risk, whose quarters it reuses

@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from api.core.encryption import EncryptedJSON
@@ -118,3 +118,20 @@ class RiskException(Base, UUIDPrimaryKey, TimestampMixin):
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     is_permanent: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
+class ThirdPartyScore(Base, UUIDPrimaryKey):
+    """One point of a supplier's security score history, from FairTPRM: an UpGuard rating (as a percentage of
+    the configured maximum), a Shodan score or a custom score (null when it was cleared), each with its date; or,
+    until FairTPRM offers that history, CTEM's daily record of the supplier's combined percentage ("combined").
+    The combined percentage on any date comes from these (api/core/tprm_scores.py)."""
+    __tablename__ = "third_party_scores"
+    __table_args__ = (UniqueConstraint("supplier_id", "kind", "at", name="uq_third_party_score"),)
+
+    supplier_id: Mapped[str] = mapped_column(
+        ForeignKey("third_party_risks.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)       # upguard | shodan | custom | combined
+    score: Mapped[float | None] = mapped_column(Float)                  # 0-100
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+

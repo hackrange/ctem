@@ -68,6 +68,8 @@
         if (p.choices) return `<label class="form-label" for="${id}" style="margin-top:8px">${esc(p.label)}</label>
           <select id="${id}" class="form-input" data-p="${esc(p.key)}">${p.choices.map(c =>
             `<option value="${esc(c.value)}"${String(c.value) === String(cur) ? ' selected' : ''}>${esc(c.label)}</option>`).join('')}</select>`;
+        if (p.type === 'text') return `<label class="form-label" for="${id}" style="margin-top:8px">${esc(p.label)}</label>
+          <input id="${id}" type="text" class="form-input" data-p="${esc(p.key)}" maxlength="128" placeholder="${esc(p.hint || '')}" value="${esc(cur || '')}">`;
         if (p.type === 'int') return `<label class="form-label" for="${id}" style="margin-top:8px">${esc(p.label)}</label>
           <input id="${id}" type="number" class="form-input" data-p="${esc(p.key)}" min="${p.min}" max="${p.max}" value="${esc(cur)}">`;
         return `<label class="tk-radio" style="margin-top:10px"><input id="${id}" type="checkbox" data-p="${esc(p.key)}"${cur ? ' checked' : ''}> ${esc(p.label)}</label>`;

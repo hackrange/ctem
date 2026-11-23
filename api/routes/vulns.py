@@ -54,7 +54,7 @@ _AGE = Query(None, ge=0, le=36500, description="Only vulnerabilities whose oldes
 _TYPE = Query(None, alias="type", pattern="^(infra|code|web)$", description="Infrastructure, Code or Web apps; none = all")
 
 
-def _vuln_query(scope, q, is_kev, min_cvss, source, affected_only, vtype=None, min_age_days=None):
+def _vuln_query(scope, q, is_kev, min_cvss, source, affected_only, vtype=None, min_age_days=None, exploited=None):
     # Global roles read the stored count and age; tag-scoped users get live ones for only their devices
     affected = (Vulnerability.affected_devices if scope is None else _affected_count(scope)).label("affected")
     oldest_expr = Vulnerability.first_found if scope is None else _oldest(scope)
@@ -72,6 +72,8 @@ def _vuln_query(scope, q, is_kev, min_cvss, source, affected_only, vtype=None, m
         ))
     if is_kev is not None:
         stmt = stmt.where(Vulnerability.is_kev == is_kev)
+    if exploited is not None:   # an autonomous pentest exploited it here, on a finding still open
+        stmt = stmt.where(Vulnerability.pentest_exploited == exploited)
     if min_cvss is not None:
         stmt = stmt.where(Vulnerability.cvss_base >= min_cvss)
     if source:
@@ -91,6 +93,7 @@ def _vuln_sorts(affected):
         "epss_score": Vulnerability.epss_score,
         "is_kev": Vulnerability.is_kev,
         "exploit_available": Vulnerability.exploit_available,
+        "pentest_exploited": Vulnerability.pentest_exploited,
         "source": Vulnerability.source,
         "affected": affected,
     }
@@ -104,7 +107,8 @@ def _sorted_vulns(stmt, cols, sort, order):
     else:
         col = _vuln_sorts(affected).get(sort or "", Vulnerability.cvss_base)
     direction = col.asc() if asc else col.desc()
-    return stmt.order_by(direction.nullslast(), Vulnerability.title.asc(), Vulnerability.id.asc())
+    then = [Vulnerability.cvss_base.desc().nullslast()] if sort in ("pentest_exploited", "is_kev", "exploit_available") else []
+    return stmt.order_by(direction.nullslast(), *then, Vulnerability.title.asc(), Vulnerability.id.asc())
 
 
 @router.get("")
@@ -114,6 +118,7 @@ async def list_vulns(
     q: str | None = Query(None, max_length=200),
     cve_id: str | None = Query(None, max_length=200),  # older callers; same as q
     is_kev: bool | None = None,
+    exploited: bool | None = None,
     min_cvss: float | None = Query(None, ge=0, le=10),
     source: str | None = Query(None, max_length=64),
     affected_only: bool = False,
@@ -130,7 +135,7 @@ async def list_vulns(
     # People who see only some assets see only vulnerabilities on at least one of them: the catalog of everything
     # else would open onto empty affected lists
     affected_only = affected_only or scope is not None
-    stmt, cols = _vuln_query(scope, q or cve_id, is_kev, min_cvss, source, affected_only, vtype, min_age_days)
+    stmt, cols = _vuln_query(scope, q or cve_id, is_kev, min_cvss, source, affected_only, vtype, min_age_days, exploited)
     total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
     rows = (await db.execute(_sorted_vulns(stmt, cols, sort, order).limit(limit).offset(offset))).all()
     return {"vulns": [_vuln_summary(v, n, old) for v, n, old in rows], "total": total, "limit": limit, "offset": offset}
@@ -142,6 +147,7 @@ async def export_vulns(
     db: AsyncSession = Depends(get_session),
     q: str | None = Query(None, max_length=200),
     is_kev: bool | None = None,
+    exploited: bool | None = None,
     min_cvss: float | None = Query(None, ge=0, le=10),
     source: str | None = Query(None, max_length=64),
     affected_only: bool = False,
@@ -154,7 +160,7 @@ async def export_vulns(
 ):
     scope = dq.with_tags(await device_scope(current_user, db), tag)
     affected_only = affected_only or scope is not None
-    stmt, cols = _vuln_query(scope, q, is_kev, min_cvss, source, affected_only, vtype, min_age_days)
+    stmt, cols = _vuln_query(scope, q, is_kev, min_cvss, source, affected_only, vtype, min_age_days, exploited)
     stmt = _sorted_vulns(stmt, cols, sort, order)
     header = ["CVE", "Title", "Type", "CVSS", "EPSS", "KEV", "KEV added", "Exploit available", "Affected",
               "First found", "Age (days)", "Past SLA", "Source", "Source ID"]
@@ -395,6 +401,7 @@ def _vuln_summary(v: Vulnerability, affected_devices: int, oldest=None) -> dict:
         "cvss_vector": v.cvss_vector,
         "epss_score": v.epss_score,
         "is_kev": v.is_kev,
+        "pentest_exploited": bool(v.pentest_exploited),
         "kev_added_date": v.kev_added_date.isoformat() if v.kev_added_date else None,
         "attack_vector": v.attack_vector,
         "exploit_available": v.exploit_available,

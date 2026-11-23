@@ -27,6 +27,12 @@ from api.core import fixes
 log = logging.getLogger("open-ctem.gcr")
 SRC = "github_code_review"
 CVSS = {"critical": 9.5, "high": 7.5, "medium": 5.0, "low": 2.5, "info": 0.0}
+_RANK = {"info": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
+
+
+def _band(cvss: float) -> str:
+    """The grade a CVSS score falls in."""
+    return "critical" if cvss >= 9 else "high" if cvss >= 7 else "medium" if cvss >= 4 else "low" if cvss > 0 else "info"
 # GCR's repositories and sites are this connector's own assets, so it sets all of their tags: what GCR says
 # (in CTEM's neutral forms, which Admin > Tag mapping reads) plus the tag map below. Tag them through the map.
 MANAGED = ("",)
@@ -338,16 +344,19 @@ class GitHubCodeReviewConnector(BaseConnector):
             return f
 
         count, upgrades = 0, {}
+        graded: dict[str, tuple[str, float | None]] = {}   # key -> (highest current grade, the advisory's CVSS)
         for fd in found:
             dev = repo_dev.get(fd.get("repository"))
             if dev is None:
                 continue
             key, title, cve = vuln_key(fd)
-            sev = fd.get("severity") or "medium"
+            sev = str(fd.get("severity") or "medium").lower()   # GCR's current grade (after regrades), not as first found
             v = vuln(key, title, cve, sev)
             info = fd.get("vulnerability") or {}
-            if info.get("cvss_score") is not None:
-                v.cvss_base = float(info["cvss_score"])
+            adv = float(info["cvss_score"]) if isinstance(info.get("cvss_score"), (int, float)) else None
+            was = graded.get(key)
+            if was is None or _RANK.get(sev, 2) > _RANK.get(was[0], 2):
+                graded[key] = (sev, adv if adv is not None else (was[1] if was else None))
             v.is_kev = bool(info.get("known_exploited")) or v.is_kev
             v.exploit_available = v.is_kev or v.exploit_available
             if info.get("epss_score") is not None:
@@ -361,6 +370,11 @@ class GitHubCodeReviewConnector(BaseConnector):
             if verdict in ("reachable", "unlikely"):
                 f.is_reachable, f.reachability_source = verdict == "reachable", SRC
             count += 1
+        for key, (sev, adv) in graded.items():   # the score follows the current grade; the advisory's CVSS when it agrees
+            v = vulns[key]
+            v.cvss_base = adv if adv is not None and _band(adv) == sev else CVSS.get(sev, 5.0)
+            if adv is not None and _band(adv) != sev and v.description and "Advisory CVSS" not in v.description:
+                v.description = f"Advisory CVSS {adv:g}; Code Review grades it {sev}.\n{v.description}"[:4000]
 
         for site_id, scan in scans.items():
             dev = site_dev.get(site_id)

@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 SOURCE = "horizon3"
 _CVE = re.compile(r"^CVE-\d{4}-\d{4,}$")
@@ -18,6 +18,10 @@ QUERY = """query q($page_input: PageInput!) { weakness_series_page(page_input: $
   uuid vuln_id vuln_name vuln_category severity score ip port protocol status is_open first_seen_at last_seen_at
   last_op_id attack_paths_count affected_asset_short_name vuln { aliases cisa_kev known_ransomware_campaign_use base_score } } } }"""
 OPEN = {"filter_by_inputs": [{"field_name": "status", "values": ["OPEN"]}]}
+# A pentest's weaknesses it proved by exploiting them: a series stays exploited for as long as it stays open
+PROVED_QUERY = """query q($op_id: String!, $page_input: PageInput) { weaknesses_page(input: {op_id: $op_id}, page_input: $page_input) {
+  weaknesses { vuln_id ip } } }"""
+PROVED = {"filter_by_inputs": [{"field_name": "has_proof", "values": ["true"]}]}
 
 
 def _dt(v):
@@ -50,6 +54,7 @@ async def apply(db, series: list[dict], proof: dict, find) -> tuple[int, set]:
     Returns (findings written, their source ids), so the caller can close the rest."""
     from api.models.vuln import Finding, FindingStatus, Vulnerability
     now, n, seen, vulns = datetime.now(timezone.utc), 0, set(), {}
+    hit_vulns, hit_cves = set(), set()
     for (ip, vid), g in group(series).items():
         d = await find(ip)
         if d is None:
@@ -72,6 +77,10 @@ async def apply(db, series: list[dict], proof: dict, find) -> tuple[int, set]:
             vulns[vid] = v
         proved = bool(proof.get((ip, vid)))
         v.exploit_available = proved or v.exploit_available
+        if proved:
+            hit_vulns.add(v.id)
+            if cve:
+                hit_cves.add(cve)
         sid = f"{d.id}:{vid}"[:256]
         f = (await db.execute(select(Finding).where(Finding.source == SOURCE, Finding.source_id == sid))).scalar_one_or_none()
         if f is None:
@@ -97,8 +106,21 @@ async def apply(db, series: list[dict], proof: dict, find) -> tuple[int, set]:
                 other.is_reachable, other.reachability_source, other.reachability_updated_at = True, SOURCE, now
         if n % 500 == 0:
             await db.commit()
+    await mark_exploited(db, hit_vulns, hit_cves)
     await db.commit()
     return n, seen
+
+
+async def mark_exploited(db, vuln_ids: set, cves: set) -> None:
+    """Pentest-exploited, on NodeZero's own entry and on that CVE from every source; cleared once nothing is open."""
+    from api.models.vuln import Vulnerability
+    await db.execute(update(Vulnerability).where(Vulnerability.pentest_exploited.is_(True)).values(pentest_exploited=False))
+    ids = list(vuln_ids)
+    for i in range(0, len(ids), 500):
+        await db.execute(update(Vulnerability).where(Vulnerability.id.in_(ids[i:i + 500])).values(pentest_exploited=True))
+    cl = list(cves)
+    for i in range(0, len(cl), 500):
+        await db.execute(update(Vulnerability).where(Vulnerability.cve_id.in_(cl[i:i + 500])).values(pentest_exploited=True))
 
 
 async def close_the_rest(db, seen: set) -> int:

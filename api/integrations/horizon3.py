@@ -167,7 +167,7 @@ class Horizon3Connector(BaseConnector):
         since = datetime.now(timezone.utc) - timedelta(days=days)
         n = 0
         async with safe_client(timeout=60.0) as client:
-            ops = await self._pages(client, _PENTESTS, "pentests_page", "pentests", {}, cap=20)
+            ops = await self._pages(client, _PENTESTS, "pentests_page", "pentests", {}, cap=50)
             done = [o for o in ops if str(o.get("state") or "").lower() in ("done", "complete", "completed")
                     and (_dt(o.get("completed_at")) or datetime.min.replace(tzinfo=timezone.utc)) >= since]
             done.sort(key=lambda o: _dt(o.get("completed_at")))   # oldest first, so the newest run has the last word
@@ -187,6 +187,11 @@ class Horizon3Connector(BaseConnector):
                 extra = await self._extras(client, op["op_id"]) if str(op.get("op_type") or "") == "NodeZero" else {}
                 n += await self._apply(db, apply, op, weak, services, extra, findings=open_series is None)
             if open_series is not None:   # every weakness NodeZero still has open, whichever pentest last saw it
+                # What each pentest proved, however old: an exploited weakness stays exploited while it's open
+                for op in (o for o in ops if str(o.get("state") or "").lower() in ("done", "complete", "completed", "ended")):
+                    for w in await self._pages(client, series.PROVED_QUERY, "weaknesses_page", "weaknesses",
+                                               {"op_id": op["op_id"]}, cap=100, page_extra=series.PROVED):
+                        proof[(w.get("ip"), str(w.get("vuln_id") or "")[:200])] = True
                 cache: dict = {}
                 wrote, seen = await series.apply(db, open_series, proof, lambda ip: apply._device(db, ip, None, cache))
                 closed = await series.close_the_rest(db, seen)

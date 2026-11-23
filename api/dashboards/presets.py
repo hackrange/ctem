@@ -14,6 +14,8 @@ def _p(group, title, metric, viz, params=None, w=3, h=2, style=None):
 
 RISK, REM, ENV, ASSET, COVER, VULN, OPS = ("Risk overview", "Remediation", "Environment", "Asset inventory",
                                           "Coverage and tagging", "Vulnerability trends", "Operations")
+TPRM = "Third-party risk"
+_SPAN = (("q1", "Jan 1 to Mar 31"), ("q2", "Apr 1 to Jun 30"), ("q3", "Jul 1 to Sep 30"), ("q4", "Oct 1 to Dec 31"))
 RED = {"color": "red", "warn_at": 1, "bad_at": 1}
 PRESETS: dict[str, dict] = {
     # Risk overview
@@ -33,6 +35,10 @@ PRESETS: dict[str, dict] = {
     "mttr_kpi": _p(REM, "Mean time to remediate", "risk.mttr", "kpi", {"days": "30"}),
     "new_vs_fixed": _p(REM, "New and remediated vs risk score", "risk.new_vs_fixed", "bar",
                        {"range": "90d", "bucket": "week", "with_risk": True}, w=8, h=4),
+    **{f"mttr_{q}": _p(REM, f"MTTR {q.upper()} ({span})", "risk.mttr_quarter", "kpi", {"quarter": q}) for q, span in _SPAN},
+    # Third-party risk (FairTPRM)
+    **{f"t1_score_{q}": _p(TPRM, f"Tier 1 vendor score {q.upper()} ({span})", "tprm.score_quarter", "kpi", {"quarter": q, "tier": "tier1"})
+       for q, span in _SPAN},
     "mttr_split": _p(REM, "Mean time to remediate, cloud vs on-prem", "risk.mttr_split", "line", {"bucket": "month"}, w=6, h=4),
     "mttr_sev": _p(REM, "Mean time to remediate by severity", "vuln.mttr", "line", w=6, h=4),
     "aging": _p(REM, "Age of open findings", "vuln.aging", "stacked", w=6, h=4),
@@ -94,6 +100,14 @@ TEMPLATES = (
     {"key": "remediation", "name": "Remediation progress", "theme": "forest",
      "description": "How well remediation is reducing risk: share fixed, new vs fixed, and mean time to remediate.",
      "rows": [["remediated_gauge", "new_vs_fixed"], ["mttr_kpi", "past_sla"], ["mttr_split", "mttr_sev"]]},
+    {"key": "mttr_quarters", "name": "Mean time to remediate by quarter", "theme": "forest",
+     "description": "One card per calendar quarter of this year: average days from detection to fix, and the change "
+                    "from the quarter before. Then the monthly trend by severity.",
+     "rows": [["mttr_q1", "mttr_q2", "mttr_q3", "mttr_q4"], ["mttr_sev", "mttr_split"]]},
+    {"key": "tprm_quarters", "name": "Vendor security score by quarter", "theme": "slate",
+     "description": "The average security score percentage of tier 1 vendors at the end of each calendar quarter of this "
+                    "year, with the change from the quarter before. Edit a card to pick another tier or one vendor.",
+     "rows": [["t1_score_q1", "t1_score_q2", "t1_score_q3", "t1_score_q4"]]},
     {"key": "environment", "name": "Environment trends", "theme": "ocean",
      "description": "Your estate over time, cloud vs on-prem, against the risk score, and how much risk is accepted.",
      "rows": [["assets_over_time"], ["assets_vs_risk"], ["accepted_gauge", "accepted_trend"]]},

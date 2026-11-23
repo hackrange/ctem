@@ -372,3 +372,32 @@ async def test_many_exceptions_are_saved_in_one_request(db, client_admin, monkey
     assert r["saved"] == 30 and r["rescoring"] and sum(1 for x in r["results"] if not x["ok"]) == 1
     assert len(queued) == 1 and queued[0] == [str(dev.id)]   # rescored once, in the background
     assert (await client_admin.post("/api/v1/exceptions/batch", json={"items": []})).status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_score_follows_the_current_grade_not_the_advisory(db):
+    from sqlalchemy import select
+
+    from api.models.vuln import Vulnerability
+    n = uuid.uuid4().hex[:6]
+    other = f"acme/billing-{n}"
+    dep = dict(kind="dependency", file="requirements.txt", rule="", package={"name": "pyarrow", "version": "14.0.0"})
+    found = [   # the same advisory (CVSS 9.8): regraded to info in one repository, to high in another, untouched in a third
+        _finding(n, 1, severity="info", title="pyarrow deserialization", vulnerability={"id": f"GHSA-{n}-info", "cvss_score": 9.8}, **dep),
+        _finding(n, 2, severity="info", title="pyarrow deserialization 2", vulnerability={"id": f"GHSA-{n}-mix", "cvss_score": 9.8}, **dep),
+        _finding(n, 3, severity="high", repository=other, title="pyarrow deserialization 2",
+                 vulnerability={"id": f"GHSA-{n}-mix", "cvss_score": 9.8}, **dep),
+        _finding(n, 4, severity="critical", title="kept", vulnerability={"id": f"GHSA-{n}-keep", "cvss_score": 9.8}, **dep),
+    ]
+    c = GitHubCodeReviewConnector({"base_url": "https://gcr.acme.example", "api_token": "gcr_x"})
+    await c.store(db, [{"full_name": f"acme/claims-portal-{n}"}, {"full_name": other}], found, [], {},
+                  {"critical", "high", "medium", "low", "info"})
+
+    async def score(ghsa):
+        v = (await db.execute(select(Vulnerability).where(Vulnerability.source == "github_code_review",
+                                                          Vulnerability.source_vuln_id.like(f"%{ghsa}%")))).scalar_one()
+        return v.cvss_base, v.description or ""
+    s, why = await score(f"GHSA-{n}-info")
+    assert s == 0.0 and "Advisory CVSS 9.8; Code Review grades it info" in why
+    assert (await score(f"GHSA-{n}-mix"))[0] == 7.5        # the highest current grade where it's found: high
+    assert (await score(f"GHSA-{n}-keep"))[0] == 9.8       # still critical: the advisory's own score

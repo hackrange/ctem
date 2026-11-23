@@ -66,6 +66,8 @@ class FairTPRMConnector(BaseConnector):
                 await self._upsert(db, v, srs, fair.get(_norm(v.get("vendor_name"))))
                 count += 1
             await db.commit()
+            from api.integrations.fairtprm_scores import sync_scores   # dated scores, for quarter-by-quarter KPIs
+            await sync_scores(self, client, db)
             if str(self.config.get("pull_grc", True)).lower() not in ("false", "0", "no", "off"):
                 from api.integrations.fairtprm_grc import sync_grc
                 grc_count, problems = await sync_grc(self, client, db)

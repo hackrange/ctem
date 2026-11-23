@@ -113,24 +113,59 @@ async def _remediated(ctx, p):
             "note": f"{fixed:,} of {total:,} findings remediated", "href": "/vulns"}
 
 
-async def _mttr_value(ctx, p):
-    days = int(p["days"])
+def _mttr_where(ctx, p) -> list:
     w = vd._where(None, None) + vd.scoped(ctx.scope) + [Finding.status == FindingStatus.remediated,
                                                          Finding.first_detected.is_not(None)]
-    sev = vd._sev()
-    if p["severity"] != "any":
-        w.append(sev == p["severity"])
-    took = func.avg(func.extract("epoch", Finding.last_seen - Finding.first_detected) / 86400)
-    end = fleet.now()
+    if p.get("severity", "any") != "any":
+        w.append(vd._sev() == p["severity"])
+    return w
 
-    async def period(a, b):
-        v = (await ctx.db.execute(select(took).select_from(Finding).join(Vulnerability, Vulnerability.id == Finding.vuln_id)
-                                  .where(*w, Finding.last_seen >= a, Finding.last_seen < b))).scalar_one()
-        return round(float(v), 1) if v is not None else None
-    cur = await period(end - timedelta(days=days), end)
-    was = await period(end - timedelta(days=2 * days), end - timedelta(days=days))
+
+async def _mttr_between(ctx, w, a, b) -> tuple[float | None, int]:
+    """Mean days from detection to fix, and how many fixes, for findings fixed in [a, b)."""
+    took = func.avg(func.extract("epoch", Finding.last_seen - Finding.first_detected) / 86400)
+    v, n = (await ctx.db.execute(select(took, func.count()).select_from(Finding).join(Vulnerability, Vulnerability.id == Finding.vuln_id)
+                                 .where(*w, Finding.last_seen >= a, Finding.last_seen < b))).one()
+    return (round(float(v), 1) if v is not None else None), int(n or 0)
+
+
+async def _mttr_value(ctx, p):
+    days, w, end = int(p["days"]), _mttr_where(ctx, p), fleet.now()
+    cur, _ = await _mttr_between(ctx, w, end - timedelta(days=days), end)
+    was, _ = await _mttr_between(ctx, w, end - timedelta(days=2 * days), end - timedelta(days=days))
     return {"value": cur, "unit": " days", "delta": fleet.delta(cur, was), "href": "/vulns?status=remediated",
             "note": f"Mean time to remediate, fixes in the last {days} days"}
+
+
+QUARTERS = {"q1": (1, "Jan 1 to Mar 31"), "q2": (4, "Apr 1 to Jun 30"), "q3": (7, "Jul 1 to Sep 30"), "q4": (10, "Oct 1 to Dec 31")}
+
+
+def quarter_bounds(year: int, q: str):
+    """[start, end) of a calendar quarter, in UTC."""
+    from datetime import datetime, timezone
+    m = QUARTERS[q][0]
+    start = datetime(year, m, 1, tzinfo=timezone.utc)
+    end = datetime(year + 1, 1, 1, tzinfo=timezone.utc) if m == 10 else datetime(year, m + 3, 1, tzinfo=timezone.utc)
+    return start, end
+
+
+async def _mttr_quarter(ctx, p):
+    """Mean time to remediate for the fixes made in one calendar quarter of the current year, against the quarter before."""
+    q, now = p["quarter"], fleet.now()
+    if q == "current":
+        q = f"q{(now.month - 1) // 3 + 1}"
+    a, b = quarter_bounds(now.year, q)
+    label = f"{q.upper()} {now.year} ({QUARTERS[q][1]})"
+    if a > now:
+        return {"value": None, "unit": " days", "note": f"{label}: hasn't started yet"}
+    w = _mttr_where(ctx, p)
+    cur, n = await _mttr_between(ctx, w, a, min(b, now))
+    prev = {"q1": "q4", "q2": "q1", "q3": "q2", "q4": "q3"}[q]
+    pa, pb = quarter_bounds(now.year - (1 if q == "q1" else 0), prev)
+    was, _ = await _mttr_between(ctx, w, pa, pb)
+    so_far = " so far" if b > now else ""
+    return {"value": cur, "unit": " days", "delta": fleet.delta(cur, was), "href": "/vulns?status=remediated",
+            "note": f"{label}{so_far}: {n:,} finding{'' if n == 1 else 's'} fixed" if n else f"{label}{so_far}: nothing fixed"}
 
 
 async def _mttr_split(ctx, p):
@@ -248,6 +283,13 @@ metric(Metric("risk.mttr", "Mean time to remediate", C, "value",
               (Param("days", "Fixes in the last", ("30", "90", "7", "180"), labels={"7": "7 days", "30": "30 days", "90": "90 days", "180": "180 days"}),
                Param("severity", "Severity", ("any", *vd.SEVERITIES), labels={"any": "Any severity"})), _mttr_value,
               "Average days from detection to fix, with the change from the period before."))
+metric(Metric("risk.mttr_quarter", "Mean time to remediate, by calendar quarter", C, "value",
+              (Param("quarter", "Quarter of this year", ("current", "q1", "q2", "q3", "q4"),
+                     labels={"current": "This quarter", "q1": "Q1 (Jan 1 to Mar 31)", "q2": "Q2 (Apr 1 to Jun 30)",
+                             "q3": "Q3 (Jul 1 to Sep 30)", "q4": "Q4 (Oct 1 to Dec 31)"}),
+               Param("severity", "Severity", ("any", *vd.SEVERITIES), labels={"any": "Any severity"})), _mttr_quarter,
+              "Average days from detection to fix for findings fixed in one calendar quarter of the current year "
+              "(Q1 to Q4), with the change from the quarter before. Use one card per quarter."))
 metric(Metric("risk.mttr_split", "Mean time to remediate, cloud vs on-prem", C, "series",
               (Param("range", "Range", ("365d", "180d", "90d"), labels=fleet.RANGE_LABEL),
                Param("bucket", "Group by", ("month", "week"), labels=fleet.BUCKET_LABEL)), _mttr_split))

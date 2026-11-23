@@ -344,3 +344,33 @@ async def test_dashboard_wide_filters_save_publish_and_apply(db, client_admin, c
     r = (await client_admin.post(f"/api/v1/dashboards/ai/edit/{made['id']}",
                                  json={"text": "Don't consider computers in OU=Blocked_Computers"})).json()
     assert r["filters"]["filters"] == [{"field": "ou", "op": "not_in", "value": "Blocked_Computers"}] and r["widgets"]
+
+
+@pytest.mark.asyncio
+async def test_mttr_by_calendar_quarter(db, admin_user, monkeypatch):
+    from api.dashboards import m_risk
+    a, b = m_risk.quarter_bounds(2026, "q1")
+    assert (a.month, a.day, b.month, b.day) == (1, 1, 4, 1)
+    a, b = m_risk.quarter_bounds(2026, "q4")
+    assert (a.month, b.year, b.month) == (10, 2027, 1)
+    asked = []
+
+    async def between(ctx, w, start, end):
+        asked.append((start.date().isoformat(), end.date().isoformat()))
+        return (12.5, 40) if len(asked) % 2 else (25.0, 80)
+    monkeypatch.setattr(m_risk, "_mttr_between", between)
+    monkeypatch.setattr(fleet, "now", lambda: datetime(2026, 11, 23, 12, tzinfo=timezone.utc))
+    ctx = await cat.context(db, admin_user)
+    run = lambda **p: cat.REGISTRY["risk.mttr_quarter"].run(ctx, {q.key: q.clean(p.get(q.key)) for q in cat.REGISTRY["risk.mttr_quarter"].params})  # noqa: E731
+    v = await run(quarter="q1")
+    assert v["value"] == 12.5 and "Q1 2026 (Jan 1 to Mar 31): 40 findings fixed" == v["note"]
+    assert asked == [("2026-01-01", "2026-04-01"), ("2025-10-01", "2026-01-01")]   # against last year's Q4
+    assert v["delta"]["better"] == "down" and v["delta"]["pct"] == -50.0
+    v = await run(quarter="current")   # November: Q4, still running
+    assert v["note"].startswith("Q4 2026 (Oct 1 to Dec 31) so far") and asked[-2] == ("2026-10-01", "2026-11-23")
+    monkeypatch.setattr(fleet, "now", lambda: datetime(2026, 2, 1, tzinfo=timezone.utc))
+    v = await run(quarter="q3")
+    assert v["value"] is None and "hasn't started" in v["note"]
+    t = next(t for t in presets.TEMPLATES if t["key"] == "mttr_quarters")
+    cards = presets.pack(t["rows"])[:4]
+    assert [c["params"]["quarter"] for c in cards] == ["q1", "q2", "q3", "q4"] and {c["w"] for c in cards} == {3}

@@ -16,9 +16,11 @@ async def test_nodezero_findings_proof_and_closed_ports(db, monkeypatch):
     from api.models.vuln import Finding, FindingStatus, Vulnerability
     from api.scoring.compensating import ControlContext, port_closed_note, reachability
     n = uuid.uuid4().hex[:6]
-    ip = f"198.51.100.{int(n[:2], 16) % 250 + 1}"
-    k = int(n[4:6], 16) % 120
-    alias_ip, quiet_ip = f"192.0.2.{k + 1}", f"192.0.2.{k + 130}"   # never the same, and never the printer's 203.0.113.x
+    # Addresses no other test's asset has (the test networks are small and shared)
+    used = set((await db.execute(select(Device.ip_hash))).scalars())
+    free = [a for net in ("198.51.100", "192.0.2", "203.0.113") for a in (f"{net}.{i}" for i in range(1, 255)) if search_hash(a) not in used]
+    pick = int(n[:2], 16) % (len(free) - 4)
+    ip, alias_ip, quiet_ip, printer_ip = free[pick:pick + 4]
     d = Device(hostname=f"srv-h3-{n}", device_type=DeviceType.server, ip=ip, ip_hash=search_hash(ip))
     cve, other = f"CVE-2026-{7000 + int(n[2:5], 16) % 999}", f"CVE-2026-{6000 + int(n[2:5], 16) % 999}"
     v1 = Vulnerability(source="t_h3", source_vuln_id=f"a{n}", cve_id=cve, title="SMB flaw", attack_vector="network", cvss_base=9.0)
@@ -46,7 +48,7 @@ async def test_nodezero_findings_proof_and_closed_ports(db, monkeypatch):
             return {"weaknesses_page": {"weaknesses": [] if page > 1 else [
                 {"uuid": "w1", "vuln_id": cve, "vuln_name": "SMB flaw", "vuln_aliases": [cve], "vuln_cisa_kev": True, "base_score": 9.0,
                  "ip": ip, "host_name": d.hostname, "has_proof": True, "impact_paths_count": 3},
-                {"uuid": "w2", "vuln_id": "H3-2026-0001", "vuln_name": "Default credentials", "ip": f"203.0.113.{int(n[:2], 16) % 250 + 1}",
+                {"uuid": "w2", "vuln_id": "H3-2026-0001", "vuln_name": "Default credentials", "ip": printer_ip,
                  "host_name": f"printer-{n}", "has_proof": True}]}}
         if "hosts_page" in query:
             return {"hosts_page": {"hosts": [] if page > 1 else [
@@ -167,14 +169,16 @@ async def test_a_database_failure_never_puts_sql_on_the_card(db, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_open_weakness_series_are_findings_whichever_pentest_saw_them(db, monkeypatch):
+async def test_open_weakness_series_are_findings_whichever_pentest_saw_them(db, client_admin, monkeypatch):
     from api.core.encryption import search_hash
     from api.integrations.horizon3 import Horizon3Connector
     from api.models.device import Device, DeviceType
     from api.models.vuln import Finding, FindingStatus, Vulnerability
     n = uuid.uuid4().hex[:6]
-    k = int(n[:2], 16) % 120
-    ip, camera = f"198.51.100.{k + 1}", f"198.51.100.{k + 130}"
+    # Two addresses no other test's asset has (the test networks are small and shared)
+    used = set((await db.execute(select(Device.ip_hash))).scalars())
+    free = [a for a in (f"198.51.100.{i}" for i in range(1, 255)) if search_hash(a) not in used]
+    ip, camera = free[int(n[:2], 16) % (len(free) - 1)], free[-1]
     d = Device(hostname=f"srv-s-{n}", device_type=DeviceType.server, ip=ip, ip_hash=search_hash(ip))
     cve = f"CVE-2017-{1000 + int(n[2:5], 16) % 8999}"
     scan = Vulnerability(source="t_h3s", source_vuln_id=f"s{n}", cve_id=cve, title="Scanner view", attack_vector="network")
@@ -201,9 +205,15 @@ async def test_open_weakness_series_are_findings_whichever_pentest_saw_them(db, 
                 ser(cve, ip, 445), ser(cve, ip, 139), ser(cve, camera, 65014), ser(cve, camera, 65002)]}}
         if "pentests_page" in query:
             return {"pentests_page": {"pentests": [] if page > 1 else [
-                {"op_id": "nov", "op_type": "NodeZero", "name": "November", "state": "done", "completed_at": now}]}}
+                {"op_id": "nov", "op_type": "NodeZero", "name": "November", "state": "done", "completed_at": now},
+                {"op_id": "june", "op_type": "NodeZero", "name": "June", "state": "done", "completed_at": "2026-06-15T23:14:19"}]}}
         if "weaknesses_page" in query:
-            return {"weaknesses_page": {"weaknesses": [] if page > 1 else [{"vuln_id": cve, "ip": ip, "has_proof": True}]}}
+            if page > 1:
+                return {"weaknesses_page": {"weaknesses": []}}
+            if variables["op_id"] == "june":   # months old, outside the window: asked only for what it proved
+                assert variables["page_input"]["filter_by_inputs"] == [{"field_name": "has_proof", "values": ["true"]}]
+                return {"weaknesses_page": {"weaknesses": [{"vuln_id": cve, "ip": camera}]}}
+            return {"weaknesses_page": {"weaknesses": [{"vuln_id": cve, "ip": ip, "has_proof": True}]}}
         if "services_page" in query:
             return {"services_page": {"services": [] if page > 1 else [{"ip": ip, "port": 445, "protocol": "TCP"}, {"ip": ip, "port": 139}]}}
         if "hosts_page" in query:
@@ -228,8 +238,13 @@ async def test_open_weakness_series_are_findings_whichever_pentest_saw_them(db, 
     assert (await db.execute(fresh(Finding, Finding.id == other.id))).scalar_one().is_reachable is True    # same CVE, other source
     cam = (await db.execute(select(Device).where(Device.ip_hash == search_hash(camera)))).scalar_one()      # seen in June only: an asset
     cf = (await db.execute(fresh(Finding, Finding.source == "horizon3", Finding.device_id == cam.id))).scalar_one()
-    assert cf.status == FindingStatus.open and cf.ports == "65002/tcp 65014/tcp" and cf.details["has_proof"] is False and cf.is_reachable
-    v = (await db.execute(select(Vulnerability).where(Vulnerability.source == "horizon3", Vulnerability.source_vuln_id == cve))).scalar_one()
-    assert v.is_kev and v.cvss_base == 9.8
+    assert cf.status == FindingStatus.open and cf.ports == "65002/tcp 65014/tcp" and cf.details["has_proof"] is True and cf.is_reachable
+    v = (await db.execute(fresh(Vulnerability, Vulnerability.source == "horizon3", Vulnerability.source_vuln_id == cve))).scalar_one()
+    assert v.is_kev and v.cvss_base == 9.8 and v.pentest_exploited
+    assert (await db.execute(fresh(Vulnerability, Vulnerability.id == scan.id))).scalar_one().pentest_exploited   # same CVE, scanner's entry
+    assert not (await db.execute(fresh(Vulnerability, Vulnerability.id == gone.id))).scalar_one().pentest_exploited
+    r = await client_admin.get("/api/v1/vulns", params={"exploited": "true", "q": cve, "sort": "pentest_exploited", "order": "desc"})
+    assert r.status_code == 200 and {x["source"] for x in r.json()["vulns"]} == {"horizon3", "t_h3s"}
+    assert all(x["pentest_exploited"] for x in r.json()["vulns"])
     dev = (await db.execute(fresh(Device, Device.id == d.id))).scalar_one()
     assert dev.pentest["open_services"] == [{"port": 445, "protocol": "tcp"}, {"port": 139, "protocol": "tcp"}]

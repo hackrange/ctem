@@ -67,7 +67,7 @@ def _catalog_for_ai(ctx) -> str:
     for m in cat.REGISTRY.values():
         if not cat.allowed(m, ctx):
             continue
-        opts = {p.key: ([c for c in p.choices] if p.choices is not None else
+        opts = {p.key: ([c for c in p.choices] if p.choices is not None else f"text: {p.hint}" if p.pattern is not None else
                         (f"{p.low}-{p.high}" if p.low is not None else "true|false")) for p in m.params}
         rows.append({"metric": m.id, "label": m.label, "category": m.category, "viz": list(cat.VIZ_FOR[m.shape]),
                      "about": m.description, "params": opts, **({} if m.filterable else {"filters": "not supported"})})

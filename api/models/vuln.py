@@ -35,6 +35,8 @@ class Vulnerability(Base, UUIDPrimaryKey, TimestampMixin):
     attack_vector: Mapped[str | None] = mapped_column(String(32))               # network, adjacent, local, physical
     exploit_available: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     exploit_maturity: Mapped[str | None] = mapped_column(String(32))            # poc, functional, weaponized
+    # An autonomous pentest exploited it here, on a finding still open (this CVE from any source)
+    pentest_exploited: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     threat_actors: Mapped[list | None] = mapped_column(JSON)    # adversaries known to exploit it (EDR threat intel)
     exprt_rating: Mapped[str | None] = mapped_column(String(16))   # the EDR's own exploit prediction (Falcon ExPRT)
     source: Mapped[str] = mapped_column(String(64), nullable=False)             # qualys, rapid7, defender...
