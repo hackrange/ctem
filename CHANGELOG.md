@@ -7,6 +7,10 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+### Fixed
+- **Ten connectors were never loaded.** Grip, SentinelOne, Microsoft Defender, Cortex XDR, Fortinet, Palo Alto NGFW, Tanium, Snyk, GitHub Advanced Security and ForgeRepo were left out of the list the app and worker import, so a configured one failed every sync with "No connector registered". All are loaded now, and a test fails if a new connector is left out.
+- **Grip works against a real tenant.** Every endpoint is under `/public` on the tenant, but threats, posture checks, AI agents and users were called without it (and the SaaS list too when the URL was entered as just the tenant), so they got the web app's page instead of data. A new identity's score failed on a missing posture score; identity scores no longer query once per person; and only AI-native and copilot apps count as AI apps (Grip's "AI Features/Add-on" and "No AI" were counted too, about 3,000 of 3,300 apps). Verified with a full sync of a real tenant, GET only.
+
 ## [1.8.1] - 2026-11-24
 
 ### Added

@@ -19,6 +19,7 @@ fields may not match the real API (the Horizon3 connector, for one, called endpo
 | GitHub Code Review | Real instance |
 | AWS, Oracle OCI | Real accounts |
 | Anthropic | Real API |
+| Grip Security | Real tenant, 2026-11-24: every read endpoint, a full sync (227 ITDR threats, 606 posture findings, 3,266 SaaS apps, 68 AI agents, 14,665 identities) with GET only; paths match open-fairtprm's working client |
 
 ## In progress
 
@@ -39,16 +40,15 @@ from documented responses, and test against a real tenant where one is available
 
 | Integration | Registered | Tests | Notes |
 |---|---|---|---|
-| [ ] Palo Alto Cortex XDR | no | none | API key + key id, advanced key hashing (nonce, timestamp) |
-| [ ] Fortinet (FortiGate / FortiAnalyzer) | no | none | which product's API, REST token |
-| [ ] Snyk | no | some | REST vs v1 API, org and project paging |
-| [ ] Microsoft Defender for Endpoint | no | some | Entra app, machine and vulnerability APIs |
-| [ ] SentinelOne | no | some | API token, sites, agents, threats |
-| [ ] Tanium | no | none | Gateway GraphQL vs REST |
-| [ ] Palo Alto NGFW | no | none | XML/REST API, keygen |
-| [ ] GitHub Advanced Security | no | none | code scanning, Dependabot, secret scanning alerts |
-| [ ] ForgeRepo | no | none | |
-| [ ] Grip Security | no | some | SaaS and identity findings |
+| [ ] Palo Alto Cortex XDR | yes | none | API key + key id, advanced key hashing (nonce, timestamp) |
+| [ ] Fortinet (FortiGate / FortiAnalyzer) | yes | none | which product's API, REST token |
+| [ ] Snyk | yes | some | REST vs v1 API, org and project paging |
+| [ ] Microsoft Defender for Endpoint | yes | some | Entra app, machine and vulnerability APIs |
+| [ ] SentinelOne | yes | some | API token, sites, agents, threats |
+| [ ] Tanium | yes | none | Gateway GraphQL vs REST |
+| [ ] Palo Alto NGFW | yes | none | XML/REST API, keygen |
+| [ ] GitHub Advanced Security | yes | none | code scanning, Dependabot, secret scanning alerts |
+| [ ] ForgeRepo | yes | none | |
 | [ ] Qualys VMDR | yes | some | XML API v2, platform URL per subscription |
 | [ ] Akamai Guardicore | yes | some | |
 | [ ] Zscaler | yes | some | ZIA auth (obfuscated key + timestamp) |

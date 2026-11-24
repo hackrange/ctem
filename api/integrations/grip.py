@@ -174,7 +174,7 @@ class GripSecurityConnector(BaseConnector):
 
             gd = app.get("gripData") or {}
             ai_depth = gd.get("aiDepth") or {}
-            is_shadow_ai = bool(ai_depth.get("level"))  # non-null aiDepth.level = AI app
+            is_shadow_ai = is_ai_app(ai_depth.get("level"))
 
             result = await db.execute(
                 select(SaasAppRecord).where(
@@ -211,7 +211,7 @@ class GripSecurityConnector(BaseConnector):
             count += 1
 
         await db.commit()
-        shadow_ai_n = sum(1 for a in apps if bool((a.get("gripData") or {}).get("aiDepth", {}) and (a.get("gripData") or {}).get("aiDepth", {}).get("level")))
+        shadow_ai_n = sum(1 for a in apps if is_ai_app(((a.get("gripData") or {}).get("aiDepth") or {}).get("level")))
         log.info("Grip SaaS: upserted %d apps (%d shadow AI, rest shadow SaaS)", count, shadow_ai_n)
         return count
 
@@ -269,7 +269,14 @@ class GripSecurityConnector(BaseConnector):
         from api.models.identity import IdentityRiskScore
         from api.core.encryption import search_hash
 
+        from collections import defaultdict
+
+        from api.models.identity import IdentityThreat, ItdrAlertStatus
         users = await self._paginate(self._root_url() + "/users")
+        active = defaultdict(list)   # every active ITDR alert once, not one query per user
+        for a in (await db.execute(select(IdentityThreat).where(IdentityThreat.status == ItdrAlertStatus.active))).scalars():
+            active[a.user_email_hash].append(a)
+        existing = {r.user_email_hash: r for r in (await db.execute(select(IdentityRiskScore))).scalars()}
         count = 0
         for u in users:
             mail = (u.get("mail") or "").lower().strip()
@@ -277,21 +284,11 @@ class GripSecurityConnector(BaseConnector):
                 continue
 
             email_hash = search_hash(mail)
-            result = await db.execute(
-                select(IdentityRiskScore).where(IdentityRiskScore.user_email_hash == email_hash)
-            )
-            rec = result.scalar_one_or_none() or IdentityRiskScore(user_email_hash=email_hash)
+            rec = existing.get(email_hash)
+            if rec is None:
+                rec = existing[email_hash] = IdentityRiskScore(user_email_hash=email_hash)
             rec.user_display = _mask_email(mail)
-
-            # Count active ITDR alerts for this identity
-            from api.models.identity import IdentityThreat, ItdrAlertStatus
-            alert_result = await db.execute(
-                select(IdentityThreat).where(
-                    IdentityThreat.user_email_hash == email_hash,
-                    IdentityThreat.status == ItdrAlertStatus.active,
-                )
-            )
-            active_alerts = alert_result.scalars().all()
+            active_alerts = active.get(email_hash, [])
             rec.active_itdr_alerts = len(active_alerts)
 
             # ITDR score: weight by severity
@@ -306,11 +303,11 @@ class GripSecurityConnector(BaseConnector):
             rec.last_synced = datetime.now(timezone.utc)
 
             # Composite identity risk
-            rec.composite_identity_score = round(
+            rec.composite_identity_score = round(   # a new record has no posture or shadow AI score until it is saved
                 rec.itdr_score * 0.50
-                + rec.posture_score * 0.25
+                + (rec.posture_score or 0.0) * 0.25
                 + rec.shadow_saas_score * 0.15
-                + rec.shadow_ai_score * 0.10,
+                + (rec.shadow_ai_score or 0.0) * 0.10,
                 2,
             )
 
@@ -361,19 +358,28 @@ class GripSecurityConnector(BaseConnector):
         return {"access-token": self.config["api_key"]}
 
     def _saas_url(self) -> str:
-        """Tenant-specific SaaS base URL, e.g. https://acme.dep.grip.security/public/saas"""
-        return self.config["base_url"].rstrip("/")
+        """The SaaS list, e.g. https://acme.dep.grip.security/public/saas."""
+        return self._root_url() + "/saas"
 
     def _root_url(self) -> str:
-        """Strip /public/saas suffix to get tenant root for other endpoints."""
-        base = self._saas_url()
-        for suffix in ("/public/saas", "/saas"):
-            if base.endswith(suffix):
-                return base[: -len(suffix)]
-        return base.rsplit("/public/", 1)[0] + "/public" if "/public/" in base else base
+        """The tenant's API root, https://acme.dep.grip.security/public, whichever form the URL was entered in (its
+        SaaS endpoint, the API root, or just the tenant). Every endpoint lives under /public; the bare tenant serves
+        the web app's HTML."""
+        base = self.config["base_url"].strip().rstrip("/")
+        if "/public" in base:
+            return base.split("/public", 1)[0] + "/public"
+        return base + "/public"
 
 
 # ── Pure helpers (no DB, no IO) ────────────────────────────────────────────────
+
+# Grip's aiDepth.level: "AI-Native App", "AI Copilot Experience", "AI Features/Add-on", "No AI" or none. Only the first
+# two are AI apps; an ordinary tool with an AI add-on (over 40% of a typical tenant) is not shadow AI.
+AI_LEVELS = {"ai-native app", "ai copilot experience"}
+
+
+def is_ai_app(level) -> bool:
+    return isinstance(level, str) and level.strip().lower() in AI_LEVELS
 
 def _decode_html(s: str) -> str:
     """Grip double-encodes display strings with HTML entities."""
