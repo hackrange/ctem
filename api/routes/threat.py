@@ -52,7 +52,7 @@ async def _link_devices(db: AsyncSession, alerts: list[dict]) -> None:
 
 @router.get("/alerts")
 async def list_threat_alerts(
-    _: User = Depends(require_cyber_or_admin),
+    me: User = Depends(require_cyber_or_admin),
     db: AsyncSession = Depends(get_session),
     q: str | None = Query(None, max_length=200),
     source: str | None = Query(None, max_length=64, description="Source name or code: crowdstrike / CS"),
@@ -62,11 +62,19 @@ async def list_threat_alerts(
     order: str = Query("desc", pattern="^(asc|desc)$"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    hidden: str = Query("hide", pattern="^(hide|show|only)$", description="Alerts you hid for yourself: hide, show or only"),
 ):
     """Threat alerts from connected EDR, SIEM and firewall tools; worst first by default."""
+    from api.core import hidden as mine
     from api.core.threat_view import SORTS, matches, sort_key
 
     alerts = await _alerts(db)
+    gone = (await mine.load(db, str(me.id)))["alert"]
+    for a in alerts:
+        a["hidden"] = a["id"] in gone
+    hidden_count = sum(a["hidden"] for a in alerts)
+    if hidden != "show":
+        alerts = [a for a in alerts if a["hidden"] == (hidden == "only")]
     sources = sorted({(a["source"], a["source_code"]) for a in alerts if a["source"]}, key=lambda s: s[1])
     statuses = sorted({a["status"] for a in alerts if a["status"]})
     if source:
@@ -81,7 +89,7 @@ async def list_threat_alerts(
     alerts.sort(key=sort_key(sort if sort in SORTS else "severity"), reverse=order == "desc")
     page = alerts[offset:offset + limit]
     await _link_devices(db, page)
-    return {"alerts": page, "total": len(alerts), "limit": limit, "offset": offset,
+    return {"alerts": page, "total": len(alerts), "limit": limit, "offset": offset, "hidden_count": hidden_count,
             "sources": [{"source": s, "code": c} for s, c in sources], "statuses": statuses}
 
 

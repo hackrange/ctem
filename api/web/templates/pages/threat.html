@@ -27,6 +27,8 @@
     </select>
     <select id="filter-status" class="filter-select" aria-label="Status"><option value="">Any status</option></select>
     <select id="filter-source" class="filter-select" aria-label="Source"><option value="">All sources</option></select>
+    <label class="text-sm" style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Alerts you hid are hidden for you only">
+      <input type="checkbox" id="show-hidden"> <span id="show-hidden-label">Show hidden</span></label>
   </div>
   <div id="threats-table"></div>
 </div>
@@ -62,11 +64,12 @@ const table = DataTable.create({
   emptyText: 'No alerts match these filters',
   rowHref: a => T.href(a),
   onLoad: data => {
+    $('show-hidden-label').textContent = `Show hidden (${data.hidden_count || 0})`;
     fillOnce('filter-source', (data.sources || []).map(s => [s.code, s.code]));
     fillOnce('filter-status', (data.statuses || []).map(s => [s, T.statusLabel(s)]));
   },
   params: () => ({ q: $('search-input').value.trim(), severity: $('filter-severity').value,
-                   status: $('filter-status').value, source: $('filter-source').value }),
+                   status: $('filter-status').value, source: $('filter-source').value, hidden: $('show-hidden').checked ? 'show' : 'hide' }),
   columns: [
     { label: 'Alert', sort: 'title', render: a => `<span style="display:inline-block;max-width:340px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom" title="${esc(a.title || '')}">${R.link(T.href(a), a.title || a.id)}</span>` },
     { label: 'Source', sort: 'source', render: a => T.sourceChip(a) },
@@ -75,8 +78,20 @@ const table = DataTable.create({
     { label: 'MITRE', sort: 'technique_id', render: a => T.mitre(a) },
     { label: 'Detected', sort: 'detected_at', firstOrder: 'desc', render: a => T.when(a) },
     { label: 'Status', sort: 'status', render: a => T.statusChip(a.status) },
+    { label: '', render: a => `<button type="button" class="btn btn--ghost btn--sm" data-hide="${esc(a.id)}" data-hidden="${a.hidden ? '1' : ''}"
+        title="${a.hidden ? 'Show it again in your list' : 'Hide it from your list only'}">${a.hidden ? 'Unhide' : 'Hide'}</button>` },
   ],
 });
+// Hide or unhide an alert for yourself (kept on your account; nobody else's list changes)
+$('threats-table').addEventListener('click', async e => {
+  const b = e.target.closest('[data-hide]');
+  if (!b) return;
+  b.disabled = true;
+  await fetch('/api/v1/me/hidden', { method: 'PUT', headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+                                     body: JSON.stringify({ kind: 'alert', id: b.dataset.hide, hidden: !b.dataset.hidden }) }).catch(() => null);
+  table.reload(false);
+});
+$('show-hidden').addEventListener('change', () => table.reload());
 
 let timer;
 $('search-input').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => table.reload(), 300); });

@@ -175,10 +175,20 @@ async def hunt_report(source: str, index: int, request: Request,
 
 
 @router.get("/watch")
-async def hunt_watch(_: User = Depends(require_cyber_or_admin), db: AsyncSession = Depends(get_session)):
-    """What the hourly background hunt found, already filtered down to what matters."""
+async def hunt_watch(me: User = Depends(require_cyber_or_admin), db: AsyncSession = Depends(get_session),
+                     show_hidden: bool = False):
+    """What the hourly background hunt found, already filtered down to what matters, less what you hid."""
+    from api.core import hidden
     from api.hunt.watch import load_watch
-    return await load_watch(db) or {"ran_at": None, "note": "The first check has not run yet.", "result": {"issues": []}}
+    w = await load_watch(db) or {"ran_at": None, "note": "The first check has not run yet.", "result": {"issues": []}}
+    gone = (await hidden.load(db, str(me.id)))["watch"]
+    issues = (w.get("result") or {}).get("issues") or []
+    for i in issues:
+        i["hidden"] = i.get("key") in gone
+    w["hidden_count"] = sum(i["hidden"] for i in issues)
+    if not show_hidden:
+        w["result"]["issues"] = [i for i in issues if not i["hidden"]]
+    return w
 
 
 @router.get("/splunk/catalog")
