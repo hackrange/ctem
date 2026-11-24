@@ -51,9 +51,13 @@ async def run_watch(db: AsyncSession) -> dict:
     result = await investigate(db, WATCH_QUESTION, WATCH_RANGE, always=ALWAYS)
     now = datetime.now(timezone.utc).isoformat()
     seen = {i["key"]: i.get("first_noticed") for i in ((await load_watch(db)) or {}).get("result", {}).get("issues", [])}
-    if result.get("mode") != "ai":
-        result.update(issues=[], summary="")
-        note = "AI is off, so the dashboard watch is paused."
+    if result.get("mode") != "ai":   # without the AI only the curated rules speak, and they're high fidelity already
+        keep = [i for i in result.get("issues", []) if i.get("from_rule") and worth_showing(i)][:MAX_SHOWN]
+        for i in keep:
+            i["key"] = _key(i)
+            i["first_noticed"] = seen.get(i["key"]) or now
+        result.update(issues=keep, summary="")
+        note = "" if keep else "AI is off, so only the Threat Curated Rules were checked, and none matched."
     else:
         keep = [i for i in result["issues"] if worth_showing(i)][:MAX_SHOWN]
         for i in keep:

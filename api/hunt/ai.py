@@ -137,6 +137,12 @@ async def write_up(ai, question: str, evidence: str, time_label: str) -> dict | 
         "- For each issue, say in why_it_matters why you believe it is real.\n"
         "- Every timeline step cites the lookup number it came from.\n"
         "- If nothing suspicious is in the evidence, return an empty issues list and say so.\n"
+        "- For each issue, also give a reusable detection rule in \"rule\" that would catch the same pattern again, "
+        "anywhere: GENERIC, so never a hostname, user name, account, email, IP address or ID in it. Use "
+        "{\"kind\": \"alert\", \"name\": \"short generic name\", \"why\": \"1 sentence\", \"match\": {\"technique_ids\": [\"T1482\"], "
+        "\"title_any\": [\"nltest\"], \"sources\": [\"crowdstrike\"], \"min_hosts\": 1}} for alert patterns, or "
+        "{\"kind\": \"splunk\", \"name\": ..., \"why\": ..., \"match\": {\"spl\": \"a read-only search\"}} for a Splunk pattern. "
+        "Leave rule out if the issue can't be caught by a generic pattern.\n"
         "Return JSON:\n"
         '{"summary": "2-3 plain sentences that answer the question",\n'
         ' "issues": [{"title": "plain title", "severity": "critical|high|medium|low",\n'
@@ -198,6 +204,8 @@ def clean_write_up(raw: dict, n_lookups: int) -> dict:
             "what_to_do": [_s(x, 300) for x in (i.get("what_to_do") or [])[:8]],
             "attack": _attack(i.get("attack")),
             "lookups": sorted({r for r in map(ref, i.get("lookups") or []) if r}),
+            # A generic rule the AI proposed for this finding; vetted and kept only by api/hunt/curated.learn
+            "rule_draft": i.get("rule") if isinstance(i.get("rule"), dict) else None,
         })
     order = {s: n for n, s in enumerate(SEVERITIES)}
     issues.sort(key=lambda x: order[x["severity"]])

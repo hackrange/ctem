@@ -145,9 +145,14 @@ async def investigate(db: AsyncSession, question: str, time_range: str = "7d",
 
     base = {"question": question, "time_range": time_range, "sources": sources, "notes": notes}
     if ai is None:
-        progress("Searching (AI is off, using keywords)")
+        progress("Searching (AI is off, using keywords and the curated rules)")
         results = await _run(db, splunk, _vet(fallback.plan(question, schema if splunk else None), notes), earliest)
-        return {**base, "mode": "keyword", "summary": "", "issues": [], "lookups": for_ui(results)}
+        from api.hunt import curated
+        rule_issues, rule_lookups, _ = await curated.run(db, splunk, time_range, first_lookup=len(results) + 1)
+        if rule_issues:
+            notes.append(f"{len(rule_issues)} Threat Curated Rule{'s' if len(rule_issues) != 1 else ''} matched.")
+        return {**base, "mode": "keyword", "summary": "", "issues": rule_issues,
+                "lookups": for_ui(results + rule_lookups)}
 
     saved = await memory.load_plan(db, question, fp)
     if saved:
@@ -171,6 +176,17 @@ async def investigate(db: AsyncSession, question: str, time_range: str = "7d",
         lookups = lookups + [lk for lk in _vet(always, notes) if (lk.get("table"), str(lk.get("filters"))) not in have]
     progress("Searching every connected source")
     results = await _run(db, splunk, lookups, earliest)
+    # Curated rules first: what they explain is already an issue, for free, and the AI isn't paid to see it again
+    from api.hunt import curated
+    progress("Running the Threat Curated Rules")
+    rule_issues, rule_lookups, explained = await curated.run(db, splunk, time_range, first_lookup=len(results) + 1)
+    if explained:
+        for r in results:
+            if r.get("table") == "alerts" and r.get("rows"):
+                r["rows"] = [row for row in r["rows"] if row.get("alert_key") not in explained]
+                r["count"] = len(r["rows"])
+    if rule_issues:
+        notes.append(f"{len(rule_issues)} Threat Curated Rule{'s' if len(rule_issues) != 1 else ''} matched, with no AI tokens spent on them.")
 
     if not saved:
         progress("Following the leads")
@@ -185,8 +201,13 @@ async def investigate(db: AsyncSession, question: str, time_range: str = "7d",
     evidence = evidence_brief(results)
     key = memory.answer_key(question, time_range, evidence)
     answer = memory.cached_answer(key)
+    left = sum(r.get("count") or 0 for r in results if not r.get("error"))
     if answer:
         notes.append("Same evidence as a recent hunt, so the earlier write-up was reused.")
+    elif rule_issues and not left:
+        notes.append("The curated rules explained everything found, so the AI wasn't needed.")
+        answer = {"summary": f"{len(rule_issues)} curated detection{'s' if len(rule_issues) != 1 else ''} matched; "
+                             "nothing else needed a closer look.", "issues": []}
     else:
         progress("Writing up what happened")
         raw = await hunt_ai.write_up(ai, question, evidence, label)
@@ -196,6 +217,14 @@ async def investigate(db: AsyncSession, question: str, time_range: str = "7d",
     if not answer:
         notes.append("The AI write-up failed, so only the raw results are shown.")
         answer = {"summary": "", "issues": []}
+    answer = {**answer, "issues": [dict(i) for i in answer["issues"]]}   # a cached answer stays as it was
+    learned = await curated.learn(db, answer["issues"], question)
+    if learned:
+        notes.append(f"Saved {learned} new Threat Curated Rule{'s' if learned != 1 else ''}, so this is caught for free next time.")
+    for i in answer["issues"]:
+        i.pop("rule_draft", None)
+    results += rule_lookups
+    answer["issues"] = rule_issues + answer["issues"]
 
     for issue in answer["issues"]:
         win = window.around(t["time"] for t in issue["timeline"])

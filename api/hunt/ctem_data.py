@@ -218,7 +218,7 @@ async def _alerts(db: AsyncSession, f: dict, limit: int) -> list[dict]:
         details = {k: v for k, v in a.items() if k not in ("source", "severity", "hostname", "description", "raw", "id")}
         out.append({"source": a.get("source"), "severity": a.get("severity"), "hostname": host,
                     "description": a.get("description"), "details": json.dumps(details)[:400],
-                    "last_seen": _iso(row.updated_at)})
+                    "last_seen": _iso(row.updated_at), "alert_key": row.key})
         if len(out) >= limit:
             break
     return out
