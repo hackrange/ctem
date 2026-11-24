@@ -19,6 +19,7 @@ fields may not match the real API (the Horizon3 connector, for one, called endpo
 | GitHub Code Review | Real instance |
 | AWS, Oracle OCI | Real accounts |
 | Anthropic | Real API |
+| Zscaler (OneAPI) | Real tenant, 2026-11-24: token POST plus GETs on an allow-list; Client Connector (15,244 devices), ZDX devices, ZIA URL, SSL, firewall and DLP rules and admins |
 | Grip Security | Real tenant, 2026-11-24: every read endpoint, a full sync (227 ITDR threats, 606 posture findings, 3,266 SaaS apps, 68 AI agents, 14,665 identities) with GET only; paths match open-fairtprm's working client |
 
 ## In progress
@@ -51,7 +52,6 @@ from documented responses, and test against a real tenant where one is available
 | [ ] ForgeRepo | yes | none | |
 | [ ] Qualys VMDR | yes | some | XML API v2, platform URL per subscription |
 | [ ] Akamai Guardicore | yes | some | |
-| [ ] Zscaler | yes | some | ZIA auth (obfuscated key + timestamp) |
 | [ ] ServiceNow | yes | some | ticket write-back |
 | [ ] Microsoft Azure | n/a (cloud) | some | Resource Graph, NSGs |
 | [ ] OpenAI, custom AI endpoint, Claude on Amazon Bedrock | via the AI connector | some | |

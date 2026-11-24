@@ -97,7 +97,7 @@ Every source is matched to the same device row by host name, however it spells i
 | Palo Alto Cortex XDR | EDR + Threat | Incidents, findings |
 | Palo Alto NGFW | Firewall | Policy data, block events |
 | Fortinet | Firewall | Policy data |
-| Zscaler ZIA/ZPA | Network | Segmentation, access policy |
+| Zscaler (OneAPI, read only) | Network / SSE | Client Connector coverage gaps (no agent or a silent one on workstations CTEM sees), ZIA policy weaknesses (risky URL categories allowed, broad SSL bypass, any-to-any firewall rules, DLP off or monitor only), admin sign-in and super admins, ZDX reporting; one token POST then allow-listed GETs only |
 | Grip Security | SaaS | Shadow IT, SaaS risk |
 | ServiceNow | ITSM + CMDB | Ticket creation, CMDB export |
 | Snyk | AppSec | Code and container findings |

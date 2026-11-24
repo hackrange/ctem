@@ -1,4 +1,4 @@
-// Integrations page: the cloud exposure connectors (AWS, Azure, OCI). Loaded before the page script, which
+// Integrations page: the cloud exposure connectors (AWS, Azure, OCI) and Zscaler (OneAPI, read only). Loaded before the page script, which
 // spreads CLOUD_VENDOR_FIELDS into VENDOR_FIELDS. All read-only; secrets are stored encrypted and never shown again.
 const CLOUD_VENDOR_FIELDS = {
   aws: [
@@ -15,6 +15,11 @@ const CLOUD_VENDOR_FIELDS = {
     {key:'subscriptions', label:'Subscription IDs (comma separated; blank = every subscription the app can read)', type:'text', placeholder:'', required:false},
     {key:'azure_cloud',   label:'Cloud', type:'select', options:['public', 'usgov'], optionLabels:{public:'Azure (public)', usgov:'Azure US Government'}, required:false},
     {key:'create_devices', label:'Add cloud instances CTEM has never seen', type:'checkbox', required:false},
+  ],
+  zscaler: [
+    {key:'vanity_domain', label:'ZIdentity vanity domain (the "acme" in acme.zslogin.net)', type:'text', placeholder:'acme', required:true},
+    {key:'client_id',     label:'OneAPI client ID', type:'text', placeholder:'', required:true},
+    {key:'client_secret', label:'OneAPI client secret (give the client view-only roles in each product)', type:'password', placeholder:'', required:true},
   ],
   oci: [
     {key:'tenancy_ocid',   label:'Tenancy OCID', type:'text', placeholder:'ocid1.tenancy.oc1..', required:true},

@@ -55,6 +55,17 @@
   </div>
 
   <div class="panel mt-panel">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+      <h2 class="mt-h">Database</h2>
+      <button class="btn btn--ghost btn--sm" id="mt-db-run">Run upkeep now</button></div>
+    <p class="text-sm text-muted">Every night at 02:15 UTC CTEM vacuums and analyzes the tables that need it, and on Sundays rebuilds
+      indexes that are measurably bloated, without locking them. Busy tables get autovacuum thresholds sized for them.
+      <span id="mt-db-last"></span></p>
+    <div style="overflow:auto"><table class="data-table"><thead><tr><th>Table</th><th>Rows</th><th>Size</th><th>Dead rows</th>
+      <th>Last vacuum</th><th>Last analyze</th></tr></thead><tbody id="mt-db"><tr><td colspan="6" class="text-muted text-sm mt-empty">Loading...</td></tr></tbody></table></div>
+  </div>
+
+  <div class="panel mt-panel">
     <h2 class="mt-h">Recent activity</h2>
     <table class="data-table">
       <thead><tr><th>Started</th><th>What</th><th>By</th><th>Result</th><th></th></tr></thead>
@@ -200,4 +211,5 @@
 {% block extra_scripts %}
 <script src="{{ static('js/maintenance.js') }}"></script>
 <script src="{{ static('js/maintenance_restore.js') }}"></script>
+<script src="{{ static('js/maintenance_db.js') }}"></script>
 {% endblock %}

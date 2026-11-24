@@ -497,4 +497,4 @@ async def _record_snapshots():
         await prune(db)      # installs no source has reported for 30 days
         from api.maintenance.renormalize_software import if_rules_changed
         await if_rules_changed(db)   # once after the software name rules change
-from api.core import tasks_feed, tasks_location  # noqa: E402,F401 -- registers the alert feed and location jobs
+from api.core import tasks_db, tasks_feed, tasks_location  # noqa: E402,F401 -- registers the database, alert feed and location jobs

@@ -162,3 +162,21 @@ async def job_status(jid: str, admin: User = Depends(admin_browser)):
     if not j:
         raise HTTPException(404, detail="Job not found")
     return {"job": j, "log": agent_link.job_log(jid)}
+
+
+@router.get("/database")
+async def database(admin: User = Depends(require_admin)):
+    """Table sizes, dead rows, last vacuum and analyze, and the last upkeep run (api/core/db_maintenance.py)."""
+    from api.core.db_maintenance import status
+    return await status()
+
+
+@router.post("/database/run")
+async def database_run(request: Request, admin: User = Depends(admin_browser), db: AsyncSession = Depends(get_session)):
+    """Run the nightly upkeep now (VACUUM and ANALYZE where needed; no table is locked for more than a moment)."""
+    from api.core.tasks_db import db_maintenance
+    db_maintenance.delay(False)
+    db.add(AuditLog(actor_user_id=str(admin.id), actor_username=admin.username, action="maintenance.database_run",
+                    resource_type="database", resource_id="postgres", detail="Started database upkeep", ip_address=_client_ip(request)))
+    await db.commit()
+    return {"queued": True}
