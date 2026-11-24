@@ -74,6 +74,9 @@ def compute_device_score(findings_data: list[dict]) -> tuple[float, str]:
 
     scores = []
     for f in findings_data:
+        if "cloud" in f:   # a cloud configuration check, already scored on its own terms
+            scores.append(f["cloud"][0])
+            continue
         s, _ = score_finding(
             cvss_base=f.get("cvss_base", 0.0),
             epss_score=f.get("epss_score", 0.0),

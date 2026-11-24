@@ -42,8 +42,9 @@ class InsightCloudSecConnector(BaseConnector):
         cap = r7.int_cfg(self.config, "max_findings", 0, 0, 10_000_000)  # 0 = no limit
         async with safe_client(timeout=120.0) as client:
             insights = await self._insights(client)
-            clouds, listed_all = await self._clouds(client)
+            clouds, listed_all, accounts = await self._clouds(client)
             saver = await store.Saver.load(db, started)
+            saver.accounts = accounts
             done: set[str] = set()   # accounts read to the last page, safe to close what they no longer list
             failed = 0
             for cloud in clouds:
@@ -61,6 +62,7 @@ class InsightCloudSecConnector(BaseConnector):
                     continue
                 if complete:
                     done.add(cloud)
+        await saver.save_fixes()
         if clouds and failed == len(clouds):
             raise CloudSecError(f"InsightCloudSec refused every cloud account ({failed}); nothing was imported")
         if failed:
@@ -115,13 +117,18 @@ class InsightCloudSecConnector(BaseConnector):
                 out[f"{i.get('source') or 'backoffice'}:{i['insight_id']}"] = {**i, "severity": sev}
         return out
 
-    async def _clouds(self, client) -> tuple[list[str], bool]:
-        """Cloud account ids, and whether the list is the whole set (so a missing account was removed)."""
+    async def _clouds(self, client) -> tuple[list[str], bool, dict[str, dict]]:
+        """Cloud account ids, whether the list is the whole set (so a missing account was removed), and each
+        account's name, provider and the provider's own account id, to say where a finding is."""
         body = await self._get(client, f"{self._base}/public/clouds/list")
         rows = body.get("clouds", []) if isinstance(body, dict) else body
         ids = [str(int(c["id"])) for c in rows if str(c.get("id", "")).isdigit()]
         total = body.get("total_count") if isinstance(body, dict) else None
-        return ids, total is not None and int(total) == len(ids)
+        accounts = {str(int(c["id"])): {"name": store._clean(c.get("name"), 120), "account_id": store._clean(c.get("account_id"), 120),
+                                       "provider": store._PROVIDER.get(str(c.get("cloud_type_id") or "").upper(),
+                                                                       store._clean(c.get("cloud_type_id"), 32))}
+                    for c in rows if str(c.get("id", "")).isdigit()}
+        return ids, total is not None and int(total) == len(ids), accounts
 
     async def _read_account(self, client, cloud: str, insights: dict, saver, room: int | None) -> bool:
         """Every page of one account's findings. True when it read to the end, uncapped."""

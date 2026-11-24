@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from api.auth.device_scope import device_scope
-from api.core import sla
+from api.core import cloud_findings, sla
 from api.core import finding_age as age
 from api.auth.rbac import can_access_device, require_permission
 from api.core.csv_export import csv_paged_response
@@ -194,6 +194,8 @@ async def get_device(
     cloud = await for_device(db, device.id)   # instances, public IPs, attached firewalls and open ports
     base.update({
         "cloud": cloud,
+        # a cloud resource (CSPM): its provider, account, region and type
+        "cloud_where": await cloud_findings.where(db, device.id) if device.device_type.value == "cloud_resource" else None,
         # Every public address observed for the device, with where it was seen
         "public_ips": [{"ip": ip, "source": c["provider"].upper()} for c in cloud for ip in c["public_ips"]],
         "fqdn": dq.full_name(device),
@@ -320,8 +322,9 @@ async def get_device_findings(
         ctx = ControlContext(edr_active=True, edr_vendor=device.edr_vendor, attack_vector=f.vuln.attack_vector if f.vuln else None,
                              **extra)
         return ([extra["host_firewall"][1]] if extra.get("host_firewall") else []) + _edr(1.0, ctx)[1]
-    return {"findings": [{**_finding_summary(f, contained, cloud_ports), "protections": protections(f)} for f in rows],
-            "total": total, "limit": limit, "offset": offset, "contained": contained}
+    out = [{**_finding_summary(f, contained, cloud_ports), "protections": protections(f)} for f in rows]
+    await cloud_findings.with_fixes(db, list(zip(out, [f.fix_key for f in rows])))
+    return {"findings": out, "total": total, "limit": limit, "offset": offset, "contained": contained}
 
 
 @router.get("/{device_id}/findings/export")
@@ -377,7 +380,8 @@ def _finding_summary(f: Finding, contained: bool = False, cloud_ports: list | No
         "status": f.status.value,
         "source": f.source,
         "domain": f.domain,
-        "details": f.details if f.domain in ("code", "web") else None,   # where and how, for Code and Web app findings
+        # where and how, for Code, Web app and Cloud findings
+        "details": f.details if f.domain in ("code", "web") else cloud_findings.view(f, v.cvss_base if v else None),
         "exception_id": f.exception_id,
         "is_reachable": f.is_reachable,
         "reachability_source": f.reachability_source,

@@ -2,13 +2,16 @@
 and a finding on an instance CTEM already has from AWS or OCI lands on that instance."""
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import datetime
 
-from sqlalchemy import select, update
+from sqlalchemy import bindparam, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.core import fixes
 from api.integrations import rapid7_common as r7
+from api.scoring import cloud_score
 from api.models.cloud import CloudAsset
 from api.models.device import Device, DeviceType
 from api.models.integration import IntegrationConfig
@@ -33,6 +36,47 @@ def instance_key(row: dict) -> str | None:
     return parts[3] if len(parts) > 3 and parts[3] else None
 
 
+_LINK = re.compile(r"https://[^\s)\]>\"']{4,400}")
+_PROVIDER = {"AWS": "AWS", "AWS_GOV": "AWS", "AWS_CHINA": "AWS", "AZURE_ARM": "Azure", "AZURE_GOV": "Azure", "AZURE_CHINA": "Azure",
+             "GCE": "Google Cloud", "OCI": "OCI", "ALICLOUD": "Alibaba Cloud", "K8S": "Kubernetes"}
+
+
+def _clean(v, n: int) -> str | None:
+    t = re.sub(r"[\x00-\x08\x0b-\x1f]", "", str(v or "")).strip()
+    return t[:n] or None
+
+
+def details_for(row: dict, insight: dict, accounts: dict[str, dict]) -> dict:
+    """Where the finding is (provider, account, region, resource type and id, ARN) and what the check is about."""
+    parts = str(row.get("resource_id") or "").split(":")   # "instance:1:us-east-1:i-09208...:"
+    acct = accounts.get(parts[1] if len(parts) > 1 else "") or {}
+    tags = [t for t in (_clean(x, 60) for x in (insight.get("tags") or [])[:12]) if t]
+    controls = []
+    for c in (insight.get("compliance_controls") or [])[:20]:
+        name = _clean(c.get("name") or c.get("control_name") or c.get("id") if isinstance(c, dict) else c, 120)
+        if name and name not in controls:
+            controls.append(name)
+    out = {"provider": acct.get("provider"), "account": acct.get("name"), "account_id": acct.get("account_id"),
+           "region": _clean(parts[2] if len(parts) > 2 else None, 64), "resource_type": _clean(parts[0], 64),
+           "resource": _clean(parts[3] if len(parts) > 3 else None, 300), "arn": _clean(row.get("namespace_id"), 500),
+           "severity": int(insight.get("severity") or 3), "signals": cloud_score.signals(insight.get("name"), tags),
+           "tags": tags[:8], "compliance": controls[:10]}
+    return {k: v for k, v in out.items() if v not in (None, [], "")}
+
+
+def fix_for(key: str, insight: dict) -> tuple[str | None, dict | None]:
+    """One fix per check: Rapid7's own write-up (overview and remediation), as plain text with its https links."""
+    fk = fixes.key(SRC, key)
+    notes = str(insight.get("notes") or "")
+    if not fk:
+        return None, None
+    text = re.sub(r"^\s*[-=]{3,}\s*$", "", notes, flags=re.M)              # markdown heading underlines
+    text = re.sub(r"\n{3,}", "\n\n", re.sub(r"<[^>]*>", " ", text)).strip()  # never markup
+    links = list(dict.fromkeys(u.rstrip(".,;:") for u in _LINK.findall(notes)))[:10]   # not the sentence's full stop
+    return fk, {"source": SRC, "title": f"Fix: {str(insight.get('name') or key)}"[:512], "kind": "configuration",
+                "steps": text[:4000] or _clean(insight.get("description"), 1000), "links": links}
+
+
 def account_of(finding_source_id: str) -> str | None:
     """"backoffice:59:instance:2:us-east-1:i-1:" -> "2", the cloud account the resource lives in."""
     parts = finding_source_id.split(":")
@@ -54,6 +98,9 @@ class Saver:
         self.vulns: dict[str, str] = {}
         self.devices: dict[str, str] = {}
         self.findings: dict[str, tuple[str, FindingStatus]] = {}
+        self.context: dict[str, tuple[dict | None, str | None]] = {}   # finding -> (details, fix_key) as stored
+        self.accounts: dict[str, dict] = {}   # the tool's account id -> name, provider and the provider's account id
+        self.fixes: dict[str, dict] = {}
         self.instances: dict[str, str] = {}   # provider instance id -> the device AWS or OCI made for it
         self.seen: set[str] = set()
         self.refreshed: set[str] = set()
@@ -68,8 +115,10 @@ class Saver:
                                            .where(Device.source == SRC))).all())
         s.instances = dict((await db.execute(select(CloudAsset.resource_id, CloudAsset.device_id)
                                              .where(CloudAsset.device_id.is_not(None)))).all())
-        s.findings = {sid: (fid, st) for sid, fid, st in (await db.execute(
-            select(Finding.source_id, Finding.id, Finding.status).where(Finding.source == SRC))).all()}
+        for sid, fid, st, det, fk in (await db.execute(select(Finding.source_id, Finding.id, Finding.status, Finding.details,
+                                                             Finding.fix_key).where(Finding.source == SRC))).all():
+            s.findings[sid] = (fid, st)
+            s.context[sid] = (det, fk)
         return s
 
     def _vuln(self, key: str, insight: dict) -> tuple[str, object]:
@@ -101,26 +150,34 @@ class Saver:
         return did
 
     async def save(self, rows: list[dict], insights: dict) -> None:
-        touch, reopen, refresh = [], [], []
+        touch, reopen, refresh, context = [], [], [], []
         for row in rows:
             key, rid = str(row["insight_id"])[:128], str(row["resource_id"])[:256]
             fsid = f"{key}:{rid}"[:256]
             if fsid in self.seen:
                 continue   # the API can list a resource twice under one insight
             self.seen.add(fsid)
-            vid, stmt = self._vuln(key, insights[row["insight_id"]])
+            insight = insights[row["insight_id"]]
+            vid, stmt = self._vuln(key, insight)
             if stmt is not None:
                 refresh.append(stmt)
+            det = details_for(row, insight, self.accounts)
+            fk = fixes.key(SRC, key)
+            if fk and fk not in self.fixes:
+                self.fixes[fk] = fix_for(key, insight)[1]
             known = self.findings.get(fsid)
             if known is None:
                 fid = str(uuid.uuid4())
                 self.db.add(Finding(id=fid, device_id=self._device(rid, row), vuln_id=vid, source=SRC,
-                                    source_id=fsid, status=FindingStatus.open,
+                                    source_id=fsid, status=FindingStatus.open, details=det, fix_key=fk,
                                     first_detected=r7.parse_dt(row.get("identified_at")), last_seen=self.now))
                 self.findings[fsid] = (fid, FindingStatus.open)
             else:
                 fid, status = known
                 touch.append(fid)
+                old_det, old_fk = self.context.get(fsid, (None, None))
+                if old_det != det or old_fk != fk:   # only what changed is rewritten (the details are encrypted)
+                    context.append({"b_id": fid, "b_details": det, "b_fix": fk})
                 if status == FindingStatus.remediated:
                     reopen.append(fid)   # it came back, sadly
                     self.findings[fsid] = (fid, FindingStatus.open)
@@ -130,9 +187,18 @@ class Saver:
             await self.db.execute(stmt)
         for i in range(0, len(touch), 1000):
             await self.db.execute(update(Finding).where(Finding.id.in_(touch[i:i + 1000])).values(last_seen=self.now))
+        if context:
+            t = Finding.__table__
+            await self.db.execute(update(t).where(t.c.id == bindparam("b_id"))
+                                  .values(details=bindparam("b_details"), fix_key=bindparam("b_fix")), context)
         for i in range(0, len(reopen), 1000):
             await self.db.execute(update(Finding).where(Finding.id.in_(reopen[i:i + 1000]))
                                   .values(status=FindingStatus.open))
+        await self.db.commit()
+
+    async def save_fixes(self) -> None:
+        """The fix catalog rows for every check seen this run (title and Rapid7's remediation steps)."""
+        await fixes.save(self.db, {k: v for k, v in self.fixes.items() if v})
         await self.db.commit()
 
     async def close_missing(self, done: set[str], listed: set[str] | None) -> int:

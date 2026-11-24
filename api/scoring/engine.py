@@ -13,6 +13,7 @@ from api.models.device import Device, RiskGrade
 from api.models.risk import RiskScore, RiskScoreHistory
 from api.models.vuln import Finding, FindingStatus
 from api.scoring.compensating import ControlContext, port_closed_note
+from api.scoring import cloud_score
 from api.scoring.device_score import compute_device_score, device_grade, score_finding
 from api.scoring.user_score import compute_user_score
 
@@ -111,6 +112,8 @@ async def recalculate_device(device: Device, db: AsyncSession) -> RiskScore:
                                                   0.7 if device.device_type.value == "server" else 0.5),
             "is_reachable": f.is_reachable,
             "control_context": ctx,
+            # a cloud configuration check has no CVE, EPSS or KEV: scored by api/scoring/cloud_score.py instead
+            **({"cloud": cloud_score.score(f.details, f.vuln.cvss_base if f.vuln else None)} if f.domain == "cloud" else {}),
         })
 
     app = device.device_type.value in ("code_repository", "website")
@@ -133,6 +136,10 @@ async def recalculate_device(device: Device, db: AsyncSession) -> RiskScore:
         if app:
             fs, why = per_finding[i][0], per_finding[i][2]
             f.details = {**(f.details or {}), "score_why": why}   # the reason for this finding's score
+        elif "cloud" in data:
+            fs, mult = data["cloud"]
+            if fs > worst[0]:
+                worst = (fs, list(mult))
         else:
             fs, mult = score_finding(
                 cvss_base=data["cvss_base"], epss_score=data["epss_score"], is_kev=data["is_kev"],

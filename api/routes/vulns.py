@@ -17,7 +17,7 @@ from api.core.db import get_session
 from api.core.device_scope_exempt import in_scope, is_exempt
 from api.models.device import Device, DeviceAssignment, DeviceTag
 from api.models.user import User
-from api.core import sla
+from api.core import cloud_findings, sla
 from api.core import finding_age as age
 from api.models.vuln import Finding, FindingStatus, Vulnerability
 from api.routes import device_query as dq
@@ -262,8 +262,9 @@ async def list_vuln_findings(
     total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
     rows = (await db.execute(_sorted_affected(stmt, sort, order).limit(limit).offset(offset))).scalars().all()
     cloud = await _cloud_ports(db, {str(f.device_id) for f in rows})
-    return {"findings": [_affected_row(f, vuln.cvss_base, vuln.attack_vector, cloud.get(str(f.device_id))) for f in rows],
-            "total": total, "limit": limit, "offset": offset}
+    out = [_affected_row(f, vuln.cvss_base, vuln.attack_vector, cloud.get(str(f.device_id))) for f in rows]
+    await cloud_findings.with_fixes(db, list(zip(out, [f.fix_key for f in rows])))
+    return {"findings": out, "total": total, "limit": limit, "offset": offset}
 
 
 @router.get("/{vuln_id}/findings/export")
@@ -375,7 +376,7 @@ def _affected_row(f: Finding, cvss: float | None = None, attack_vector: str | No
         # a repository or site keeps its whole name ("acme/payments", "shop.acme.example"); hosts get the short one
         "hostname": (d.hostname if f.domain in ("code", "web") else dq.short_name(d.hostname)) if d else None,
         "domain": f.domain,
-        "details": f.details if f.domain in ("code", "web") else None,
+        "details": f.details if f.domain in ("code", "web") else cloud_findings.view(f, cvss),
         "contained": bool(d and (d.edr_contained or is_exempt(d))),
         "out_of_scope": bool(d and is_exempt(d)),
         "severity": dq.severity(cvss, bool(d and (d.edr_contained or is_exempt(d)))),

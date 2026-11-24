@@ -1,9 +1,9 @@
 // The asset page for Code (a repository) and Web apps (a site): the facts that matter for that kind of asset,
 // findings columns that fit it (file and line or package for code, URL for web), and a details view per finding
-// with where it is, how to fix it and a link back to the tool. Hosts keep the device layout.
+// with where it is, how to fix it and a link back to the tool. Cloud resources: asset_cloud.js. Hosts keep the device layout.
 // Everything from the server goes through esc(); links are only ever https://.
 (function () {
-  const KIND = { code_repository: 'code', website: 'web' };
+  const KIND = { code_repository: 'code', website: 'web', cloud_resource: 'cloud' };
   const safeUrl = u => (typeof u === 'string' && /^https:\/\//i.test(u) ? u : null);
   const tagVals = (d, prefix) => (d.tags || []).filter(t => t.toLowerCase().startsWith(prefix)).map(t => t.slice(prefix.length));
 
@@ -12,6 +12,7 @@
   // h: { info, txt, R, tagChips } from the page
   function info(d, h) {
     const k = kind(d);
+    if (k === 'cloud') return window.CloudDetail.info(d, h);
     const list = (vals, mono) => (vals.length ? vals.map(v => `<div${mono ? ' class="text-mono text-sm"' : ''}>${esc(v)}</div>`).join('') : h.txt(null));
     // An owner this asset's source didn't give: from other assets of the same application, else say who didn't
     const owner = (label, key, prefix) => {
@@ -70,6 +71,7 @@
   function columns(k, h) {
     const btn = f => `<button type="button" class="btn btn--ghost btn--sm" data-detail="${esc(f.id)}">Details</button>`;
     const status = f => h.dim(f, esc((f.status || '').replace(/_/g, ' ')));
+    if (k === 'cloud') return window.CloudDetail.columns(h, btn, status);
     if (k === 'code') {
       return [
         { label: 'Severity', sort: 'cvss_base', firstOrder: 'desc', render: f => h.sevChip(f) },
@@ -125,6 +127,7 @@
     const row = (label, html) => (html ? `<div style="display:grid;grid-template-columns:170px minmax(0,1fr);gap:10px;padding:7px 0;border-bottom:1px solid var(--border)">
       <span class="text-muted text-sm">${esc(label)}</span><div style="min-width:0;overflow-wrap:anywhere">${html}</div></div>` : '');
     const mono = v => (v ? `<span class="text-mono text-sm">${esc(v)}</span>` : '');
+    if (f.domain === 'cloud') return window.CloudDetail.sections(f, row);
     const link = safeUrl(x.link);
     const pkg = x.package || {};
     const body = f.domain === 'web' ? [
@@ -202,7 +205,7 @@
       <h2 class="tk-title" id="asset-finding-title">${esc((f.title || '').replace(/ \([^)]*\)$/, ''))}</h2>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
         <span class="chip chip--${esc(f.severity)}">${esc(f.severity)}</span>
-        <span class="chip chip--info">${f.domain === 'web' ? 'Web app' : 'Code'}</span>
+        <span class="chip chip--info">${{ web: 'Web app', cloud: 'Cloud' }[f.domain] || 'Code'}</span>
         <span class="chip chip--info">${esc((f.status || '').replace(/_/g, ' '))}</span>
         ${f.is_kev ? '<span class="chip chip--critical">Known exploited</span>' : ''}
       </div>
@@ -210,7 +213,7 @@
       ${s.body || '<p class="text-muted">The tool sent no more detail for this finding.</p>'}
       <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;flex-wrap:wrap">
         ${s.link ? `<a class="btn btn--ghost btn--sm" href="${esc(s.link)}" target="_blank" rel="noopener noreferrer">Open in ${esc(s.tool)}</a>` : ''}
-        <a class="btn btn--ghost btn--sm" href="/vulns/${encodeURIComponent(f.vuln_id)}">All ${f.domain === 'web' ? 'sites' : 'repositories'} with this</a>
+        <a class="btn btn--ghost btn--sm" href="/vulns/${encodeURIComponent(f.vuln_id)}">All ${{ web: 'sites', cloud: 'resources' }[f.domain] || 'repositories'} with this</a>
         <button type="button" class="btn btn--primary btn--sm" data-close>Close</button>
       </div></div>`;
     wrap.classList.add('is-open');
@@ -226,6 +229,7 @@
       ? `<a class="chip chip--info" style="font-size:.7rem" href="/exceptions?id=${encodeURIComponent(f.exception_id)}">Excepted</a>`
       : `<span class="text-sm">${esc((f.status || '').replace('_', ' '))}</span>`);
     const sev = f => `<span class="chip chip--${esc(f.severity)}" style="font-size:.7rem">${esc(f.severity === 'info' ? 'Info' : f.severity)}</span>`;
+    if (k === 'cloud') return window.CloudDetail.affected(h, btn, status, sev);
     if (k === 'code') {
       return [
         { label: 'Repository', sort: 'hostname', render: name },
@@ -251,7 +255,7 @@
     ];
   }
 
-  const LABEL = { code: 'Code repository', web: 'Web application' };
+  const LABEL = { code: 'Code repository', web: 'Web application', cloud: 'Cloud resource' };
   const AFFECTED = { code: 'Affected repositories', web: 'Affected sites', infra: 'Affected devices', cloud: 'Affected resources' };
   window.AssetDetail = { kind, info, columns, affectedColumns, open, panel, label: k => LABEL[k], affectedLabel: k => AFFECTED[k] || AFFECTED.infra };
 })();

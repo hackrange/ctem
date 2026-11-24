@@ -91,6 +91,7 @@
 <script src="{{ static('js/data_table.js') }}"></script>
 <script src="{{ static('js/device_assign.js') }}"></script>
 <script src="{{ static('js/exception_modal.js') }}"></script>
+<script src="{{ static('js/asset_cloud.js') }}"></script>
 <script src="{{ static('js/asset_detail.js') }}"></script>
 <script>
 const R = DataTable.R;
@@ -244,8 +245,9 @@ async function loadDevice() {
   assetKind = AssetDetail.kind(d);   // a repository or a site has its own facts and findings columns
   $('dev-sub').textContent = assetKind ? AssetDetail.label(assetKind) : [d.device_type, d.os].filter(Boolean).join(' / ');
   if (assetKind) {   // back to the list this came from, not to devices
-    $('dev-back').innerHTML = `&larr; ${assetKind === 'code' ? 'Repositories' : 'Web applications'}`;
-    $('dev-back').href = `/devices?asset=${assetKind === 'code' ? 'repositories' : 'sites'}`;
+    const back = { code: ['Repositories', 'repositories'], web: ['Web applications', 'sites'], cloud: ['Cloud resources', 'cloud'] }[assetKind];
+    $('dev-back').innerHTML = `&larr; ${back[0]}`;
+    $('dev-back').href = `/devices?asset=${back[1]}`;
   }
   $('dev-grade').innerHTML = `${R.grade(d.risk_grade)} ${R.score(d.risk_score)}`
     + ((d.edr_contained || oos) ? ' ' + R.adjusted(d.raw_risk_grade, d.raw_risk_score, d.risk_grade, d.risk_score) : '');
