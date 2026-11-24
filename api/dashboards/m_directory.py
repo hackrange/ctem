@@ -3,10 +3,12 @@ from the daily snapshots. Computers follow the viewer's device scope; user count
 only admin and cyber see them."""
 from __future__ import annotations
 
+import re
 from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import func, or_, select
 
+from api.core.device_ou import ou_names
 from api.dashboards.catalog import Metric, Param, metric
 from api.models.device import Device
 
@@ -21,6 +23,11 @@ LIMIT = Param("limit", "Rows", low=3, high=50, default=15)
 QUIET = Param("tools_quiet", "Leave out computers a scanner or EDR saw in the last",
               ("21", "off", "7", "14", "30", "45", "60", "90"),
               labels={"off": "Don't check other tools", **{d: f"{d} days" for d in ("7", "14", "21", "30", "45", "60", "90")}})
+# OUs to leave out (Terminated, LOA...): matched as whole words in any OU of the account's DN
+SKIP_OU = Param("exclude_ou", "Leave out accounts in these OUs", pattern=r"[\w .,&'()/-]{1,128}", default="",
+                hint="OU names, comma-separated, e.g. Terminated, LOA, Leave of Absence")
+USER_DAYS = Param("days", "Stale after (days without a logon)", low=1, high=3650, default=30)
+EXPORT_MAX = 20000
 QUIET_DAYS = 21   # the default above, and what the "no tool contact" trend snapshots use
 
 
@@ -63,10 +70,56 @@ async def _computers(ctx, p):
             "href": f"/devices?ad_stale_days={p['days']}" + (f"&ad_tools_quiet_days={q}" if q else "")}
 
 
+def skip_terms(text: str) -> list[re.Pattern]:
+    return [re.compile(rf"(?<!\w){re.escape(t.strip())}(?!\w)", re.I) for t in (text or "").split(",") if t.strip()][:10]
+
+
+def _kept(dn, terms) -> bool:
+    return not any(t.search(o) for o in ou_names(dn or '') for t in terms)
+
+
+async def _stale_people(ctx, p):
+    """Stale enabled AD users, stalest first, minus the OUs to leave out (the DN is encrypted, so that's done here)."""
+    from api.models.user import User
+    terms = skip_terms(p.get("exclude_ou", ""))
+    rows = (await ctx.db.execute(select(User).where(*stale_users(p["days"]))
+                                 .order_by(User.ad_last_logon.asc().nulls_first(), User.username))).scalars().all()
+    return [u for u in rows if _kept(u.ad_dn, terms)] if terms else list(rows)
+
+
 async def _users(ctx, p):
     from api.models.user import User
-    n = (await ctx.db.execute(select(func.count()).select_from(User).where(*stale_users(p["days"])))).scalar_one()
-    return {"value": n, "note": f"enabled AD users with no logon in {p['days']} days", "href": "/users"}
+    skip = p.get("exclude_ou", "")
+    if skip_terms(skip):
+        n = len(await _stale_people(ctx, p))
+    else:
+        n = (await ctx.db.execute(select(func.count()).select_from(User).where(*stale_users(p["days"])))).scalar_one()
+    return {"value": n, "note": f"enabled AD users with no logon in {p['days']} days" + (f", not in {skip}" if skip else ""),
+            "href": "/users"}
+
+
+async def _users_list(ctx, p):
+    people = await _stale_people(ctx, p)
+    now = _now()
+
+    def ago(d):
+        if not d:
+            return "never"
+        d = d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+        return f"{(now - d).days:,} days"
+
+    def day(d):
+        return d.date().isoformat() if d else ""
+    shown = people[:EXPORT_MAX] if ctx.export else people[:p["limit"]]
+    out = {"columns": ["Username", "Name", "Title", "Department", "Office", "Last AD logon", "Days since logon",
+                       "Password last set", "Service account", "OU"],
+           "rows": [[u.username, " ".join(x for x in (u.first_name, u.last_name) if x) or (u.display_name or ""), u.title or "",
+                     u.department or "", ", ".join(x for x in (u.office, u.city, u.state) if x), day(u.ad_last_logon),
+                     ago(u.ad_last_logon), day(u.ad_pwd_last_set), "yes" if u.is_service_account else "",
+                     " / ".join(reversed(ou_names(u.ad_dn or "")))[:200]] for u in shown]}
+    if not ctx.export and len(people) > len(shown):
+        out["note"] = f"The {len(shown)} stalest of {len(people):,}. Download CSV for all of them."
+    return out
 
 
 async def _list(ctx, p):
@@ -114,8 +167,13 @@ D = "Directory"
 metric(Metric("directory.stale_computers", "Stale AD computer objects", D, "value", (DAYS, QUIET), _computers,
               "AD computer objects with no logon for the chosen number of days that no scanner or EDR has seen recently "
               "(21 days unless changed). Click through to the list."))
-metric(Metric("directory.stale_users", "Stale AD user accounts", D, "value", (DAYS,), _users,
-              "Enabled AD user accounts with no logon for the chosen number of days.", needs="threats", filterable=False))
+metric(Metric("directory.stale_users", "Stale AD user accounts", D, "value", (DAYS, SKIP_OU), _users,
+              "Enabled AD user accounts with no logon for the chosen number of days, optionally leaving out OUs "
+              "(Terminated, LOA...).", needs="threats", filterable=False))
+metric(Metric("directory.stale_users_list", "Stale AD user accounts (list)", D, "table", (USER_DAYS, SKIP_OU, LIMIT), _users_list,
+              "Enabled AD user accounts with no logon for the chosen number of days, stalest first, for cleanup: name, "
+              "title, department, office, last logon, password last set and OU, optionally leaving out OUs (Terminated, "
+              "LOA...). Download CSV gives every account, not just the rows shown.", needs="threats", filterable=False))
 metric(Metric("directory.stale_computers_list", "Stale AD computers (list)", D, "table", (DAYS, QUIET, LIMIT), _list,
               "The stalest AD computer objects first, with their last logon, last scanner or EDR contact, and OU."))
 metric(Metric("directory.stale_trend", "Stale AD objects over time", D, "series",

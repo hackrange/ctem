@@ -146,3 +146,40 @@ async def test_ai_edit_builds_on_unsaved_work_and_earlier_requests(client_admin,
     assert "cards for 44, 30 and 21 days" in seen[0] and '"days":44' in seen[0]
     too_many = {"text": "again please", "history": ["one more time"] * 9}
     assert (await client_admin.post(f"/api/v1/dashboards/ai/edit/{made['id']}", json=too_many)).status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_stale_users_list_leaves_out_ous_and_exports_every_row(db, admin_user, client_admin):
+    import dataclasses
+
+    from sqlalchemy import delete
+
+    from api.models.user import User
+    tag = uuid.uuid4().hex[:6]
+    old = datetime.now(timezone.utc) - timedelta(days=60)
+    people = [("keep", "OU=Users,OU=HQ"), ("term", "OU=Terminated Users,OU=HQ"), ("loa", "OU=LOA,OU=HQ"),
+              ("loans", "OU=Loans,OU=HQ"), ("keep2", r"OU=Sales\, East,OU=HQ")]
+    for name, ou in people:
+        db.add(User(username=f"st{name}{tag}", is_local=False, is_active=True, ad_disabled=False, ad_last_logon=old,
+                    ad_dn=f"CN=x,{ou},DC=acme,DC=example", first_name="Pat", last_name=name))
+    db.add(User(username=f"stfresh{tag}", is_local=False, is_active=True, ad_disabled=False,
+                ad_last_logon=datetime.now(timezone.utc), ad_dn="CN=x,OU=Users,DC=acme,DC=example"))
+    await db.commit()
+    w = cat.clean_widget({"metric": "directory.stale_users_list", "viz": "table",
+                          "params": {"days": 30, "exclude_ou": "Terminated, LOA", "limit": 3}})
+    assert w["params"]["exclude_ou"] == "Terminated, LOA"
+    assert cat.clean_widget({"metric": "directory.stale_users_list", "params": {"exclude_ou": "<script>"}})["params"]["exclude_ou"] == ""
+    ctx = await cat.context(db, admin_user)
+    m = cat.REGISTRY["directory.stale_users_list"]
+    full = await m.run(dataclasses.replace(ctx, export=True), w["params"])
+    mine = {r[0] for r in full["rows"] if r[0].endswith(tag)}
+    assert mine == {f"stkeep{tag}", f"stloans{tag}", f"stkeep2{tag}"}     # "LOA" is a word: Loans stays in
+    assert any(r[-1] == "HQ / Sales, East" for r in full["rows"] if r[0] == f"stkeep2{tag}")
+    shown = await m.run(ctx, w["params"])
+    assert len(shown["rows"]) <= 3 and (len(full["rows"]) <= 3 or "Download CSV" in shown["note"])
+    n = await cat.REGISTRY["directory.stale_users"].run(ctx, {"days": 30, "exclude_ou": "Terminated, LOA"})
+    assert n["value"] == len(full["rows"])
+    r = await client_admin.post("/api/v1/dashboards/export", json={"widget": w})
+    assert r.status_code == 200 and len(r.text.strip().splitlines()) == len(full["rows"]) + 1   # every row, not 3
+    await db.execute(delete(User).where(User.username.like(f"st%{tag}")))
+    await db.commit()

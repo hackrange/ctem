@@ -13,7 +13,7 @@ NOW = datetime.now(timezone.utc)
 
 async def _people(db):
     from api.models.device import Device, DeviceType
-    tag = uuid.uuid4().hex[:6]
+    tag = "".join(chr(97 + int(c, 16)) for c in uuid.uuid4().hex[:8])   # letters only, so a digit search can't hit the name
     soon = User(username=f"dsoon{tag}", is_local=False, is_active=True, first_name="Quintessa", last_name=f"Vale{tag}",
                 phone="+15550100" + str(uuid.uuid4().int % 900 + 100), office="Branch 9", city="Tampa", state="FL",
                 ad_disabled=False, ad_pwd_expires=NOW + timedelta(days=5, hours=2), ad_pwd_never_expires=False, ad_pwd_expired=False)

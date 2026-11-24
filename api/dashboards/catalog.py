@@ -96,6 +96,7 @@ class Ctx:
     threats: bool
     decider: bool
     filtered: bool = False            # a widget filter narrowed the devices (snapshot trends can't follow it)
+    export: bool = False              # a CSV download: a list widget returns every row, not just the ones shown
 
     @property
     def viewer_key(self) -> str:

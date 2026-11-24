@@ -425,8 +425,9 @@ async def export_widget(body: ExportBody, u: User = Depends(_member), db: AsyncS
     if w is None:
         raise HTTPException(422, "Unknown widget")
     stored = (await _published_wide(db, u, body.dashboard)).get(w.get("id")) if w.get("id") else None
-    out = await cat.evaluate(await cat.context(db, u, everything=bool(stored)), stored or w,
-                             {"filters": body.filters, "match": body.filter_match})
+    ctx = await cat.context(db, u, everything=bool(stored))
+    ctx.export = True
+    out = await cat.evaluate(ctx, stored or w, {"filters": body.filters, "match": body.filter_match})
     w = stored or w
     if out.get("error"):
         raise HTTPException(422, "This widget has no data to export right now")
