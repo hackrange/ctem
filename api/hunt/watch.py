@@ -17,6 +17,9 @@ WATCH_QUESTION = ("What is probably really happening that a security team must a
                   "new admin rights, data leaving, and exploitable vulnerabilities on reachable machines "
                   "without compensating controls. Ignore isolated signals with innocent explanations.")
 MAX_SHOWN = 5
+# Read on every run, whatever searches are reused: a check that never looks at the alerts can't say nothing is wrong
+ALWAYS = [{"source": "ctem", "table": "alerts", "filters": {}, "limit": 100, "title": "Recent alerts from every connected tool",
+           "why": "The newest alerts from the EDR and other tools, so the check always weighs what they raised"}]
 
 
 def worth_showing(issue: dict) -> bool:
@@ -45,7 +48,7 @@ async def load_watch(db: AsyncSession) -> dict | None:
 
 async def run_watch(db: AsyncSession) -> dict:
     from api.hunt.engine import investigate
-    result = await investigate(db, WATCH_QUESTION, WATCH_RANGE)
+    result = await investigate(db, WATCH_QUESTION, WATCH_RANGE, always=ALWAYS)
     now = datetime.now(timezone.utc).isoformat()
     seen = {i["key"]: i.get("first_noticed") for i in ((await load_watch(db)) or {}).get("result", {}).get("issues", [])}
     if result.get("mode") != "ai":

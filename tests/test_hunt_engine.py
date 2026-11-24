@@ -160,6 +160,13 @@ async def test_hunt_end_to_end_and_reuses_plan(db, monkeypatch):
     learned = await memory.learned_searches(db)
     assert any(item["title"] == "Detections" for item in learned)
 
+    # The dashboard watch's alerts lookup runs even on a reused plan, and is never saved into it
+    from api.hunt.watch import ALWAYS
+    third = await engine.investigate(db, "was anything stolen on ws-33", "7d", always=ALWAYS)
+    assert any("Reused saved searches" in n for n in third["notes"])
+    assert any(lk.get("title") == "Recent alerts from every connected tool" for lk in third["lookups"])
+    assert not any(item["title"] == "Recent alerts from every connected tool" for item in await memory.learned_searches(db))
+
 
 async def test_ai_connector_reads_text_after_a_thinking_block(monkeypatch):
     from api.integrations import ai_connector

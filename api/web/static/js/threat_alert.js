@@ -43,7 +43,10 @@
     ];
     if (u.name) rows.push(info('User', `${esc(u.domain ? `${u.domain}\\${u.name}` : u.name)}${u.principal ? `<div class="text-sm text-mono">${esc(u.principal)}</div>` : ''}`));
     if (h.os_version || h.platform) rows.push(info('Host OS', txt([h.platform, h.os_version].filter(Boolean).join(' / '))));
-    if (h.local_ip || h.external_ip) rows.push(info('Host IPs', mono([h.local_ip, h.external_ip && `external ${h.external_ip}`].filter(Boolean).join(', '))));
+    if (h.local_ip || h.external_ip) {
+      rows.push(info('Host IPs', [h.local_ip && `<div class="text-sm">Internal: ${mono(h.local_ip)}</div>`,
+                                  h.external_ip && `<div class="text-sm">External: ${mono(h.external_ip)}</div>`].filter(Boolean).join('')));
+    }
     if (h.domain || h.site) rows.push(info('Domain / site', txt([h.domain, h.site].filter(Boolean).join(' / '))));
     if (h.containment) rows.push(info('Falcon containment', txt(h.containment.replace(/_/g, ' '))));
     if (d.prevalence) rows.push(info('File prevalence', txt(['global ' + (d.prevalence.global || '?'), 'local ' + (d.prevalence.local || '?')].join(', '))));

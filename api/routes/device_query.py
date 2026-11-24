@@ -193,6 +193,7 @@ def build_query(scope, q: str | None, grade: str | None, device_type: DeviceType
             Device.fqdn.ilike(like, escape="\\"),
             func.upper(Device.mac_address) == q.upper(),
             Device.ip_hash.in_(hashes),
+            Device.public_ip_hash.in_(hashes),   # the public address it reaches the internet from (EDR)
             Device.last_login_user_hash.in_(hashes),
             Owner.username.ilike(like, escape="\\"),
             Owner.upn_hash == search_hash(q.lower()),

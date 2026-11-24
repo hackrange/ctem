@@ -192,3 +192,19 @@ async def test_sites_and_location_filters(db, client_cyber, client_read_only):
     assert (await client_cyber.get("/api/v1/devices", params={"loc_city": "<x>"})).status_code == 422
     vr = (await client_cyber.get("/api/v1/vulns", params={"q": f"Loc vuln {tag}", "loc_state": "IL"})).json()["vulns"]
     assert len(vr) == 1 and vr[0]["affected_devices"] == 1   # only the Illinois asset counts
+
+
+@pytest.mark.asyncio
+async def test_assets_are_found_by_their_external_ip(db, client_cyber):
+    import random
+
+    from api.core.encryption import search_hash
+    from api.models.device import Device, DeviceType
+    pub, lan = f"203.0.113.{random.randint(1, 254)}", f"10.{random.randint(1, 99)}.{random.randint(0, 255)}.7"
+    name = f"ext-{uuid.uuid4().hex[:6]}"
+    db.add(Device(hostname=name, device_type=DeviceType.workstation, ip=lan, ip_hash=search_hash(lan),
+                  public_ip=pub, public_ip_hash=search_hash(pub)))
+    await db.commit()
+    for q in (pub, lan):
+        names = [d["hostname"].lower() for d in (await client_cyber.get("/api/v1/devices", params={"q": q})).json()["devices"]]
+        assert name in names, q

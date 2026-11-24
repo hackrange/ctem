@@ -110,7 +110,8 @@ async def _run(db: AsyncSession, splunk, lookups: list[dict], earliest: str) -> 
 
 
 async def investigate(db: AsyncSession, question: str, time_range: str = "7d",
-                      progress: Callable[[str], None] = lambda s: None) -> dict:
+                      progress: Callable[[str], None] = lambda s: None, always: list[dict] | None = None) -> dict:
+    """always: lookups that run every time, whatever plan is reused (the dashboard watch always reads the alerts)."""
     time_range = time_range if time_range in TIME_RANGES else "7d"
     earliest, label = TIME_RANGES[time_range], TIME_LABELS[time_range]
     notes: list[str] = []
@@ -165,6 +166,9 @@ async def investigate(db: AsyncSession, question: str, time_range: str = "7d",
             notes.append("The AI could not plan searches, so keyword searches were used.")
             lookups = _vet(fallback.plan(question, schema if splunk else None), notes)
 
+    if always:   # never part of the saved plan, so a reused plan can't drop them
+        have = {(lk.get("table"), str(lk.get("filters"))) for lk in lookups}
+        lookups = lookups + [lk for lk in _vet(always, notes) if (lk.get("table"), str(lk.get("filters"))) not in have]
     progress("Searching every connected source")
     results = await _run(db, splunk, lookups, earliest)
 
@@ -173,8 +177,10 @@ async def investigate(db: AsyncSession, question: str, time_range: str = "7d",
         more = _vet(await hunt_ai.follow_leads(ai, question, splunk_map, ctem_map, evidence_brief(results)), notes)
         if more:
             results += await _run(db, splunk, more, earliest)
-        if from_ai:  # keyword fallbacks are never saved as if the AI had chosen them
-            await memory.save_plan(db, question, fp, [r for r in results if not r.get("error")])
+        if from_ai:  # keyword fallbacks are never saved as if the AI had chosen them; the "always" lookups aren't plan
+            fixed = {(lk.get("table"), str(lk.get("filters"))) for lk in _vet(always or [], [])}
+            await memory.save_plan(db, question, fp, [r for r in results if not r.get("error")
+                                                      and (r.get("table"), str(r.get("filters"))) not in fixed])
 
     evidence = evidence_brief(results)
     key = memory.answer_key(question, time_range, evidence)

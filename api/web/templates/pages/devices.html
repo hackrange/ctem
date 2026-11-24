@@ -30,7 +30,7 @@
       <svg class="search-icon" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
         <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
       </svg>
-      <input id="search-input" type="search" class="search-bar" placeholder="Hostname, user, IP, MAC, or tag"
+      <input id="search-input" type="search" class="search-bar" placeholder="Hostname, user, internal or external IP, MAC, or tag"
         autocomplete="off" spellcheck="false" aria-label="Search devices">
     </div>
     <select id="filter-grade" class="filter-select" aria-label="Grade">
@@ -136,11 +136,11 @@ Object.entries(CARD).forEach(([k, [re]]) => { const v = initial.get(k); if (v &&
 // Hosts, Repositories (code), Web apps (sites) or All: repositories and sites are not devices, so each tab has its
 // own title and columns. Hosts is the default.
 const ASSETS = {
-  hosts: { title: 'Hosts', sub: 'Workstations, servers, network devices and cloud instances', search: 'Hostname, user, IP, MAC, or tag' },
+  hosts: { title: 'Hosts', sub: 'Workstations, servers, network devices and cloud instances', search: 'Hostname, user, internal or external IP, MAC, or tag' },
   repositories: { title: 'Repositories', sub: 'Code your SAST, dependency and secrets scanners check', search: 'Repository name or tag' },
   sites: { title: 'Web applications', sub: 'Sites your DAST and web scanners check', search: 'Site or tag' },
   cloud: { title: 'Cloud resources', sub: 'Accounts, buckets, roles and networks your CSPM tool checks', search: 'Resource name or tag' },
-  all: { title: 'All assets', sub: 'Hosts, repositories and web applications', search: 'Name, user, IP, MAC, or tag' },
+  all: { title: 'All assets', sub: 'Hosts, repositories and web applications', search: 'Name, user, internal or external IP, MAC, or tag' },
 };
 const asset = ASSETS[initial.get('asset')] ? initial.get('asset') : 'hosts';
 $('inv-title').textContent = ASSETS[asset].title;
