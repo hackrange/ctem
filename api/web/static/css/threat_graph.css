@@ -37,3 +37,6 @@
 .agp-ai { border-left: 4px solid var(--accent); }
 @media (max-width: 900px) { .agp { grid-template-columns: 1fr; height: auto; } .agp__steps { max-height: 300px; border-right: 0; }
   .agp__map { height: 460px; } }
+.agp:fullscreen { height: 100vh; width: 100vw; background: var(--bg-page, #fff); border-radius: 0; margin: 0; }
+.agp:fullscreen .agp__steps { max-height: none; }
+.agp--page { height: calc(100vh - 150px); min-height: 480px; }

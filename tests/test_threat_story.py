@@ -125,3 +125,10 @@ async def test_the_ai_read_sees_names_and_mitre_only_and_is_saved(db, client_cyb
     monkeypatch.setattr(hunt_ai, "get_ai", ai_off)
     assert (await client_cyber.post("/api/v1/threat/alerts/explain", json={"id": key})).json() == {"available": False}
     assert (await client_cyber.post("/api/v1/threat/alerts/explain", json={"id": "threat_alert_nope:1"})).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_the_attack_path_opens_in_its_own_page(client_cyber, client_read_only):
+    r = await client_cyber.get("/threat/alert/map", params={"id": "threat_alert_x:1"})
+    assert r.status_code == 200 and 'id="agp-map"' in r.text and "threat_alert_map.js" in r.text and "attack_map.js" in r.text
+    assert (await client_read_only.get("/threat/alert/map", params={"id": "threat_alert_x:1"})).status_code in (302, 303, 403, 404)

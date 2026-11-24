@@ -34,8 +34,11 @@ window.AttackMap = (() => {
   function mount(root, onPick) {
     root.classList.add('agp__map');
     root.innerHTML = `<svg role="img" aria-label="Attack map"></svg><div class="agp__info" style="display:none"></div>
-      <div class="agp__zoom"><button type="button" data-z="in" aria-label="Zoom in">+</button>
-        <button type="button" data-z="out" aria-label="Zoom out">&minus;</button><button type="button" data-z="fit" aria-label="Fit to view">&#x26F6;</button></div>`;
+      <div class="agp__zoom"><button type="button" data-z="in" aria-label="Zoom in" title="Zoom in">+</button>
+        <button type="button" data-z="out" aria-label="Zoom out" title="Zoom out">&minus;</button>
+        <button type="button" data-z="fit" aria-label="Fit to view" title="Fit to view">&#x2316;</button>
+        <button type="button" data-z="turn" aria-label="Switch between left to right and top to bottom" title="Left to right / top to bottom">&#x21C5;</button>
+        <button type="button" data-z="max" aria-label="Full screen" title="Full screen (Esc to leave)">&#x26F6;</button></div>`;
     const svg = root.querySelector('svg'), info = root.querySelector('.agp__info');
     let graph = null, view = null, full = null, drag = null;
     const setView = v => { view = v; svg.setAttribute('viewBox', `${v.x} ${v.y} ${v.w} ${v.h}`); };
@@ -45,7 +48,18 @@ window.AttackMap = (() => {
       setView({ x: nx - (nx - v.x) * (w / v.w), y: ny - (ny - v.y) * (h / v.h), w, h });
     }
 
-    function draw(g) {
+    let source = null;
+    let vertical = localStorage.getItem('ctem.map.orient') === 'v';
+    // Top to bottom: each column of the server's layout becomes a row, spaced so labels don't collide
+    function turned(g) {
+      const nodes = g.nodes.map(n => ({ ...n, x: 90 + (n.y - 60) * 2.3, y: 60 + (n.x - 90) * 0.62 }));
+      const w = Math.max(...nodes.map(n => n.x), 0) + 200, h = Math.max(...nodes.map(n => n.y), 0) + 90;
+      return { ...g, nodes, w, h };
+    }
+
+    function draw(input) {
+      source = input;
+      const g = vertical ? turned(input) : input;
       graph = g;
       svg.innerHTML = '';
       full = { x: -20, y: 0, w: g.w + 40, h: g.h };
@@ -60,10 +74,20 @@ window.AttackMap = (() => {
       g.edges.forEach((e, i) => {
         const a = pos[e.from], b = pos[e.to];
         if (!a || !b) return;
-        const c = e.hot ? '#e05252' : '#e8913a', down = Math.abs(b.x - a.x) < 1;
-        // left to right between columns; straight down within one, below the first box's label
-        const [x1, y1, x2, y2] = down ? [a.x, a.y + R + 36, b.x, b.y - R - 6] : [a.x + R, a.y, b.x - R - 6, b.y];
-        const d = down ? `M${x1},${y1} L${x2},${y2}` : `M${x1},${y1} C${(x1 + x2) / 2},${y1} ${(x1 + x2) / 2},${y2} ${x2},${y2}`;
+        const c = e.hot ? '#e05252' : '#e8913a';
+        // Between levels: left to right (or top to bottom when turned); within one level: straight across or down
+        const sameCol = Math.abs(b.x - a.x) < 1, sameRow = Math.abs(b.y - a.y) < 1;
+        let x1, y1, x2, y2, d;
+        if (vertical && !sameRow) {
+          [x1, y1, x2, y2] = [a.x, a.y + R + 36, b.x, b.y - R - 6];
+          d = `M${x1},${y1} C${x1},${(y1 + y2) / 2} ${x2},${(y1 + y2) / 2} ${x2},${y2}`;
+        } else if (sameCol) {
+          [x1, y1, x2, y2] = [a.x, a.y + R + 36, b.x, b.y - R - 6];
+          d = `M${x1},${y1} L${x2},${y2}`;
+        } else {
+          [x1, y1, x2, y2] = b.x > a.x ? [a.x + R, a.y, b.x - R - 6, b.y] : [a.x - R, a.y, b.x + R + 6, b.y];
+          d = `M${x1},${y1} C${(x1 + x2) / 2},${y1} ${(x1 + x2) / 2},${y2} ${x2},${y2}`;
+        }
         const grp = el('g', { class: 'agp-edge', 'data-i': i }, edges);
         el('path', { d, stroke: c, 'stroke-width': e.hot ? 2.6 : 1.5, 'marker-end': `url(#agp-arrow-${e.hot ? 'hot' : 'cool'})` }, grp);
         const label = cut(e.label, 20), lw = label.length * 6 + 16, pill = el('g', { class: 'agp-pill' }, grp);
@@ -144,8 +168,20 @@ window.AttackMap = (() => {
     }, { passive: false });
     root.querySelector('.agp__zoom').addEventListener('click', e => {
       const z = e.target.closest('button') && e.target.closest('button').dataset.z;
-      if (z === 'in') zoom(1 / 1.25); else if (z === 'out') zoom(1.25); else if (z === 'fit') setView({ ...full });
+      if (z === 'in') zoom(1 / 1.25);
+      else if (z === 'out') zoom(1.25);
+      else if (z === 'fit') setView({ ...full });
+      else if (z === 'turn') {
+        vertical = !vertical;
+        localStorage.setItem('ctem.map.orient', vertical ? 'v' : 'h');
+        if (source) draw(source);
+      } else if (z === 'max') {
+        const box = root.closest('.agp') || root;   // the story cards come along
+        if (document.fullscreenElement) document.exitFullscreen();
+        else if (box.requestFullscreen) box.requestFullscreen().catch(() => {});
+      }
     });
+    document.addEventListener('fullscreenchange', () => { if (full) setView({ ...full }); });
     info.addEventListener('click', e => { if (e.target.dataset.clear) clear(); });
     return { draw, follow, clear };
   }

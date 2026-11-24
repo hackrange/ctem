@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% set active_nav = 'threat' %}
+
+{% block title %}Attack path -- open-ctem{% endblock %}
+
+{% block extra_head %}<link rel="stylesheet" href="{{ static('css/threat_graph.css') }}" />{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div style="min-width:0">
+    <p class="text-sm"><a href="/threat" class="dt-link" style="color:var(--fg-muted)" id="agp-back">&larr; Back to the alert</a></p>
+    <h1 class="page-header__title" id="agp-title" style="overflow-wrap:anywhere">Attack path</h1>
+    <p class="page-header__sub">Click a step for its path, a box to follow it; drag to move, scroll to zoom. &#x21C5; switches between left to right
+      and top to bottom, &#x26F6; fills the screen.</p>
+  </div>
+</div>
+<div class="panel" id="al-graph-panel" style="display:none;padding:0">
+  <div class="agp agp--page">
+    <div class="agp__steps" id="agp-steps" aria-label="The story: this alert and the alerts tied to it"></div>
+    <div id="agp-map"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ static('js/threat_common.js') }}"></script>
+<script src="{{ static('js/attack_map.js') }}"></script>
+<script src="{{ static('js/threat_graph.js') }}"></script>
+<script src="{{ static('js/threat_alert_map.js') }}"></script>
+{% endblock %}

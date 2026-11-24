@@ -41,6 +41,8 @@
   function render(a, T) {
     if (!a.graph || !a.graph.nodes.length) return;
     $('al-graph-panel').style.display = '';
+    const tab = $('agp-newtab');
+    if (tab) tab.href = `/threat/alert/map?id=${encodeURIComponent(a.id)}`;
     map = AttackMap.mount($('agp-map'));
     steps(a.steps || [], T);
     shown = a.id;
