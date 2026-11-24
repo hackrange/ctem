@@ -58,29 +58,68 @@ class InsightVMConnector(ConsoleMixin, BaseConnector):
         keep = {s.lower() for s in self._severities()}
         fetched: set[str] = set()  # every vuln id already looked up, kept or trimmed
         vuln_ids: dict[str, str] = {}  # rapid7 vuln id -> our Vulnerability.id
-        count = 0
+        count, seen_ids = 0, set()
+
+        async def take(page, known_first: bool) -> int:
+            wanted = {f["vulnerability_id"] for a in page for f in a.get("same", []) + a.get("new", [])
+                      + a.get("remediated", []) if r7.safe_id(f.get("vulnerability_id", ""))}
+            todo = sorted(wanted - fetched - vuln_ids.keys())
+            if known_first:
+                # Vulns already stored need no API call (the weekly full sync refreshes them)
+                vuln_ids.update(await self._known_vulns(todo, db))
+                todo = [v for v in todo if v not in vuln_ids]
+            fetched.update(todo)
+            fresh = await self._cloud_vulns(client, todo)
+            # The v4 API takes the severity filter but still returns every finding per asset, so trim here
+            fresh = {k: v for k, v in fresh.items() if (v.get("severity") or "").lower() in keep}
+            await self._upsert_vulns(fresh, vuln_ids, db)
+            n = await self._upsert_cloud(page, vuln_ids, db)
+            db.expunge_all()  # keep the identity map from growing across pages
+            return n
+
         async with safe_client(timeout=120.0) as client:
             async for page in self._cloud_asset_pages(client, since):
-                wanted = {f["vulnerability_id"] for a in page for f in a.get("same", []) + a.get("new", [])
-                          + a.get("remediated", []) if r7.safe_id(f.get("vulnerability_id", ""))}
-                todo = sorted(wanted - fetched - vuln_ids.keys())
-                if since is not None:
-                    # Incremental: vulns already stored need no API call (the weekly full sync refreshes them)
-                    vuln_ids.update(await self._known_vulns(todo, db))
-                    todo = [v for v in todo if v not in vuln_ids]
-                fetched.update(todo)
-                fresh = await self._cloud_vulns(client, todo)
-                # The v4 API takes the severity filter but still returns every finding per asset, so trim here
-                fresh = {k: v for k, v in fresh.items() if (v.get("severity") or "").lower() in keep}
-                await self._upsert_vulns(fresh, vuln_ids, db)
-                count += await self._upsert_cloud(page, vuln_ids, db)
-                db.expunge_all()  # keep the identity map from growing across pages
+                seen_ids.update(str(a["id"]) for a in page if a.get("id"))
+                count += await take(page, since is not None)
+            if since is not None:
+                # A host CTEM had cleaned up as gone that the scanner reports again: its whole finding list, now,
+                # not just what's new (an incremental answer leaves out findings it already had)
+                count += await self._returned(client, db, seen_ids, take)
         if not self.config.get("max_assets"):  # a capped run is not a complete picture
             await save_sync_state(db, self.integration_id, {
                 "last_success": started.isoformat(),
                 "last_full": started.isoformat() if since is None else state.get("last_full"),
             })
         return count
+
+    async def _returned(self, client, db, seen_ids: set[str], take) -> int:
+        from sqlalchemy import select, update
+
+        from api.models.device import Device
+        if not seen_ids:
+            return 0
+        back = []
+        ids = sorted(seen_ids)
+        for i in range(0, len(ids), 500):
+            back += (await db.execute(select(Device.source_id).where(
+                Device.source == "rapid7_insightvm", Device.source_id.in_(ids[i:i + 500]), Device.pruned_at.is_not(None)))).scalars().all()
+        back = [b for b in back if r7.safe_id(str(b))]
+        if not back:
+            return 0
+        n, mode = 0, self.last_mode
+        self.last_mode = "full"   # a full answer for these hosts: ports and findings as they stand
+        try:
+            for i in range(0, len(back), 100):
+                async for page in self._cloud_asset_pages(client, None, ids=back[i:i + 100]):
+                    n += await take(page, True)   # vulns CTEM already has need no catalog call
+        finally:
+            self.last_mode = mode
+        for i in range(0, len(back), 500):
+            await db.execute(update(Device).where(Device.source == "rapid7_insightvm", Device.source_id.in_(back[i:i + 500]))
+                             .values(pruned_at=None))
+        await db.commit()
+        log.info("InsightVM: %d host%s back after being cleaned up as gone; read in full", len(back), "" if len(back) == 1 else "s")
+        return n
 
     def _incremental_since(self, state: dict, now: datetime) -> datetime | None:
         """Ask only for changes when the last full sync is recent; otherwise do a full sync."""
@@ -112,10 +151,12 @@ class InsightVMConnector(ConsoleMixin, BaseConnector):
     def _severity_filter(self) -> str:
         return "vulnerability.severity IN [" + ",".join(f"'{s}'" for s in self._severities()) + "]"
 
-    async def _cloud_asset_pages(self, client, since: datetime | None = None):
+    async def _cloud_asset_pages(self, client, since: datetime | None = None, ids: list[str] | None = None):
         cap = r7.int_cfg(self.config, "max_assets", 0, 0, 1_000_000)  # 0 = every asset
         body_filter = {"vulnerability": self._severity_filter()}
         params = {"includeSame": "true"}
+        if ids:   # just these assets, everything they have (ids checked by safe_id before they get here)
+            body_filter["asset"] = "asset.id IN [" + ",".join(f"'{i}'" for i in ids if r7.safe_id(i)) + "]"
         if since is not None:
             # Only assets scanned since the bookmark, and only their new + remediated findings
             stamp = since.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")

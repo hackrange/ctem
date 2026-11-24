@@ -144,3 +144,46 @@ async def test_insightvm_streams_every_page_and_trims_severity(db, monkeypatch):
                           .where(Vulnerability.source_vuln_id == f"{run}-crit"))).scalar_one()
     assert n == 5
     assert c.config.get("max_assets") is None  # no cap unless someone sets one
+
+
+@pytest.mark.asyncio
+async def test_a_host_back_from_cleanup_is_read_in_full(db, monkeypatch):
+    import json
+    from datetime import datetime, timedelta, timezone
+
+    import httpx
+    from sqlalchemy import select
+
+    from api.integrations import rapid7_insightvm
+    from api.models.device import Device, DeviceType
+    from api.models.vuln import Finding, Vulnerability
+    run = uuid.uuid4().hex[:6]
+    aid = f"{run}-back"
+    dev = Device(hostname=f"back-{run}", device_type=DeviceType.server, source="rapid7_insightvm", source_id=aid,
+                 pruned_at=datetime.now(timezone.utc) - timedelta(days=1))
+    v = Vulnerability(source="rapid7_insightvm", source_vuln_id=f"{run}-old", title="Old finding", cvss_base=9.0)
+    db.add_all([dev, v])
+    await db.commit()
+    bodies = []
+
+    def fake_client(**_):
+        def handler(request):
+            if request.url.path.endswith("/assets"):
+                body = json.loads(request.content)
+                bodies.append((dict(request.url.params), body))
+                full = "asset.id IN" in (body.get("asset") or "")
+                findings = {"same": [{"vulnerability_id": f"{run}-old"}]} if full else {"new": []}
+                return httpx.Response(200, json={"data": [{"id": aid, "host_name": f"back-{run}", **findings}], "metadata": {}})
+            return httpx.Response(200, json={"data": []})
+        return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    monkeypatch.setattr(rapid7_insightvm, "safe_client", fake_client)
+    c = get_connector("rapid7_insightvm", {"api_key": "example-not-a-key"})
+    c.integration_id = None
+    monkeypatch.setattr(c, "_incremental_since", lambda state, now: now - timedelta(hours=6))
+    await c.sync(db)
+    params, body = bodies[-1]
+    assert body["asset"] == f"asset.id IN ['{aid}']" and params["includeSame"] == "true"   # just that host, everything it has
+    f = (await db.execute(select(Finding).where(Finding.device_id == dev.id))).scalars().all()
+    assert len(f) == 1
+    again = (await db.execute(select(Device).where(Device.id == dev.id).execution_options(populate_existing=True))).scalar_one()
+    assert again.pruned_at is None

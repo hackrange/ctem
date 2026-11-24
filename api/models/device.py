@@ -88,6 +88,8 @@ class Device(Base, UUIDPrimaryKey, TimestampMixin):
     probed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     alive_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     alive_ports: Mapped[str | None] = mapped_column(String(256))   # "22/tcp 445/tcp", or "icmp" when only ping answered
+    silent_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))   # first unanswered probe; cleared by any answer
+    pruned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))      # its findings were removed as gone (stale_hosts)
     raw_risk_score: Mapped[float | None] = mapped_column(Float)  # score before the containment discount
     raw_risk_grade: Mapped[str | None] = mapped_column(String(1))
     # From the EDR's policies; None means the feed couldn't tell us

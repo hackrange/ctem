@@ -137,6 +137,18 @@ async def test_what_answers_is_recorded_and_unknown_devices_appear(db):
     assert known.alive_ports == "80/tcp 554/tcp" and known.alive_at and ",netprobe," in known.sources
     rogue = (await db.execute(select(Device).where(Device.ip_hash == search_hash(f"{net}.77")))).scalar_one()
     assert rogue.source == "netprobe" and rogue.alive_ports == "23/tcp" and rogue.hostname == f"{net}.77"
+    assert known.silent_since is None   # it answered
+    # A silence starts a clock that only an answer stops
+    later = datetime.now(timezone.utc)
+    await netprobe.apply(db, [{"ip": f"{net}.50", "alive": False, "icmp": False, "ports": [], "at": now}])
+    await netprobe.apply(db, [{"ip": f"{net}.50", "alive": False, "icmp": False, "ports": [], "at": later}])
+    await db.commit()
+    await db.refresh(known)
+    assert known.silent_since == now or known.silent_since.replace(tzinfo=None) == now.replace(tzinfo=None)   # from the first silence
+    await netprobe.apply(db, [{"ip": f"{net}.50", "alive": True, "icmp": True, "ports": [], "at": later}])
+    await db.commit()
+    await db.refresh(known)
+    assert known.silent_since is None
     assert (await db.execute(select(Device).where(Device.ip_hash == search_hash(f"{net}.99")))).scalar_one_or_none() is None
 
 

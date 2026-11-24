@@ -1,8 +1,8 @@
 """Daily: a host that's gone loses its vulnerabilities; they're removed, not kept as history (Admin > Data retention).
 
 Gone means both: no tool has seen it in N days (no scan, EDR check-in, directory logon, finding a tool still reports,
-cloud inventory row or network probe answer), AND the network probe tried it in the last few days and got no answer
-(no ping reply, nothing on the common ports). Every such host is put on the probe's list (api/core/netprobe.py), so
+cloud inventory row or network probe answer), AND the network probe has found it silent for M days running and is still
+trying it (no ping reply, nothing on the common ports; any answer restarts the count). 30 + 7 by default: 37 days at least. Every such host is put on the probe's list (api/core/netprobe.py), so
 nothing is removed on a guess: a host the probe hasn't tried, or one with no internal address to try, keeps its
 findings. Its asset record stays for the stale-record checks; one only the probe ever knew, silent all that time, is
 removed too. A scanner reporting the host again brings its findings back."""
@@ -18,6 +18,13 @@ log = logging.getLogger("open-ctem.stale_hosts")
 
 def _quiet(col, cut):
     return or_(col.is_(None), col < cut)
+
+
+def silent_for(cut, quiet_for):
+    """Confirmed not live: silent to the probe since `quiet_for` without a break, and still tried in that time."""
+    from api.models.device import Device
+    return and_(Device.silent_since.is_not(None), Device.silent_since <= quiet_for,
+                Device.probed_at.is_not(None), Device.probed_at >= quiet_for, _quiet(Device.alive_at, cut))
 
 
 def unseen(cut):
@@ -40,16 +47,15 @@ async def prune(db, days: int | None = None) -> dict:
         return {"hosts": 0, "findings": 0, "probe_only": 0, "disabled": True}
     now = datetime.now(timezone.utc)
     cut = now - timedelta(days=int(days or cfg["stale_host_days"]))
-    tried = now - timedelta(days=cfg["probe_within_days"])
-    # Confirmed not live: the probe tried it recently and it didn't answer
-    confirmed = and_(Device.probed_at.is_not(None), Device.probed_at >= tried, _quiet(Device.alive_at, cut))   # never NULL
+    quiet_for = now - timedelta(days=cfg["probe_within_days"])
+    confirmed = silent_for(cut, quiet_for)
     ids = (await db.execute(select(Device.id).where(unseen(cut), confirmed, exists(select(Finding.id).where(Finding.device_id == Device.id)))
                             .limit(100_000))).scalars().all()
     removed = 0
     for i in range(0, len(ids), 500):
         part = ids[i:i + 500]
         removed += (await db.execute(delete(Finding).where(Finding.device_id.in_(part)))).rowcount or 0
-        await db.execute(update(Device).where(Device.id.in_(part)).values(open_findings=0, kev_findings=0))
+        await db.execute(update(Device).where(Device.id.in_(part)).values(open_findings=0, kev_findings=0, pruned_at=now))
     ghosts = (await db.execute(select(Device.id).where(Device.sources == ",netprobe,", _quiet(Device.alive_at, cut), confirmed))).scalars().all()
     for i in range(0, len(ghosts), 500):
         await db.execute(delete(Device).where(Device.id.in_(ghosts[i:i + 500])))

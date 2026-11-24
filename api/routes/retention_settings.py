@@ -25,16 +25,15 @@ class RetentionBody(BaseModel):
 async def get_retention(admin: User = Depends(require_admin), db: AsyncSession = Depends(get_session)):
     from datetime import datetime, timedelta, timezone
 
-    from sqlalchemy import and_, exists, func, select
+    from sqlalchemy import exists, func, select
 
-    from api.core.stale_hosts import _quiet, unseen
+    from api.core.stale_hosts import silent_for, unseen
     from api.models.device import Device
     from api.models.vuln import Finding
     cfg = await retention.load(db)
     cut = datetime.now(timezone.utc) - timedelta(days=cfg["stale_host_days"])
-    tried = datetime.now(timezone.utc) - timedelta(days=cfg["probe_within_days"])
     has = exists(select(Finding.id).where(Finding.device_id == Device.id))
-    confirmed = and_(Device.probed_at.is_not(None), Device.probed_at >= tried, _quiet(Device.alive_at, cut))
+    confirmed = silent_for(cut, datetime.now(timezone.utc) - timedelta(days=cfg["probe_within_days"]))
     count = lambda *w: select(func.count()).select_from(Device).where(*w)   # noqa: E731
     return {**cfg, "limits": retention.LIMITS, "defaults": retention.defaults(),
             "now": {"unseen_with_findings": (await db.execute(count(unseen(cut), has))).scalar_one(),

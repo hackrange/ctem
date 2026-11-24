@@ -9,7 +9,7 @@
     $('ret-days').value = d.stale_host_days;
     $('ret-probe').value = d.probe_within_days;
     $('ret-now').innerHTML = `Right now: <b>${esc(d.now.unseen_with_findings)}</b> hosts with findings haven't been seen in ${esc(d.stale_host_days)} days;
-      <b>${esc(d.now.confirmed_offline)}</b> of them the probe has confirmed offline (those lose their findings at the next daily run, 03:30 UTC).`;
+      <b>${esc(d.now.confirmed_offline)}</b> of them have been silent to the network probe long enough to count as gone (those lose their findings at the next daily run, 03:30 UTC).`;
   }
   $('ret-form').addEventListener('submit', async e => {
     e.preventDefault();

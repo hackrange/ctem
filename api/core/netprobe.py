@@ -66,8 +66,10 @@ async def apply(db, probes: list[dict]) -> int:
             db.add(d)   # something answered that no tool knows
         d.probed_at = when
         if p.get("alive"):
-            d.alive_at, d.alive_ports = when, (ports or "")[:256] or None
+            d.alive_at, d.alive_ports, d.silent_since = when, (ports or "")[:256] or None, None
             add_source(d, SOURCE)
+        elif d.silent_since is None:
+            d.silent_since = when   # the start of a silence; only an unbroken one counts toward "gone"
         n += 1
     await db.flush()
     return n

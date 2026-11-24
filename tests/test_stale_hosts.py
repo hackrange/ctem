@@ -26,18 +26,22 @@ async def _hosts(db):
         db.add(d)
         return d
     hosts = {
-        "confirmed": host("confirmed", 10, sources=",rapid7_insightvm,", last_seen=OLD, probed_at=NOW - timedelta(days=1)),
+        "confirmed": host("confirmed", 10, sources=",rapid7_insightvm,", last_seen=OLD, probed_at=NOW - timedelta(days=1),
+                          silent_since=NOW - timedelta(days=8)),
+        "just_silent": host("justsilent", 15, sources=",rapid7_insightvm,", last_seen=OLD, probed_at=NOW - timedelta(hours=1),
+                            silent_since=NOW - timedelta(hours=1)),   # one silent probe isn't 7 days of silence
         "untried": host("untried", 11, sources=",rapid7_insightvm,", last_seen=OLD),
         "answered": host("answered", 12, sources=",rapid7_insightvm,netprobe,", last_seen=OLD, probed_at=NOW - timedelta(days=1),
                          alive_at=NOW - timedelta(days=1)),
         "scanned": host("scanned", 13, sources=",rapid7_insightvm,", last_seen=NOW - timedelta(days=2)),
-        "silent_probe": host("silent", 14, sources=",netprobe,", kind=DeviceType.unknown, alive_at=OLD, probed_at=NOW - timedelta(days=1)),
+        "silent_probe": host("silent", 14, sources=",netprobe,", kind=DeviceType.unknown, alive_at=OLD, probed_at=NOW - timedelta(days=1),
+                             silent_since=NOW - timedelta(days=9)),
     }
     v = Vulnerability(source="t_stale", source_vuln_id=f"s{tag}", title="Stale test vuln")
     db.add(v)
     await db.flush()
     db.add_all([Finding(device_id=hosts[k].id, vuln_id=v.id, source="t_stale", status=FindingStatus.open, last_seen=OLD)
-                for k in ("confirmed", "untried", "answered", "scanned")])
+                for k in ("confirmed", "untried", "answered", "scanned", "just_silent")])
     await db.commit()
     return {k: d.id for k, d in hosts.items()}, {k: d.ip for k, d in hosts.items()}
 
@@ -56,6 +60,7 @@ async def test_only_hosts_the_probe_confirmed_offline_lose_their_findings(db):
     assert got["hosts"] >= 1 and got["probe_only"] >= 1 and got["waiting_for_probe"] >= 1
     assert await _findings(db, ids["confirmed"]) == []
     assert len(await _findings(db, ids["untried"])) == 1     # unseen, but nobody checked it's gone: kept
+    assert len(await _findings(db, ids["just_silent"])) == 1  # silent, but not for 7 days yet: kept
     assert len(await _findings(db, ids["answered"])) == 1    # it answered the probe: alive
     assert len(await _findings(db, ids["scanned"])) == 1
     assert (await db.execute(select(Device).where(Device.id == ids["confirmed"]))).scalar_one_or_none() is not None
