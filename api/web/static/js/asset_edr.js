@@ -169,5 +169,5 @@ window.AssetEdr = (() => {
     one(id, 'posture', 'Posture', posture);
     one(id, 'pentest', 'Pentest', pentest);
   }
-  return { mount, adopt };
+  return { mount, adopt, addTab };
 })();

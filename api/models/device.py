@@ -75,6 +75,15 @@ class Device(Base, UUIDPrimaryKey, TimestampMixin):
     edr_domain: Mapped[str | None] = mapped_column(String(253))
     public_ip: Mapped[str | None] = mapped_column(EncryptedString)
     public_ip_hash: Mapped[str | None] = mapped_column(String(64), index=True)  # HMAC, to group hosts sharing one
+    # Where CTEM thinks it is (api/core/location.py): plain so lists can filter by it; the evidence is encrypted
+    subnet_hash: Mapped[str | None] = mapped_column(String(64), index=True)     # HMAC of its /24, to find neighbors
+    loc_site: Mapped[str | None] = mapped_column(String(128))
+    loc_office: Mapped[str | None] = mapped_column(String(128))
+    loc_city: Mapped[str | None] = mapped_column(String(128), index=True)
+    loc_state: Mapped[str | None] = mapped_column(String(64), index=True)
+    loc_confidence: Mapped[str | None] = mapped_column(String(8))               # high, medium, low
+    loc_evidence: Mapped[list | None] = mapped_column(EncryptedJSON)
+    loc_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     raw_risk_score: Mapped[float | None] = mapped_column(Float)  # score before the containment discount
     raw_risk_grade: Mapped[str | None] = mapped_column(String(1))
     # From the EDR's policies; None means the feed couldn't tell us

@@ -29,7 +29,7 @@ def test_shipper_sends_falcon_site_and_addresses_only_when_well_formed():
                     "ou": ["Workstations", "Branches", 7]})
     assert d["site_name"] == "SPI-0412" and d["external_ip"] == "203.0.113.7" and d["local_ip"] == "10.0.12.5"
     assert d["mac"] == "aa:bb:cc:00:11:22" and d["ou"] == ["Workstations", "Branches"] and d["machine_domain"] == "ad.acme.example"
-    bad = cs._device({"hostname": "desktop002", "external_ip": "999.1.1.1", "mac_address": "nope", "ou": "notalist"})
+    bad = cs._device({"hostname": "desktop002", "external_ip": "198.51.100.999", "mac_address": "nope", "ou": "notalist"})
     assert bad["external_ip"] is None and bad["mac"] is None and bad["ou"] is None
 
 
@@ -74,3 +74,80 @@ async def test_ad_office_fields_are_stored_encrypted(db):
     assert (u.city, u.state, u.office, u.postal_code, u.department) == ("Springfield", "IL", "Branch 0412", "62701", "Field Ops")
     raw = (await db.execute(text("select city, office from users where id = :i"), {"i": u.id})).one()
     assert "Springfield" not in raw[0] and "Branch" not in raw[1]
+
+
+def test_subnet_of():
+    from api.core.location import subnet_of
+    assert subnet_of("10.82.180.50") == "10.82.180.0/24"
+    assert subnet_of("203.0.113.7") is None and subnet_of("nope") is None and subnet_of(None) is None
+
+
+@pytest.mark.asyncio
+async def test_a_camera_takes_its_neighborhoods_office(db):
+    import random
+
+    from api.core import location
+    from api.core.encryption import search_hash
+    from api.models.device import Device, DeviceType
+    from api.models.user import User
+    net = f"10.{random.randint(200, 250)}.{random.randint(0, 255)}"
+    tag = uuid.uuid4().hex[:6]
+    people = []
+    for i in range(3):
+        u = User(username=f"loc{tag}{i}", is_local=False, office="Branch 0412", city="Springfield", state="IL")
+        db.add(u)
+        people.append(u)
+    db.add(User(username=f"loc{tag}x", is_local=False, office="HQ", city="Dallas", state="TX"))
+    await db.flush()
+
+    def host(name, last, ip, kind=DeviceType.workstation, **kw):
+        d = Device(hostname=f"{name}-{tag}", device_type=kind, ip=ip, ip_hash=search_hash(ip), last_login_user=last, **kw)
+        db.add(d)
+        return d
+    ws = [host(f"ws{i}", f"ACME\\loc{tag}{i}", f"{net}.{10 + i}", edr_site=f"SPI-{tag}") for i in range(3)]
+    traveler = host("ws9", f"loc{tag}x", f"{net}.19")              # one person from HQ signs in here too
+    camera = host("cam", None, f"{net}.50", kind=DeviceType.unknown)
+    far = host("far", None, f"10.{random.randint(1, 99)}.{random.randint(0, 255)}.5", kind=DeviceType.unknown)
+    await db.commit()
+    await location.recompute(db)
+    for d in (*ws, traveler, camera, far):
+        await db.refresh(d)
+    assert (ws[0].loc_site, ws[0].loc_office, ws[0].loc_city, ws[0].loc_state, ws[0].loc_confidence) == (
+        f"SPI-{tag}", "Branch 0412", "Springfield", "IL", "high")
+    assert (camera.loc_city, camera.loc_state, camera.loc_office) == ("Springfield", "IL", "Branch 0412")
+    assert camera.loc_confidence == "medium" and any(f"{net}.0/24" in r for r in camera.loc_evidence)
+    assert all(f"loc{tag}" not in r for r in camera.loc_evidence + ws[0].loc_evidence)   # counts, never names
+    assert camera.subnet_hash == ws[0].subnet_hash == search_hash(f"{net}.0/24")
+    assert far.loc_city is None and far.loc_confidence is None   # nothing near it knows anything
+
+
+@pytest.mark.asyncio
+async def test_context_tab_shows_neighbors_gaps_and_is_for_the_security_team(db, client_cyber, client_read_only):
+    import random
+
+    from api.core import location
+    from api.core.encryption import search_hash
+    from api.models.device import Device, DeviceType
+    net = f"10.{random.randint(200, 250)}.{random.randint(0, 255)}"
+    tag = uuid.uuid4().hex[:6]
+    pub = f"198.51.100.{random.randint(1, 254)}"
+    cam = Device(hostname=f"cam-{tag}", device_type=DeviceType.unknown, ip=f"{net}.50", ip_hash=search_hash(f"{net}.50"), sources=",horizon3,")
+    ws = Device(hostname=f"ws-{tag}", device_type=DeviceType.workstation, ip=f"{net}.11", ip_hash=search_hash(f"{net}.11"),
+                sources=",crowdstrike,rapid7_insightvm,ldap,", edr_vendor="crowdstrike", edr_site=f"SPI-{tag}",
+                public_ip=pub, public_ip_hash=search_hash(pub))
+    db.add_all([cam, ws])
+    await db.commit()
+    cam_id = cam.id
+    await location.recompute(db)
+    db.expire(cam)   # the engine writes in bulk; a request in production gets a fresh session
+    db.expire(ws)
+    r = await client_cyber.get(f"/api/v1/devices/{cam_id}/context")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["subnet"] == f"{net}.0/24" and body["neighbors_total"] == 1
+    assert body["neighbors"][0]["name"].lower().startswith(f"ws-{tag}") and body["neighbors"][0]["coverage"]["scanner"]
+    assert body["gaps"] == ["Seen by the pentest, not by your vulnerability scanner", "Only the pentest knows this asset: nothing manages it"]
+    assert body["location"]["site"] == f"SPI-{tag}"   # taken from its only neighbor with one
+    assert body["subnet_coverage"]["edr"] == 1
+    assert (await client_read_only.get(f"/api/v1/devices/{cam_id}/context")).status_code == 404
+    assert (await client_cyber.get(f"/api/v1/devices/{uuid.uuid4()}/context")).status_code == 404

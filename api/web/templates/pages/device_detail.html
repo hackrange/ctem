@@ -86,6 +86,7 @@
 <script src="{{ static('js/asset_trend.js') }}"></script>
 <script src="{{ static('js/asset_software.js') }}"></script>
 <script src="{{ static('js/asset_pentest.js') }}"></script>
+<script src="{{ static('js/asset_context.js') }}"></script>
 <script src="{{ static('js/asset_edr.js') }}"></script>
 <script src="{{ static('js/data_table.js') }}"></script>
 <script src="{{ static('js/device_assign.js') }}"></script>
@@ -285,7 +286,7 @@ async function loadDevice() {
   ].join('');
   cloudPanel(d.cloud || []);
   AssetTrend.mount(d.id, d.hostname);
-  AssetSoftware.mount(d.id); AssetEdr.mount(d.id);
+  AssetSoftware.mount(d.id); AssetEdr.mount(d.id); AssetContext.mount(d.id);
   document.querySelectorAll('[data-fw-rules]').forEach(b => { b.onclick = () => firewallDialog(d.cloud || []); });
   syncShipFields();
   if (!table) startFindings();  // reloading after an assignment shouldn't mount a second table

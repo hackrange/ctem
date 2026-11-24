@@ -13,6 +13,9 @@ import httpx
 _BYPASS_HOSTS = {h.strip() for h in os.getenv("SSRF_BYPASS_HOSTS", "").split(",") if h.strip()}
 
 # Blocks loopback, private, link-local, and AWS/GCP metadata ranges
+# Internal address space (RFC 1918, IPv6 unique local): where a site's own hosts live (api/core/location.py)
+INTERNAL_NETS = tuple(ipaddress.ip_network(n) for n in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7"))
+
 _BLOCKED_NETS = [
     ipaddress.ip_network("0.0.0.0/8"),
     ipaddress.ip_network("10.0.0.0/8"),
