@@ -178,7 +178,24 @@ def _device(d, policies=None, logins=None, hidden=False):
             "prevention_policy_id": policies.prevention_of(d) if policies else None,
             "firewall_policy_id": policies.firewall_of(d) if policies else None,
             "usb_policy_id": policies.usb_of(d) if policies else None,
-            "recent_logins": (logins or {}).get(d.get("device_id")) or None}
+            "recent_logins": (logins or {}).get(d.get("device_id")) or None,
+            # Where the machine is: its AD site, the public address it reaches the internet from, its LAN address
+            "site_name": _txt(d.get("site_name"), 128), "machine_domain": _txt(d.get("machine_domain"), 253),
+            "external_ip": _ip(d.get("external_ip")), "local_ip": _ip(d.get("local_ip")), "mac": _mac(d.get("mac_address")),
+            "ou": [o for o in (_txt(x, 256) for x in (d.get("ou") or [])[:10] if isinstance(d.get("ou"), list)) if o] or None}
+
+
+def _ip(v):
+    import ipaddress
+    try:
+        return str(ipaddress.ip_address(str(v).strip())) if v else None
+    except ValueError:
+        return None
+
+
+def _mac(v):
+    v = str(v or "").strip().lower().replace("-", ":")
+    return v if re.fullmatch(r"[0-9a-f]{2}(:[0-9a-f]{2}){5}", v) else None
 
 
 def _user(v):

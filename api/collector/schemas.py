@@ -19,6 +19,8 @@ class _Lax(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
+Place = Annotated[str, StringConstraints(strip_whitespace=True, max_length=256, pattern=r"^[^\x00-\x1f]+$")]
+IPv = Annotated[str, StringConstraints(strip_whitespace=True, max_length=45, pattern=r"^[0-9A-Fa-f.:]{2,45}$")]
 UPN = Annotated[str, StringConstraints(strip_whitespace=True, max_length=256, pattern=r"^[^\s@\x00-\x1f]+@[^\s@\x00-\x1f]+$")]
 
 
@@ -43,6 +45,12 @@ class LdapUser(_Lax):
     phone: Annotated[str, StringConstraints(strip_whitespace=True, max_length=64, pattern=r"^[^\x00-\x1f]+$")] | None = None
     mobile: Annotated[str, StringConstraints(strip_whitespace=True, max_length=64, pattern=r"^[^\x00-\x1f]+$")] | None = None
     country: Annotated[str, StringConstraints(pattern=r"^[A-Za-z]{2}$")] | None = None
+    # Where they work (shipper 1.6.0+): office, city, state, postal code, department
+    office: Place | None = None
+    city: Place | None = None
+    state: Place | None = None
+    postal_code: Annotated[str, StringConstraints(strip_whitespace=True, max_length=32, pattern=r"^[A-Za-z0-9 -]+$")] | None = None
+    department: Place | None = None
 
 
 class LdapComputer(_Lax):
@@ -144,6 +152,22 @@ class CsDevice(_Lax):
     usb_policy_id: Annotated[str, StringConstraints(pattern=r"^[0-9a-fA-F]{32}$")] | None = None
     posture: CsPosture | None = None    # Falcon Zero Trust Assessment, every few hours
     recent_logins: list[Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=256, pattern=r"^[^\x00-\x1f]+$")]] | None = Field(None, max_length=20)
+    # Where the host is (shipper 1.6.0+): AD site, public egress address, LAN address, MAC, OUs, domain
+    site_name: Annotated[str, StringConstraints(strip_whitespace=True, max_length=128, pattern=r"^[^\x00-\x1f]+$")] | None = None
+    machine_domain: Annotated[str, StringConstraints(strip_whitespace=True, max_length=253, pattern=r"^[A-Za-z0-9._-]+$")] | None = None
+    external_ip: IPv | None = None
+    local_ip: IPv | None = None
+    mac: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{2}(:[0-9a-f]{2}){5}$")] | None = None
+    ou: list[Place] | None = Field(None, max_length=10)
+
+    @field_validator("external_ip", "local_ip", mode="after")
+    @classmethod
+    def _real_ip(cls, v):
+        import ipaddress
+        try:
+            return str(ipaddress.ip_address(v)) if v else None
+        except ValueError:
+            return None
 
     @field_validator("last_seen", mode="before")
     @classmethod

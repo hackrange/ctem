@@ -59,6 +59,23 @@ def detected_owner(people, last: str | None, history: list[str]) -> str | None:
     return alias
 
 
+
+def _where(dev, d: dict) -> None:
+    """Falcon's word on where the host is (shipper 1.6.0+); an older shipper sends none of it, which changes nothing."""
+    from api.core.encryption import search_hash
+    if d.get("site_name"):
+        dev.edr_site = d["site_name"][:128]
+    if d.get("ou"):
+        dev.edr_ou = " | ".join(d["ou"])[:1024]
+    if d.get("machine_domain"):
+        dev.edr_domain = d["machine_domain"][:253]
+    if d.get("external_ip"):
+        dev.public_ip, dev.public_ip_hash = d["external_ip"], search_hash(d["external_ip"])
+    if d.get("mac") and not dev.mac_address:
+        dev.mac_address = d["mac"]
+    if d.get("local_ip") and not dev.ip:   # a scanner's address for the host wins; this fills a gap
+        dev.ip, dev.ip_hash = d["local_ip"], search_hash(d["local_ip"])
+
 @register(Vendor.crowdstrike)
 class CrowdStrikeConnector(BaseConnector):
 
@@ -203,6 +220,7 @@ class CrowdStrikeConnector(BaseConnector):
                     setattr(dev, col, d[f][:64])   # the policies themselves: api/core/edr_policies.py
             if isinstance(d.get("posture"), dict):
                 dev.edr_posture = d["posture"]
+            _where(dev, d)
             user = (d.get("last_login_user") or "").strip()
             if any(ord(ch) < 32 for ch in user):
                 user = ""

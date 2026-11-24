@@ -89,6 +89,12 @@ class User(Base, UUIDPrimaryKey, TimestampMixin):
     title: Mapped[str | None] = mapped_column(EncryptedString)
     phone: Mapped[str | None] = mapped_column(EncryptedString)   # +15550100199 when it parses, else as entered
     mobile: Mapped[str | None] = mapped_column(EncryptedString)
+    # Where they work, from the directory: points CTEM at the office of the machines they sign in to
+    office: Mapped[str | None] = mapped_column(EncryptedString)
+    city: Mapped[str | None] = mapped_column(EncryptedString)
+    state: Mapped[str | None] = mapped_column(EncryptedString)
+    postal_code: Mapped[str | None] = mapped_column(EncryptedString)
+    department: Mapped[str | None] = mapped_column(EncryptedString)
     is_service_account: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # Tag-based page access -- admins assign tags like ["identity","grc"] to let

@@ -69,6 +69,12 @@ class Device(Base, UUIDPrimaryKey, TimestampMixin):
     edr_contained: Mapped[bool | None] = mapped_column(Boolean)  # network-isolated by the EDR
     edr_hidden: Mapped[bool | None] = mapped_column(Boolean)     # hidden in the EDR console (Falcon "hide host")
     edr_device_id: Mapped[str | None] = mapped_column(String(64))  # the EDR's own host id (Falcon aid)
+    # Where the EDR says the host is: its AD site, OUs and domain, and the public address it reaches the internet from
+    edr_site: Mapped[str | None] = mapped_column(String(128))
+    edr_ou: Mapped[str | None] = mapped_column(String(1024))
+    edr_domain: Mapped[str | None] = mapped_column(String(253))
+    public_ip: Mapped[str | None] = mapped_column(EncryptedString)
+    public_ip_hash: Mapped[str | None] = mapped_column(String(64), index=True)  # HMAC, to group hosts sharing one
     raw_risk_score: Mapped[float | None] = mapped_column(Float)  # score before the containment discount
     raw_risk_grade: Mapped[str | None] = mapped_column(String(1))
     # From the EDR's policies; None means the feed couldn't tell us

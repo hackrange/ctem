@@ -73,7 +73,7 @@ Every source is matched to the same device row by host name, however it spells i
 
 | Vendor | Type | Data pulled |
 |---|---|---|
-| LDAP / Active Directory | Identity | Users (name, title, E.164 phone numbers, last logon, password age/expiry, lockout, disabled), computers, groups, GPOs |
+| LDAP / Active Directory | Identity | Users (name, title, office, city, state, postal code, department, E.164 phone numbers, last logon, password age/expiry, lockout, disabled), computers, groups, GPOs |
 | Qualys | Vulnerability | Findings, CVSS, asset data |
 | Rapid7 InsightVM | Vulnerability | Assets, per-asset findings and asset tags (custom, location, owner, criticality; cloud v4 API or on-prem console) |
 | Rapid7 InsightAppSec | Vulnerability | Web app findings with triage status |
@@ -82,7 +82,7 @@ Every source is matched to the same device row by host name, however it spells i
 | AWS | Cloud exposure | EC2 instances, public IPs, security groups and network ACLs (read-only: only seven allow-listed Describe and STS actions can run) |
 | Azure | Cloud exposure | VMs, public IPs, NIC and subnet NSGs (Reader app registration) |
 | Oracle Cloud (OCI) | Cloud exposure | Instances, public IPs, security lists and NSGs (API signing key) |
-| CrowdStrike Falcon | EDR + Threat | Devices, alerts with full detail |
+| CrowdStrike Falcon | EDR + Threat | Devices (with AD site, OUs, public and LAN address, MAC from shipper 1.6.0), alerts with full detail |
 | SentinelOne | EDR | Devices, threat data |
 | Tanium | Endpoint | Inventory, patch status, Comply findings |
 | Guardicore | Microsegmentation | Block events, lateral movement |
