@@ -201,7 +201,8 @@ write_local_helper() {
 # Day-two helper for the open-ctem shipper (local script mode)
 PY="$APP/venv/bin/python $APP/ctem_collector.py"
 case "\${1:-}" in
-  run-now)   exec systemd-run --quiet --pipe --wait --collect $props \$PY run --force ;;
+  run-now)   exec systemd-run --quiet --pipe --wait --collect $props \$PY run --force "\${@:2}" ;;
+  probe)     exec systemd-run --quiet --pipe --wait --collect $props \$PY probe "\${@:2}" ;;
   approve)   exec \$PY approve ;;
   set-url)   exec \$PY set-url "\${@:2}" ;;
   secrets)   exec \$PY secrets "\${@:2}" ;;
@@ -209,7 +210,7 @@ case "\${1:-}" in
   test-ctem) exec \$PY test-ctem ;;
   status)    systemctl status "$UNIT.service" "$UNIT-source@*.service" --no-pager; exit 0 ;;
   logs)      exec journalctl -u "$UNIT.service" -u "$UNIT-source@*.service" -n "\${2:-100}" --no-pager ;;
-  *) echo "usage: open-ctem-collector run-now|approve|secrets [--all]|set-url URL|test|test-ctem|status|logs [n]"; exit 2 ;;
+  *) echo "usage: open-ctem-collector run-now [--only SOURCE]|probe [--dry-run]|approve|secrets [--all]|set-url URL|test|test-ctem|status|logs [n]"; exit 2 ;;
 esac
 HELP
   chmod 755 "$HELPER"
@@ -276,7 +277,8 @@ write_docker_helper() {
 #!/usr/bin/env bash
 # Day-two helper for the open-ctem shipper (Docker mode)
 case "\${1:-}" in
-  run-now)   exec docker exec $CTR python /app/ctem_collector.py run --force ;;
+  run-now)   exec docker exec $CTR python /app/ctem_collector.py run --force "\${@:2}" ;;
+  probe)     exec docker exec $CTR python /app/ctem_collector.py probe "\${@:2}" ;;
   approve)   exec docker exec -it $CTR python /app/ctem_collector.py approve ;;
   set-url)   exec docker exec -it $CTR python /app/ctem_collector.py set-url "\${@:2}" ;;
   secrets)   exec docker exec -it $CTR python /app/ctem_collector.py secrets "\${@:2}" ;;
@@ -284,7 +286,7 @@ case "\${1:-}" in
   test-ctem) exec docker exec $CTR python /app/ctem_collector.py test-ctem ;;
   status)    exec docker ps -a --filter name=^/$CTR\$ ;;
   logs)      exec docker logs --tail "\${2:-100}" $CTR ;;
-  *) echo "usage: open-ctem-collector run-now|approve|secrets [--all]|set-url URL|test|test-ctem|status|logs [n]"; exit 2 ;;
+  *) echo "usage: open-ctem-collector run-now [--only SOURCE]|probe [--dry-run]|approve|secrets [--all]|set-url URL|test|test-ctem|status|logs [n]"; exit 2 ;;
 esac
 HELP
   chmod 755 "$HELPER"

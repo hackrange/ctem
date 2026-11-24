@@ -49,7 +49,9 @@ def test_a_host_is_checked_on_every_port_at_once():
 
 def test_collect_sends_answers_and_known_hosts_only(monkeypatch):
     up = {"10.82.180.50", "10.82.180.77"}
-    monkeypatch.setattr(np, "probe", lambda ip, ports, t: {"ip": ip, "alive": ip in up, "icmp": False, "ports": [80] if ip in up else [], "at": None})
+    # Only the network is faked (ping and the port check), so the real per-host code runs
+    monkeypatch.setattr(np, "_ping", lambda ip, t: False)
+    monkeypatch.setattr(np, "listening", lambda ip, ports, t: [80] if ip in up else [])
     s = {"targets": {"hosts": ["10.82.180.50", "10.82.180.60"], "sweep": ["10.82.180.0/24"]}}
     sent = [p for batch in np.collect(s, {}, {}) for p in batch["probes"]]
     assert {p["ip"] for p in sent} == {"10.82.180.50", "10.82.180.60", "10.82.180.77"}   # the silent known host is reported too
@@ -170,7 +172,8 @@ def test_approve_can_show_and_check_the_scope():
 
 
 def test_runs_take_turns_through_a_long_list(monkeypatch):
-    monkeypatch.setattr(np, "probe", lambda ip, ports, t: {"ip": ip, "alive": False, "icmp": False, "ports": [], "at": None})
+    monkeypatch.setattr(np, "_ping", lambda ip, t: False)
+    monkeypatch.setattr(np, "listening", lambda ip, ports, t: [])
     hosts = [f"10.9.{i // 250}.{i % 250 + 1}" for i in range(2307)]
     s, state, seen = {"targets": {"hosts": hosts}, "sweep_subnets": "off", "max_hosts": 1000}, {}, []
     for _ in range(3):
@@ -187,3 +190,18 @@ def test_a_shipper_with_every_source_approved_can_check_in():
     req = CheckinRequest(hostname="shipper001", agent_version="1.7.1", approved={k: digest for k in core.MODULES},
                          errors={k: "x" for k in core.MODULES})
     assert set(req.approved) == set(core.MODULES)
+
+
+
+def test_approve_and_run_use_different_functions():
+    """1.7.1 named both "probe", so the run called the approve-time one and failed on every host."""
+    import inspect
+    assert list(inspect.signature(np.probe).parameters) == ["settings"]
+    assert list(inspect.signature(np.probe_host).parameters) == ["ip", "ports", "timeout_ms"]
+
+
+def test_the_box_command_passes_only_through_and_has_probe():
+    """run-now dropped --only, and there was no probe command for --dry-run (local and Docker helpers alike)."""
+    sh = (Path(np.__file__).parent / "install.sh").read_text()
+    assert sh.count(r'run --force "\${@:2}"') == 2
+    assert sh.count(r'probe "\${@:2}"') == 2 and sh.count("probe [--dry-run]") == 2

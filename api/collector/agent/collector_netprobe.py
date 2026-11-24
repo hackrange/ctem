@@ -121,7 +121,7 @@ def listening(ip, ports, timeout_ms):
     return sorted(out)
 
 
-def probe(ip, ports, timeout_ms):
+def probe_host(ip, ports, timeout_ms):
     up = _ping(ip, timeout_ms)
     listening_ports = listening(ip, ports, timeout_ms)
     return {"ip": ip, "alive": bool(up or listening_ports), "icmp": up, "ports": listening_ports,
@@ -158,7 +158,7 @@ def collect(s, secret, state):
     known = set((s.get("targets") or {}).get("hosts") or [])
     batch, up = [], 0
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        for r in pool.map(lambda ip: probe(ip, ports, timeout_ms), todo):
+        for r in pool.map(lambda ip: probe_host(ip, ports, timeout_ms), todo):
             if r["alive"]:
                 up += 1
             if r["alive"] or r["ip"] in known:   # a swept address that didn't answer isn't worth sending
