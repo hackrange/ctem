@@ -97,6 +97,7 @@ def create_app() -> FastAPI:
     from api.routes.retention_settings import router as retention_router
     from api.routes.me_hidden import router as me_hidden_router
     from api.routes.threat_rules import router as threat_rules_router
+    from api.routes.impersonate import router as impersonate_router
     from api.routes.hunt_data import router as hunt_data_router
     from api.routes.email_test import router as email_test_router
     from api.routes.sla_settings import router as sla_router
@@ -163,6 +164,7 @@ def create_app() -> FastAPI:
     app.include_router(retention_router)
     app.include_router(me_hidden_router)
     app.include_router(threat_rules_router)
+    app.include_router(impersonate_router)
     app.include_router(hunt_data_router)
     app.include_router(email_test_router)
     app.include_router(software_router)
@@ -270,6 +272,8 @@ def _register_web_routes(app: FastAPI) -> None:
                 "logo_url": branding.get("logo_url"),
                 "org_name": branding.get("org_name"),
                 "favicon_v": icon_version(branding.get("favicon_url")),
+                "impersonator": getattr(request.state, "impersonator", None),
+                "impersonating_until": getattr(request.state, "impersonating_until", None),
             }
             return templates.TemplateResponse(request, template, ctx)
         return handler

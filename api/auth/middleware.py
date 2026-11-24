@@ -102,6 +102,9 @@ async def get_current_user(
 
     if from_session:
         _slide(request, claims, user)
+        if request.session.get("acting_as") is not None:   # Admin > Users > View as (api/auth/impersonation.py)
+            from api.auth import impersonation
+            return await impersonation.resolve(request, user, db)
     return user
 
 

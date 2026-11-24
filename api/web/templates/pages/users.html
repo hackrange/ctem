@@ -14,9 +14,17 @@
       <svg class="search-icon" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
         <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/>
       </svg>
-      <input id="search" type="search" class="search-bar" placeholder="Search username or UPN..." autocomplete="off" spellcheck="false"
+      <input id="search" type="search" class="search-bar" placeholder="Search name, username, UPN or phone..." autocomplete="off" spellcheck="false"
         oninput="_userSearchTimer && clearTimeout(_userSearchTimer); _userSearchTimer = setTimeout(() => loadUsers(0), 220)">
     </div>
+    <select id="filter-pwd" class="filter-select" onchange="loadUsers(0)" title="AD password">
+      <option value="">Any password</option>
+      <option value="expiring:7">Expires within 7 days</option>
+      <option value="expiring:14">Expires within 14 days</option>
+      <option value="expiring:30">Expires within 30 days</option>
+      <option value="expired">Password expired</option>
+      <option value="never">Never expires</option>
+    </select>
     <select id="filter-grade" class="filter-select" onchange="loadUsers(0)">
       <option value="">All grades</option>
       <option value="F">F -- Critical</option>
@@ -55,17 +63,33 @@
         <th>AD status</th>
         <th>AD last logon</th>
         <th>Password set</th>
+        <th>Password expires</th>
         <th>Last Login</th>
       </tr>
     </thead>
     <tbody id="users-tbody">
-      <tr><td colspan="15" class="text-muted text-sm" style="text-align:center;padding:32px">Loading...</td></tr>
+      <tr><td colspan="16" class="text-muted text-sm" style="text-align:center;padding:32px">Loading...</td></tr>
     </tbody>
   </table>
 </div>
 <div id="users-pagination" style="display:flex;gap:8px;padding:12px 16px;align-items:center;font-size:.82rem;color:var(--text-muted)"></div>
 
+<div id="user-detail" class="modal-overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="ud-title">
+  <div class="modal-box" style="max-width:760px">
+    <div class="modal-header">
+      <h2 class="modal-title" id="ud-title">User</h2>
+      <button type="button" class="modal-close" id="ud-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="modal-body" id="ud-body">Loading...</div>
+  </div>
+</div>
+
 <style>
+.user-row { cursor:pointer }
+.user-row:hover td, .user-row:focus td { background:var(--surface2) }
+.ud-grid { display:grid;grid-template-columns:160px 1fr;gap:6px 14px;font-size:.86rem;margin-bottom:16px }
+.ud-grid dt { color:var(--text-muted) }
+.ud-h { font-size:.78rem;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted);margin:14px 0 8px;font-weight:700 }
 .stat-tile { background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:14px 16px;font-size:.88rem;font-weight:700;line-height:1.4 }
 .stat-tile small { font-size:.75rem;font-weight:500;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em }
 .stat-tile.crit { border-left:3px solid var(--severity-critical,#e53935) }
@@ -105,6 +129,17 @@ function adStatus(ad) {
   return chips.map(([t, c]) => `<span class="chip chip--${c}" style="font-size:.7rem">${esc(t)}</span>`).join(' ');
 }
 
+// Days until the AD password expires, red inside a week
+function pwdLeft(ad) {
+  if (!ad) return '<span class="text-muted">--</span>';
+  if (ad.pwd_never_expires) return '<span class="text-muted">Never</span>';
+  const n = ad.pwd_days_left;
+  if (n == null) return ad.pwd_expired ? '<span style="color:var(--severity-critical)">Expired</span>' : '<span class="text-muted">--</span>';
+  if (n < 0) return `<span style="color:var(--severity-critical)" title="${esc(new Date(ad.pwd_expires).toLocaleDateString())}">Expired ${esc(-n)} d ago</span>`;
+  const c = n <= 7 ? 'critical' : n <= 14 ? 'high' : '';
+  return `<span ${c ? `style="color:var(--severity-${c})"` : ''} title="${esc(new Date(ad.pwd_expires).toLocaleDateString())}">${n === 0 ? 'Today' : `In ${esc(n)} d`}</span>`;
+}
+
 function fmt(dt) {
   return dt ? new Date(dt).toLocaleDateString() : '<span class="text-muted">Never</span>';
 }
@@ -115,9 +150,11 @@ async function loadUsers(offset = 0) {
 
   let url = `${API}/directory/users?limit=${PAGE}&offset=${offset}`;
   if (search) url += `&q=${encodeURIComponent(search)}`;
+  const [pwd, within] = document.getElementById('filter-pwd').value.split(':');
+  if (pwd) url += `&pwd=${encodeURIComponent(pwd)}` + (within ? `&within=${encodeURIComponent(within)}` : '');
 
   const tb = document.getElementById('users-tbody');
-  tb.innerHTML = '<tr><td colspan="15" class="text-muted text-sm" style="text-align:center;padding:24px">Loading...</td></tr>';
+  tb.innerHTML = '<tr><td colspan="16" class="text-muted text-sm" style="text-align:center;padding:24px">Loading...</td></tr>';
 
   try {
     const d = await fetchJson(url);
@@ -126,7 +163,7 @@ async function loadUsers(offset = 0) {
     if (grade) users = users.filter(u => (u.risk_grade || '') === grade);
 
     if (!users.length) {
-      tb.innerHTML = '<tr><td colspan="15" class="text-muted text-sm" style="text-align:center;padding:32px">No users found</td></tr>';
+      tb.innerHTML = '<tr><td colspan="16" class="text-muted text-sm" style="text-align:center;padding:32px">No users found</td></tr>';
       document.getElementById('users-pagination').innerHTML = '';
       updateTiles([]);
       return;
@@ -136,7 +173,7 @@ async function loadUsers(offset = 0) {
       const groups = (u.ad_groups || []).slice(0, 3).map(g => esc(groupName(g))).join(', ');
       const moreGroups = (u.ad_groups || []).length > 3 ? ` +${(u.ad_groups.length - 3)} more` : '';
       return `
-        <tr>
+        <tr class="user-row" data-user="${esc(u.id)}" tabindex="0" title="Show details">
           <td><span style="font-weight:600">${esc(u.username)}</span>${u.upn ? `<div class="text-sm text-muted text-mono">${esc(u.upn)}</div>` : ''}</td>
           <td class="text-sm">${esc([u.first_name, u.last_name].filter(Boolean).join(' ') || u.display_name || '--')}</td>
           <td class="text-sm text-muted">${esc(u.title || '--')}</td>
@@ -151,6 +188,7 @@ async function loadUsers(offset = 0) {
           <td>${adStatus(u.ad)}</td>
           <td class="text-sm">${u.ad ? fmt(u.ad.last_logon) : '<span class="text-muted">--</span>'}</td>
           <td class="text-sm" title="${u.ad && u.ad.pwd_expires ? 'Expires ' + esc(new Date(u.ad.pwd_expires).toLocaleDateString()) : ''}">${u.ad ? fmt(u.ad.pwd_last_set) : '<span class="text-muted">--</span>'}</td>
+          <td class="text-sm">${pwdLeft(u.ad)}</td>
           <td class="text-sm">${fmt(u.last_login)}</td>
         </tr>`;
     }).join('');
@@ -165,7 +203,7 @@ async function loadUsers(offset = 0) {
       ${hasPrev ? `<button class="btn btn--ghost btn--sm" onclick="loadUsers(${offset - PAGE})">Prev</button>` : ''}
       ${hasNext ? `<button class="btn btn--ghost btn--sm" onclick="loadUsers(${offset + PAGE})">Next</button>` : ''}`;
   } catch (e) {
-    tb.innerHTML = `<tr><td colspan="15" class="text-muted text-sm" style="text-align:center;padding:24px">Error loading users</td></tr>`;
+    tb.innerHTML = `<tr><td colspan="16" class="text-muted text-sm" style="text-align:center;padding:24px">Error loading users</td></tr>`;
   }
 }
 
@@ -186,4 +224,5 @@ function updateTiles(users) {
 
 document.addEventListener('DOMContentLoaded', () => loadUsers(0));
 </script>
+<script src="{{ static('js/directory_user.js') }}"></script>
 {% endblock %}

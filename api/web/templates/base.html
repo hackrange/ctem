@@ -219,6 +219,16 @@
 </nav>
 {% endif %}
 
+{% if impersonator %}
+<div id="view-as-banner" role="status" data-until="{{ impersonating_until }}"
+     style="position:sticky;top:0;z-index:900;background:var(--severity-high);color:#000;padding:8px 16px;display:flex;gap:12px;align-items:center;justify-content:center;font-weight:600">
+  <span>Viewing as {{ user.username }}, read-only. You are still signed in as {{ impersonator.username }}.
+    Ends at <span id="view-as-until"></span>.</span>
+  <button type="button" class="btn btn--sm" id="view-as-stop">Stop viewing as</button>
+</div>
+<script src="{{ static('js/view_as.js') }}" defer></script>
+{% endif %}
+
 <!-- Page content -->
 <main class="main">
   {% block content %}{% endblock %}

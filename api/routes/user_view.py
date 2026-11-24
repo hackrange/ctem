@@ -11,7 +11,17 @@ def ad_summary(u: User) -> dict | None:
     return {"disabled": bool(u.ad_disabled), "locked_out": bool(u.ad_locked_out),
             "pwd_expired": bool(u.ad_pwd_expired), "pwd_never_expires": bool(u.ad_pwd_never_expires),
             "last_logon": iso(u.ad_last_logon), "pwd_last_set": iso(u.ad_pwd_last_set),
-            "pwd_expires": iso(u.ad_pwd_expires)}
+            "pwd_expires": iso(u.ad_pwd_expires), "pwd_days_left": days_left(u)}
+
+
+def days_left(u: User) -> int | None:
+    """Whole days until the AD password expires (negative once it has); None when it never does or isn't known."""
+    from datetime import datetime, timezone
+    exp = getattr(u, "ad_pwd_expires", None)
+    if exp is None or getattr(u, "ad_pwd_never_expires", None):
+        return None
+    exp = exp if exp.tzinfo else exp.replace(tzinfo=timezone.utc)
+    return (exp - datetime.now(timezone.utc)).days
 
 
 def user_summary(u: User, risk: object | None = None) -> dict:

@@ -66,6 +66,7 @@ async function loadUsers() {
             <button class="btn btn--ghost btn--sm" onclick="openEditModal(${esc(JSON.stringify(u))})">Edit</button>
             <button class="btn btn--ghost btn--sm" style="color:var(--severity-${u.is_active ? 'critical' : 'low'})"
               onclick="toggleUser(${esc(JSON.stringify(u.id))},${esc(JSON.stringify(u.username))},${!!u.is_active})">${u.is_active ? 'Deactivate' : 'Activate'}</button>
+            ${u.is_active && !u.is_locked && !(u.roles || []).some(r => r.role_name === 'admin') ? `<button class="btn btn--ghost btn--sm" title="See CTEM as this person sees it (read-only, 30 minutes)" onclick="viewAs(${esc(JSON.stringify(u.id))},${esc(JSON.stringify(u.username))})">View as</button>` : ''}
             ${!u.is_active ? `<button class="btn btn--ghost btn--sm" style="color:var(--severity-critical)" onclick="deleteUser(${esc(JSON.stringify(u.id))},${esc(JSON.stringify(u.username))})">Delete</button>` : ''}
           </div>
         </td>
@@ -398,6 +399,16 @@ function _selectedRoles(containerId) {
 }
 
 // ── Misc actions ──────────────────────────────────────────────────────────────
+
+async function viewAs(id, username) {
+  const reason = prompt(`View CTEM as ${username}? It is read-only, ends after 30 minutes, and is recorded in the Audit Log.\n\nWhy (for the Audit Log):`);
+  if (reason == null) return;
+  if (reason.trim().length < 4) { toast('Give a short reason (4 characters or more)', 'error'); return; }
+  try {
+    await fetchJson(`${API}/admin/users/${id}/impersonate`, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify({ reason: reason.trim() }) });
+    location.href = '/';
+  } catch (e) { toast(e.message || 'Could not start viewing as', 'error'); }
+}
 
 async function deleteUser(id, username) {
   if (!confirm(`Permanently delete user "${username}"? This cannot be undone.`)) return;
