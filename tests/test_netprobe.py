@@ -1,0 +1,144 @@
+"""Network discovery: the box probes only internal, approved, unmanaged addresses, fast; CTEM picks them and records
+what answers, including devices no tool knows."""
+from __future__ import annotations
+
+import socket
+import sys
+import time
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+
+import pytest
+from pydantic import ValidationError
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "api" / "collector" / "agent"))
+
+import collector_common as cc  # noqa: E402
+import collector_netprobe as np  # noqa: E402
+
+
+def test_scope_is_internal_minus_exclusions_and_sweeps_skip_managed_hosts():
+    s = {"targets": {"hosts": ["10.82.180.50", "8.8.8.8", "10.40.1.1", "not-an-ip"], "sweep": ["10.82.180.0/24", "10.0.0.0/8"],
+                     "skip": ["10.82.180.11"]}, "exclude_cidrs": "10.40.0.0/16"}
+    got = np.targets(s, np.exclusions(s), 10_000)
+    assert got[0] == "10.82.180.50" and "8.8.8.8" not in got and "10.40.1.1" not in got   # public and excluded: never
+    assert "10.82.180.11" not in got and "10.82.180.12" in got and len(got) == 253          # the /24 minus one managed host
+    assert not any(ip.startswith("10.0.") for ip in got)                                     # nothing wider than a /24 is swept
+    assert len(np.targets({**s, "sweep_subnets": "off"}, [], 10_000)) == 2
+    assert len(np.targets(s, [], 5)) == 5
+    with pytest.raises(ValueError):
+        np.exclusions({"exclude_cidrs": "10.1.2.3/99"})
+
+
+def test_ports_are_the_common_ones_unless_set():
+    assert np.ports_of({}) == np.COMMON_PORTS and 3389 in np.COMMON_PORTS and len(np.COMMON_PORTS) <= 40
+    assert np.ports_of({"ports": "22, 3389,22,70000,x"}) == (22, 3389)
+
+
+def test_a_host_is_checked_on_every_port_at_once():
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen()
+    port = srv.getsockname()[1]
+    t = time.monotonic()
+    assert np.listening("127.0.0.1", (port,), 500) == [port]
+    assert np.listening("192.0.2.1", np.COMMON_PORTS, 300) == [] and time.monotonic() - t < 2   # one timeout, not 23
+    srv.close()
+
+
+def test_collect_sends_answers_and_known_hosts_only(monkeypatch):
+    up = {"10.82.180.50", "10.82.180.77"}
+    monkeypatch.setattr(np, "probe", lambda ip, ports, t: {"ip": ip, "alive": ip in up, "icmp": False, "ports": [80] if ip in up else [], "at": None})
+    s = {"targets": {"hosts": ["10.82.180.50", "10.82.180.60"], "sweep": ["10.82.180.0/24"]}}
+    sent = [p for batch in np.collect(s, {}, {}) for p in batch["probes"]]
+    assert {p["ip"] for p in sent} == {"10.82.180.50", "10.82.180.60", "10.82.180.77"}   # the silent known host is reported too
+
+
+def test_cron_schedule():
+    day = datetime(2026, 11, 24, tzinfo=timezone.utc).timestamp()
+    assert cc.cron_due("0 2 * * *", day, day + 2 * 3600)                # 02:00 passed
+    assert not cc.cron_due("0 2 * * *", day + 2 * 3600, day + 3 * 3600)  # already ran at 02:00
+    assert cc.cron_due("*/15 * * * 1-5", day, day + 15 * 60)             # a Tuesday, every 15 minutes
+    assert not cc.cron_due("0 2 * * 0", day, day + 23 * 3600)            # Sundays only
+    with pytest.raises(ValueError):
+        cc.cron_parse("0 25 * * *")
+
+
+def test_settings_are_checked():
+    from api.collector.profile import NetProbeSettings, dest_digest
+    ok = NetProbeSettings(cron="30 1 * * 1-5", ports="22, 445,22", exclude_cidrs="10.40.0.0/16; 10.82.200.0/24")
+    assert ok.ports == "22,445" and ok.exclude_cidrs == "10.40.0.0/16,10.82.200.0/24"
+    for bad in ({"cron": "0 2 * *"}, {"cron": "0 24 * * *"}, {"ports": "0"}, {"ports": ",".join(str(p) for p in range(1, 42))},
+                {"exclude_cidrs": "10.1/99"}, {"concurrency": 1000}):
+        with pytest.raises(ValidationError):
+            NetProbeSettings(**bad)
+    # What it may touch needs a yes on the box: changing it changes the approval digest, the schedule doesn't
+    base = ok.model_dump()
+    assert dest_digest("netprobe", base) != dest_digest("netprobe", {**base, "exclude_cidrs": ""})
+    assert dest_digest("netprobe", base) == dest_digest("netprobe", {**base, "cron": "0 3 * * *"})
+    assert cc.dest_digest("netprobe", base) == dest_digest("netprobe", base)   # the box agrees byte for byte
+
+
+def test_results_refuse_public_addresses():
+    from api.collector.schemas import NetProbeResult
+    assert NetProbeResult(ip="10.1.2.3", alive=True, ports=[22]).ip == "10.1.2.3"
+    with pytest.raises(ValidationError):
+        NetProbeResult(ip="8.8.8.8")
+
+
+@pytest.mark.asyncio
+async def test_targets_are_unmanaged_hosts_and_their_subnets(db):
+    import random
+
+    from api.core import netprobe
+    from api.core.encryption import search_hash
+    from api.models.device import Device, DeviceType
+    net = f"10.{random.randint(200, 250)}.{random.randint(0, 255)}"
+    tag = uuid.uuid4().hex[:6]
+
+    def host(last, sources, **kw):
+        ip = f"{net}.{last}"
+        d = Device(hostname=f"np-{tag}-{last}", device_type=kw.pop("kind", DeviceType.unknown), sources=sources, ip=ip,
+                   ip_hash=search_hash(ip), subnet_hash=search_hash(f"{net}.0/24"), **kw)
+        db.add(d)
+        return d
+    host(50, ",horizon3,")
+    host(11, ",crowdstrike,rapid7_insightvm,", kind=DeviceType.workstation, edr_vendor="crowdstrike")
+    await db.commit()
+    t = await netprobe.targets(db)
+    assert f"{net}.50" in t["hosts"] and f"{net}.11" not in t["hosts"]
+    assert f"{net}.0/24" in t["sweep"] and f"{net}.11" in t["skip"]
+
+
+@pytest.mark.asyncio
+async def test_what_answers_is_recorded_and_unknown_devices_appear(db):
+    import random
+
+    from sqlalchemy import select
+
+    from api.core import netprobe
+    from api.core.encryption import search_hash
+    from api.models.device import Device, DeviceType
+    net = f"10.{random.randint(1, 99)}.{random.randint(0, 255)}"
+    known = Device(hostname=f"np-known-{uuid.uuid4().hex[:6]}", device_type=DeviceType.unknown, sources=",horizon3,",
+                   ip=f"{net}.50", ip_hash=search_hash(f"{net}.50"))
+    db.add(known)
+    await db.commit()
+    now = datetime.now(timezone.utc)
+    n = await netprobe.apply(db, [{"ip": f"{net}.50", "alive": True, "icmp": True, "ports": [80, 554], "at": now},
+                                  {"ip": f"{net}.77", "alive": True, "icmp": False, "ports": [23], "at": now},
+                                  {"ip": f"{net}.99", "alive": False, "icmp": False, "ports": [], "at": now}])
+    await db.commit()
+    assert n == 2
+    await db.refresh(known)
+    assert known.alive_ports == "80/tcp 554/tcp" and known.alive_at and ",netprobe," in known.sources
+    rogue = (await db.execute(select(Device).where(Device.ip_hash == search_hash(f"{net}.77")))).scalar_one()
+    assert rogue.source == "netprobe" and rogue.alive_ports == "23/tcp" and rogue.hostname == f"{net}.77"
+    assert (await db.execute(select(Device).where(Device.ip_hash == search_hash(f"{net}.99")))).scalar_one_or_none() is None
+
+
+@pytest.mark.asyncio
+async def test_targets_route_needs_the_owning_shipper(client):
+    r = await client.get(f"/api/v1/collector/netprobe/{uuid.uuid4()}/targets")
+    assert r.status_code in (401, 403, 404)

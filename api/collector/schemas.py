@@ -468,3 +468,29 @@ class SealedSecret(_Lax):
 
 class SecretsUpload(_Lax):
     secrets: list[SealedSecret] = Field(min_length=1, max_length=8)
+
+
+
+class NetProbeResult(_Lax):
+    ip: Annotated[str, StringConstraints(pattern=r"^(\d{1,3}\.){3}\d{1,3}$")]
+    alive: bool = False
+    icmp: bool = False
+    ports: list[Annotated[int, Field(ge=1, le=65535)]] = Field(default_factory=list, max_length=40)
+    at: datetime | None = None
+
+    @field_validator("ip")
+    @classmethod
+    def _internal(cls, v):
+        """The box only probes internal space; anything else is refused here too."""
+        import ipaddress
+
+        from api.core.ssrf import INTERNAL_NETS
+        a = ipaddress.ip_address(v)
+        if not any(a.version == n.version and a in n for n in INTERNAL_NETS):
+            raise ValueError("not an internal address")
+        return str(a)
+
+
+class NetProbeBatch(_Batch):
+    kind: Literal["netprobe"]
+    probes: list[NetProbeResult] = Field(default_factory=list, max_length=MAX_BATCH)

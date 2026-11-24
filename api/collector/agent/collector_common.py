@@ -227,7 +227,9 @@ def url_json(method, url, headers=None, body=None, form=None, cafile=None, timeo
 
 # Mirrors api/collector/profile.py on the server; a test keeps the two in lockstep
 DEST_KEYS = {"ldap": ("host", "port", "tls"), "rapid7_console": ("host", "port"),
-             "crowdstrike": ("cloud",), "splunk": ("host", "port", "query")}
+             "crowdstrike": ("cloud",), "splunk": ("host", "port", "query"),
+             # what the network probe may touch and how: only ever changed with a yes on the box
+             "netprobe": ("exclude_cidrs", "ports", "sweep_subnets")}
 
 
 # Destinations added later count only once set (each anchor key with the keys that go with it), so existing
@@ -279,3 +281,44 @@ def check_dest(kind, settings):
         raise ValueError("LDAP TLS mode must be ldaps or starttls; plain LDAP is never used")
     if kind == "splunk" and (not isinstance(settings.get("query"), str) or len(settings["query"]) > 2000):
         raise ValueError("SPL query looks wrong")
+
+
+def _cron_field(spec, lo, hi):
+    out = set()
+    for part in str(spec).split(","):
+        step = 1
+        if "/" in part:
+            part, st = part.split("/", 1)
+            step = int(st)
+        if part == "*":
+            a, b = lo, hi
+        elif "-" in part:
+            a, b = (int(x) for x in part.split("-", 1))
+        else:
+            a = b = int(part)
+        if step < 1 or a < lo or b > hi or a > b:
+            raise ValueError("cron field out of range")
+        out.update(range(a, b + 1, step))
+    return out
+
+
+def cron_parse(expr):
+    """Five fields, minute hour day-of-month month day-of-week (0 or 7 is Sunday): *, lists, ranges and steps."""
+    f = str(expr or "").split()
+    if len(f) != 5:
+        raise ValueError("a cron schedule has five fields, like '30 2 * * *'")
+    m, h, dom, mon, dow = (_cron_field(x, lo, hi) for x, (lo, hi) in zip(f, ((0, 59), (0, 23), (1, 31), (1, 12), (0, 7))))
+    return m, h, dom, mon, {d % 7 for d in dow}, f[2] == "*", f[4] == "*"
+
+
+def cron_due(expr, last, now):
+    """Did a scheduled minute fall after `last` and by `now` (epoch seconds, UTC)? Looks back at most 8 days."""
+    import datetime as _dt
+    m, h, dom, mon, dow, any_dom, any_dow = cron_parse(expr)
+    t = max(int(last // 60 + 1), int(now // 60) - 8 * 1440)
+    for minute in range(t, int(now // 60) + 1):
+        d = _dt.datetime.fromtimestamp(minute * 60, _dt.timezone.utc)
+        day_ok = (d.day in dom or d.isoweekday() % 7 in dow) if not (any_dom or any_dow) else (d.day in dom and d.isoweekday() % 7 in dow)
+        if d.minute in m and d.hour in h and d.month in mon and day_ok:
+            return True
+    return False

@@ -1,7 +1,7 @@
 // The asset page's Context tab (admins and cyber, api/routes/device_context.py): where CTEM thinks the asset is and
 // why, which tools see it, who shares its public address, and its neighbors on the same /24. Everything goes through esc().
 window.AssetContext = (() => {
-  const TOOLS = [['scanner', 'Scanner'], ['edr', 'EDR'], ['directory', 'Directory'], ['pentest', 'Pentest'], ['cloud', 'Cloud']];
+  const TOOLS = [['scanner', 'Scanner'], ['edr', 'EDR'], ['directory', 'Directory'], ['pentest', 'Pentest'], ['cloud', 'Cloud'], ['probe', 'Probe']];
   const CONF = { high: 'chip--low', medium: 'chip--medium', low: 'chip--high' };
   const yes = (on, label) => `<span class="chip ${on ? 'chip--info' : ''}" style="font-size:.68rem;${on ? '' : 'opacity:.45;text-decoration:line-through'}" title="${esc(label)}${on ? ' sees it' : ' does not see it'}">${esc(label)}</span>`;
   const tools = c => TOOLS.map(([k, l]) => yes(c && c[k], l)).join(' ');
@@ -27,7 +27,10 @@ window.AssetContext = (() => {
         ${d.location && d.location.edr_ou ? `<div class="text-sm text-muted" style="margin-top:4px">EDR OUs: ${esc(d.location.edr_ou)}</div>` : ''}</div>
       <div class="panel__header"><span class="panel__title">Which tools see it</span></div>
       <div style="padding:8px 14px">${tools(d.coverage)}
-        ${(d.gaps || []).map(g => `<div class="text-sm" style="margin-top:6px;color:var(--accent)"><b>${esc(g)}</b></div>`).join('')}</div>
+        ${(d.gaps || []).map(g => `<div class="text-sm" style="margin-top:6px;color:var(--accent)"><b>${esc(g)}</b></div>`).join('')}
+        ${d.probe && d.probe.probed_at ? `<div class="text-sm" style="margin-top:6px">Network probe: ${d.probe.alive_at
+          ? `answered ${esc(new Date(d.probe.alive_at).toLocaleString())}${d.probe.ports ? ` on <span class="text-mono">${esc(d.probe.ports)}</span>` : ''}`
+          : `no answer when last tried ${esc(new Date(d.probe.probed_at).toLocaleString())}`}</div>` : ''}</div>
       ${pub ? `<div class="panel__header"><span class="panel__title">Internet address</span></div>
         <div class="text-sm" style="padding:8px 14px">Reaches the internet from <span class="text-mono">${esc(pub.address || '')}</span>,
           shared with <b>${esc(pub.shared_with)}</b> other asset${pub.shared_with === 1 ? '' : 's'}${(pub.places || []).length
@@ -40,7 +43,7 @@ window.AssetContext = (() => {
           <div style="overflow:auto"><table class="data-table"><thead><tr><th>Asset</th><th>IP</th><th>Type</th><th>Where</th><th>Owner</th><th>Seen by</th><th>Grade</th><th>Open</th></tr></thead><tbody>
           ${n.map(x => `<tr><td class="text-sm"><a href="/devices/${encodeURIComponent(x.id)}#context">${esc(x.name || '')}</a>${
               (x.gaps || []).length ? ` <span class="chip chip--high" style="font-size:.62rem" title="${esc(x.gaps.join('; '))}">gap</span>` : ''}<div class="text-muted" style="font-size:.72rem">${esc(x.os || '')}</div></td>
-            <td class="text-sm text-mono">${esc(x.ip || '')}</td><td class="text-sm">${esc((x.type || '').replace(/_/g, ' '))}</td>
+            <td class="text-sm text-mono">${esc(x.ip || '')}${x.ports ? `<div class="text-muted" style="font-size:.7rem">${esc(x.ports)}</div>` : ''}</td><td class="text-sm">${esc((x.type || '').replace(/_/g, ' '))}</td>
             <td class="text-sm">${esc(x.place || '')}${x.site ? `<div class="text-muted" style="font-size:.72rem">AD site ${esc(x.site)}</div>` : ''}</td>
             <td class="text-sm">${esc(x.owner || '')}${(x.owner_tags || []).map(t => `<div class="text-muted" style="font-size:.72rem">${esc(t.replace(/^owner:/i, ''))}</div>`).join('')}</td>
             <td style="white-space:nowrap">${tools(x.coverage)}</td><td class="text-sm">${esc(x.grade || '')}</td>

@@ -158,6 +158,12 @@ def _every(m, cfg):
 
 def _due(m, cfg, state, now, force):
     last = float((state.get("last_by_kind") or {}).get(m["kind"], state.get("last_run", 0)))
+    cron = (m.get("settings") or {}).get("cron")
+    if cron:   # a source with a cron schedule (network discovery) runs at those times only
+        try:
+            return force or cc.cron_due(cron, last, now)
+        except ValueError:
+            return False
     return force or now - last >= _every(m, cfg) * 60 - 60  # a minute of slack for cron jitter
 
 
@@ -174,6 +180,8 @@ def _run_source(sh, m, cfg, state, secrets, problems):
     missing = [f for f in core.mod(kind).SECRETS if f not in secret]
     if missing:
         return f"no {', '.join(missing)} set in CTEM yet"
+    if kind == "netprobe":   # what to probe, fresh from CTEM; the box still limits it to the approved scope
+        s["targets"] = sh.api.call("GET", f"/api/v1/collector/netprobe/{m['integration_id']}/targets") or {}
     if kind == "splunk":
         gap = (time.time() - float(state.get("splunk_ok", 0))) / 60
         s["lookback_minutes"] = int(min(max(gap, _every(m, cfg)) + 5, 7 * 1440))
@@ -189,6 +197,35 @@ def _run_source(sh, m, cfg, state, secrets, problems):
         err = cc.short_error(e)
         cc.say(f"{kind}: FAILED {err}")
         return err
+
+
+def probe(dry_run):
+    """What network discovery touches, after this box's approved scope; --dry-run sends nothing to any host."""
+    import collector_netprobe as npm
+    sh = core.Shipper()
+    m = next((x for x in sh.modules() if x["kind"] == "netprobe"), None)
+    if m is None:
+        cc.say("  network discovery isn't enabled for this shipper in CTEM")
+        return 1
+    s = sh.settings_for(m)
+    if s is None:
+        cc.say("  its scope changed in CTEM; run `open-ctem-collector approve` first")
+        return 1
+    s["targets"] = sh.api.call("GET", f"/api/v1/collector/netprobe/{m['integration_id']}/targets") or {}
+    todo = npm.targets(s, npm.exclusions(s), min(max(int(s.get("max_hosts") or 4096), 1), 20000))
+    ports = npm.ports_of(s)
+    cc.say(f"  {len(todo)} addresses in scope (internal only, minus {s.get('exclude_cidrs') or 'no exclusions'}), "
+           f"ports {','.join(map(str, ports))}")
+    for ip in todo[:50]:
+        cc.say(f"    {ip}")
+    if len(todo) > 50:
+        cc.say(f"    ... and {len(todo) - 50} more")
+    if dry_run:
+        return 0
+    state = _state(kind="netprobe")
+    cc.say(f"  shipped {ship(sh.api, m, s, {}, state)} results")
+    _state(state, kind="netprobe")
+    return 0
 
 
 def daemon():
@@ -256,6 +293,8 @@ def main(argv=None):
     rp.add_argument("--force", action="store_true")
     rp.add_argument("--only", choices=sorted(core.MODULES), help="run just this source (one per systemd instance)")
     sub.add_parser("daemon")
+    pr = sub.add_parser("probe", help="network discovery: show what it would touch (--dry-run) or run it now")
+    pr.add_argument("--dry-run", action="store_true", help="list the addresses and ports, probe nothing")
     args = p.parse_args(argv)
     cc.say(f"open-ctem shipper {core.AGENT_VERSION}")   # first line of every command, run and log
     if args.cmd in ("setup", "approve", "secrets", "set-url"):
@@ -281,6 +320,8 @@ def main(argv=None):
             return 1
     if args.cmd == "run":
         return run(args.force, args.only)
+    if args.cmd == "probe":
+        return probe(args.dry_run)
     return daemon() if args.cmd == "daemon" else test()
 
 

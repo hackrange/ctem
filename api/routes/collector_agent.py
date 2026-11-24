@@ -16,7 +16,7 @@ from api.collector import ingest, service
 from api.collector.profile import key_fingerprint
 from api.collector.schemas import (
     CheckinRequest, CrowdStrikeBatch, EnrollRequest, LdapBatch, LoginCheckRequest, LoginEnrollRequest, Rapid7Batch,
-    SecretsUpload, SplunkBatch,
+    NetProbeBatch, SecretsUpload, SplunkBatch,
 )
 from api.core.db import get_session
 from api.models.collector import CollectorEnrollment, CollectorProfile, CollectorToken
@@ -25,7 +25,7 @@ log = logging.getLogger("open-ctem.collector")
 router = APIRouter(prefix="/api/v1/collector", tags=["collector"])
 
 _MAX_BODY = 8 * 1024 * 1024
-_Batch = TypeAdapter(Annotated[Union[LdapBatch, Rapid7Batch, CrowdStrikeBatch, SplunkBatch], Field(discriminator="kind")])
+_Batch = TypeAdapter(Annotated[Union[LdapBatch, Rapid7Batch, CrowdStrikeBatch, SplunkBatch, NetProbeBatch], Field(discriminator="kind")])
 
 
 async def _json_body(request: Request, model):
@@ -212,3 +212,14 @@ async def alert_feed(request: Request, db: AsyncSession = Depends(get_session), 
         return {"alerts": [], "next": await alert_feed.latest_seq(db), "more": False}
     rows = await alert_feed.after(db, after, 500)
     return {"alerts": [r.event for r in rows], "next": rows[-1].seq if rows else after, "more": len(rows) == 500}
+
+
+
+@router.get("/netprobe/{integration_id}/targets")
+async def netprobe_targets(integration_id: str, request: Request, db: AsyncSession = Depends(get_session)):
+    """What this shipper's network discovery should try: addresses nothing manages and their /24s (api/core/netprobe.py).
+    Only for the shipper whose profile owns this integration; the box applies its own approved scope on top."""
+    from api.core import netprobe
+    tok = await ingest.authenticate(request, db)
+    await ingest.scoped_integration(tok, integration_id, "netprobe", db)
+    return await netprobe.targets(db)

@@ -39,12 +39,21 @@ const SOURCES = {
     { key: 'hec_port', label: 'HEC port', type: 'number', ph: '8088' },
     { key: 'hec_index', label: 'HEC index (blank = the token\'s default)', ph: 'ctem' },
   ], secrets: { password: 'Splunk password', hec_token: 'HEC token (for CTEM alerts)' } },
+  netprobe: { label: 'Network discovery (ping and common ports)', fields: [
+    { key: 'cron', label: 'When (cron, UTC)', ph: '0 2 * * *  (02:00 every day)' },
+    { key: 'ports', label: 'Ports (common ones only, up to 40)', ph: '21,22,23,25,53,80,443,445,3389,...', wide: true },
+    { key: 'sweep_subnets', label: 'Sweep their /24s for unknown devices', type: 'select', opts: [['on', 'On'], ['off', 'Off (known addresses only)']] },
+    { key: 'exclude_cidrs', label: 'Never touch (CIDRs; approved on the box)', ph: '10.40.0.0/16, 10.82.200.0/24', wide: true },
+    { key: 'timeout_ms', label: 'Timeout per host (ms)', type: 'number', ph: '600' },
+    { key: 'concurrency', label: 'Hosts at a time', type: 'number', ph: '32' },
+    { key: 'max_hosts', label: 'Most addresses per run', type: 'number', ph: '4096' },
+  ], secrets: {} },
 };
 
 // Each source can run on its own clock; blank follows the shipper's schedule
 const EVERY = { key: 'schedule_minutes', label: 'Run every', type: 'select', num: true, opts: [['', 'Shipper schedule'],
   ...[5, 10, 15, 30, 60, 120, 240, 300, 360, 720, 1440].map(n => [String(n), n < 60 ? `${n} minutes` : `${n / 60} hour${n === 60 ? '' : 's'}`])] };
-for (const def of Object.values(SOURCES)) def.fields.push(EVERY);
+for (const [kind, def] of Object.entries(SOURCES)) if (kind !== 'netprobe') def.fields.push(EVERY);   // discovery runs on its cron
 
 let _shippers = [];
 let _editId = null;

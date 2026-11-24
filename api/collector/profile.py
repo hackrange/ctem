@@ -6,7 +6,7 @@ import hashlib
 import json
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 Host = Annotated[str, StringConstraints(strip_whitespace=True, pattern=r"^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$")]
 Port = Annotated[int, Field(ge=1, le=65535)]
@@ -77,15 +77,69 @@ class SplunkSettings(_Source):
     hec_index: Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,80}$")] | None = None
 
 
+def _cron_ok(expr: str) -> str:
+    """Five fields (minute hour day month weekday) of numbers, *, lists, ranges and steps, each within range."""
+    parts = expr.split()
+    if len(parts) != 5:
+        raise ValueError("a cron schedule has five fields, like '30 2 * * *'")
+    for spec, (lo, hi) in zip(parts, ((0, 59), (0, 23), (1, 31), (1, 12), (0, 7))):
+        for part in spec.split(","):
+            base, _, step = part.partition("/")
+            if step and (not step.isdigit() or int(step) < 1):
+                raise ValueError(f"bad step in {spec!r}")
+            if base == "*":
+                continue
+            a, _, b = base.partition("-")
+            if not a.isdigit() or (b and not b.isdigit()) or not lo <= int(a) <= int(b or a) <= hi:
+                raise ValueError(f"{spec!r} is out of range")
+    return " ".join(parts)
+
+
+class NetProbeSettings(_Source):
+    """Network discovery: ping and a TCP connect to common ports, on addresses nothing manages and their /24s."""
+    cron: Annotated[str, StringConstraints(strip_whitespace=True, max_length=100, pattern=r"^[0-9*,/ -]+$")] = "0 2 * * *"
+    ports: Annotated[str, StringConstraints(strip_whitespace=True, max_length=300, pattern=r"^[0-9, ]*$")] = (
+        "21,22,23,25,53,80,110,135,139,143,443,445,1433,1521,3306,3389,5432,5900,5985,6379,8080,8443,9200")
+    sweep_subnets: OnOff = "on"   # also try every address of those /24s, to find devices no tool knows
+    exclude_cidrs: Annotated[str, StringConstraints(strip_whitespace=True, max_length=4000, pattern=r"^[0-9./,; ]*$")] = ""
+    timeout_ms: int = Field(600, ge=100, le=3000)
+    concurrency: int = Field(32, ge=4, le=64)
+    max_hosts: int = Field(4096, ge=1, le=20000)
+
+    @field_validator("cron")
+    @classmethod
+    def _cron(cls, v):
+        return _cron_ok(v)
+
+    @field_validator("ports")
+    @classmethod
+    def _ports(cls, v):
+        got = [p for p in (x.strip() for x in v.split(",")) if p]
+        if len(got) > 40 or any(not 0 < int(p) < 65536 for p in got):
+            raise ValueError("up to 40 ports, each 1-65535")
+        return ",".join(dict.fromkeys(got))
+
+    @field_validator("exclude_cidrs")
+    @classmethod
+    def _nets(cls, v):
+        import ipaddress
+        nets = [c.strip() for c in v.replace(";", ",").split(",") if c.strip()]
+        for c in nets:
+            ipaddress.ip_network(c, strict=False)   # raises on anything that isn't a network
+        return ",".join(nets)
+
+
 SETTINGS = {"ldap": LdapSettings, "rapid7_console": Rapid7Settings,
-            "crowdstrike": CrowdStrikeSettings, "splunk": SplunkSettings}
+            "crowdstrike": CrowdStrikeSettings, "splunk": SplunkSettings, "netprobe": NetProbeSettings}
 # Anything that decides where a password goes, or what runs with it, needs a yes on the box
 DEST_KEYS = {"ldap": ("host", "port", "tls"), "rapid7_console": ("host", "port"),
-             "crowdstrike": ("cloud",), "splunk": ("host", "port", "query")}
+             "crowdstrike": ("cloud",), "splunk": ("host", "port", "query"),
+             # what the network probe may touch and how: only ever changed with a yes on the box
+             "netprobe": ("exclude_cidrs", "ports", "sweep_subnets")}
 # Destinations added later count only once set, so existing approvals stay valid (the agent has the same rule)
 DEST_EXTRA = {"crowdstrike": {"fdr_queue_url": ("fdr_queue_url",)}, "splunk": {"hec_host": ("hec_host", "hec_port")}}
 SECRET_FIELDS = {"ldap": ("password",), "rapid7_console": ("password",),
-                 "crowdstrike": ("client_secret", "fdr_secret_key"), "splunk": ("password", "hec_token")}
+                 "crowdstrike": ("client_secret", "fdr_secret_key"), "splunk": ("password", "hec_token"), "netprobe": ()}
 SCHEDULES = (15, 30, 60, 120, 240, 360, 720, 1440)
 
 

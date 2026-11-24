@@ -23,12 +23,12 @@ _RATE_PER_MIN = 600
 
 # Which integration vendors a collector is allowed to feed, and the push kind for each
 KIND_FOR_VENDOR = {Vendor.ldap: "ldap", Vendor.rapid7_insightvm: "rapid7_console", Vendor.crowdstrike: "crowdstrike",
-                   Vendor.splunk: "splunk"}
+                   Vendor.splunk: "splunk", Vendor.netprobe: "netprobe"}
 
 
 VENDOR_FOR_KIND = {k: v for v, k in KIND_FOR_VENDOR.items()}
 _KIND_LABEL = {"ldap": "LDAP", "rapid7_console": "Rapid7 InsightVM console", "crowdstrike": "CrowdStrike Falcon",
-               "splunk": "Splunk"}
+               "splunk": "Splunk", "netprobe": "Network discovery"}
 
 
 def hash_secret(raw: str) -> str:
@@ -163,6 +163,9 @@ async def _crowdstrike_finished(db: AsyncSession, cfg: IntegrationConfig, run_id
 
 
 async def apply_batch(db: AsyncSession, batch: LdapBatch | Rapid7Batch | CrowdStrikeBatch | SplunkBatch) -> int:
+    if getattr(batch, "kind", None) == "netprobe":
+        from api.core import netprobe
+        return await netprobe.apply(db, [p.model_dump() for p in batch.probes])
     if isinstance(batch, LdapBatch):
         from api.integrations.ldap_ingest import upsert_directory
         return await upsert_directory(

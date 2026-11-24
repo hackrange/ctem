@@ -48,6 +48,7 @@ class Vendor(str, enum.Enum):
     bedrock = "bedrock"
     zscaler = "zscaler"
     fairtprm = "fairtprm"
+    netprobe = "netprobe"   # the shipper's network discovery (ping and common ports)
     email = "email"             # outgoing mail: SMTP or Microsoft 365 Graph (api/core/email.py)
     aws = "aws"                 # cloud exposure (api/cloud/)
     azure = "azure"

@@ -24,7 +24,7 @@ CRYPTO_VERSION='50.0.2'
 BOTO3_VERSION='1.43.120'
 
 APP=/opt/open-ctem-collector
-SOURCES='ldap rapid7_console crowdstrike splunk'
+SOURCES='ldap rapid7_console crowdstrike splunk netprobe'
 CONF=/etc/open-ctem-collector
 STATE=/var/lib/open-ctem-collector
 SVC_USER=octem-collector

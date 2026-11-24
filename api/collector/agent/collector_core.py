@@ -10,11 +10,11 @@ import time
 import collector_common as cc
 import collector_crypto as crypto
 
-AGENT_VERSION = "1.6.0"
+AGENT_VERSION = "1.7.0"
 CONF_DIR = os.environ.get("OCTEM_CONF_DIR", "/etc/open-ctem-collector")
 STATE_DIR = os.environ.get("STATE_DIRECTORY", "/var/lib/open-ctem-collector")
 MODULES = {"ldap": "collector_ldap", "rapid7_console": "collector_rapid7",
-           "crowdstrike": "collector_crowdstrike", "splunk": "collector_splunk"}
+           "crowdstrike": "collector_crowdstrike", "splunk": "collector_splunk", "netprobe": "collector_netprobe"}
 URL_RE = re.compile(r"^https://[A-Za-z0-9.-]+(:\d{1,5})?$")
 
 
