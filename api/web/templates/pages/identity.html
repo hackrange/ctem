@@ -22,12 +22,12 @@
 
 <!-- Summary tiles -->
 <div id="summary-tiles" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:24px">
-  <div class="stat-tile loading" id="tile-itdr">--</div>
-  <div class="stat-tile loading" id="tile-posture">--</div>
-  <div class="stat-tile loading" id="tile-shadow-saas">--</div>
-  <div class="stat-tile loading" id="tile-shadow-ai">--</div>
-  <div class="stat-tile loading" id="tile-ai-agents">--</div>
-  <div class="stat-tile loading" id="tile-unsanctioned">--</div>
+  <button type="button" class="stat-tile loading" id="tile-itdr" data-open="threats" aria-label="Show ITDR threats">--</button>
+  <button type="button" class="stat-tile loading" id="tile-posture" data-open="posture" aria-label="Show posture findings">--</button>
+  <button type="button" class="stat-tile loading" id="tile-shadow-saas" data-open="saas" aria-label="Show shadow SaaS apps">--</button>
+  <button type="button" class="stat-tile loading" id="tile-shadow-ai" data-open="ai" aria-label="Show shadow AI apps">--</button>
+  <button type="button" class="stat-tile loading" id="tile-ai-agents" data-open="agents" aria-label="Show AI agents">--</button>
+  <button type="button" class="stat-tile loading" id="tile-unsanctioned" data-open="unsanctioned" aria-label="Show unsanctioned apps">--</button>
 </div>
 
 <!-- Tabs -->
@@ -72,6 +72,8 @@
 
 <!-- Shadow SaaS -->
 <div id="pane-saas" class="tab-pane" style="display:none">
+  <p class="text-sm" id="saas-only-unsanctioned" style="display:none;margin:0 0 8px">Showing unsanctioned apps of every kind.
+    <button type="button" class="btn btn--ghost btn--sm" id="saas-show-all">Show all shadow SaaS</button></p>
   <div class="panel" style="padding:0">
     <table class="data-table">
       <thead><tr>
@@ -166,6 +168,10 @@
   margin-bottom: 2px;
   letter-spacing: -.02em;
 }
+.stat-tile { text-align: left; cursor: pointer; font-family: inherit; width: 100%;
+  transition: border-color .15s, box-shadow .15s, transform .15s; }
+.stat-tile:hover, .stat-tile:focus-visible { border-color: var(--accent, #5b8df0); box-shadow: 0 2px 10px rgba(0,0,0,.08); transform: translateY(-1px); outline: none; }
+.stat-tile.on { border-color: var(--accent, #5b8df0); box-shadow: inset 0 -3px 0 var(--accent, #5b8df0); }
 .stat-tile.loading { opacity: .5; }
 .stat-tile.crit .tile-num { color: var(--severity-critical, #e53935); }
 .stat-tile.warn .tile-num { color: var(--severity-high, #f57c00); }
@@ -186,6 +192,7 @@
 const API = '/api/v1/identity';
 const PAGE = 50;
 let currentTab = 'threats';
+let onlyUnsanctioned = false;   // the Unsanctioned card: every kind of app, unsanctioned only
 let pages = { threats:0, posture:0, saas:0, ai:0, agents:0, scores:0 };
 
 // ── boot ──────────────────────────────────────────────────────────────────────
@@ -197,12 +204,30 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ── tabs ──────────────────────────────────────────────────────────────────────
 
-function switchTab(tab) {
+// A card opens its tab; Unsanctioned opens the apps tab filtered to unsanctioned apps of every kind
+document.getElementById('summary-tiles').addEventListener('click', e => {
+  const t = e.target.closest('[data-open]');
+  if (!t) return;
+  onlyUnsanctioned = t.dataset.open === 'unsanctioned';
+  switchTab(onlyUnsanctioned ? 'saas' : t.dataset.open, true);
+  document.getElementById(`tab-btn-${currentTab}`).scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+document.getElementById('saas-show-all').addEventListener('click', () => { onlyUnsanctioned = false; switchTab('saas', true); });
+
+function markTile() {
+  const open = onlyUnsanctioned ? 'unsanctioned' : currentTab;
+  document.querySelectorAll('.stat-tile').forEach(t => t.classList.toggle('on', t.dataset.open === open));
+  document.getElementById('saas-only-unsanctioned').style.display = onlyUnsanctioned ? '' : 'none';
+}
+
+function switchTab(tab, fromCard = false) {
+  if (!fromCard) onlyUnsanctioned = false;
   document.querySelectorAll('.tab-pane').forEach(p => p.style.display = 'none');
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.getElementById(`pane-${tab}`).style.display = '';
   document.getElementById(`tab-btn-${tab}`).classList.add('active');
   currentTab = tab;
+  markTile();
   if (tab === 'threats')  loadThreats();
   if (tab === 'posture')  loadPosture();
   if (tab === 'saas')     loadSaas('shadow_saas');
@@ -211,7 +236,7 @@ function switchTab(tab) {
   if (tab === 'scores')   loadScores();
 }
 
-function applyFilters() { switchTab(currentTab); }
+function applyFilters() { switchTab(currentTab, true); }
 
 // ── fetch helper ──────────────────────────────────────────────────────────────
 
@@ -277,15 +302,16 @@ async function loadSummary() {
 function tile(id, num, label, cls) {
   const el = document.getElementById(id);
   el.className = `stat-tile ${cls}`;
+  markTile();
   el.innerHTML = `<span class="tile-num">${num}</span>${esc(label)}`;
 }
 
 // ── ITDR threats ──────────────────────────────────────────────────────────────
 
 async function loadThreats(offset = 0) {
-  const sev = document.getElementById('filter-severity').value;
+  const sevFilter = document.getElementById('filter-severity').value;   // not "sev": that name is the badge helper below
   let url = `${API}/threats?limit=${PAGE}&offset=${offset}`;
-  if (sev) url += `&severity=${encodeURIComponent(sev)}`;
+  if (sevFilter) url += `&severity=${encodeURIComponent(sevFilter)}`;
 
   const tb = document.getElementById('tbody-threats');
   tb.innerHTML = '<tr><td colspan="7" class="text-muted text-sm" style="text-align:center;padding:24px">Loading...</td></tr>';
@@ -352,7 +378,8 @@ async function loadSaas(type, offset = 0) {
   const pgId  = `${tab}-pagination`;
   const sv    = document.getElementById('filter-severity').value;
 
-  let url = `${API}/saas-apps?app_type=${type}&limit=${PAGE}&offset=${offset}`;
+  let url = onlyUnsanctioned && type === 'shadow_saas' ? `${API}/saas-apps?sanctioned=false&limit=${PAGE}&offset=${offset}`
+                                                       : `${API}/saas-apps?app_type=${type}&limit=${PAGE}&offset=${offset}`;
   if (sv) url += `&risk_level=${encodeURIComponent(sv)}`;
 
   const tb = document.getElementById(tbId);

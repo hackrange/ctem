@@ -3,9 +3,15 @@
 All notable changes to open-ctem are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
-open-ctem is a Python rewrite of an earlier PHP version begun about 18 months before this repository; that history isn't in this repository (see [docs/project-overview.md](docs/project-overview.md)). Versions here start with the Python release, and each version is tagged (`v1.1.0` ... `v1.9.1`) at the commit that finished it. The on-prem shipper has its own version numbers.
+open-ctem is a Python rewrite of an earlier PHP version begun about 18 months before this repository; that history isn't in this repository (see [docs/project-overview.md](docs/project-overview.md)). Versions here start with the Python release, and each version is tagged (`v1.1.0` ... `v1.9.2`) at the commit that finished it. The on-prem shipper has its own version numbers.
 
 ## [Unreleased]
+
+## [1.9.2] - 2026-11-24
+
+### Fixed
+- **Identity: the summary cards open what they count.** Each card (ITDR alerts, posture findings, shadow SaaS, shadow AI, AI agents) opens its tab and stays highlighted; Unsanctioned opens the apps list filtered to unsanctioned apps of every kind, with a way back to all.
+- **Identity > ITDR threats said "Error loading threats" whenever there were threats.** The severity filter's variable hid the helper that draws the severity badge, so drawing the first row failed. A test now checks the page for any variable hiding a helper it calls.
 
 ## [1.9.1] - 2026-11-24
 
