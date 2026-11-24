@@ -3,9 +3,11 @@
 All notable changes to open-ctem are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
-open-ctem is a Python rewrite of an earlier PHP version begun about 18 months before this repository; that history isn't in this repository (see [docs/project-overview.md](docs/project-overview.md)). Versions here start with the Python release, and each version is tagged (`v1.1.0` ... `v1.8.1`) at the commit that finished it. The on-prem shipper has its own version numbers.
+open-ctem is a Python rewrite of an earlier PHP version begun about 18 months before this repository; that history isn't in this repository (see [docs/project-overview.md](docs/project-overview.md)). Versions here start with the Python release, and each version is tagged (`v1.1.0` ... `v1.8.2`) at the commit that finished it. The on-prem shipper has its own version numbers.
 
 ## [Unreleased]
+
+## [1.8.2] - 2026-11-24
 
 ### Fixed
 - **Ten connectors were never loaded.** Grip, SentinelOne, Microsoft Defender, Cortex XDR, Fortinet, Palo Alto NGFW, Tanium, Snyk, GitHub Advanced Security and ForgeRepo were left out of the list the app and worker import, so a configured one failed every sync with "No connector registered". All are loaded now, and a test fails if a new connector is left out.
