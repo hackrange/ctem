@@ -7,6 +7,9 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+### Fixed
+- **Shipper 1.8.1: an approval shows in CTEM right away.** Each source runs in its own process and reported the approvals it started with when it checked in at the end, so a long run that began before `open-ctem-collector approve` put the old approval back in CTEM, and the shipper showed "waiting for approve on the box" until the next check-in. Check-ins now read the approvals saved on the box.
+
 ## [1.8.0] - 2026-11-24
 
 ### Security

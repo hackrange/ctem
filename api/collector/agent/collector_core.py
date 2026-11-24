@@ -10,7 +10,7 @@ import time
 import collector_common as cc
 import collector_crypto as crypto
 
-AGENT_VERSION = "1.8.0"
+AGENT_VERSION = "1.8.1"
 CONF_DIR = os.environ.get("OCTEM_CONF_DIR", "/etc/open-ctem-collector")
 STATE_DIR = os.environ.get("STATE_DIRECTORY", "/var/lib/open-ctem-collector")
 MODULES = {"ldap": "collector_ldap", "rapid7_console": "collector_rapid7",
@@ -129,6 +129,11 @@ class Shipper:
         self.cfg = None
 
     def checkin(self, errors=None, ran=False):
+        # Read the approvals again: a source run that started before `approve` must not report the old ones when it ends
+        try:
+            self.pins = load_pins(self.conf_dir)
+        except (OSError, ValueError):
+            pass   # unreadable mid-write: report what this run started with
         approved = {k: v["digest"] for k, v in self.pins.items() if v.get("digest")}
         self.cfg = self.api.call("POST", "/api/v1/collector/checkin",
                                  hello({"approved": approved, "errors": errors or {}, "ran": ran}), retries=3)

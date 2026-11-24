@@ -446,3 +446,19 @@ def test_device_control_v2_layout_and_watch_counts():
     assert r["fqdn"] == ["*.badsite.example", "badsite.example", "bad", "name"] and r["program"].endswith("tunnel.exe")
     assert csp.rule_summary({"fqdn_enabled": False, "fqdn": "badsite.example"})["fqdn"] == []
 
+
+
+def test_a_check_in_reports_the_approvals_on_disk_not_the_ones_a_long_run_started_with(tmp_path):
+    """A source run that started before `open-ctem-collector approve` must not put the old approval back in CTEM."""
+    import json as _json
+
+    import collector_core as core
+    (tmp_path / "collector.json").write_text(_json.dumps({"ctem_url": "https://ctem.acme.example"}))
+    (tmp_path / "identity.json").write_text(_json.dumps({"token": "t", "private_key": "k", "key_fp": "f"}))
+    (tmp_path / "pins.json").write_text(_json.dumps({"crowdstrike": {"digest": "old"}}))
+    sh = core.Shipper(str(tmp_path))
+    sent = []
+    sh.api.call = lambda method, path, body=None, retries=0: sent.append(body) or {"modules": []}
+    (tmp_path / "pins.json").write_text(_json.dumps({"crowdstrike": {"digest": "new"}}))   # approve ran meanwhile
+    sh.checkin(ran=True)
+    assert sent[-1]["approved"] == {"crowdstrike": "new"}
