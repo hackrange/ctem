@@ -3,7 +3,7 @@
 **Continuous Threat Exposure Management** -- open source, risk-based, built to outclass every commercial CTEM product.
 
 > Author: Tim Rice &lt;tim.j.rice@hackrange.com&gt;  
-> Version: 1.0.1  
+> Version: 1.7.0  
 > License: MIT
 
 ## Install
@@ -105,6 +105,8 @@ Every source is matched to the same device row by host name, however it spells i
 | ForgeRepo | SCM | Repository security findings |
 | GitHub Code Review | SAST and DAST | Repositories as **Code** assets with code, dependency (CVE, KEV, EPSS, reachability), credential and misconfiguration findings; external sites as **Web application** assets with their latest DAST findings, telemetry and the repositories behind them. Application, owners and environment arrive as tags, a tag map adds your own, and code behind a live site counts as internet exposed. Each repository keeps GCR's own grade for a finding (reachability, validation and what it holds make it differ by repository), and a finding's details show why: what the scanner said, what changed the grade and why, triage, and any GCR waiver or exclusion |
 | AI (Anthropic, Amazon Bedrock, OpenAI, custom) | Analysis | Risk narratives, threat analysis, hunt, curated rule drafts |
+
+**Scope, scoring model, security reviews and hardening** in one place: [docs/project-overview.md](docs/project-overview.md).
 
 **Which integrations are verified**: see [docs/integration-validation.md](docs/integration-validation.md). Integrations not checked off there haven't been tested against the vendor's real API yet.
 
