@@ -6,7 +6,7 @@ import socket
 import sys
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -36,15 +36,50 @@ def test_ports_are_the_common_ones_unless_set():
     assert np.ports_of({"ports": "22, 3389,22,70000,x"}) == (22, 3389)
 
 
-def test_a_host_is_checked_on_every_port_at_once():
-    srv = socket.socket()
+def test_a_host_is_checked_on_every_port_at_once(monkeypatch):
+    srv, gone = socket.socket(), socket.socket()
     srv.bind(("127.0.0.1", 0))
     srv.listen()
+    gone.bind(("127.0.0.1", 0))
+    closed = gone.getsockname()[1]
+    gone.close()   # nothing listens there now: refused at once
     port = srv.getsockname()[1]
-    t = time.monotonic()
-    assert np.listening("127.0.0.1", (port,), 500) == [port]
-    assert np.listening("192.0.2.1", np.COMMON_PORTS, 300) == [] and time.monotonic() - t < 2   # one timeout, not 23
+    assert np.listening("127.0.0.1", (port, closed), 500) == [port]
     srv.close()
+
+    # A silent host, without depending on what the test machine's network does with a real address: every connect
+    # is left pending and nothing ever answers, so all ports share one timeout instead of one each
+    class Pending:
+        def __init__(self, *a):
+            pass
+
+        def setblocking(self, _):
+            pass
+
+        def connect_ex(self, _addr):
+            return np.errno.EINPROGRESS
+
+        def close(self):
+            pass
+
+    class Quiet:
+        def __init__(self):
+            self.n = 0
+
+        def register(self, *_):
+            self.n += 1
+
+        def select(self, timeout=None):
+            time.sleep(timeout or 0)
+            return []
+
+        def close(self):
+            pass
+    monkeypatch.setattr(np.socket, "socket", Pending)
+    monkeypatch.setattr(np.selectors, "DefaultSelector", Quiet)
+    t = time.monotonic()
+    assert np.listening("10.82.180.99", np.COMMON_PORTS, 300) == []
+    assert time.monotonic() - t < 1   # one 0.3 s timeout, not one per port
 
 
 def test_collect_sends_answers_and_known_hosts_only(monkeypatch):
@@ -140,11 +175,15 @@ async def test_what_answers_is_recorded_and_unknown_devices_appear(db):
     assert known.silent_since is None   # it answered
     # A silence starts a clock that only an answer stops
     later = datetime.now(timezone.utc)
-    await netprobe.apply(db, [{"ip": f"{net}.50", "alive": False, "icmp": False, "ports": [], "at": now}])
+    await netprobe.apply(db, [{"ip": f"{net}.50", "alive": False, "icmp": False, "ports": [], "at": now - timedelta(days=30)}])
+    await db.commit()
+    await db.refresh(known)
+    first = known.silent_since
+    assert first.replace(tzinfo=None) >= now.replace(tzinfo=None)   # the server's time, never the backdated one it was sent
     await netprobe.apply(db, [{"ip": f"{net}.50", "alive": False, "icmp": False, "ports": [], "at": later}])
     await db.commit()
     await db.refresh(known)
-    assert known.silent_since == now or known.silent_since.replace(tzinfo=None) == now.replace(tzinfo=None)   # from the first silence
+    assert known.silent_since == first   # from the first silence
     await netprobe.apply(db, [{"ip": f"{net}.50", "alive": True, "icmp": True, "ports": [], "at": later}])
     await db.commit()
     await db.refresh(known)

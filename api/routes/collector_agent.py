@@ -109,12 +109,13 @@ async def enroll(request: Request, db: AsyncSession = Depends(get_session)):
 
 
 @router.get("/info")
-async def info():
+async def info(db: AsyncSession = Depends(get_session)):
     # Lets the installer's "test CTEM" step confirm it hit the right service before sending a password
+    from api.collector.login import password_off
     from api.core.config import get_settings
     s = get_settings()
     return {"service": "open-ctem", "version": s.app_version,
-            "password_login": s.auth_mode != "oidc_only", "mfa_required": s.mfa_required}
+            "password_login": not await password_off(db), "mfa_required": s.mfa_required}
 
 
 @router.post("/login-check")
@@ -137,6 +138,7 @@ async def enroll_login(request: Request, db: AsyncSession = Depends(get_session)
     modules = service.clean_modules(body.modules, prof.modules if prof else None)
     if prof is None:
         prof = CollectorProfile(name=body.name, created_by=str(user.id), config_version=1)
+        await service.one_per_fleet(db, prof, modules)   # before anything is added
         db.add(prof)
     prof.schedule_minutes = service.check_schedule(body.schedule_minutes)
     await service.save_profile_modules(db, prof, modules)

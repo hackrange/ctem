@@ -60,6 +60,9 @@ def create_app() -> FastAPI:
         same_site="lax",
         max_age=settings.access_token_expire_minutes * 60,
     )
+    # Outermost: every layer below (rate limits, token IP allow-lists, sessions) sees the real client address
+    from api.core.trusted_proxy import TrustedProxyMiddleware
+    app.add_middleware(TrustedProxyMiddleware, host=settings.trusted_proxy_host)
 
     # ── Routers ───────────────────────────────────────────────────────────────
     from api.routes.auth import router as auth_router

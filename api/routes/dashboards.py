@@ -363,13 +363,17 @@ class DataBody(BaseModel):
     dashboard: uuid.UUID | None = None   # the saved dashboard these come from (for one that shows all the data)
 
 
-async def _published_wide(db, u: User, dash_id) -> dict[str, dict]:
+async def _published_wide(db, u: User, dash_id, filters=None, match="all") -> dict[str, dict]:
     """The published widgets, by id, of a dashboard set to show all the data, if this person may view it. Only these
-    stored definitions are evaluated without the viewer's limits; whatever a browser sends is never trusted for it."""
+    stored definitions, with the dashboard's own saved filters, are evaluated without the viewer's limits; whatever a
+    browser sends is never trusted for it. A viewer who changes the filters gets the answer within their own access,
+    so an approved view can't be sliced into more than was approved."""
     if dash_id is None:
         return {}
     d = await db.get(Dashboard, str(dash_id))
     if d is None or not can_view(d, u) or not shows_everything(d) or d.published is False:
+        return {}
+    if (_dfilters(filters, match) or None) != (_dfilters(*_fl(d.filters)) or None):
         return {}
     return {w["id"]: w for w in map(cat.clean_widget, d.widgets or []) if w and w.get("id")}
 
@@ -378,7 +382,7 @@ async def _published_wide(db, u: User, dash_id) -> dict[str, dict]:
 async def widget_data(body: DataBody, u: User = Depends(_member), db: AsyncSession = Depends(get_session)):
     """Data for widgets (saved or being edited), computed for this viewer. Keyed by widget id."""
     ctx = await cat.context(db, u)
-    wide = await _published_wide(db, u, body.dashboard)
+    wide = await _published_wide(db, u, body.dashboard, body.filters, body.filter_match)
     wctx = await cat.context(db, u, everything=True) if wide else None
     out = {}
     for raw in body.widgets:
@@ -424,7 +428,7 @@ async def export_widget(body: ExportBody, u: User = Depends(_member), db: AsyncS
     w = cat.clean_widget(body.widget)
     if w is None:
         raise HTTPException(422, "Unknown widget")
-    stored = (await _published_wide(db, u, body.dashboard)).get(w.get("id")) if w.get("id") else None
+    stored = (await _published_wide(db, u, body.dashboard, body.filters, body.filter_match)).get(w.get("id")) if w.get("id") else None
     ctx = await cat.context(db, u, everything=bool(stored))
     ctx.export = True
     out = await cat.evaluate(ctx, stored or w, {"filters": body.filters, "match": body.filter_match})

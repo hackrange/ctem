@@ -132,6 +132,7 @@
     const f = active();
     const r = await DashRender.api('POST', `${API}/data`, { widgets: list, filters: f.filters, filter_match: f.match, ...wideRef() });
     Object.assign(data, r.data || {});
+    if (wideRef().dashboard && r.everything === false && !load.noted) { load.noted = true; toast('With your own filters, this shows only the data you have access to.'); }
     list.forEach(w => { const b = body(w.id); if (b) DashRender.render(b, w, data[w.id] || { error: r.error || 'No data' }, !editing); });
   }
 

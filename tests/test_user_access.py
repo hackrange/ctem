@@ -192,7 +192,15 @@ async def test_scoped_people_see_only_vulnerabilities_on_their_assets(db, client
     await db.commit()
     got = (await client_it_user.get("/api/v1/vulns", params={"q": n, "affected_only": "false", "type": "web"})).json()["vulns"]
     assert [v["title"] for v in got] == [f"Mine {n}"]                                 # unchecked still means theirs only
-    one = (await client_it_user.get(f"/api/v1/vulns/{vt.id}")).json()
+    # a Web, Code or Cloud finding is the organization's own: not found unless it's on one of theirs
+    assert (await client_it_user.get(f"/api/v1/vulns/{vt.id}")).status_code == 404
+    assert (await client_it_user.get(f"/api/v1/vulns/{vm.id}")).json()["scoped"] is True
+    cve = Vulnerability(source="test", source_vuln_id=uuid.uuid4().hex[:12], title="Public CVE", cvss_base=9.0, domain="infra")
+    db.add(cve)
+    await db.flush()
+    db.add(Finding(device_id=theirs.id, vuln_id=cve.id, source="test"))
+    await db.commit()
+    one = (await client_it_user.get(f"/api/v1/vulns/{cve.id}")).json()   # a public CVE: shown, none of theirs have it
     assert one["scoped"] is True and one["affected_devices"] == 0
     everyone = (await client_admin.get("/api/v1/vulns", params={"q": n, "affected_only": "false"})).json()["vulns"]
     assert len(everyone) == 2 and (await client_admin.get(f"/api/v1/vulns/{vt.id}")).json()["scoped"] is False

@@ -62,6 +62,8 @@ class Settings(BaseSettings):
     allowed_hosts: str = "localhost"
     # Public https URL baked into collector installers; falls back to the first allowed host
     public_url: str | None = None
+    # The reverse proxy whose X-Forwarded-For / -Proto are believed (a hostname; empty = none). See api/core/trusted_proxy.py
+    trusted_proxy_host: str = Field("", max_length=253, pattern=r"^[A-Za-z0-9.-]*$")
     app_version: str = "1.0.1"
     # Country assumed for directory phone numbers with no country of their own (ISO 3166 alpha-2)
     phone_default_region: str = Field("US", pattern=r"^[A-Za-z]{2}$")

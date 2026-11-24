@@ -111,18 +111,18 @@ async def _refresh_vuln_view(source, device_type, kind, viewer, code=None):
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
 
-    from api.auth.device_scope import device_scope
+    from api.auth.device_scope import access_key, device_scope
     from api.core.db import get_session
     from api.core.vuln_dashboard import cached
     from api.models.user import User
     async for db in get_session():
-        scope = None
+        scope, access = None, ""
         if viewer:
             u = (await db.execute(select(User).options(selectinload(User.roles)).where(User.id == viewer))).scalar_one_or_none()
             if u is None:
                 return
-            scope = await device_scope(u, db)
-        await cached(db, "90d", source, device_type, fresh=True, scope=scope, viewer=viewer, kind=kind, code=code)
+            scope, access = await device_scope(u, db), await access_key(u, db)   # the cache key follows their access
+        await cached(db, "90d", source, device_type, fresh=True, scope=scope, viewer=viewer, kind=kind, code=code, access=access)
         break
 
 

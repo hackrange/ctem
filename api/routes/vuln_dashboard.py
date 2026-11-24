@@ -49,7 +49,9 @@ async def dashboard(u: User = Depends(_viewer), db: AsyncSession = Depends(get_s
             raise HTTPException(422, detail="unknown organization, application or repository")
         code = {k: v for k, v in (("org", org), ("repo", repo), ("app_tags", app_tags)) if v} or None
     kw = {"code": code} if code else {}
-    out = await vd.cached(db, range, source or None, device_type or None, scope=scope, viewer=str(u.id), kind=kind, **kw)
+    from api.auth.device_scope import access_key
+    out = await vd.cached(db, range, source or None, device_type or None, scope=scope, viewer=str(u.id), kind=kind,
+                          access=await access_key(u, db) if scope is not None else "", **kw)
     # Only sources this install uses: a configured integration, or open findings left from one
     used = set(await vd.configured_sources(db)) | {r["source"] for r in out.get("by_source") or []} | ({source} if source else set())
     from api.core.finding_domain import sources_by_domain

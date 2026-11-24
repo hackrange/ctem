@@ -16,10 +16,20 @@ from starlette.types import ASGIApp
 from api.core.config import get_settings
 
 _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+def csp_with(script: str = "", style: str = "") -> str:
+    """The app's policy plus exact extra sources for one page (a pinned path on a CDN, never a whole host)."""
+    out = _CSP
+    if script:
+        out = out.replace("script-src 'self' 'unsafe-inline';", f"script-src 'self' 'unsafe-inline' {script};")
+    if style:
+        out = out.replace("style-src 'self' 'unsafe-inline'", f"style-src 'self' 'unsafe-inline' {style}")
+    return out
+
+
 _CSP = (
     "default-src 'self'; "
-    "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; "
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; "
+    "script-src 'self' 'unsafe-inline'; "
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
     "font-src 'self' https://fonts.gstatic.com; "
     "img-src 'self' data:; "
     "connect-src 'self'; "
@@ -41,7 +51,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-XSS-Protection"] = "0"  # modern browsers use CSP instead
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=()"
-        response.headers["Content-Security-Policy"] = _CSP
+        if "content-security-policy" not in response.headers:   # a page that sets its own (API docs) keeps it
+            response.headers["Content-Security-Policy"] = _CSP
         # Private app: keep it out of search engines and AI crawlers/training
         response.headers["X-Robots-Tag"] = _ROBOTS
         # Remove fingerprinting headers (MutableHeaders uses __delitem__, not pop)

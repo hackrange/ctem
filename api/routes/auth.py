@@ -219,7 +219,8 @@ def _enroll_view(secret: str, username: str) -> dict:
 
 @router.get("/auth/logout")
 async def logout(request: Request):
-    request.session.clear()
+    from api.auth import sessions
+    await sessions.end(request)   # ended on the server too, not just in this browser
     return RedirectResponse("/login", status_code=302)
 
 
@@ -240,6 +241,8 @@ async def _create_session(request: Request, user: User, db: AsyncSession):
     request.session["access_token"] = create_access_token(str(user.id), user.username)
     request.session["user_id"] = str(user.id)
     request.session["signed_in_at"] = int(time.time())   # the hard limit on a session counts from here
+    from api.auth import sessions
+    sessions.started(request)
     await db.commit()
     return RedirectResponse(nxt or "/", status_code=302)
 
@@ -396,6 +399,8 @@ async def change_password(
     if not local.verify_password(body.current_password, current_user.password_hash):
         raise HTTPException(400, detail="Current password is incorrect")
     current_user.password_hash = local.hash_password(body.new_password)
+    from api.auth import sessions
+    sessions.new_password(request, current_user)   # every other session of this account ends; this one stays
     await db.commit()
     return {"changed": True}
 

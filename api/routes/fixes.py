@@ -29,7 +29,7 @@ async def _ranked(db, kind: str, source: str | None, scope, viewer: str) -> list
     import redis.asyncio as aioredis
 
     from api.core.config import get_settings
-    ck = f"fixes:v1:{kind}:{source or '-'}:{viewer if scope is not None else 'all'}"
+    ck = f"fixes:v1:{kind}:{source or '-'}:{viewer if scope is not None else 'all'}"   # viewer carries their access (see list_fixes)
     r = aioredis.from_url(get_settings().redis_url)
     try:
         try:
@@ -83,7 +83,9 @@ async def list_fixes(u: User = Depends(_viewer), db: AsyncSession = Depends(get_
     if source and source not in vd.SOURCES:
         return {"ok": False, "error": "Unknown source"}
     scope = await device_scope(u, db)
-    rows = await _ranked(db, kind, source, scope, str(u.id))
+    from api.auth.device_scope import access_key
+    viewer = f"{u.id}.{await access_key(u, db)}" if scope is not None else str(u.id)   # lost access is never served from cache
+    rows = await _ranked(db, kind, source, scope, viewer)
     fixable = sum(r["findings"] for r in rows)   # open findings with a known fix, before search and filters
     rows = [{**r, "pct": round(r["findings"] * 100.0 / fixable, 2) if fixable else 0.0} for r in rows]
     if q:

@@ -120,7 +120,36 @@ def admin_view(prof: CollectorProfile, tok: CollectorToken | None, secrets: list
     }
 
 
+# Sources whose end-of-run cleanup covers everything that source holds, not one shipper's share of it: CrowdStrike
+# closes the Spotlight findings Falcon stopped listing and drops Discover software, the InsightVM console drops software
+# it stopped reporting. A second shipper with the same source would close and drop the first one's data, so only one
+# shipper in the fleet may run each.
+ONE_PER_FLEET = {"crowdstrike": "CrowdStrike", "rapid7_console": "Rapid7 InsightVM console"}
+
+
+def _enabled(modules: dict | None) -> set[str]:
+    return {k for k, m in (modules or {}).items() if isinstance(m, dict) and m.get("enabled", True)}
+
+
+async def one_per_fleet(db: AsyncSession, prof: CollectorProfile, modules: dict) -> None:
+    """Refuse to turn on, for this shipper, a source another shipper already runs (see ONE_PER_FLEET). Only a source
+    being newly turned on is checked, so a shipper that already runs one keeps running it."""
+    new = (_enabled(modules) - _enabled(prof.modules if prof.id else None)) & set(ONE_PER_FLEET)
+    if not new:
+        return
+    with db.no_autoflush:   # reading the others must not write this one
+        others = (await db.execute(select(CollectorProfile).where(CollectorProfile.id != prof.id) if prof.id
+                                   else select(CollectorProfile))).scalars().all()
+    others = [o for o in others if o is not prof]
+    for kind in sorted(new):
+        taken = next((o.name for o in others if kind in _enabled(o.modules)), None)
+        if taken:
+            raise HTTPException(409, detail=f"The shipper {taken} already runs {ONE_PER_FLEET[kind]}. Only one shipper may run it, "
+                                            f"because each run closes what that source no longer reports; turn it off there first.")
+
+
 async def save_profile_modules(db: AsyncSession, prof: CollectorProfile, modules: dict) -> None:
+    await one_per_fleet(db, prof, modules)
     prof.modules = modules
     await ingest.ensure_integrations(db, prof)
     prof.config_version = (prof.config_version or 1) + 1

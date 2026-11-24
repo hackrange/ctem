@@ -14,11 +14,17 @@ def _fail() -> HTTPException:
     return HTTPException(401, detail="Invalid credentials")
 
 
+async def password_off(db: AsyncSession) -> bool:
+    """SSO only, set in Admin > SSO or the environment: the same answer the browser sign-in page uses."""
+    from api.auth import sso_config
+    return get_settings().auth_mode == "oidc_only" or (await sso_config.effective(db))[0] == "oidc_only"
+
+
 async def check_admin_password(db: AsyncSession, username: str, password: str) -> User:
     from api.auth import local
     from api.routes.auth import _DUMMY_HASH, _pw_clear, _pw_fail, _pw_locked
 
-    if get_settings().auth_mode == "oidc_only":
+    if await password_off(db):
         raise HTTPException(403, detail="Password sign-in is disabled; use an enrollment code")
     if await _pw_locked(username):
         local.verify_password(password, _DUMMY_HASH)  # same timing as a real check

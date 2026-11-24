@@ -228,3 +228,11 @@ async def api_token_for(db: AsyncSession):
         return plain, t
 
     return _make
+
+
+@pytest.fixture(autouse=True)
+def _many_shippers_per_source(monkeypatch):
+    """Tests share one database and each makes its own shippers, so the one-shipper-per-source rule
+    (api/collector/service.ONE_PER_FLEET) would trip over earlier tests' leftovers; its own test turns it back on."""
+    from api.collector import service
+    monkeypatch.setattr(service, "ONE_PER_FLEET", {})

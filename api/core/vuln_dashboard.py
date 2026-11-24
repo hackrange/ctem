@@ -351,7 +351,7 @@ def sliced(out: dict, range_key: str) -> dict:
 
 
 async def cached(db: AsyncSession, range_key: str, source: str | None, device_type: str | None, fresh: bool = False,
-                 scope=None, viewer: str | None = None, kind: str = "all", code: dict | None = None) -> dict:
+                 scope=None, viewer: str | None = None, kind: str = "all", code: dict | None = None, access: str = "") -> dict:
     """Fleet-wide numbers change with syncs, not by the second: keep each filter combination for 15 minutes."""
     import redis.asyncio as aioredis
 
@@ -363,7 +363,8 @@ async def cached(db: AsyncSession, range_key: str, source: str | None, device_ty
     if code:   # names can be long and hold ":"; a digest keeps the key short and unambiguous
         import hashlib
         code_key = hashlib.sha256(json.dumps(code, sort_keys=True, default=sorted).encode()).hexdigest()[:24]
-    key = f"vulndash:v5:{kind}:{source or '-'}:{device_type or '-'}:{viewer if scope is not None else 'all'}"
+    # a scoped viewer's entry also carries what they may see now, so losing access is never answered from a cache
+    key = f"vulndash:v5:{kind}:{source or '-'}:{device_type or '-'}:{f'{viewer}.{access}' if scope is not None else 'all'}"
     if code:
         key += f":c:{code_key}"
     r = aioredis.from_url(get_settings().redis_url)

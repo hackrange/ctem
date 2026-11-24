@@ -298,6 +298,12 @@ async def export_vuln_findings(
     return await csv_paged_response(name, header, fetch)
 
 
+# Code, Web app and Cloud findings are the organization's own (a file path, a site's URL, a check on its account),
+# so someone who sees only some assets reads one only when it's on one of theirs. Infrastructure CVEs are public, and
+# the page tells that person when none of their assets have it.
+_PRIVATE_DOMAINS = ("code", "web", "cloud")
+
+
 @router.get("/{vuln_id}")
 async def get_vuln(
     vuln_id: uuid.UUID,
@@ -307,7 +313,12 @@ async def get_vuln(
     _sla: None = Depends(sla.fresh),
 ):
     vuln = await _vuln_or_404(vuln_id, db)
-    scope = dq.with_tags(await device_scope(current_user, db), tag)
+    access = await device_scope(current_user, db)
+    if access is not None and vuln.domain in _PRIVATE_DOMAINS and not (await db.execute(
+            select(Finding.id).join(Device, Device.id == Finding.device_id)
+            .where(Finding.vuln_id == vuln.id, access).limit(1))).first():
+        raise HTTPException(404)   # the same answer as an id that doesn't exist
+    scope = dq.with_tags(access, tag)
     n, old = (await db.execute(select(_affected_count(scope), _oldest(scope)).select_from(Vulnerability)
                                .where(Vulnerability.id == vuln.id))).one()
     out = _vuln_summary(vuln, n, old)

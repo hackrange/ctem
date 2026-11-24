@@ -94,8 +94,10 @@ async def create_profile(body: ProfileCreate, user: User = Depends(require_admin
         raise HTTPException(409, detail="A shipper with that name exists")
     prof = CollectorProfile(name=body.name, schedule_minutes=service.check_schedule(body.schedule_minutes),
                             created_by=str(user.id), config_version=1)
+    modules = service.clean_modules(body.modules)
+    await service.one_per_fleet(db, prof, modules)   # before anything is added, so a refusal leaves nothing behind
     db.add(prof)
-    await service.save_profile_modules(db, prof, service.clean_modules(body.modules))
+    await service.save_profile_modules(db, prof, modules)
     await db.commit()
     log.info("shipper profile %s created by %s", prof.name, user.id)
     return await _view(db, prof)

@@ -6,7 +6,9 @@ up, minus every managed host in those /24s. Also any host no tool has seen in th
 confirmed offline before its findings are removed (api/core/stale_hosts.py). The box limits it to its own scope.
 
 apply(): what came back. An answering address CTEM knows gets "alive" with its open ports; one it doesn't know is a
-new asset from source netprobe: a device on the network no tool manages."""
+new asset from source netprobe: a device on the network no tool manages. Every time is the server's own (when the
+result arrived), never one the shipper reports, and silence only counts for an address CTEM asked about (one
+targets() hands out), since silence is what lets api/core/stale_hosts.py remove a host's findings."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -55,8 +57,9 @@ async def apply(db, probes: list[dict]) -> int:
     now, n = datetime.now(timezone.utc), 0
     hashes = {search_hash(p["ip"]): p for p in probes}
     known = {d.ip_hash: d for d in (await db.execute(select(Device).where(Device.ip_hash.in_(list(hashes))))).scalars()}
+    asked = None   # the stale hosts CTEM asked about, read once and only if a managed host is reported silent
     for h, p in hashes.items():
-        when = p.get("at") or now
+        when = now   # the shipper's own clock can't move a silence back (or an answer forward)
         ports = " ".join(f"{x}/tcp" for x in p.get("ports") or []) or ("icmp" if p.get("icmp") else None)
         d = known.get(h)
         if d is None:
@@ -64,6 +67,14 @@ async def apply(db, probes: list[dict]) -> int:
                 continue
             d = Device(hostname=p["ip"], device_type=DeviceType.unknown, source=SOURCE, ip=p["ip"], ip_hash=h)
             db.add(d)   # something answered that no tool knows
+        elif not p.get("alive") and _managed(d):
+            # A managed host is only a target while no tool has seen it in the retention window; otherwise CTEM never
+            # asked, and a reported silence must not start its clock
+            if asked is None:
+                from api.core.stale_hosts import candidates
+                asked = set(await candidates(db))
+            if str(d.ip or "").strip() not in asked:
+                continue
         d.probed_at = when
         if p.get("alive"):
             d.alive_at, d.alive_ports, d.silent_since = when, (ports or "")[:256] or None, None

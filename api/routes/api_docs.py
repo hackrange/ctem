@@ -34,4 +34,6 @@ async def openapi_json(request: Request, _: User = Depends(require_admin)):
 
 @router.get("/api/docs")
 async def api_docs(_: User = Depends(require_admin)):
-    return HTMLResponse(_PAGE)
+    # Only this page may load from the CDN, and only the pinned Swagger UI files (also checked by their SRI hashes)
+    from api.core.security import csp_with
+    return HTMLResponse(_PAGE, headers={"Content-Security-Policy": csp_with(f"{_SWAGGER}/", f"{_SWAGGER}/")})

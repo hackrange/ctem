@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +16,7 @@ from sqlalchemy.orm import selectinload
 from api.auth.middleware import get_current_user
 from api.auth.rbac import require_admin
 from api.auth import local as local_auth
+from api.auth import sessions as auth_sessions
 from api.core.db import get_session
 from api.core.accounts import ctem_account, same_name
 from api.core.encryption import search_hash
@@ -168,7 +169,7 @@ async def update_user_roles(
 @router.patch("/users/{user_id}")
 async def update_user(
     user_id: uuid.UUID,
-    body: "UpdateUserRequest",
+    body: "UpdateUserRequest", request: Request,
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_session),
 ):
@@ -183,9 +184,9 @@ async def update_user(
     if body.email is not None:
         user.email = body.email if body.email else None  # EncryptedString encrypts on write
         user.email_hash = _search_hash(body.email) if body.email else None
-    if body.password:
-        user.password_hash = local_auth.hash_password(body.password)
-        user.is_locked = False
+    if body.password:   # and whoever was signed in as them is signed out
+        user.password_hash, user.is_locked = local_auth.hash_password(body.password), False
+        auth_sessions.new_password(request, user)
     await db.commit()
     await _audit(admin, "update_user", "user", str(user_id), f"Updated {user.username}", db)
     return _user_summary(user)

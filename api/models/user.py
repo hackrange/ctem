@@ -65,6 +65,8 @@ class User(Base, UUIDPrimaryKey, TimestampMixin):
     ad_dn: Mapped[str | None] = mapped_column(EncryptedString)
     ad_username: Mapped[str | None] = mapped_column(String(256), index=True)
     last_login: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # A browser session that signed in before this no longer counts (set by a new password; api/auth/sessions.py)
+    sessions_valid_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Hard lockout flag (Redis handles timed lockouts; this is permanent until admin clears)
     is_locked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     locked_reason: Mapped[str | None] = mapped_column(String(256))
