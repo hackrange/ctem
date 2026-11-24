@@ -3,14 +3,17 @@
 All notable changes to open-ctem are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
-open-ctem is a Python rewrite of an earlier PHP version begun about 18 months before this repository; that history isn't in this repository (see [docs/project-overview.md](docs/project-overview.md)). Versions here start with the Python release, and each version is tagged (`v1.1.0` ... `v1.7.0`) at the commit that finished it. The on-prem shipper has its own version numbers.
+open-ctem is a Python rewrite of an earlier PHP version begun about 18 months before this repository; that history isn't in this repository (see [docs/project-overview.md](docs/project-overview.md)). Versions here start with the Python release, and each version is tagged (`v1.1.0` ... `v1.8.0`) at the commit that finished it. The on-prem shipper has its own version numbers.
 
 ## [Unreleased]
+
+## [1.8.0] - 2026-11-24
 
 ### Security
 - **Sign-in page allows no inline script.** The sign-in page has no script at all, so its Content Security Policy is now `script-src 'self'` (no `'unsafe-inline'`): injected markup can't run where passwords are typed. JSON responses now carry `default-src 'none'; frame-ancestors 'none'` (they are never rendered as pages) and `Cache-Control: no-store` (API data is per person). Every response also has `Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Resource-Policy: same-origin` (except static files) and a wider `Permissions-Policy`. `/health` no longer tells the unauthenticated world the version.
 
 ### Added
+- **`upgrade.sh` in the install folder.** `sudo ./upgrade.sh` checks for updates, lists what's new, waits for running integration syncs to finish (so none is cut off), then backs up, pulls, rebuilds and restarts with a rollback if the new version doesn't come up healthy (`install.sh --upgrade`). `--check` only reports whether an update is available; `--now` skips the wait.
 - **Attack path on every alert (Cyber Threats).** An interactive map beside the alert's story: the host and user, the process chain that ran, then what it did (files, connections, DNS) and what the EDR did, with the path that matters in red. Click a box to follow its path (what led to it and what it led to next) and read everything about it (command line, hashes, paths); drag to move, scroll or +/- to zoom. The story on the left ties together the alerts on the same host, for the same user on any host, and from the same process tree within a week, the same detection repeating folded into one step with how many times and when. Click a step to map that alert; each has See details and Show in CrowdStrike.
 - **AI read of an alert.** With an AI integration on, each alert gets a short first read: what most likely took place, a verdict (likely malicious, suspicious, likely benign, unclear), why, and what to check next. Asked once and saved (Refresh asks again; the page says when the story changed since). The AI sees names and MITRE data only: never command lines, users, paths, addresses, domains or hashes.
 - **Pentest tab: attack paths as a map.** An asset's NodeZero attack paths are now an interactive map (launch host, hosts reached, services, weaknesses exploited, credentials, impact) instead of a row of boxes: all paths together, with a host or weakness several paths share shown once, or click a path card for that path alone. Boxes carry short labels (the host, the service, the CVE) and NodeZero's full sentence in their details; each path card links the asset pages on it. "How NodeZero proved it" now looks like the link it is.

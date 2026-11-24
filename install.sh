@@ -146,7 +146,7 @@ if [[ -f "$ENV_FILE" && "$MODE" == restore && -f "${INSTALL_DIR}/.restore-incomp
 elif [[ -f "$ENV_FILE" ]]; then
   [[ "$MODE" == restore ]] || {
     warn "${ENV_FILE} already exists."
-    hint "Upgrade:  sudo bash ${INSTALL_DIR}/install.sh --upgrade"
+    hint "Upgrade:  sudo ${INSTALL_DIR}/upgrade.sh"
     hint "Restore:  sudo bash ${INSTALL_DIR}/install.sh --restore FILE"
     die "Aborting to protect your existing install."
   }
@@ -276,7 +276,7 @@ printf '  Backup password:  %s\n' "${BACKUP_PASS}"
 echo
 hint "Keep the backup password off this server; backups cannot be opened without it."
 hint "Backups:   Admin > Maintenance, or sudo bash ${INSTALL_DIR}/install.sh --backup"
-hint "Upgrade:   sudo bash ${INSTALL_DIR}/install.sh --upgrade"
+hint "Upgrade:   sudo ${INSTALL_DIR}/upgrade.sh"
 hint "Logs:      docker compose -f ${COMPOSE_FILE} logs -f"
 hint "Creds:     cat ${ENV_FILE}  (chmod 600, root-only)"
 echo

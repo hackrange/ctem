@@ -3,7 +3,7 @@
 **Continuous Threat Exposure Management** -- open source, risk-based, built to outclass every commercial CTEM product.
 
 > Author: Tim Rice &lt;tim.j.rice@hackrange.com&gt;  
-> Version: 1.7.0  
+> Version: 1.8.0  
 > License: MIT
 
 ## Install
@@ -385,10 +385,11 @@ docker compose -f docker/docker-compose.yml --env-file .env up -d
 ### Upgrading a server
 
 ```bash
-sudo bash /data/docker/ctem/install.sh --upgrade
+sudo /data/docker/ctem/upgrade.sh            # what's new, wait for running syncs, then upgrade
+sudo /data/docker/ctem/upgrade.sh --check    # only say whether an update is available
 ```
 
-It refuses to run over uncommitted local changes, takes a full encrypted backup into `backups/` (adding `BACKUP_ENCRYPTION_PASSWORD` to `.env` first if an older install has none), fast-forwards the checkout from `origin`, pulls the base images, rebuilds the app, worker and beat images, restarts the stack and waits for `/health`. If the app doesn't come up healthy it rolls the code back and rebuilds the previous version; restore the backup with `--restore` if you need the data back too. A local `docker/docker-compose.override.yml` is honored. Schema changes apply on startup, so there's no separate migration step. Shippers on other boxes are upgraded separately (see On-prem shippers).
+`upgrade.sh` fetches from `origin`, lists the new commits (and exits if there are none), waits for any integration sync that is running to finish (up to 30 minutes; `--wait N` changes that, `--now` skips it), then runs `install.sh --upgrade`. That upgrade refuses to run over uncommitted local changes, takes a full encrypted backup into `backups/` (adding `BACKUP_ENCRYPTION_PASSWORD` to `.env` first if an older install has none), fast-forwards the checkout from `origin`, pulls the base images, rebuilds the app, worker and beat images, restarts the stack and waits for `/health`. If the app doesn't come up healthy it rolls the code back and rebuilds the previous version; restore the backup with `--restore` if you need the data back too. A local `docker/docker-compose.override.yml` is honored. Schema changes apply on startup, so there's no separate migration step. Shippers on other boxes are upgraded separately (see On-prem shippers).
 
 ### Behind an upstream load balancer
 
