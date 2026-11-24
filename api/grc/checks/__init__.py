@@ -183,7 +183,7 @@ async def evaluate(db: AsyncSession, check: Check, params: dict, detail: bool = 
 
 def _load() -> None:
     # Import for registration side effects; the modules register into REGISTRY
-    from api.grc.checks import admin_logons, deprovisioning, endpoint, hygiene, identity, ops, software, vuln_age, vulns  # noqa: F401
+    from api.grc.checks import admin_logons, coverage, deprovisioning, endpoint, hygiene, identity, ops, software, vuln_age, vulns  # noqa: F401
 
 
 _load()

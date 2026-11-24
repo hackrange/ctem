@@ -224,6 +224,7 @@ Charts use [Apache ECharts](https://echarts.apache.org/) 6.1.0 (Apache-2.0) and 
 | `ctem_unauthorized_software` | Assets running software marked Unauthorized in the software inventory (an error, never a pass, until some source reports software) |
 | `ctem_exposed_criticals` | Internet-facing devices with critical or KEV findings |
 | `ctem_attack_paths` | Open validated attack paths |
+| `ctem_reachable_unscanned` | Internal hosts a pentest, cloud inventory or network probe reached that no vulnerability scanner covers |
 | `ctem_risk_exceptions` | Expired or permanent risk exceptions |
 | `ctem_dormant_accounts` | Enabled people accounts idle 90+ days |
 | `ctem_password_policy` | People accounts whose passwords never expire |

@@ -84,6 +84,10 @@ class Device(Base, UUIDPrimaryKey, TimestampMixin):
     loc_confidence: Mapped[str | None] = mapped_column(String(8))               # high, medium, low
     loc_evidence: Mapped[list | None] = mapped_column(EncryptedJSON)
     loc_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # The shipper's network probe (ping and a TCP connect to common ports): when it last answered, and on what
+    probed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    alive_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    alive_ports: Mapped[str | None] = mapped_column(String(256))   # "22/tcp 445/tcp", or "icmp" when only ping answered
     raw_risk_score: Mapped[float | None] = mapped_column(Float)  # score before the containment discount
     raw_risk_grade: Mapped[str | None] = mapped_column(String(1))
     # From the EDR's policies; None means the feed couldn't tell us
