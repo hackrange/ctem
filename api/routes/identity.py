@@ -54,9 +54,15 @@ async def list_itdr_threats(
 
     result = await db.execute(q.offset(offset).limit(limit))
     threats = result.scalars().all()
+    from api.routes.identity_people import people_for, person_view
+    hashes = {t.user_email_hash for t in threats}
+    who = await people_for(db, hashes)
+    ids = dict((await db.execute(select(IdentityRiskScore.user_email_hash, IdentityRiskScore.id)
+                                 .where(IdentityRiskScore.user_email_hash.in_(hashes or {""})))).all())
 
     return {
-        "threats": [_serialize_threat(t) for t in threats],
+        "threats": [{**_serialize_threat(t), "person": person_view(who.get(t.user_email_hash)),
+                     "identity_id": str(ids[t.user_email_hash]) if t.user_email_hash in ids else None} for t in threats],
         "total": total,
     }
 
@@ -108,6 +114,8 @@ async def list_posture_findings(
     total = (await db.execute(select(func.count()).select_from(q.subquery()))).scalar_one()
     result = await db.execute(q.offset(offset).limit(limit))
     findings = result.scalars().all()
+    from api.routes.identity_people import people_for, person_view
+    who = await people_for(db, {f.user_email_hash for f in findings})
 
     return {
         "findings": [
@@ -119,6 +127,7 @@ async def list_posture_findings(
                 "description": f.description,
                 "app_name": f.app_name,
                 "user_display": f.user_display,
+                "person": person_view(who.get(f.user_email_hash)),
                 "affected_count": f.affected_count,
                 "is_resolved": f.is_resolved,
                 "detected_at": f.detected_at.isoformat() if f.detected_at else None,
@@ -228,12 +237,19 @@ async def list_identity_scores(
     total = (await db.execute(select(func.count()).select_from(q.subquery()))).scalar_one()
     result = await db.execute(q.offset(offset).limit(limit))
     scores = result.scalars().all()
+    from api.routes.identity_people import people_for, person_view
+    who = await people_for(db, {s.user_email_hash for s in scores})
 
     return {
         "scores": [
             {
                 "id": str(s.id),
                 "user_display": s.user_display,
+                "person": person_view(who.get(s.user_email_hash)),
+                "credential_score": s.credential_score,
+                "leaked_password_accounts": s.leaked_password_accounts,
+                "reused_password_accounts": s.reused_password_accounts,
+                "credential_apps": len(s.credential_apps or []),
                 "composite_identity_score": s.composite_identity_score,
                 "itdr_score": s.itdr_score,
                 "posture_score": s.posture_score,

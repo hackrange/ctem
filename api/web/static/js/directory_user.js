@@ -70,4 +70,7 @@
   const tb = document.getElementById('users-tbody');
   tb.addEventListener('click', e => { const tr = e.target.closest('tr[data-user]'); if (tr && !e.target.closest('a')) open(tr.dataset.user); });
   tb.addEventListener('keydown', e => { const tr = e.target.closest('tr[data-user]'); if (tr && e.key === 'Enter') open(tr.dataset.user); });
+  // Linked from elsewhere (Identity > a person): /users?person=<id> opens that person
+  const linked = new URLSearchParams(location.search).get('person');
+  if (linked && /^[0-9a-f-]{36}$/i.test(linked)) open(linked);
 })();

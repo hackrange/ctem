@@ -122,7 +122,7 @@
   <div class="panel" style="padding:0">
     <table class="data-table">
       <thead><tr>
-        <th>Identity</th><th>Composite</th><th>ITDR</th><th>Posture</th><th>Shadow SaaS</th><th>Shadow AI</th><th>Synced</th>
+        <th>Identity</th><th>Composite</th><th title="Leaked and reused passwords (Grip)">Passwords</th><th>ITDR</th><th>Posture</th><th>Shadow SaaS</th><th>Shadow AI</th><th>Synced</th>
       </tr></thead>
       <tbody id="tbody-scores">
         <tr><td colspan="7" class="text-muted text-sm" style="text-align:center;padding:32px">Loading...</td></tr>
@@ -175,6 +175,8 @@
 .stat-tile.loading { opacity: .5; }
 .stat-tile.crit .tile-num { color: var(--severity-critical, #e53935); }
 .stat-tile.warn .tile-num { color: var(--severity-high, #f57c00); }
+.id-row[data-kind="identity"], .id-row[data-kind="posture"], .id-row[data-kind="app"] { cursor: pointer; }
+.id-row[data-kind]:not([data-kind=""]):hover td { background: var(--surface-2, rgba(91,141,240,.06)); }
 .pagination-row { display:flex;gap:8px;padding:12px 16px;align-items:center;font-size:.82rem;color:var(--text-muted) }
 .filter-select {
   padding: 6px 10px;
@@ -188,6 +190,7 @@
 {% endblock %}
 
 {% block extra_scripts %}
+<script src="{{ static('js/identity_detail.js') }}"></script>
 <script>
 const API = '/api/v1/identity';
 const PAGE = 50;
@@ -262,6 +265,19 @@ function score(n) {
   return `<b ${cls}>${v.toFixed(0)}</b>`;
 }
 
+// The person behind an identity (from the directory, matched on the same keyed email hash), else Grip's masked address
+function who(p, masked) {
+  if (!p) return `<span class="text-muted">${esc(masked || '--')}</span>`;
+  return `<b>${esc(p.name)}</b><br><span class="text-muted">${esc(p.email || masked || '')}</span>`;
+}
+
+function pw(s) {
+  const bits = [];
+  if (s.leaked_password_accounts) bits.push(`<span class="chip chip--critical">${esc(s.leaked_password_accounts)} leaked</span>`);
+  if (s.reused_password_accounts) bits.push(`<span class="chip chip--high">${esc(s.reused_password_accounts)} reused</span>`);
+  return bits.join(' ') || '<span class="text-muted">--</span>';
+}
+
 function checkChip(val) {
   return val ? '<span class="chip chip--low">Yes</span>' : '<span class="chip chip--info">No</span>';
 }
@@ -323,11 +339,11 @@ async function loadThreats(offset = 0) {
       return;
     }
     tb.innerHTML = d.threats.map(t => `
-      <tr>
+      <tr class="id-row" tabindex="0" data-kind="${t.identity_id ? 'identity' : ''}" data-id="${esc(t.identity_id || '')}">
         <td>${sev(t.severity)}</td>
         <td class="text-sm">${esc((t.threat_type || '').replace(/_/g, ' '))}</td>
         <td class="text-sm"><b>${esc(t.title)}</b>${t.description ? `<br><span class="text-muted">${esc(t.description.substring(0,80))}${t.description.length>80?'&hellip;':''}</span>` : ''}</td>
-        <td class="text-sm">${esc(t.user_display || '--')}</td>
+        <td class="text-sm">${who(t.person, t.user_display)}</td>
         <td class="text-sm">${esc(t.app_name || '--')}</td>
         <td class="text-sm">${t.mitre_technique_id ? `<code>${esc(t.mitre_technique_id)}</code>` : '--'}</td>
         <td class="text-sm">${fmt(t.detected_at)}</td>
@@ -355,7 +371,7 @@ async function loadPosture(offset = 0) {
       return;
     }
     tb.innerHTML = d.findings.map(f => `
-      <tr>
+      <tr class="id-row" tabindex="0" data-kind="posture" data-id="${esc(f.id)}">
         <td>${sev(f.severity)}</td>
         <td class="text-sm">${esc((f.finding_type || '').replace(/_/g, ' '))}</td>
         <td class="text-sm"><b>${esc(f.title)}</b>${f.description ? `<br><span class="text-muted">${esc(f.description.substring(0,80))}${f.description.length>80?'&hellip;':''}</span>` : ''}</td>
@@ -394,7 +410,7 @@ async function loadSaas(type, offset = 0) {
     tb.innerHTML = d.apps.map(a => {
       const riskChip = sev(a.risk_level || 'low');
       if (type === 'ai_agent') return `
-        <tr>
+        <tr class="id-row" tabindex="0" data-kind="app" data-id="${esc(a.id)}">
           <td class="text-sm"><b>${esc(a.app_name)}</b></td>
           <td>${riskChip}</td>
           <td class="text-sm text-center">${score(a.risk_score)}</td>
@@ -402,7 +418,7 @@ async function loadSaas(type, offset = 0) {
           <td class="text-sm">${fmt(a.last_seen)}</td>
         </tr>`;
       return `
-        <tr>
+        <tr class="id-row" tabindex="0" data-kind="app" data-id="${esc(a.id)}">
           <td class="text-sm"><b>${esc(a.app_name)}</b></td>
           <td class="text-sm">${esc(a.app_category || '--')}</td>
           <td>${riskChip}</td>
@@ -423,18 +439,19 @@ async function loadSaas(type, offset = 0) {
 
 async function loadScores(offset = 0) {
   const tb = document.getElementById('tbody-scores');
-  tb.innerHTML = '<tr><td colspan="7" class="text-muted text-sm" style="text-align:center;padding:24px">Loading...</td></tr>';
+  tb.innerHTML = '<tr><td colspan="8" class="text-muted text-sm" style="text-align:center;padding:24px">Loading...</td></tr>';
   try {
     const d = await api(`${API}/scores?limit=${PAGE}&offset=${offset}`);
     if (!d.scores.length) {
-      tb.innerHTML = '<tr><td colspan="7" class="text-muted text-sm" style="text-align:center;padding:32px">No identity risk scores yet -- trigger a Grip sync to populate</td></tr>';
+      tb.innerHTML = '<tr><td colspan="8" class="text-muted text-sm" style="text-align:center;padding:32px">No identity risk scores yet -- trigger a Grip sync to populate</td></tr>';
       document.getElementById('scores-pagination').innerHTML = '';
       return;
     }
     tb.innerHTML = d.scores.map(s => `
-      <tr>
-        <td class="text-sm"><b>${esc(s.user_display || 'unknown')}</b></td>
+      <tr class="id-row" tabindex="0" data-kind="identity" data-id="${esc(s.id)}">
+        <td class="text-sm">${who(s.person, s.user_display)}</td>
         <td class="text-sm text-center">${score(s.composite_identity_score)}</td>
+        <td class="text-sm text-center">${pw(s)}</td>
         <td class="text-sm text-center">${score(s.itdr_score)}</td>
         <td class="text-sm text-center">${score(s.posture_score)}</td>
         <td class="text-sm text-center">${score(s.shadow_saas_score)}</td>
@@ -443,7 +460,7 @@ async function loadScores(offset = 0) {
       </tr>`).join('');
     pager('scores-pagination', offset, d.total, 'loadScores');
   } catch (_) {
-    document.getElementById('tbody-scores').innerHTML = '<tr><td colspan="7" class="text-muted text-sm" style="text-align:center;padding:24px">Error loading scores</td></tr>';
+    document.getElementById('tbody-scores').innerHTML = '<tr><td colspan="8" class="text-muted text-sm" style="text-align:center;padding:24px">Error loading scores</td></tr>';
   }
 }
 </script>

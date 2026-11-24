@@ -56,7 +56,9 @@
         <span class="text-muted text-sm">Fix these to cut the most chains</span>
       </div>
       <table class="data-table" id="pivot-table">
-        <thead><tr><th>Host</th><th>Type</th><th>Reachable</th><th>KEV</th><th>Grade</th></tr></thead>
+        <thead><tr><th class="ap-sort" data-k="host" tabindex="0">Host</th><th class="ap-sort" data-k="device_type" tabindex="0">Type</th>
+          <th class="ap-sort" data-k="reachable_findings" tabindex="0">Reachable</th><th class="ap-sort" data-k="kev_findings" tabindex="0">KEV</th>
+          <th class="ap-sort" data-k="risk_score" tabindex="0">Grade</th></tr></thead>
         <tbody id="pivot-tbody">
           <tr><td colspan="5" class="text-muted text-sm" style="text-align:center;padding:24px">Loading...</td></tr>
         </tbody>
@@ -64,9 +66,23 @@
     </div>
   </div>
 </div>
+<style>
+.ap-chain { cursor: pointer; }
+.ap-chain:hover, .ap-chain:focus-visible { background: var(--surface2); outline: none; }
+.ap-more { display: none; padding: 10px 0 2px; }
+.ap-chain.open .ap-more, .ap-pivot-more.open { display: block; }
+.ap-pivot { cursor: pointer; }
+.ap-pivot:hover td { background: var(--surface2); }
+.ap-sort { cursor: pointer; user-select: none; white-space: nowrap; }
+.ap-sort::after { content: ' \2195'; color: var(--text-muted); font-size: .75em; }
+.ap-sort[aria-sort="ascending"]::after { content: ' \25B2'; color: var(--text); }
+.ap-sort[aria-sort="descending"]::after { content: ' \25BC'; color: var(--text); }
+.ap-find { font-size: .8rem; margin: 2px 0; }
+</style>
 {% endblock %}
 
 {% block extra_scripts %}
+<script src="{{ static('js/attack_paths_detail.js') }}"></script>
 <script>
 const API = '/api/v1/attack-paths';
 
@@ -112,7 +128,7 @@ async function loadChains() {
       const dst = c.destination || {};
       const bar = `<div style="width:${c.chain_score}%;height:4px;background:${scoreColor(c.chain_score)};border-radius:2px;min-width:4px"></div>`;
       return `
-        <div style="padding:14px 16px;border-bottom:1px solid var(--border)">
+        <div class="ap-chain" role="button" tabindex="0" aria-expanded="false" style="padding:14px 16px;border-bottom:1px solid var(--border)">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
             <div>
               <span style="font-weight:600;font-size:.85rem">${esc(src.hostname || src.ip || src.device_id?.substring(0,8))}</span>
@@ -126,6 +142,7 @@ async function loadChains() {
             Src: ${src.finding_count ?? 0} findings (max CVSS ${(src.max_cvss ?? 0).toFixed(1)}) &nbsp;&bull;&nbsp;
             Dst: ${dst.finding_count ?? 0} findings (max CVSS ${(dst.max_cvss ?? 0).toFixed(1)})
           </div>
+          <div class="ap-more">${APDetail.side('From', src)}${APDetail.side('To', dst)}</div>
         </div>`;
     }).join('');
   } catch (e) {
@@ -136,25 +153,14 @@ async function loadChains() {
 async function loadPivotPoints() {
   const tb = document.getElementById('pivot-tbody');
   try {
-    const d = await fetchJson(`${API}/pivot-points?limit=20`);
+    const d = await fetchJson(`${API}/pivot-points?limit=50`);
     const pts = d.pivot_points || [];
+    APDetail.pivots(pts);
     if (!pts.length) {
       tb.innerHTML = '<tr><td colspan="5" class="text-muted text-sm" style="text-align:center;padding:24px">No internet-exposed hosts with reachable findings</td></tr>';
       return;
     }
-    tb.innerHTML = pts.map(p => {
-      const riskCls = { critical:'chip--critical', high:'chip--high', medium:'chip--medium', low:'chip--low' }[p.pivot_risk] || 'chip--info';
-      return `
-        <tr>
-          <td class="text-sm"><b>${esc(p.hostname || p.ip_address || '--')}</b>
-            ${p.ip_address && p.hostname ? `<br><span class="text-muted">${esc(p.ip_address)}</span>` : ''}
-          </td>
-          <td class="text-sm text-muted">${esc(p.device_type || '--')}</td>
-          <td class="text-sm text-center">${p.reachable_findings}</td>
-          <td class="text-sm text-center">${p.kev_findings > 0 ? `<span class="chip chip--critical">${p.kev_findings}</span>` : '<span class="text-muted">0</span>'}</td>
-          <td>${p.risk_grade ? `<span class="chip ${riskCls}">${esc(p.risk_grade)}</span>` : '--'}</td>
-        </tr>`;
-    }).join('');
+    APDetail.draw();
   } catch (_) {
     tb.innerHTML = '<tr><td colspan="5" class="text-muted text-sm" style="text-align:center;padding:24px">Error loading pivot points</td></tr>';
   }

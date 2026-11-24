@@ -121,6 +121,10 @@ class IdentityRiskScore(Base, UUIDPrimaryKey, TimestampMixin):
     weak_password_accounts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     risky_extensions: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     mfa_coverage_pct: Mapped[int | None] = mapped_column(Integer)
+    # The apps holding this person's leaked, reused or weak passwords (Grip): [{app, app_id, leaked, reused, weak, certain}]
+    credential_apps: Mapped[list | None] = mapped_column(EncryptedJSON)
+    notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))   # last password-change notice sent
+    notified_by: Mapped[str | None] = mapped_column(String(128))
 
     # Counts for quick display
     active_itdr_alerts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

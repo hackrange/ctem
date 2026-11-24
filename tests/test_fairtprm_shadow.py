@@ -79,6 +79,18 @@ async def test_fairtprm_inventory_feeds_both_checks(gdb):
     assert saas["result"] == "warning" and saas["details"]["unsanctioned_apps"] == 1
     assert ai["check_version"] == 2 and "fairtprm:shadow_saas" in ai["data_freshness"]
 
+    # Grip's copy of the same app (named, not by domain) and a Grip-only app: FairTPRM is the only source while it reports
+    gdb.add_all([SaasAppRecord(source="grip", external_id="g1", app_name="Same app", vendor="Same app", is_shadow_ai=True,
+                               is_sanctioned=False, risk_level="high", user_count=40),
+                 SaasAppRecord(source="grip", external_id="g2", app_name="Grip only", is_shadow_ai=True, is_sanctioned=False,
+                               risk_level="high", user_count=3)])
+    await gdb.commit()
+    ai, _ = await evaluate(gdb, REGISTRY["ctem_shadow_ai"], {})
+    assert ai["details"] == {"unsanctioned_apps": 1, "user_accounts": 40} and "FairTPRM" in ai["summary"]
+    for r in (await gdb.execute(select(SaasAppRecord).where(SaasAppRecord.source == "grip"))).scalars():
+        await gdb.delete(r)
+    await gdb.commit()
+
     # Gone from FairTPRM -> gone here
     await sync_shadow(_Conn(apps=APPS[:1]), None, gdb)
     await gdb.commit()
@@ -99,7 +111,7 @@ async def test_no_endpoint_or_no_access_is_no_data_not_a_pass(gdb, status, outco
 
 
 @pytest.mark.asyncio
-async def test_grip_and_fairtprm_count_an_app_once_and_agents_still_count(gdb):
+async def test_with_fairtprm_reporting_grip_apps_and_agents_are_left_out(gdb):
     from api.grc.checks import REGISTRY, evaluate
     from api.integrations.fairtprm_shadow import sync_shadow
     from api.models.identity import SaasAppRecord
@@ -118,5 +130,5 @@ async def test_grip_and_fairtprm_count_an_app_once_and_agents_still_count(gdb):
                           is_sanctioned=False, risk_level="medium", user_count=2))
     await gdb.commit()
     body, _ = await evaluate(gdb, REGISTRY["ctem_shadow_ai"], {})
-    # same app from both sources counted once (the larger user count), plus the agent
-    assert body["details"] == {"unsanctioned_apps": 2, "user_accounts": 57}
+    # FairTPRM decides (exceptions are granted there): Grip's copy of the app and its agent are not counted again
+    assert body["details"] == {"unsanctioned_apps": 1, "user_accounts": 40}

@@ -64,6 +64,7 @@ class GripSecurityConnector(BaseConnector):
             await self._sync_posture_checks(db),
             await self._sync_saas_apps(db),
             await self._sync_ai_agents(db),
+            await self._sync_password_apps(),
             ext_count,
             await grip_extras.sync_desktop_ai(self, db),
             await self._sync_users(db),
@@ -169,7 +170,7 @@ class GripSecurityConnector(BaseConnector):
     async def _sync_saas_apps(self, db: AsyncSession) -> int:
         from api.models.identity import SaasAppRecord
 
-        apps = await self._paginate(self._saas_url())
+        apps = self._apps = await self._paginate(self._saas_url())
         count = 0
         for app in apps:
             ext_id = str(app.get("id", ""))
@@ -218,6 +219,11 @@ class GripSecurityConnector(BaseConnector):
         shadow_ai_n = sum(1 for a in apps if is_ai_app(((a.get("gripData") or {}).get("aiDepth") or {}).get("level")))
         log.info("Grip SaaS: upserted %d apps (%d shadow AI, rest shadow SaaS)", count, shadow_ai_n)
         return count
+
+    async def _sync_password_apps(self) -> int:
+        from api.integrations.grip_extras import password_apps
+        self._pw_apps = await password_apps(self, getattr(self, "_apps", None) or [])
+        return 0
 
     # ── AI Agents ─────────────────────────────────────────────────────────────
 
@@ -307,6 +313,7 @@ class GripSecurityConnector(BaseConnector):
             rec.last_synced = datetime.now(timezone.utc)
             from api.integrations.grip_extras import person_scores
             person_scores(rec, gd, (getattr(self, "_risky_by_person", None) or {}).get(email_hash, []))
+            rec.credential_apps = (getattr(self, "_pw_apps", None) or {}).get(email_hash) or None
 
             # Composite identity risk; a new record has no posture or shadow AI score until it is saved
             rec.composite_identity_score = round(

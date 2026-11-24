@@ -77,3 +77,18 @@ async def test_page_attack_paths_it_user_denied(client_it_user):
     """it_user has no attack-paths tag so gets 404 (BOLA-safe)."""
     r = await client_it_user.get("/attack-paths")
     assert r.status_code == 404
+
+
+def test_a_hosts_worst_findings_come_first_kev_then_cvss():
+    from types import SimpleNamespace as N
+
+    from api.routes.attack_paths import TOP, _top
+    f = lambda i, cvss, kev: N(id=f"f{i}", title="", vuln=N(title=f"v{i}", cve_id=f"CVE-2026-{i}", cvss_base=cvss, is_kev=kev))
+    out = _top([f(1, 9.8, False), f(2, 5.0, True), f(3, 7.0, False)] + [f(10 + i, 1.0, False) for i in range(8)])
+    assert [x["id"] for x in out[:3]] == ["f2", "f1", "f3"] and len(out) == TOP and out[0]["kev"] and out[0]["cve"] == "CVE-2026-2"
+
+
+@pytest.mark.asyncio
+async def test_the_page_sorts_pivots_and_opens_chains(client_cyber):
+    r = await client_cyber.get("/attack-paths")
+    assert r.status_code == 200 and "attack_paths_detail.js" in r.text and r.text.count('class="ap-sort"') == 5 and "ap-chain" in r.text

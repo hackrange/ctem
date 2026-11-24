@@ -84,6 +84,7 @@ def create_app() -> FastAPI:
     from api.routes.ai_usage import router as ai_usage_router
     from api.routes.admin_export import router as admin_export_router
     from api.routes.identity import router as identity_router
+    from api.routes.identity_people import router as identity_people_router
     from api.routes.attack_paths import router as attack_paths_router
     from api.routes.grc_exceptions import router as grc_exceptions_router
     from api.routes.vuln_exceptions import proof_router as finding_proof_router
@@ -146,6 +147,7 @@ def create_app() -> FastAPI:
     app.include_router(ticket_assist_router)  # before tickets so /ticket-options never hits a {finding_id} route
     app.include_router(tickets_router)
     app.include_router(identity_router)
+    app.include_router(identity_people_router)
     app.include_router(attack_paths_router)
     app.include_router(grc_exceptions_router)
     app.include_router(tags_router)
@@ -317,6 +319,7 @@ def _register_web_routes(app: FastAPI) -> None:
     app.get("/threat/alert", response_class=HTMLResponse, include_in_schema=False)(_render("pages/threat_alert.html", "/threat"))
     app.get("/threat/alert/map", response_class=HTMLResponse, include_in_schema=False)(_render("pages/threat_alert_map.html", "/threat"))
     app.get("/identity", response_class=HTMLResponse, include_in_schema=False)(_render("pages/identity.html", "/identity"))
+    app.get("/identity/person", response_class=HTMLResponse, include_in_schema=False)(_render("pages/identity_person.html", "/identity"))
     app.get("/hunt", response_class=HTMLResponse, include_in_schema=False)(_render("pages/hunt.html", "/hunt"))
     app.get("/hunt/telemetry", response_class=HTMLResponse, include_in_schema=False)(_render("pages/hunt_telemetry.html", "/hunt/telemetry"))
     app.get("/attack-paths", response_class=HTMLResponse, include_in_schema=False)(_render("pages/attack_paths.html", "/attack-paths"))

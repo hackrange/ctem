@@ -112,6 +112,7 @@ async def list_pivot_points(
             "reachable_findings": len(reachable_findings),
             "kev_findings": kev_count,
             "is_internet_exposed": d.is_internet_exposed,
+            "top": _top(reachable_findings),
             "pivot_risk": "critical" if kev_count >= 2 else "high" if kev_count == 1 else "medium",
         })
 
@@ -151,6 +152,17 @@ async def attack_path_summary(
 
 
 # ── Pure chain builder (no DB, testable) ──────────────────────────────────────
+
+TOP = 5
+
+
+def _top(findings: list) -> list[dict]:
+    """A host's worst reachable findings (KEV first, then CVSS), for the expanded chain or pivot point."""
+    worst = sorted(findings, key=lambda f: (bool(f.vuln and f.vuln.is_kev), (f.vuln.cvss_base or 0) if f.vuln else 0), reverse=True)
+    return [{"id": str(f.id), "title": (f.vuln.title if f.vuln else None) or getattr(f, "title", None) or "",
+             "cve": f.vuln.cve_id if f.vuln else None, "cvss": f.vuln.cvss_base if f.vuln else None,
+             "kev": bool(f.vuln and f.vuln.is_kev)} for f in worst[:TOP]]
+
 
 def _build_chains(by_device: dict, all_findings: list) -> list[dict]:
     """
@@ -205,6 +217,7 @@ def _build_chains(by_device: dict, all_findings: list) -> list[dict]:
                         "ip": device_ips.get(src_id),
                         "max_cvss": src_max,
                         "finding_count": len(src_findings),
+                        "top": _top(src_findings),
                     },
                     "destination": {
                         "device_id": dst_id,
@@ -212,6 +225,7 @@ def _build_chains(by_device: dict, all_findings: list) -> list[dict]:
                         "ip": device_ips.get(dst_id),
                         "max_cvss": dst_max,
                         "finding_count": len(dst_findings),
+                        "top": _top(dst_findings),
                     },
                     "subnet": subnet + ".0/24",
                 })

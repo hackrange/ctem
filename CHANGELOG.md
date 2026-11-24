@@ -7,6 +7,14 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+### Added
+- **Identity: see the person, and which apps hold their at-risk passwords.** Grip identities are matched to the directory person with the same keyed email hash (no address is stored again), so the ITDR, posture and scores lists show real names and addresses. Every row opens: an identity opens its own page (who they are with a link to their directory record, their scores, leaked, reused and weak passwords by app, MFA coverage, risky extensions, ITDR alerts and posture findings); a posture finding or an app opens in full in a panel. Grip's per-app password counts are matched to each app's users during the sync (only apps that have any are read); where an app has fewer such accounts than people flagged in it, each is marked "possibly" rather than certain.
+- **Ask a person to change their passwords.** An identity's page drafts an email naming each app and what is wrong with its password, with no links (people are told to sign in to each app directly) and never a password. Cyber or Admin can send it from a signed-in browser when email is set up (at most once a day per person, audited) or copy it to send themselves.
+- **Attack Paths: chains and pivot points open, and pivot points sort.** Click a chain or a pivot point for each host's worst reachable findings (KEV first, then CVSS) and a link to the device; the pivot table sorts by any column and lists up to 50 hosts.
+
+### Changed
+- **Shadow AI and Shadow SaaS checks use FairTPRM alone when it reports apps.** FairTPRM is where apps are reviewed and exceptions granted, and Grip names the same app differently (FairTPRM by domain), so mixing them listed apps twice (11 Eleven Labs, for one).
+
 ## [1.9.2] - 2026-11-24
 
 ### Fixed

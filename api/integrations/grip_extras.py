@@ -6,6 +6,9 @@
                        device's Software tab shows them
   people               leaked, reused and weak passwords and MFA coverage per person (Grip's passwordPosture and
                        mfaStatusByApp), and their risky extensions, rolled into the identity risk score
+  password apps        which apps hold those passwords: Grip counts them per app and per person, so the users of each app
+                       with any are read and matched; where an app has fewer such accounts than people flagged in it, each
+                       of them is marked "possibly" rather than certain
 """
 from __future__ import annotations
 
@@ -114,3 +117,45 @@ def person_scores(rec, gd: dict, risky_extensions: list[str]) -> None:
     if rec.mfa_coverage_pct is not None and rec.mfa_coverage_pct < 50:
         s += 10
     rec.credential_score = float(min(100, s))
+
+
+MAX_PASSWORD_APPS = 100   # apps whose users are read for password matching, most affected first
+KINDS = (("leaked", "leakedPasswordAccounts"), ("reused", "reusedPasswordAccounts"), ("weak", "weakPasswordAccounts"))
+
+
+async def password_apps(conn, apps: list[dict]) -> dict[str, list[dict]]:
+    """{email hash: [{app, app_id, leaked, reused, weak, certain}]} for every app Grip counts weak, reused or leaked
+    passwords in. Grip's per-user numbers cover the person, not the account, so a person counts for an app only where
+    the app has that kind and so do they; "certain" when the app's count covers everyone flagged in it."""
+    from api.core.encryption import search_hash
+
+    def posture(gd) -> dict:
+        return (gd or {}).get("passwordPosture") or {}
+    hit = [a for a in apps if a.get("id") and any(int(posture(a.get("gripData")).get(f) or 0) for _, f in KINDS)]
+    hit.sort(key=lambda a: [-int(posture(a.get("gripData")).get(f) or 0) for _, f in KINDS])
+    out: dict[str, list[dict]] = defaultdict(list)
+    for a in hit[:MAX_PASSWORD_APPS]:
+        app_pw = posture(a.get("gripData"))
+        rows = await conn._paginate(conn._root_url() + f"/saas/{a['id']}/users")
+        per_kind: dict[str, list[str]] = {k: [] for k, _ in KINDS}
+        for r in rows:
+            u = r.get("user") or {}
+            mail = str(u.get("mail") or "").strip().lower()
+            mine = posture(u.get("gripData"))
+            if not mail:
+                continue
+            for k, f in KINDS:
+                if int(app_pw.get(f) or 0) and int(mine.get(f) or 0):
+                    per_kind[k].append(search_hash(mail))
+        people: dict[str, dict] = {}
+        for k, f in KINDS:
+            sure = len(per_kind[k]) <= int(app_pw.get(f) or 0)
+            for h in per_kind[k]:
+                e = people.setdefault(h, {"app": str(a.get("name") or "")[:120], "app_id": str(a["id"])[:64],
+                                          "leaked": False, "reused": False, "weak": False, "certain": True})
+                e[k] = True
+                e["certain"] = e["certain"] and sure
+        for h, e in people.items():
+            out[h].append(e)
+    log.info("Grip password apps: %d apps read, %d people tied to at least one", min(len(hit), MAX_PASSWORD_APPS), len(out))
+    return dict(out)

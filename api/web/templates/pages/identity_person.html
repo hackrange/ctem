@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% set active_nav = 'identity' %}
+
+{% block title %}Identity -- open-ctem{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div style="min-width:0">
+    <p class="text-sm"><a href="/identity" class="dt-link" style="color:var(--fg-muted)">&larr; Identity Risk</a></p>
+    <h1 class="page-header__title" id="ip-name" style="overflow-wrap:anywhere">Loading...</h1>
+    <p class="page-header__sub" id="ip-sub"></p>
+  </div>
+  <div id="ip-actions" style="display:flex;gap:8px;align-items:flex-start"></div>
+</div>
+
+<div id="ip-tiles" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-bottom:20px"></div>
+
+<div class="panel" id="ip-pw-panel" style="margin-bottom:16px">
+  <div class="panel__header"><span class="panel__title">Passwords at risk, by app</span>
+    <span class="text-sm text-muted">From Grip's browser extension. "Possibly" means the app has fewer such accounts than people flagged in it.</span></div>
+  <div id="ip-pw"></div>
+</div>
+
+<div class="panel" id="ip-notice-panel" style="margin-bottom:16px;display:none">
+  <div class="panel__header"><span class="panel__title">Ask them to change it</span><span class="text-sm text-muted" id="ip-notified"></span></div>
+  <div style="padding:12px 16px">
+    <div class="text-sm text-muted" style="margin-bottom:6px">To <b id="ip-to"></b> &middot; Subject: <b id="ip-subject"></b></div>
+    <pre id="ip-body" style="white-space:pre-wrap;font-family:inherit;font-size:.88rem;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:12px;margin:0 0 10px"></pre>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <button type="button" class="btn btn--primary btn--sm" id="ip-send">Send this email</button>
+      <button type="button" class="btn btn--ghost btn--sm" id="ip-copy">Copy message</button>
+      <span class="text-sm" id="ip-msg"></span>
+    </div>
+  </div>
+</div>
+
+<div class="panel" style="margin-bottom:16px;padding:0">
+  <div class="panel__header" style="padding:12px 16px"><span class="panel__title">ITDR alerts</span></div>
+  <table class="data-table"><thead><tr><th>Severity</th><th>Type</th><th>Title</th><th>App</th><th>Status</th><th>Detected</th></tr></thead>
+    <tbody id="ip-threats"></tbody></table>
+</div>
+
+<div class="panel" style="padding:0">
+  <div class="panel__header" style="padding:12px 16px"><span class="panel__title">Open posture findings</span></div>
+  <table class="data-table"><thead><tr><th>Severity</th><th>Title</th><th>App</th><th>Detected</th></tr></thead>
+    <tbody id="ip-posture"></tbody></table>
+</div>
+<style>
+.id-row[data-kind] { cursor: pointer; }
+.id-row[data-kind]:hover td { background: var(--surface2); }
+.ip-tile { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 12px 14px; font-size: .75rem;
+  font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
+.ip-tile b { display: block; font-size: 1.6rem; color: var(--text); letter-spacing: -.02em; }
+</style>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ static('js/identity_detail.js') }}"></script>
+<script src="{{ static('js/identity_person.js') }}"></script>
+{% endblock %}

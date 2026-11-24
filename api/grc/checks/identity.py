@@ -167,14 +167,19 @@ async def _itdr(db: AsyncSession, t: dict, detail: bool) -> Outcome:
 
 
 def _app_key(a) -> str:
-    """Grip and FairTPRM can both report the same app; match on domain, else name. Agents stay separate."""
+    """One app reported twice by the same source (two instances): match on domain, else name. Agents stay separate."""
     key = (a.vendor or a.app_name or "").strip().lower()
     return f"agent:{a.app_name.lower()}" if a.source == "grip_ai_agent" else key
 
 
 def _shadow(ai: bool):
     async def run(db: AsyncSession, t: dict, detail: bool) -> Outcome:
-        cond = and_(SaasAppRecord.source.in_(("grip", "grip_ai_agent", "fairtprm")), SaasAppRecord.is_shadow_ai == ai,
+        # FairTPRM is where apps are reviewed and exceptions granted, so when it reports apps it is the only source:
+        # mixing in Grip's copy of the same app (named differently) would list it twice and ignore FairTPRM's decision
+        tprm = (await db.execute(select(func.count()).select_from(SaasAppRecord)
+                                 .where(SaasAppRecord.source == "fairtprm"))).scalar_one()
+        sources = ("fairtprm",) if tprm else ("grip", "grip_ai_agent")
+        cond = and_(SaasAppRecord.source.in_(sources), SaasAppRecord.is_shadow_ai == ai,
                     SaasAppRecord.is_sanctioned == False, SaasAppRecord.user_count > 0)  # noqa: E712
         apps: dict[str, SaasAppRecord] = {}
         for a in (await db.execute(select(SaasAppRecord).where(cond))).scalars():
@@ -184,7 +189,8 @@ def _shadow(ai: bool):
         n, people = len(apps), sum(a.user_count for a in apps.values())
         kind = "AI" if ai else "SaaS"
         out = Outcome(grade_low(n, t["pass_max"], t["warn_max"]),
-                      f"{n:,} unsanctioned {kind} apps in use by {int(people):,} user accounts",
+                      f"{n:,} unsanctioned {kind} apps in use by {int(people):,} user accounts"
+                      + (" (from FairTPRM, where exceptions are granted)" if tprm else ""),
                       {"unsanctioned_apps": n, "user_accounts": int(people)})
         if detail:
             out.columns = ["app", "vendor", "category", "risk_level", "users", "last_seen", "source"]
