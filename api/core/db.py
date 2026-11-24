@@ -59,6 +59,7 @@ async def init_db() -> None:
     import api.models.edr_policy    # noqa: F401
     import api.models.alert_feed    # noqa: F401
     import api.models.alert_action  # noqa: F401
+    import api.models.alert_allow   # noqa: F401
     import api.models.hunt_data     # noqa: F401
     import api.models.cloud         # noqa: F401
     import api.models.utilization   # noqa: F401
@@ -239,6 +240,7 @@ def init_db_worker() -> None:
     import api.models.edr_policy    # noqa: F401
     import api.models.alert_feed    # noqa: F401
     import api.models.alert_action  # noqa: F401
+    import api.models.alert_allow   # noqa: F401
     import api.models.hunt_data     # noqa: F401
     import api.models.cloud         # noqa: F401
     import api.models.utilization   # noqa: F401

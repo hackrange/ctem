@@ -63,6 +63,7 @@ async def list_threat_alerts(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     hidden: str = Query("hide", pattern="^(hide|show|only)$", description="Alerts you hid for yourself: hide, show or only"),
+    accepted: str = Query("show", pattern="^(hide|show|only)$", description="Alerts on the allow list: hide, show or only"),
 ):
     """Threat alerts from connected EDR, SIEM and firewall tools; worst first by default."""
     from api.core import hidden as mine
@@ -75,6 +76,12 @@ async def list_threat_alerts(
     hidden_count = sum(a["hidden"] for a in alerts)
     if hidden != "show":
         alerts = [a for a in alerts if a["hidden"] == (hidden == "only")]
+    from api.core.alert_allow import accepted as allow_list
+    ok = await allow_list(db, alerts)
+    for a in alerts:
+        a["accepted"] = a["id"] in ok
+    if accepted != "show":
+        alerts = [a for a in alerts if a["accepted"] == (accepted == "only")]
     sources = sorted({(a["source"], a["source_code"]) for a in alerts if a["source"]}, key=lambda s: s[1])
     statuses = sorted({a["status"] for a in alerts if a["status"]})
     if source:
@@ -116,6 +123,7 @@ async def get_threat_alert(
             "steps": (steps := threat_graph.steps(alert, related, _console_links(alert, related, everything))),
             "graph": threat_graph.build(alert, detail),
             "ai": await _ai_read(db, alert, detail, steps),
+            "accepted_by": await _accepted_by(db, alert),
             "ctem_device": await _ctem_device(db, alert.get("device_id")),
             **await _updates(db, alert, everything)}
 
@@ -132,6 +140,13 @@ def _console_links(alert: dict, related: list[dict], everything: list[dict]) -> 
         if cid:
             out[a["id"]] = a.get("link") or act.console_link(cid, known)
     return out
+
+
+async def _accepted_by(db: AsyncSession, alert: dict) -> dict | None:
+    """The allow-list entry that accepts this alert, if one does (api/core/alert_allow.py)."""
+    from api.core.alert_allow import accepted, view
+    hit = (await accepted(db, [alert])).get(alert["id"])
+    return view(hit) if hit else None
 
 
 async def _ai_read(db: AsyncSession, alert: dict, detail: dict, steps: list[dict]) -> dict:

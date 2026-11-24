@@ -75,12 +75,19 @@ async def _kev_exposed(db, have, since) -> int:
 
 async def _edr_alerts(db, have, since) -> int:
     from api.models.settings import AppSetting
+    from api.core.alert_allow import accepted_keys
     n = 0
-    for row in (await db.execute(select(AppSetting).where(AppSetting.key.like("threat\\_alert\\_%", escape="\\"),
-                                                          AppSetting.updated_at >= since.replace(tzinfo=None)))).scalars():
+    rows = list((await db.execute(select(AppSetting).where(AppSetting.key.like("threat\\_alert\\_%", escape="\\"),
+                                                           AppSetting.updated_at >= since.replace(tzinfo=None)))).scalars())
+    parsed = []
+    for row in rows:
         try:
-            a = json.loads(row.value or "{}")
+            parsed.append((row.key, json.loads(row.value or "{}")))
         except ValueError:
+            continue
+    gone = await accepted_keys(db, parsed)   # accepted alerts (the allow list) aren't sent to the SIEM
+    for key, a in parsed:
+        if key in gone or not isinstance(a, dict):
             continue
         sev = str(a.get("severity") or "").lower()
         if sev not in ("high", "critical"):

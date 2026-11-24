@@ -154,7 +154,7 @@
     const d = a.detail || {};
     document.title = `${a.title || 'Alert'} -- open-ctem`;
     $('al-title').textContent = a.title || a.id;
-    $('al-sub').innerHTML = `${T.sevChip(a.severity)} ${T.statusChip(a.status)} ${T.sourceChip(a)}`;
+    $('al-sub').innerHTML = `${T.sevChip(a.severity)} ${T.statusChip(a.status)} ${T.sourceChip(a)}${a.accepted_by ? ' <span class="chip chip--low">Accepted</span>' : ''}`;
     if (a.link) {
       const made = a.link_made ? ' title="Saved without a link: made the same way as your other alerts\' links"' : '';
       $('al-actions').innerHTML = `<a class="btn btn--ghost btn--sm" href="${esc(a.link)}"${made} target="_blank" rel="noopener noreferrer">Open in ${esc(T.sourceName(a))} &#8599;</a>`;
@@ -173,6 +173,7 @@
     related(a);
     if (window.AlertUpdate) window.AlertUpdate.render(a);
     if (window.AlertAI) window.AlertAI.render(a);
+    if (window.AlertAllow) window.AlertAllow.render(a);
     if (window.ThreatGraph) window.ThreatGraph.render(a, T);
   }
   load();

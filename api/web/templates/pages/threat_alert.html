@@ -52,6 +52,11 @@
   <div class="panel__body" id="al-update"></div>
 </div>
 
+<div class="panel" id="al-allow-panel" style="margin-top:16px;display:none">
+  <div class="panel__header"><span class="panel__title">Accept as expected (allow list)</span></div>
+  <div class="panel__body" id="al-allow"></div>
+</div>
+
 <div class="panel" id="al-desc-panel" style="margin-top:16px;display:none">
   <div class="panel__header"><span class="panel__title">Description</span></div>
   <div class="panel__body"><p id="al-desc" style="margin:0;white-space:pre-wrap;overflow-wrap:anywhere"></p></div>
@@ -90,6 +95,7 @@
 <script src="{{ static('js/threat_common.js') }}"></script>
 <script src="{{ static('js/threat_alert_update.js') }}"></script>
 <script src="{{ static('js/threat_alert_ai.js') }}"></script>
+<script src="{{ static('js/threat_alert_allow.js') }}"></script>
 <script src="{{ static('js/attack_map.js') }}"></script>
 <script src="{{ static('js/threat_graph.js') }}"></script>
 <script src="{{ static('js/threat_alert.js') }}"></script>

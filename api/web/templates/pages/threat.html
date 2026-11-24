@@ -27,6 +27,8 @@
     </select>
     <select id="filter-status" class="filter-select" aria-label="Status"><option value="">Any status</option></select>
     <select id="filter-source" class="filter-select" aria-label="Source"><option value="">All sources</option></select>
+    <select id="filter-accepted" class="filter-select" aria-label="Accepted alerts">
+      <option value="show">With accepted alerts</option><option value="hide">Without accepted alerts</option><option value="only">Accepted alerts only</option></select>
     <label class="text-sm" style="display:flex;align-items:center;gap:6px;cursor:pointer" title="Alerts you hid are hidden for you only">
       <input type="checkbox" id="show-hidden"> <span id="show-hidden-label">Show hidden</span></label>
   </div>
@@ -69,7 +71,8 @@ const table = DataTable.create({
     fillOnce('filter-status', (data.statuses || []).map(s => [s, T.statusLabel(s)]));
   },
   params: () => ({ q: $('search-input').value.trim(), severity: $('filter-severity').value,
-                   status: $('filter-status').value, source: $('filter-source').value, hidden: $('show-hidden').checked ? 'show' : 'hide' }),
+                   status: $('filter-status').value, source: $('filter-source').value, hidden: $('show-hidden').checked ? 'show' : 'hide',
+                   accepted: $('filter-accepted').value }),
   columns: [
     { label: 'Alert', sort: 'title', render: a => `<span style="display:inline-block;max-width:340px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom" title="${esc(a.title || '')}">${R.link(T.href(a), a.title || a.id)}</span>` },
     { label: 'Source', sort: 'source', render: a => T.sourceChip(a) },
@@ -77,7 +80,7 @@ const table = DataTable.create({
     { label: 'Device', sort: 'hostname', render: a => T.device(a) },
     { label: 'MITRE', sort: 'technique_id', render: a => T.mitre(a) },
     { label: 'Detected', sort: 'detected_at', firstOrder: 'desc', render: a => T.when(a) },
-    { label: 'Status', sort: 'status', render: a => T.statusChip(a.status) },
+    { label: 'Status', sort: 'status', render: a => T.statusChip(a.status) + (a.accepted ? ' <span class="chip chip--low" title="On the allow list: it raises no findings">Accepted</span>' : '') },
     { label: '', render: a => `<button type="button" class="btn btn--ghost btn--sm" data-hide="${esc(a.id)}" data-hidden="${a.hidden ? '1' : ''}"
         title="${a.hidden ? 'Show it again in your list' : 'Hide it from your list only'}">${a.hidden ? 'Unhide' : 'Hide'}</button>` },
   ],
@@ -92,6 +95,7 @@ $('threats-table').addEventListener('click', async e => {
   table.reload(false);
 });
 $('show-hidden').addEventListener('change', () => table.reload());
+$('filter-accepted').addEventListener('change', () => table.reload());
 
 let timer;
 $('search-input').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => table.reload(), 300); });

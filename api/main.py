@@ -101,6 +101,7 @@ def create_app() -> FastAPI:
     from api.routes.me_hidden import router as me_hidden_router
     from api.routes.threat_rules import router as threat_rules_router
     from api.routes.threat_actions import router as threat_actions_router
+    from api.routes.alert_allow import router as alert_allow_router
     from api.routes.impersonate import router as impersonate_router
     from api.routes.hunt_data import router as hunt_data_router
     from api.routes.email_test import router as email_test_router
@@ -169,6 +170,7 @@ def create_app() -> FastAPI:
     app.include_router(me_hidden_router)
     app.include_router(threat_rules_router)
     app.include_router(threat_actions_router)
+    app.include_router(alert_allow_router)
     app.include_router(impersonate_router)
     app.include_router(hunt_data_router)
     app.include_router(email_test_router)

@@ -54,6 +54,7 @@ import api.models.utilization # noqa: F401, E402
 import api.models.snapshot    # noqa: F401, E402
 import api.models.threat_rule  # noqa: F401, E402
 import api.models.alert_action  # noqa: F401, E402
+import api.models.alert_allow  # noqa: F401, E402
 
 _TEST_DB_URL = os.environ["DATABASE_URL"]
 

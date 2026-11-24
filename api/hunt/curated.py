@@ -163,6 +163,10 @@ async def run(db, splunk, time_range: str, first_lookup: int) -> tuple[list[dict
         return [], [], set()
     since = (datetime.now(timezone.utc) - timedelta(days=DAYS.get(time_range, 7))).isoformat()
     alerts = [a for a in await _alerts(db) if (a.get("detected_at") or "") >= since] if any(r.kind == "alert" for r in rules) else []
+    if alerts:   # accepted alerts (the allow list) never raise a finding
+        from api.core.alert_allow import accepted
+        gone = await accepted(db, alerts, count=True)
+        alerts = [a for a in alerts if a["id"] not in gone]
     issues, lookups, explained, now = [], [], set(), datetime.now(timezone.utc)
     for rule in rules:
         try:

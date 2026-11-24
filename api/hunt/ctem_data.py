@@ -199,9 +199,19 @@ async def _alerts(db: AsyncSession, f: dict, limit: int) -> list[dict]:
     stmt = select(AppSetting).where(AppSetting.key.like("threat_alert_%"))
     if "source" in f:
         stmt = stmt.where(AppSetting.value.ilike(f'%"source": "{f["source"].replace("%", "")}"%'))
-    rows = (await db.execute(stmt.order_by(AppSetting.updated_at.desc()).limit(2000))).scalars()
+    rows = list((await db.execute(stmt.order_by(AppSetting.updated_at.desc()).limit(2000))).scalars())
+    from api.core.alert_allow import accepted_keys
+    parsed = []
+    for row in rows:
+        try:
+            parsed.append((row.key, json.loads(row.value or "{}")))
+        except ValueError:
+            continue
+    gone = await accepted_keys(db, parsed)   # accepted alerts (the allow list) are not evidence of anything
     out = []
     for row in rows:
+        if row.key in gone:
+            continue
         try:
             a = json.loads(row.value or "{}")
         except ValueError:
