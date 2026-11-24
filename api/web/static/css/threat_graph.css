@@ -27,6 +27,8 @@
 .agp__hint { position: absolute; left: 12px; bottom: 10px; font-size: .78rem; color: var(--text-muted); }
 .agp-node { cursor: pointer; }
 .agp-node text { font-size: 12px; fill: var(--text, currentColor); }
+/* a halo in the background color: a line passing behind a label still shows either side of it */
+.agp-node text:not([style]) { paint-order: stroke; stroke: var(--surface, #fff); stroke-width: 4px; stroke-linejoin: round; }
 .agp-node .agp-sub { font-size: 10.5px; fill: var(--text-muted); }
 .agp-edge path { fill: none; }
 .agp-pill rect { fill: var(--surface); }
@@ -40,3 +42,6 @@
 .agp:fullscreen { height: 100vh; width: 100vw; background: var(--bg-page, #fff); border-radius: 0; margin: 0; }
 .agp:fullscreen .agp__steps { max-height: none; }
 .agp--page { height: calc(100vh - 150px); min-height: 480px; }
+.agp:fullscreen { grid-template-columns: minmax(280px, 380px) 1fr; }
+.agp:fullscreen .agp__map, .agp:fullscreen .agp__mapbox { height: 100vh; }
+.agp-focus circle:first-child { stroke: var(--accent, #f5a623); stroke-width: 4px; }

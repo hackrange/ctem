@@ -23,7 +23,8 @@ window.HuntMap = (() => {
       list.querySelectorAll('.agp__step').forEach(c => c.classList.toggle('agp__step--on', c.dataset.node === id));
     });
     map.draw(g);
-    const pick = c => { if (c) map.follow(c.dataset.node); };
+    // A card shows only its path; the card already shown brings everything back
+    const pick = c => { if (c) { if (c.classList.contains('agp__step--on')) map.clear(); else map.follow(c.dataset.node); } };
     list.addEventListener('click', e => pick(e.target.closest('.agp__step')));
     list.addEventListener('keydown', e => {
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(e.target.closest('.agp__step')); }
