@@ -151,6 +151,8 @@ async def investigate(db: AsyncSession, question: str, time_range: str = "7d",
         rule_issues, rule_lookups, _ = await curated.run(db, splunk, time_range, first_lookup=len(results) + 1)
         if rule_issues:
             notes.append(f"{len(rule_issues)} Threat Curated Rule{'s' if len(rule_issues) != 1 else ''} matched.")
+        from api.hunt import alert_detail
+        await alert_detail.enrich(db, results)   # process, command line, file and user from each alert's detail
         return {**base, "mode": "keyword", "summary": "", "issues": rule_issues,
                 "lookups": for_ui(results + rule_lookups)}
 
@@ -232,4 +234,7 @@ async def investigate(db: AsyncSession, question: str, time_range: str = "7d",
         issue["splunk"] = [window.for_splunk(s, win) for s in spls] if win else spls
         issue["window"] = list(win) if win else None
         issue["window_label"] = window.label(win) if win else ""
+    from api.hunt import alert_detail
+    await alert_detail.enrich(db, results)   # after the AI's write-up: the detail never goes into a prompt
+    alert_detail.annotate(answer["issues"], results)   # and the story names the process and file of each step
     return {**base, "mode": "ai", **answer, "lookups": for_ui(results)}

@@ -108,6 +108,9 @@ function cell(col, v) {
   const kind = KIND_OF[col];
   const s = String(v ?? '');
   if (col === 'alert_page' && /^\/threat\/alert\?id=[A-Za-z0-9%._-]+$/.test(s)) return `<a class="dt-link" href="${esc(s)}">Open alert</a>`;
+  if (col === 'crowdstrike' && /^https:\/\/falcon(\.[a-z0-9-]+)*\.crowdstrike\.com\/[^\s"'<>]*$/.test(s)) {
+    return `<a class="dt-link" href="${esc(s)}" target="_blank" rel="noopener noreferrer">Open in CrowdStrike &#8599;</a>`;
+  }
   if (!kind || !s || s === '-' || s.includes(', ') || s.length > 128) return esc(s);
   if (kind === 'ip' && !/^[0-9a-fA-F:.]+$/.test(s)) return esc(s);
   return entityButton(kind, s);

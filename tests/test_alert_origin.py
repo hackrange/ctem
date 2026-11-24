@@ -123,3 +123,54 @@ def test_the_tamper_alert_keeps_what_the_falcon_console_shows():
     assert went and any(e["label"] == "Went after" for e in g["edges"])
     proc = next(n for n in g["nodes"] if n["id"] == "process")
     assert ["SHA1", "f" * 40] in proc["facts"] and any(k == "MITRE" for k, _ in proc["facts"])
+
+
+@pytest.mark.asyncio
+async def test_hunt_evidence_names_the_process_file_and_crowdstrike_link(db):
+    """'A remote process obtained a handle to lsass' says which process, which file, and links to Falcon."""
+    from api.core.cs_alert import csa
+    from api.hunt import alert_detail, curated
+    from api.integrations.base import get_connector
+    from api.models.threat_rule import ThreatRule
+    tag = uuid.uuid4().hex[:8]
+    raw = {**RAW, "composite_id": f"cid:ind:{tag}:1", "display_name": f"LsassHandle{tag}", "created_timestamp": None, "timestamp": None,
+           "filename": "evil.exe", "filepath": "\\Device\\HarddiskVolume3\\Users\\Public\\evil.exe", "cmdline": "evil.exe -dump",
+           "ioc_type": "filename", "ioc_value": "C:\\Windows\\Temp\\untrusted.dll",
+           "falcon_host_link": "https://falcon.crowdstrike.com/activity-v2/detections/x?_cid=abc"}
+    await get_connector("crowdstrike", {"client_id": "x", "client_secret": "y"})._cache_threats([csa.summary(raw)], db)
+    key = f"threat_alert_cid:ind:{tag}:1"
+    lookups = [{"columns": ["source", "description", "alert_key"], "rows": [{"source": "crowdstrike", "description": "x", "alert_key": key}]}]
+    await alert_detail.enrich(db, lookups)
+    row, cols = lookups[0]["rows"][0], lookups[0]["columns"]
+    assert row["process"].endswith("evil.exe") and row["command_line"] == "evil.exe -dump" and row["parent"] == "powershell.exe"
+    assert row["file"] == "C:\\Windows\\Temp\\untrusted.dll" and row["crowdstrike"].startswith("https://falcon.crowdstrike.com/")
+    assert cols[-1] == "alert_key" and "process" in cols and "crowdstrike" in cols
+    m = curated.validate("alert", {"title_any": [f"LsassHandle{tag}"]})
+    rule = ThreatRule(name=f"Lsass {tag}", kind="alert", match=m, fingerprint=curated.fingerprint("alert", m), severity="high",
+                      status="manual", enabled=True)
+    db.add(rule)
+    await db.commit()
+    try:
+        issues, lks, _ = await curated.run(db, None, "all", 1)
+        mine = next(i for i in issues if i["title"] == rule.name)
+        assert "by evil.exe (started by powershell.exe)" in mine["timeline"][0]["what"]
+        assert "on C:\\Windows\\Temp\\untrusted.dll" in mine["timeline"][0]["what"]
+        r = lks[mine["lookups"][0] - 1]["rows"][0]
+        assert r["crowdstrike"].startswith("https://falcon.crowdstrike.com/") and r["command_line"] == "evil.exe -dump"
+    finally:
+        await db.delete(rule)
+        await db.commit()
+
+
+def test_an_ai_story_step_names_the_process_and_file_of_its_alert():
+    from api.hunt.alert_detail import annotate
+    lookups = [{"rows": [{"hostname": "WS-1", "description": "Signed DLL with untrusted root authority loaded by LSASS process",
+                          "process": "C:/Windows/System32/lsass.exe", "file": "C:\\Temp\\odd.dll"},
+                         {"hostname": "WS-2", "description": "Something else entirely", "process": "x.exe"}]}]
+    issues = [{"involved": {"hosts": ["WS-1"]}, "timeline": [
+        {"what": "A signed DLL with an untrusted root authority was loaded by LSASS.", "lookup": 1},
+        {"what": "Unrelated step", "lookup": 1}, {"what": "No evidence", "lookup": 9}]}]
+    annotate(issues, lookups)
+    steps = issues[0]["timeline"]
+    assert steps[0]["what"].endswith("Process: lsass.exe; File: C:\\Temp\\odd.dll.")
+    assert steps[1]["what"] == "Unrelated step" and steps[2]["what"] == "No evidence"

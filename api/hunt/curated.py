@@ -105,6 +105,7 @@ async def known_names(db) -> set[str]:
 async def _who_where(db, hits: list[dict]) -> None:
     """Each hit's user, where it came from and what it targeted, from its encrypted detail (the first 50 only)."""
     from api.core.threat_graph import origin
+    from api.hunt.alert_detail import summarize
     from api.routes.threat import _detail
     for h in hits[:50]:
         if not h.get("has_detail"):
@@ -114,17 +115,23 @@ async def _who_where(db, hits: list[dict]) -> None:
         src = origin(d)
         h["user"] = f"{u['domain']}\\{u['name']}" if u.get("domain") and u.get("name") else u.get("name")
         h["from_ips"], h["from_hosts"], h["accounts"], h["targets"] = src["ips"], src["hosts"], src["accounts"], src["targets"]
+        h.update({k: v for k, v in summarize(d).items() if k != "user"})   # process, command line, parent, file, hash
 
 
 def _line(h: dict) -> str:
     bits = [h.get("title") or ""]
+    if h.get("process"):
+        proc = h["process"].replace("\\", "/").rsplit("/", 1)[-1]
+        bits.append(f"by {proc}" + (f" (started by {h['parent']})" if h.get("parent") else ""))
+    if h.get("file"):
+        bits.append(f"on {h['file']}")
     if h.get("from_ips") or h.get("from_hosts"):
         bits.append("from " + ", ".join([*h.get("from_ips", []), *h.get("from_hosts", [])][:4]))
     if h.get("targets"):
         bits.append("against " + ", ".join(h["targets"][:4]))
     if h.get("user"):
         bits.append(f"as {h['user']}")
-    return " ".join(bits)[:300]
+    return " ".join(bits)[:500]
 
 
 def _issue(rule, hits: list[dict], lookup_no: int) -> dict:
@@ -166,11 +173,15 @@ async def run(db, splunk, time_range: str, first_lookup: int) -> tuple[list[dict
                     continue
                 hits = [dict(a) for a in hits]
                 await _who_where(db, hits)
+                from api.hunt.alert_detail import console_links
+                links = await console_links(db, hits[:100])
                 rows = [{"detected": a.get("detected_at"), "host": a.get("hostname"), "user": a.get("user"),
                          "from": ", ".join([*a.get("from_ips", []), *a.get("from_hosts", [])][:6]) or None,
                          "targeted": ", ".join(a.get("targets", [])[:6]) or None, "source": a.get("source"),
-                         "alert": a.get("title"), "technique": a.get("technique_id"),
-                         "alert_page": f"/threat/alert?id={quote(a['id'], safe='')}"} for a in hits[:100]]
+                         "alert": a.get("title"), "process": a.get("process"), "command_line": a.get("command_line"),
+                         "parent": a.get("parent"), "file": a.get("file"), "sha256": a.get("sha256"), "technique": a.get("technique_id"),
+                         "alert_page": f"/threat/alert?id={quote(a['id'], safe='')}", "crowdstrike": links.get(a["id"])}
+                        for a in hits[:100]]
                 explained |= {a["id"] for a in hits}
             elif rule.kind == "splunk" and splunk is not None:
                 from api.hunt.spl_guard import TIME_RANGES, vet_spl
@@ -186,7 +197,7 @@ async def run(db, splunk, time_range: str, first_lookup: int) -> tuple[list[dict
             log.warning("curated rule %s failed", rule.id, exc_info=True)
             continue
         n = first_lookup + len(lookups)
-        cols = [c for c in (rows[0].keys() if rows else []) if any(r.get(c) not in (None, "") for r in rows)][:12]
+        cols = [c for c in (rows[0].keys() if rows else []) if any(r.get(c) not in (None, "") for r in rows)][:18]
         lookups.append({"source": "ctem", "source_label": "Curated rule", "title": f"Curated rule: {rule.name}",
                         "why": "A Threat Curated Rule; no AI tokens spent", "columns": cols,
                         "rows": [{c: r.get(c) for c in cols} for r in rows], "count": len(rows), "table": "curated", "filters": {}})

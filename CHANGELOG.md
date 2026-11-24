@@ -7,6 +7,9 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+### Added
+- **Hunt findings say which process and which file.** Evidence about EDR alerts now carries, from each alert's encrypted detail, the process (path), its command line and parent, the file it went after (a DLL it loaded, a file it wrote or opened, the indicator it matched), its SHA256 and the user, with an Open in CrowdStrike link (and Open alert in CTEM) on every row. The story says it too: each step names the process and file of the alert it describes ("Process: lsass.exe; File: C:\\...\\x.dll"). Built after the AI's write-up, so the detail still never goes into an AI prompt. Rule findings, AI findings, the hourly check and the PDF report all have it.
+
 ## [1.8.2] - 2026-11-24
 
 ### Fixed
