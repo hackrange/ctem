@@ -424,7 +424,7 @@ class SplunkBatch(_Batch):
     indexes: list[SplunkIndex] | None = Field(None, max_length=1000)
 
 
-Kind = Literal["ldap", "rapid7_console", "crowdstrike", "splunk"]
+Kind = Literal["ldap", "rapid7_console", "crowdstrike", "splunk", "netprobe"]
 PublicKey = Annotated[str, StringConstraints(min_length=200, max_length=4096, pattern=r"^-----BEGIN PUBLIC KEY-----[A-Za-z0-9+/=\s]+-----END PUBLIC KEY-----\s*$")]
 Digest = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 
@@ -449,14 +449,14 @@ class LoginEnrollRequest(LoginCheckRequest):
     agent_version: Version
     public_key: PublicKey
     schedule_minutes: int = 60
-    modules: dict[Kind, dict] = Field(min_length=1, max_length=4)
+    modules: dict[Kind, dict] = Field(min_length=1, max_length=8)
 
 
 class CheckinRequest(_Lax):
     hostname: HostName
     agent_version: Version
-    approved: dict[Kind, Digest] = Field(default_factory=dict, max_length=4)
-    errors: dict[Kind, Annotated[str, StringConstraints(max_length=300)]] = Field(default_factory=dict, max_length=4)
+    approved: dict[Kind, Digest] = Field(default_factory=dict, max_length=8)   # one per source, with room to grow
+    errors: dict[Kind, Annotated[str, StringConstraints(max_length=300)]] = Field(default_factory=dict, max_length=8)
     ran: bool = False  # true only on the check-in that follows a real run
 
 

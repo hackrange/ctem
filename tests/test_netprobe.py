@@ -176,3 +176,14 @@ def test_runs_take_turns_through_a_long_list(monkeypatch):
     for _ in range(3):
         seen += [p["ip"] for b in np.collect(s, {}, state) for p in b["probes"]]
     assert set(seen) == set(hosts)   # three runs of 1,000 cover all 2,307
+
+
+def test_a_shipper_with_every_source_approved_can_check_in():
+    """Every source the box knows must be accepted at check-in, or one approval stops all of them from shipping."""
+    import collector_core as core
+
+    from api.collector.schemas import CheckinRequest
+    digest = "a" * 64
+    req = CheckinRequest(hostname="shipper001", agent_version="1.7.1", approved={k: digest for k in core.MODULES},
+                         errors={k: "x" for k in core.MODULES})
+    assert set(req.approved) == set(core.MODULES)
