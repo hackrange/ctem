@@ -271,6 +271,12 @@ def tls_probe(host, port, label):
 
 def check_dest(kind, settings):
     """The box validates destinations itself; CTEM's validation is a courtesy, not a guarantee."""
+    if kind == "netprobe":   # no destination; its scope is what gets approved
+        import collector_netprobe as npm
+        npm.exclusions(settings)
+        if str(settings.get("sweep_subnets") or "on") not in ("on", "off"):
+            raise ValueError("sweep_subnets is on or off")
+        return
     host = settings.get("host")
     if kind != "crowdstrike" and (not isinstance(host, str) or not HOSTPORT_RE.match(host) or ":" in host):
         raise ValueError("destination host looks wrong")

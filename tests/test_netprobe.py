@@ -142,3 +142,37 @@ async def test_what_answers_is_recorded_and_unknown_devices_appear(db):
 async def test_targets_route_needs_the_owning_shipper(client):
     r = await client.get(f"/api/v1/collector/netprobe/{uuid.uuid4()}/targets")
     assert r.status_code in (401, 403, 404)
+
+
+def test_a_rejected_setting_says_which_field_and_why():
+    from fastapi import HTTPException
+
+    from api.collector.service import clean_modules
+    ok = clean_modules({"netprobe": {"settings": {"cron": "18 1 * * *", "ports": "21,22,23,80,443,8443,3389,3306,8080",
+                                                  "sweep_subnets": "off", "timeout_ms": 200, "concurrency": 32}}})
+    assert ok["netprobe"]["settings"]["max_hosts"] == 4096
+    for bad, says in (({"max_hosts": 50000}, "max_hosts: Input should be less than or equal to 20000"),
+                      ({"exclude_cidrs": "10.1.1.1-10.1.1.50"}, "exclude_cidrs: only networks such as 192.0.2.0/24"),
+                      ({"cron": "18 1 * *"}, "cron: a cron schedule has five fields")):
+        with pytest.raises(HTTPException) as e:
+            clean_modules({"netprobe": {"settings": {"cron": "18 1 * * *", **bad}}})
+        assert says in e.value.detail and "10.1.1.1-10.1.1.50" not in e.value.detail   # never echoes the value
+
+
+def test_approve_can_show_and_check_the_scope():
+    assert np.KIND == "netprobe" and np.LABEL
+    s = {"exclude_cidrs": "10.40.0.0/16", "ports": "22,3389", "sweep_subnets": "off"}
+    cc.check_dest("netprobe", s)                    # no host needed: the scope is what's approved
+    assert np.probe(s) == ({}, None)
+    assert "never: 10.40.0.0/16" in np.scope_text(s) and "22,3389" in np.scope_text(s) and "no /24 sweep" in np.scope_text(s)
+    with pytest.raises(ValueError):
+        cc.check_dest("netprobe", {"exclude_cidrs": "nope/99"})
+
+
+def test_runs_take_turns_through_a_long_list(monkeypatch):
+    monkeypatch.setattr(np, "probe", lambda ip, ports, t: {"ip": ip, "alive": False, "icmp": False, "ports": [], "at": None})
+    hosts = [f"10.9.{i // 250}.{i % 250 + 1}" for i in range(2307)]
+    s, state, seen = {"targets": {"hosts": hosts}, "sweep_subnets": "off", "max_hosts": 1000}, {}, []
+    for _ in range(3):
+        seen += [p["ip"] for b in np.collect(s, {}, state) for p in b["probes"]]
+    assert set(seen) == set(hosts)   # three runs of 1,000 cover all 2,307

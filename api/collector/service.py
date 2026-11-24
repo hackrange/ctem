@@ -11,6 +11,22 @@ from api.collector.profile import DEST_KEYS, SCHEDULES, SECRET_FIELDS, check_env
 from api.models.collector import CollectorProfile, CollectorSecret, CollectorToken
 
 
+# What a field takes, for when its value has characters it can't have (instead of the raw pattern)
+_TAKES = {"exclude_cidrs": "only networks such as 192.0.2.0/24, separated by commas",
+          "ports": "only port numbers, separated by commas", "cron": "only numbers, *, commas, dashes and slashes"}
+
+
+def _why(e) -> str:
+    """Which field and why, in plain words; never the value that was sent."""
+    out = []
+    for err in e.errors()[:3]:
+        field = ".".join(str(x) for x in err.get("loc", ())) or "a field"
+        msg = str(err.get("msg") or "isn't valid").removeprefix("Value error, ")
+        if err.get("type") == "string_pattern_mismatch":
+            msg = _TAKES.get(field, "has characters that aren't allowed")
+        out.append(f"{field}: {msg}"[:160])
+    return "; ".join(out) or "a value isn't valid"
+
 def clean_modules(raw: dict, existing: dict | None = None) -> dict:
     """Validate each module's settings; keep integration ids we already handed out."""
     existing = existing or {}
@@ -22,8 +38,8 @@ def clean_modules(raw: dict, existing: dict | None = None) -> dict:
         settings = m.get("settings", m)
         try:
             clean = validate_settings(kind, {k: v for k, v in settings.items() if k not in ("enabled", "integration_id")})
-        except ValidationError:
-            raise HTTPException(400, detail=f"Check the {kind} settings") from None
+        except ValidationError as e:
+            raise HTTPException(400, detail=f"Check the {kind} settings: {_why(e)}") from None
         out[kind] = {"enabled": bool(m.get("enabled", True)), "settings": clean,
                      "integration_id": (existing.get(kind) or {}).get("integration_id")}
     if not out:

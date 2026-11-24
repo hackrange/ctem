@@ -16,6 +16,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import collector_common as cc
 
+KIND = "netprobe"
+LABEL = "Network discovery (ping and common ports)"
 SECRETS = {}   # nothing to log in to
 INTERNAL = tuple(ipaddress.ip_network(n) for n in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"))  # nosec - the box's own scope guard
 COMMON_PORTS = (21, 22, 23, 25, 53, 80, 110, 135, 139, 143, 443, 445, 1433, 1521, 3306, 3389, 5432, 5900, 5985,
@@ -126,13 +128,32 @@ def probe(ip, ports, timeout_ms):
             "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
 
 
+def scope_text(s):
+    """What approving this lets the box touch, in words."""
+    ex = ", ".join(str(n) for n in exclusions(s)) or "none"
+    sweep = "and the /24s around them" if str(s.get("sweep_subnets") or "on") == "on" else "only (no /24 sweep)"
+    return (f"internal addresses only ({', '.join(str(n) for n in INTERNAL)}), never: {ex}; addresses CTEM names {sweep}; "
+            f"ping and TCP ports {','.join(map(str, ports_of(s)))}")
+
+
+def probe(settings):
+    """Approve-time check: nothing to connect to, so show exactly what the box would be allowed to touch."""
+    cc.say(f"  network discovery may touch {scope_text(settings)}")
+    return {}, None
+
+
 def collect(s, secret, state):
     excluded = exclusions(s)
     ports = ports_of(s)
     timeout_ms = min(max(int(s.get("timeout_ms") or 600), 100), 3000)
     workers = min(max(int(s.get("concurrency") or 32), 4), 64)
     workers = max(1, min(workers, 900 // len(ports)))   # each host holds a socket per port: stay under 1024 open files
-    todo = targets(s, excluded, min(max(int(s.get("max_hosts") or 4096), 1), 20000))
+    cap = min(max(int(s.get("max_hosts") or 4096), 1), 20000)
+    every = targets(s, excluded, 20000)
+    # Each run picks up where the last stopped, so a list longer than the cap is covered over a few runs
+    start = int(state.get("netprobe_next") or 0) % max(len(every), 1)
+    todo = (every[start:] + every[:start])[:cap]
+    state["netprobe_next"] = start + len(todo)
     cc.say(f"  netprobe: {len(todo)} addresses, {len(ports)} ports each, {workers} at a time")
     known = set((s.get("targets") or {}).get("hosts") or [])
     batch, up = [], 0
