@@ -129,6 +129,12 @@ const CARD = {
   fix: [/^[A-Za-z0-9._:@\/+\-]{1,160}$/, v => `Needs fix: ${v.split(':').slice(1).join(':').slice(0, 60)}`],
   repo_org: [/^[A-Za-z0-9._\-]{1,100}$/, v => `Organization: ${v}`],
   repo: [/^[A-Za-z0-9._\-]{1,100}\/[A-Za-z0-9._\-]{1,150}$/, v => `Repository: ${v}`],
+  without: [/^(technical_owner|executive_owner|application)$/, v => ({ technical_owner: 'Without a technical owner', executive_owner: 'Without an executive owner', application: 'Not mapped to an application' })[v]],
+  unseen_days: [/^\d{1,4}$/, v => `Not seen by any tool in ${v} days`],
+  edr_quiet_days: [/^\d{1,4}$/, v => `EDR agent not reporting in ${v} days`],
+  with_findings: [/^(1|true)$/, () => 'With open findings'],
+  internet: [/^(1|true)$/, () => 'Internet facing'],
+  kev: [/^(1|true)$/, () => 'With known exploited (KEV) findings'],
   ...LocationFilter.CHIPS,
 };
 const card = {};

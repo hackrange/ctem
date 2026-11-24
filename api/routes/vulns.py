@@ -64,7 +64,7 @@ _AGE = Query(None, ge=0, le=36500, description="Only vulnerabilities whose oldes
 _TYPE = Query(None, alias="type", pattern="^(infra|code|web|cloud)$", description="Infrastructure, Code, Web apps or Cloud; none = all")
 
 
-def _vuln_query(scope, q, is_kev, min_cvss, source, affected_only, vtype=None, min_age_days=None, exploited=None):
+def _vuln_query(scope, q, is_kev, min_cvss, source, affected_only, vtype=None, min_age_days=None, exploited=None, past_sla=False):
     # Global roles read the stored count and age; tag-scoped users get live ones for only their devices
     affected = (Vulnerability.affected_devices if scope is None else _affected_count(scope)).label("affected")
     oldest_expr = Vulnerability.first_found if scope is None else _oldest(scope)
@@ -92,6 +92,11 @@ def _vuln_query(scope, q, is_kev, min_cvss, source, affected_only, vtype=None, m
         stmt = stmt.where(Vulnerability.domain == vtype)
     if affected_only:
         stmt = stmt.where((Vulnerability.affected_devices if scope is None else _affected_count(scope)) > 0)
+    if past_sla:   # an open finding older than its severity's SLA (the Security Overview's "past SLA" rows)
+        from api.dashboards.m_posture import _past_sla
+        late = select(Finding.id).join(Device, Device.id == Finding.device_id).where(
+            Finding.vuln_id == Vulnerability.id, Finding.status.in_(_OPEN), in_scope(), _past_sla(), *([scope] if scope is not None else []))
+        stmt = stmt.where(late.correlate(Vulnerability).exists())
     return stmt, (affected, oldest)
 
 
@@ -135,6 +140,7 @@ async def list_vulns(
     tag: list[str] | None = _TAGS,
     vtype: str | None = _TYPE,
     min_age_days: int | None = _AGE,
+    past_sla: bool = False,
     sort: str | None = Query(None, max_length=32),
     order: str | None = Query(None, pattern="^(asc|desc)$"),
     limit: int = Query(50, ge=1, le=200),
@@ -146,7 +152,7 @@ async def list_vulns(
     # People who see only some assets see only vulnerabilities on at least one of them: the catalog of everything
     # else would open onto empty affected lists
     affected_only = affected_only or scope is not None
-    stmt, cols = _vuln_query(scope, q or cve_id, is_kev, min_cvss, source, affected_only, vtype, min_age_days, exploited)
+    stmt, cols = _vuln_query(scope, q or cve_id, is_kev, min_cvss, source, affected_only, vtype, min_age_days, exploited, past_sla)
     total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
     rows = (await db.execute(_sorted_vulns(stmt, cols, sort, order).limit(limit).offset(offset))).all()
     return {"vulns": [_vuln_summary(v, n, old) for v, n, old in rows], "total": total, "limit": limit, "offset": offset}
@@ -165,6 +171,7 @@ async def export_vulns(
     tag: list[str] | None = _TAGS,
     vtype: str | None = _TYPE,
     min_age_days: int | None = _AGE,
+    past_sla: bool = False,
     sort: str | None = Query(None, max_length=32),
     order: str | None = Query(None, pattern="^(asc|desc)$"),
     where: dict = Depends(_where),
@@ -172,7 +179,7 @@ async def export_vulns(
 ):
     scope = dq.with_location(dq.with_tags(await device_scope(current_user, db), tag), where)
     affected_only = affected_only or scope is not None
-    stmt, cols = _vuln_query(scope, q, is_kev, min_cvss, source, affected_only, vtype, min_age_days, exploited)
+    stmt, cols = _vuln_query(scope, q, is_kev, min_cvss, source, affected_only, vtype, min_age_days, exploited, past_sla)
     stmt = _sorted_vulns(stmt, cols, sort, order)
     header = ["CVE", "Title", "Type", "CVSS", "EPSS", "KEV", "KEV added", "Exploit available", "Affected",
               "First found", "Age (days)", "Past SLA", "Source", "Source ID"]
@@ -264,6 +271,8 @@ async def list_vuln_findings(
     cloud = await _cloud_ports(db, {str(f.device_id) for f in rows})
     out = [_affected_row(f, vuln.cvss_base, vuln.attack_vector, cloud.get(str(f.device_id))) for f in rows]
     await cloud_findings.with_fixes(db, list(zip(out, [f.fix_key for f in rows])))
+    from api.integrations.pentest_merge import found_by
+    await found_by(db, [(o, o["device_id"], vuln.cve_id) for o in out])   # one line per CVE, every tool that found it
     return {"findings": out, "total": total, "limit": limit, "offset": offset}
 
 

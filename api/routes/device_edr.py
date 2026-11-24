@@ -137,7 +137,8 @@ async def device_pentest(device_id: uuid.UUID, u: User = Depends(require_permiss
     from api.models.vuln import Finding, FindingStatus, Vulnerability
     d = await _device(device_id, u, db)
     rows = (await db.execute(select(Finding, Vulnerability).join(Vulnerability, Vulnerability.id == Finding.vuln_id).where(
-        Finding.device_id == d.id, Finding.source == "horizon3", Finding.status == FindingStatus.open)
+        Finding.device_id == d.id, Finding.source == "horizon3",
+        Finding.status.in_((FindingStatus.open, FindingStatus.merged)))   # merged: a scanner has it too, still NodeZero's proof
         .order_by(Vulnerability.cvss_base.desc().nulls_last()).limit(200))).all()
     found = [{"vuln_id": str(v.id), "name": v.title, "cve": v.cve_id, "score": v.cvss_base, "kev": bool(v.is_kev),
               "ports": f.ports, "proved": bool((f.details or {}).get("has_proof")), "paths": (f.details or {}).get("impact_paths"),

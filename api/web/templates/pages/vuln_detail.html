@@ -185,7 +185,8 @@ function startAffected() {
     ] : [
       ...(canExcept ? [{ label: 'Select', head: CtemFindings.PICK_HEAD, render: f => ['open', 'in_progress'].includes(f.status)
         ? `<input type="checkbox" data-pick="${esc(f.id)}" aria-label="Select ${esc(f.hostname)}"${picked.has(f.id) ? ' checked' : ''}>` : '' }] : []),
-      { label: 'Hostname', sort: 'hostname', render: f => dim(f, R.link(dev(f), f.hostname)) + (f.contained ? ' <span class="chip chip--info" style="font-size:.7rem">Contained</span>' : '') },
+      { label: 'Hostname', sort: 'hostname', render: f => dim(f, R.link(dev(f), f.hostname)) + (f.contained ? ' <span class="chip chip--info" style="font-size:.7rem">Contained</span>' : '')
+        + R.foundBy(f) },
       { label: 'Severity', render: f => `<span class="chip chip--${esc(f.severity)}" style="font-size:.7rem">${esc(f.severity === 'info' ? 'Info' : f.severity)}</span>` },
       { label: 'Reach', render: f => dim(f, R.reach(f)) },
       { label: 'User', sort: 'user', render: f => dim(f, txt(f.user)) },

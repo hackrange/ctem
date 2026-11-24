@@ -95,7 +95,7 @@ async def _users(ctx, p):
     else:
         n = (await ctx.db.execute(select(func.count()).select_from(User).where(*stale_users(p["days"])))).scalar_one()
     return {"value": n, "note": f"enabled AD users with no logon in {p['days']} days" + (f", not in {skip}" if skip else ""),
-            "href": "/users"}
+            "href": f"/users?stale_days={p['days']}"}
 
 
 async def _users_list(ctx, p):

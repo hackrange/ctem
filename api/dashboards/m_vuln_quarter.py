@@ -64,7 +64,7 @@ async def _quarter(ctx, p):
     # Before CTEM's first sync, only what was still open then is known; fixes made before it aren't recorded
     early = f". CTEM began syncing {began:%b %d, %Y}, so earlier fixes aren't recorded and this reads low" \
         if began is not None and (b < began if m == "open" else pa < began) else ""
-    href = {"open": "/vulns", "new": "/vulns", "fixed": "/vulns?status=remediated", "mttr": "/vulns?status=remediated"}[m]
+    href = {"open": "/vulns", "new": "/vulns", "fixed": "/vulns/dashboard", "mttr": "/vulns/dashboard"}[m]   # fixed work is on its trend and MTTR charts
     return {"value": cur, "unit": unit, "delta": fleet.delta(cur, was, BETTER[m]), "href": href,
             "note": f"{label}{so_far}: {NOTE[m]}{early}"}
 

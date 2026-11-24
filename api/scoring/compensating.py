@@ -126,7 +126,10 @@ def reach_view(finding, contained: bool = False, attack_vector: str | None = Non
                                          nodezero_confirmed_exploitable=bool(
                                              finding.is_reachable and finding.reachability_source == "horizon3"),
                                          port_closed=port_closed_note(finding)))
-    return {"exposure": finding.exposure, "ports": finding.ports, "attack_vector": av, "reach": why or None}
+    if not why and finding.is_reachable and finding.reachability_source == "horizon3" and finding.source != "horizon3":
+        why = "Validated by the autonomous pentest: NodeZero reached this CVE on this host"
+    return {"exposure": finding.exposure, "ports": finding.ports, "attack_vector": av, "reach": why or None,
+            "validated": bool(finding.is_reachable and finding.reachability_source == "horizon3" and finding.source != "horizon3")}
 
 
 def port_closed_note(finding) -> str | None:

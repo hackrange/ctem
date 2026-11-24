@@ -436,7 +436,7 @@ function startFindings() {
         ? `<input type="checkbox" data-pick="${esc(f.id)}" aria-label="Select ${esc(f.cve_id || f.title)}"${picked.has(f.id) ? ' checked' : ''}>` : '' }] : []),
       { label: 'Severity', sort: 'cvss_base', firstOrder: 'desc', render: f => sevChip(f) },
       { label: 'CVE', sort: 'cve_id', render: f => dim(f, f.cve_id ? `<span class="nowrap">${vulnLink(f, f.cve_id)}</span>` : '<span class="text-muted">--</span>') },
-      { label: 'Title', sort: 'title', render: f => dim(f, vulnLink(f, f.title)) },
+      { label: 'Title', sort: 'title', render: f => dim(f, vulnLink(f, f.title)) + R.foundBy(f) },
       { label: 'CVSS', sort: 'cvss_base', firstOrder: 'desc', render: f => dim(f, txt(f.cvss_base)) },
       { label: 'EPSS', sort: 'epss_score', firstOrder: 'desc', render: f => dim(f, f.epss_score == null ? txt(null) : esc((f.epss_score * 100).toFixed(1) + '%')) },
       { label: 'KEV', sort: 'is_kev', firstOrder: 'desc', render: f => dim(f, f.is_kev ? '<span class="chip chip--critical">KEV</span>' : '') },

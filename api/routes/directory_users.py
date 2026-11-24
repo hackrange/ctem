@@ -55,6 +55,7 @@ async def list_directory_users(
     offset: int = Query(0, ge=0),
     expiry: Literal["expiring", "expired", "never"] | None = Query(None, alias="pwd", description="AD password: expiring soon, expired, never expires"),
     within: int = Query(14, ge=1, le=365, description="Days ahead for pwd=expiring"),
+    stale_days: int | None = Query(None, ge=1, le=3650, description="Enabled AD accounts with no logon in this many days"),
 ):
     from api.core.encryption import search_hash
     from api.models.risk import RiskScore
@@ -70,6 +71,9 @@ async def list_directory_users(
         where.append(User.ad_pwd_expired.is_(True))
     elif expiry == "never":
         where.append(User.ad_pwd_never_expires.is_(True))
+    if stale_days:   # the same rule the dashboard's stale-account counts use
+        from api.dashboards.m_directory import stale_users
+        where += stale_users(stale_days)
     order = (User.ad_pwd_expires, User.username) if expiry == "expiring" else (User.username,)
     total = (await db.execute(select(func.count(User.id)).where(*where))).scalar_one()
     users = (await db.execute(select(User).options(selectinload(User.roles)).where(*where).order_by(*order)

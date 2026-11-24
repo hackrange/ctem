@@ -91,24 +91,25 @@ async def _rows(ctx, area: str) -> list[tuple]:
         infra = Finding.domain == "infra"
         out.append(("Critical/high vulnerabilities", "Vulnerability scanners", await _findings(ctx, infra, crit_high), "critical", "/vulns?type=infra&min_cvss=7"))
         out.append(("Known exploited (KEV)", "Scanners + CISA KEV", await _findings(ctx, infra, kev), "critical", "/vulns?type=infra&is_kev=true"))
-        out.append(("Vulnerabilities past SLA", "Change SLAs", await _findings(ctx, infra, _past_sla()), "high", "/vulns?type=infra"))
+        out.append(("Vulnerabilities past SLA", "Change SLAs", await _findings(ctx, infra, _past_sla()), "high", "/vulns?type=infra&past_sla=true"))
         from api.dashboards.m_assets import OBSOLETE
         eol = or_(*(Vulnerability.title.ilike(x) for x in OBSOLETE))
-        out.append(("End-of-life software (assets)", "Vulnerability scanners", await _findings(ctx, infra, eol, devices=True), "high", "/vulns?q=obsolete"))
+        out.append(("End-of-life software (assets)", "Vulnerability scanners", await _findings(ctx, infra, eol, devices=True), "high", "/vulns?type=infra&q=obsolete"))
         out.append(("Active hosts no scanner covers", "Asset inventory", await _devices(ctx, compute, active, ~fleet.has_scanner(), since=Device.created_at),
-                    "medium", "/devices?missing=scanner&active_days=30"))
+                    "medium", "/devices?missing=scanner&active_days=30&compute=1"))
     elif area == "endpoint":
         out.append(("Missing EDR agent", "EDR", await _devices(ctx, compute, active, ~fleet.has_edr(), since=Device.created_at), "critical",
-                    "/devices?missing=edr&active_days=30"))
+                    "/devices?missing=edr&active_days=30&compute=1"))
         quiet = and_(Device.edr_last_seen.is_not(None), Device.edr_last_seen < fleet.now() - timedelta(days=7))
-        out.append(("EDR agent not reporting (7+ days)", "EDR", await _devices(ctx, compute, active, quiet, since=Device.edr_last_seen), "high", "/devices?active_days=30"))
+        out.append(("EDR agent not reporting (7+ days)", "EDR", await _devices(ctx, compute, active, quiet, since=Device.edr_last_seen), "high",
+                    "/devices?edr_quiet_days=7&active_days=30&compute=1"))
         out.append(("Contained hosts", "EDR", await _devices(ctx, Device.edr_contained.is_(True)), "medium", "/devices?status=contained"))
         if ctx.threats and ctx.scope is None:   # alerts are fleet-wide
             from api.dashboards.m_other import _alerts
             al = [a for a in await _alerts(ctx, {"range": "90d", "open_only": True})]
             ages = [x for x in ((fleet.now() - _parse(a.get("detected_at"))).days for a in al if a.get("detected_at")) if x >= 0]
             out.append(("Open endpoint detections (90 days)", "EDR detections", (len(al), sum(ages) / len(ages) if ages else None, max(ages) if ages else None),
-                        "critical", "/threats"))
+                        "critical", "/threat"))
     elif area == "identity":
         from api.dashboards.m_directory import stale_computers
         for days in (90, 45):
@@ -120,29 +121,30 @@ async def _rows(ctx, area: str) -> list[tuple]:
             from api.models.user import User
             age = days_since(ctx.db, User.ad_last_logon)
             r = (await ctx.db.execute(select(func.count(), func.avg(age), func.max(age)).where(*stale_users(90)))).one()
-            out.append(("AD user accounts with no logon in 90 days", "Directory (AD/LDAP)", (r[0] or 0, r[1], r[2]), "high", "/directory/users"))
+            out.append(("AD user accounts with no logon in 90 days", "Directory (AD/LDAP)", (r[0] or 0, r[1], r[2]), "high", "/users?stale_days=90"))
     elif area in ("code", "web"):
         dt = DeviceType.code_repository if area == "code" else DeviceType.website
         what = "Repositories" if area == "code" else "Web applications"
         dom = Finding.domain == area
         out.append((f"{what} in scope", "Code and web scanners", await _devices(ctx, Device.device_type == dt), "", f"/devices?asset={'repositories' if area == 'code' else 'sites'}"))
         out.append((f"{what} with open findings", "Code and web scanners", await _findings(ctx, dom, devices=True), "high",
-                    f"/devices?asset={'repositories' if area == 'code' else 'sites'}"))
+                    f"/devices?asset={'repositories' if area == 'code' else 'sites'}&with_findings=1"))
         out.append(("Critical/high findings", "Code and web scanners", await _findings(ctx, dom, crit_high), "critical", f"/vulns?type={area}&min_cvss=7"))
         if area == "code":
             secret = Vulnerability.source_vuln_id.like("credential:%")
-            out.append(("Credentials found in code", "Secret scanning", await _findings(ctx, dom, secret), "critical", "/vulns?type=code&q=secret"))
+            out.append(("Credentials found in code", "Secret scanning", await _findings(ctx, dom, secret), "critical", "/vulns?type=code&q=credential:"))
         else:
             exposed = Finding.device_id.in_(select(Device.id).where(Device.is_internet_exposed.is_(True)))
-            out.append(("Findings on internet-facing sites", "Web scanners", await _findings(ctx, dom, exposed), "high", "/vulns?type=web"))
-        out.append(("Past SLA", "Change SLAs", await _findings(ctx, dom, _past_sla()), "high", f"/vulns?type={area}"))
+            out.append(("Findings on internet-facing sites", "Web scanners", await _findings(ctx, dom, exposed), "high", "/devices?asset=sites&internet=1&with_findings=1"))
+        out.append(("Past SLA", "Change SLAs", await _findings(ctx, dom, _past_sla()), "high", f"/vulns?type={area}&past_sla=true"))
     elif area == "ownership":
         for key, label in (("technical_owner", "Assets without a technical owner"), ("executive_owner", "Assets without an executive owner"),
                            ("application", "Assets not mapped to an application")):
             tags = await _role_tags(ctx.db, key)
-            out.append((label, "Tag mapping", await _devices(ctx, active, _without_role(tags), since=Device.created_at), "high", "/devices"))
+            out.append((label, "Tag mapping", await _devices(ctx, active, _without_role(tags), since=Device.created_at), "high",
+                        f"/devices?asset=all&without={key}&active_days=30"))
         stale = and_(Device.last_seen < fleet.now() - timedelta(days=30), ~active)
-        out.append(("Not seen by any tool in 30 days", "Asset inventory", await _devices(ctx, stale, since=Device.last_seen), "medium", "/devices"))
+        out.append(("Not seen by any tool in 30 days", "Asset inventory", await _devices(ctx, stale, since=Device.last_seen), "medium", "/devices?asset=all&unseen_days=30"))
     return out
 
 

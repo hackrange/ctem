@@ -25,7 +25,7 @@ MEASURE_LABEL = {"open": "Open findings", "critical": "Critical findings", "high
                  "vulns": "Distinct vulnerabilities", "new_7d": "New in 7 days", "fixed_7d": "Fixed in 7 days",
                  "excepted": "Excepted findings"}
 MEASURE_HREF = {"open": "/vulns", "critical": "/vulns?min_cvss=9", "high": "/vulns?min_cvss=7", "kev": "/vulns?is_kev=true",
-                "past_sla": "/grc/checks/ctem_vuln_sla", "excepted": "/exceptions", "devices": "/devices"}
+                "past_sla": "/vulns?past_sla=true", "excepted": "/exceptions", "devices": "/devices?with_findings=1"}
 
 
 def _sev_cond(sev: str):
@@ -129,7 +129,7 @@ async def _mttr_number(ctx, p):
     was, _ = await _mttr_between(ctx, w, end - timedelta(days=2 * days), end - timedelta(days=days))
     srcs = _srcs(p)
     which = f" from {', '.join(s.replace('_', ' ') for s in srcs)}" if srcs else ""
-    return {"value": cur, "unit": " days", "delta": fleet.delta(cur, was), "href": "/vulns?status=remediated",
+    return {"value": cur, "unit": " days", "delta": fleet.delta(cur, was), "href": "/vulns/dashboard",
             "note": (f"{n:,} finding{'' if n == 1 else 's'}{which} fixed in the last {days} days" if n
                      else f"Nothing{which} fixed in the last {days} days")}
 

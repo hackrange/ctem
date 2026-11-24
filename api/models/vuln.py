@@ -17,6 +17,7 @@ class FindingStatus(str, enum.Enum):
     remediated = "remediated"
     risk_accepted = "risk_accepted"
     false_positive = "false_positive"
+    merged = "merged"   # a pentest's finding for a CVE a scanner also has open on that host (api/integrations/pentest_merge.py)
 
 
 class Vulnerability(Base, UUIDPrimaryKey, TimestampMixin):

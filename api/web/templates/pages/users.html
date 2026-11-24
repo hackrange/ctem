@@ -45,6 +45,7 @@
   <div class="stat-tile" id="tile-service">--<br><small>Service Accounts</small></div>
 </div>
 
+<div id="users-card" class="filter-bar" hidden style="margin-bottom:8px"></div>
 <div class="panel" style="padding:0">
   <table class="data-table" id="users-table">
     <thead>
@@ -144,6 +145,22 @@ function fmt(dt) {
   return dt ? new Date(dt).toLocaleDateString() : '<span class="text-muted">Never</span>';
 }
 
+// From a dashboard row: AD accounts with no logon in N days, shown as a removable chip
+const card = {};
+{ const v = new URLSearchParams(location.search).get('stale_days'); if (/^\d{1,4}$/.test(v || '')) card.stale_days = v; }
+function showCard() {
+  const box = document.getElementById('users-card');
+  box.hidden = !card.stale_days;
+  box.innerHTML = card.stale_days ? `<span class="filter-bar__label">Filter</span><span class="chip chip--medium">NO AD LOGON IN ${esc(card.stale_days)} DAYS
+    <button type="button" class="btn btn--ghost btn--sm" data-clear="stale_days" aria-label="Remove this filter" title="Remove">&#10005;</button></span>` : '';
+}
+document.addEventListener('click', e => {
+  if (!e.target.closest('#users-card [data-clear]')) return;
+  delete card.stale_days;
+  showCard();
+  loadUsers(0);
+});
+
 async function loadUsers(offset = 0) {
   const search = document.getElementById('search').value.trim();
   const grade  = document.getElementById('filter-grade').value;
@@ -152,6 +169,7 @@ async function loadUsers(offset = 0) {
   if (search) url += `&q=${encodeURIComponent(search)}`;
   const [pwd, within] = document.getElementById('filter-pwd').value.split(':');
   if (pwd) url += `&pwd=${encodeURIComponent(pwd)}` + (within ? `&within=${encodeURIComponent(within)}` : '');
+  if (card.stale_days) url += `&stale_days=${encodeURIComponent(card.stale_days)}`;
 
   const tb = document.getElementById('users-tbody');
   tb.innerHTML = '<tr><td colspan="16" class="text-muted text-sm" style="text-align:center;padding:24px">Loading...</td></tr>';
@@ -222,7 +240,7 @@ function updateTiles(users) {
   document.getElementById('tile-service').innerHTML   = `${svcAcct}<br><small>Service Accounts</small>`;
 }
 
-document.addEventListener('DOMContentLoaded', () => loadUsers(0));
+document.addEventListener('DOMContentLoaded', () => { showCard(); loadUsers(0); });
 </script>
 <script src="{{ static('js/directory_user.js') }}"></script>
 {% endblock %}

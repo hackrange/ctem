@@ -41,6 +41,9 @@ _FINDING_SORTS = {
 
 
 async def _filtered(user, db, q, grade, device_type, source, tag, status=None, ad_stale_days=None, card=None):
+    if card and card.get("without"):   # the tags that name an owner or application, as the dashboard counts them
+        from api.dashboards.m_posture import _role_tags
+        card = {**card, "without_tags": await _role_tags(db, card["without"])}
     return dq.build_query(await device_scope(user, db), q, grade, device_type, source, tag, status, ad_stale_days, card)
 
 
@@ -59,11 +62,16 @@ def _card(os_family: str | None = Query(None, pattern="^(windows|linux|macos|net
           repo: str | None = Query(None, max_length=253, pattern=r"^[A-Za-z0-9._\-]+/[A-Za-z0-9._\-]+$"),
           loc_state: str | None = _PLACE(), loc_city: str | None = _PLACE(), loc_site: str | None = _PLACE(),
           loc_office: str | None = _PLACE(),
-          subnet: str | None = Query(None, max_length=43, pattern=r"^[0-9A-Fa-f.:]+/\d{1,3}$")) -> dict:
+          subnet: str | None = Query(None, max_length=43, pattern=r"^[0-9A-Fa-f.:]+/\d{1,3}$"),
+          without: str | None = Query(None, pattern="^(technical_owner|executive_owner|application)$"),
+          unseen_days: int | None = Query(None, ge=1, le=3650), edr_quiet_days: int | None = Query(None, ge=1, le=3650),
+          with_findings: bool = Query(False), internet: bool = Query(False), kev: bool = Query(False)) -> dict:
     """Filters a dashboard card links with (see device_query.card_filters), including the Code tab's org and repo."""
     return {"os_family": os_family, "missing": missing, "active_days": active_days, "new_days": new_days, "compute": compute,
             "ad_tools_quiet_days": ad_tools_quiet_days, "asset": asset, "fix": fix, "repo_org": repo_org, "repo": repo,
-            "loc_state": loc_state, "loc_city": loc_city, "loc_site": loc_site, "loc_office": loc_office, "subnet": subnet}
+            "loc_state": loc_state, "loc_city": loc_city, "loc_site": loc_site, "loc_office": loc_office, "subnet": subnet,
+            "without": without, "unseen_days": unseen_days, "edr_quiet_days": edr_quiet_days, "with_findings": with_findings,
+            "internet": internet, "kev": kev}
 
 
 _STATUS_FILTER = Query(None, pattern="^(assigned|shipped|lost|stolen|returned|contained|edr_hidden|out_of_scope)$")
@@ -324,6 +332,8 @@ async def get_device_findings(
         return ([extra["host_firewall"][1]] if extra.get("host_firewall") else []) + _edr(1.0, ctx)[1]
     out = [{**_finding_summary(f, contained, cloud_ports), "protections": protections(f)} for f in rows]
     await cloud_findings.with_fixes(db, list(zip(out, [f.fix_key for f in rows])))
+    from api.integrations.pentest_merge import found_by
+    await found_by(db, [(o, device.id, o.get("cve_id")) for o in out])   # one line per CVE, every tool that found it
     return {"findings": out, "total": total, "limit": limit, "offset": offset, "contained": contained}
 
 

@@ -128,6 +128,20 @@ def card_filters(card: dict) -> list:
         out += [Device.device_type == DeviceType.code_repository, Device.hostname.like(f"{org}/%", escape="\\")]
     if card.get("new_days"):
         out.append(Device.created_at >= fleet.now().replace(tzinfo=None) - timedelta(days=int(card["new_days"])))
+    if card.get("without"):   # no owner or application tag of that kind (Security Overview: Ownership and coverage)
+        from api.dashboards.m_posture import _without_role
+        out.append(_without_role(card.get("without_tags") or []))
+    if card.get("unseen_days"):   # no tool has seen it in that many days
+        cut = fleet.now() - timedelta(days=int(card["unseen_days"]))
+        out += [Device.last_seen < cut, ~fleet.active(int(card["unseen_days"]))]
+    if card.get("edr_quiet_days"):   # the EDR agent exists but hasn't reported in that many days
+        out += [Device.edr_last_seen.is_not(None), Device.edr_last_seen < fleet.now() - timedelta(days=int(card["edr_quiet_days"]))]
+    if card.get("with_findings"):
+        out.append(Device.open_findings > 0)
+    if card.get("internet"):
+        out.append(Device.is_internet_exposed.is_(True))
+    if card.get("kev"):   # the summary's "devices with known exploited" count
+        out.append(Device.kev_findings > 0)
     if card.get("fix"):   # the assets one fix applies to: those with an open finding it resolves
         from api.models.vuln import Finding, FindingStatus
         out.append(Device.id.in_(select(Finding.device_id).where(

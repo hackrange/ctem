@@ -235,6 +235,8 @@ class Horizon3Connector(BaseConnector):
                 cache: dict = {}
                 wrote, seen = await series.apply(db, open_series, proof, lambda ip: apply._device(db, ip, None, cache))
                 closed = await series.close_the_rest(db, seen)
+                from api.integrations.pentest_merge import reconcile
+                await reconcile(db)   # what a scanner also has open stays one finding (the scanner's)
                 log.info("Horizon3: %d open weaknesses from %d series, %d closed", wrote, len(open_series), closed)
                 n += wrote
             await self._paths(client, db, ops, open_series)

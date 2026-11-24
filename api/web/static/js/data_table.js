@@ -179,7 +179,13 @@
       return `<span title="${esc(each)}">${esc(text)}</span>${d.last_seen_by ? ` <span class="text-sm text-muted">(${esc(d.last_seen_by)})</span>` : ''}`;
     },
     // Where the scanner found a finding and what its CVSS vector needs; the hover text is the score's reason
+    // One line per CVE: when more than one tool found it on this host (a scanner, and the pentest that proved it), say so
+    foundBy(f) {
+      return (f.found_by || []).length > 1 ? `<div class="text-sm text-muted">Found by ${esc(f.found_by.join(' + '))}</div>` : '';
+    },
     reach(f) {
+      // A scanner's finding the autonomous pentest also reached on this host: one finding, marked validated
+      if (f.validated) return `${R.reach({ ...f, validated: false, reach: null })} <span class="chip chip--critical" style="font-size:.7rem" title="${esc(f.reach || '')}">PENTEST VALIDATED</span>`;
       const why = f.reach ? ` title="${esc(f.reach)}"` : '';
       const chip = (cls, text) => `<span class="chip chip--${cls}" style="font-size:.7rem"${why}>${esc(text)}</span>`;
       if (/^Not reachable: NodeZero/.test(f.reach || '')) return chip('low', 'NOT REACHABLE (NODEZERO)');

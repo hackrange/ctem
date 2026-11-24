@@ -66,6 +66,7 @@
 </div>
 
 <div id="tag-focus" class="filter-bar" hidden style="margin-bottom:8px"></div>
+<div id="vl-card" class="filter-bar" hidden style="margin-bottom:8px"></div>
 <div class="panel" style="padding:0" id="vulns-table"></div>
 {% endblock %}
 
@@ -126,6 +127,24 @@ function affectedDefault() {
 }
 affectedDefault();
 if (initial.has('affected_only')) $('filter-affected').checked = initial.get('affected_only') === 'true';
+// From a dashboard row: filters with no control of their own, shown as removable chips
+const CARD = { past_sla: [/^(1|true)$/, () => 'Past SLA'] };
+const card = {};
+Object.entries(CARD).forEach(([k, [re]]) => { const v = initial.get(k); if (v && re.test(v)) card[k] = 'true'; });
+function showCard() {
+  const box = $('vl-card'), keys = Object.keys(card);
+  box.hidden = !keys.length;
+  box.innerHTML = keys.length ? '<span class="filter-bar__label">Filter</span>' + keys.map(k => `<span class="chip chip--medium">${esc(CARD[k][1]().toUpperCase())}
+    <button type="button" class="btn btn--ghost btn--sm" data-clear="${esc(k)}" aria-label="Remove this filter" title="Remove">&#10005;</button></span>`).join(' ') : '';
+}
+showCard();
+$('vl-card').addEventListener('click', e => {
+  const b = e.target.closest('[data-clear]');
+  if (!b) return;
+  delete card[b.dataset.clear];
+  showCard();
+  if (table) table.reload();
+});
 
 const href = v => `/vulns/${encodeURIComponent(v.id)}`;
 const muted = '<span class="text-muted">--</span>';
@@ -151,7 +170,7 @@ table = DataTable.create({
   params: () => ({
     q: $('search-input').value.trim(), is_kev: $('filter-kev').value, exploited: $('filter-exploited').value, min_cvss: $('filter-cvss').value,
     source: $('filter-source').value, affected_only: $('filter-affected').checked ? 'true' : 'false',
-    tag: TagFocus.get(), type: vkind === 'all' ? '' : vkind, ...where,
+    tag: TagFocus.get(), type: vkind === 'all' ? '' : vkind, ...where, ...card,
   }),
   onLoad: () => syncPicks && syncPicks(),
   columns: [

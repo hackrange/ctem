@@ -137,7 +137,7 @@ async def _kpis(db, w) -> dict:
                 func.count().filter(is_open, Vulnerability.is_kev == True),  # noqa: E712
                 func.count().filter(is_open, Vulnerability.exploit_available == True),  # noqa: E712
                 func.count().filter(is_open, past),
-                func.count().filter(Finding.first_detected >= week, Finding.status != FindingStatus.false_positive),
+                func.count().filter(Finding.first_detected >= week, Finding.status.not_in((FindingStatus.false_positive, FindingStatus.merged))),
                 func.count().filter(fixed, Finding.last_seen >= week),
                 func.count().filter(Finding.exception_id.is_not(None)),
                 func.min(Finding.last_seen).filter(fixed))

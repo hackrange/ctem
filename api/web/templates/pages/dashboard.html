@@ -302,13 +302,13 @@ async function loadSummary() {
     setCard('count-f', sum.grades.F, link({ grade: 'F' }));
     setCard('count-d', sum.grades.D, link({ grade: 'D' }));
     setCard('count-c', sum.grades.C, link({ grade: 'C' }));
-    setCard('count-kev', sum.kev_devices, link({ sort: 'kev_findings', order: 'desc' }));
+    setCard('count-kev', sum.kev_devices, link({ kev: '1', sort: 'kev_findings', order: 'desc' }));
     // Known-exploited exposure is red while any device has it; green only when there's none
     const kevCard = document.getElementById('card-kev');
     kevCard.classList.toggle('summary-card--critical', Number(sum.kev_devices) > 0);
     kevCard.classList.toggle('summary-card--low', !(Number(sum.kev_devices) > 0));
     setCard('count-total', sum.total, link({}));
-    setCard('count-exposed', sum.internet_exposed, link({}));
+    setCard('count-exposed', sum.internet_exposed, link({ internet: '1' }));
     const lastCell = d => (OverviewTypes.kind() === 'code' ? esc(Number(d.open_findings || 0).toLocaleString())
       : OverviewTypes.kind() === 'web' ? boolIcon(d.is_internet_exposed) : boolIcon(d.edr_active));
 

@@ -249,8 +249,12 @@ async def test_open_weakness_series_are_findings_whichever_pentest_saw_them(db, 
 
     def fresh(model, *where):
         return select(model).where(*where).execution_options(populate_existing=True)
-    mine = (await db.execute(fresh(Finding, Finding.source == "horizon3", Finding.device_id == d.id, Finding.status == FindingStatus.open))).scalars().all()
+    # The scanner has the same CVE open there: one finding (the scanner's, now reachable); NodeZero's is kept, merged,
+    # with its ports and proof for the Pentest tab
+    mine = (await db.execute(fresh(Finding, Finding.source == "horizon3", Finding.device_id == d.id, Finding.status == FindingStatus.merged))).scalars().all()
     assert len(mine) == 1 and mine[0].ports == "139/tcp 445/tcp" and mine[0].details["has_proof"] and mine[0].is_reachable is True
+    assert not (await db.execute(fresh(Finding, Finding.source == "horizon3", Finding.device_id == d.id,
+                                       Finding.status == FindingStatus.open))).scalars().all()
     assert (await db.execute(fresh(Finding, Finding.id == stale.id))).scalar_one_or_none() is None   # no longer open: gone, not history
     assert (await db.execute(fresh(Finding, Finding.id == other.id))).scalar_one().is_reachable is True    # same CVE, other source
     cam = (await db.execute(select(Device).where(Device.ip_hash == search_hash(camera)))).scalar_one()      # seen in June only: an asset

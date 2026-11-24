@@ -133,7 +133,7 @@ async def _mttr_value(ctx, p):
     days, w, end = int(p["days"]), _mttr_where(ctx, p), fleet.now()
     cur, _ = await _mttr_between(ctx, w, end - timedelta(days=days), end)
     was, _ = await _mttr_between(ctx, w, end - timedelta(days=2 * days), end - timedelta(days=days))
-    return {"value": cur, "unit": " days", "delta": fleet.delta(cur, was), "href": "/vulns?status=remediated",
+    return {"value": cur, "unit": " days", "delta": fleet.delta(cur, was), "href": "/vulns/dashboard",
             "note": f"Mean time to remediate, fixes in the last {days} days"}
 
 
@@ -164,7 +164,7 @@ async def _mttr_quarter(ctx, p):
     pa, pb = quarter_bounds(now.year - (1 if q == "q1" else 0), prev)
     was, _ = await _mttr_between(ctx, w, pa, pb)
     so_far = " so far" if b > now else ""
-    return {"value": cur, "unit": " days", "delta": fleet.delta(cur, was), "href": "/vulns?status=remediated",
+    return {"value": cur, "unit": " days", "delta": fleet.delta(cur, was), "href": "/vulns/dashboard",
             "note": f"{label}{so_far}: {n:,} finding{'' if n == 1 else 's'} fixed" if n else f"{label}{so_far}: nothing fixed"}
 
 
