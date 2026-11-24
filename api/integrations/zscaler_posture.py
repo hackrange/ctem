@@ -116,8 +116,13 @@ async def _coverage(db: AsyncSession, rows: list[dict]) -> None:
     missing = sorted({h for h in ours if host_key(h) not in registered})
     # A registered agent silent for 2 weeks on a machine the EDR or a scanner still sees: Zscaler isn't working there.
     # (Removed or unregistered agents are usually retired machines, so they aren't counted.)
-    stale = [z for z in zs if (z.registration_state or "").lower() == "registered" and z.host_key in active
-             and z.last_seen and _aware(z.last_seen) < now - timedelta(days=STALE_DAYS)]
+    # Judged per machine by its newest check-in: a re-enrolled or reimaged machine leaves its old record behind
+    newest: dict[str, ZscalerDevice] = {}
+    for z in zs:
+        if (z.registration_state or "").lower() == "registered" and z.host_key in active and z.last_seen:
+            if z.host_key not in newest or _aware(z.last_seen) > _aware(newest[z.host_key].last_seen):
+                newest[z.host_key] = z
+    stale = [z for z in newest.values() if _aware(z.last_seen) < now - timedelta(days=STALE_DAYS)]
     findings = []
     if rows:   # only judge coverage when Zscaler answered with its inventory
         findings.append(("zscaler_no_client_connector", "zcc:coverage", "high" if len(missing) > 10 else "medium",

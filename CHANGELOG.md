@@ -3,9 +3,14 @@
 All notable changes to open-ctem are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
-open-ctem is a Python rewrite of an earlier PHP version begun about 18 months before this repository; that history isn't in this repository (see [docs/project-overview.md](docs/project-overview.md)). Versions here start with the Python release, and each version is tagged (`v1.1.0` ... `v1.9.0`) at the commit that finished it. The on-prem shipper has its own version numbers.
+open-ctem is a Python rewrite of an earlier PHP version begun about 18 months before this repository; that history isn't in this repository (see [docs/project-overview.md](docs/project-overview.md)). Versions here start with the Python release, and each version is tagged (`v1.1.0` ... `v1.9.1`) at the commit that finished it. The on-prem shipper has its own version numbers.
 
 ## [Unreleased]
+
+## [1.9.1] - 2026-11-24
+
+### Fixed
+- **Zscaler: silent agents counted per machine.** A machine re-enrolled or reimaged keeps its old Client Connector record; the silent-agent count now judges each machine by its newest check-in, so those old records no longer count (on a real tenant: 357 machines, not 2,411 records).
 
 ## [1.9.0] - 2026-11-24
 
