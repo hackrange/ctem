@@ -104,6 +104,7 @@ window.AssetEdr = (() => {
     panel.innerHTML = `<div class="panel__header" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
         <span class="panel__title">Attacker view (autonomous pentest)${d.severity ? ` <span class="chip ${sev[d.severity] || 'chip--info'}" style="font-size:.7rem;vertical-align:middle">${esc(d.severity)}${d.score != null ? ` ${esc(d.score)}` : ''}</span>` : ''}</span>
         <span class="text-sm text-muted">${esc(d.pentest || '')}${d.tested_at ? ` · tested ${esc(new Date(d.tested_at).toLocaleDateString())}` : ''}</span></div>
+      ${window.AssetPentest ? AssetPentest.story(d) : ''}
       ${list(`Weaknesses NodeZero has open here (${(d.findings || []).length})`, ['Weakness', 'Score', 'Port', 'Confirmed', 'Last seen'], (d.findings || []).map(f => `<tr>
           <td class="text-sm"><a href="/vulns/${encodeURIComponent(f.vuln_id)}">${esc(f.name || f.cve || '')}</a>${f.cve && f.name !== f.cve ? ` <span class="text-muted text-mono" style="font-size:.75rem">${esc(f.cve)}</span>` : ''}${
             f.kev ? ' <span class="chip chip--critical" style="font-size:.65rem">KEV</span>' : ''}</td>
@@ -117,7 +118,7 @@ window.AssetEdr = (() => {
         ${d.domain_controller ? '<span class="chip chip--high">Domain controller</span>' : ''}${d.os ? `<span>OS <b>${esc(d.os)}</b></span>` : ''}
         <span>Open services <b>${esc(d.services ?? '--')}</b></span><span>Weaknesses <b>${esc(d.weaknesses ?? '--')}</b></span>
         <span>Credentials found <b>${esc(d.credentials_found ?? '--')}</b></span>${d.cloud ? `<span>Cloud <b>${esc(d.cloud)}</b></span>` : ''}</div>
-      ${list('Attack paths through this asset', ['Impact', 'How', 'Score', 'Found in'], (d.attack_paths || []).map(p => `<tr>
+      ${list('Attack paths through this asset', ['Impact', 'How', 'Score', 'Found in'], ((d.chains || []).length ? [] : d.attack_paths || []).map(p => `<tr>
           <td class="text-sm"><b>${esc(p.impact || p.impact_type || '')}</b></td><td class="text-sm">${esc(p.name || '')}<div class="text-muted" style="font-size:.75rem">${esc(p.where || '')}</div></td>
           <td><span class="chip ${sev[p.severity] || 'chip--info'}">${esc(p.score ?? '')}</span></td>
           <td class="text-sm text-muted">${p.minutes_to_find != null ? `${esc(p.minutes_to_find)} min` : ''}</td></tr>`))}

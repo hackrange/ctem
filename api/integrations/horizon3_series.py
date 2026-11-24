@@ -20,7 +20,7 @@ QUERY = """query q($page_input: PageInput!) { weakness_series_page(page_input: $
 OPEN = {"filter_by_inputs": [{"field_name": "status", "values": ["OPEN"]}]}
 # A pentest's weaknesses it proved by exploiting them: a series stays exploited for as long as it stays open
 PROVED_QUERY = """query q($op_id: String!, $page_input: PageInput) { weaknesses_page(input: {op_id: $op_id}, page_input: $page_input) {
-  weaknesses { vuln_id ip } } }"""
+  weaknesses { vuln_id ip port created_at time_to_finding_s proofs { proof_type created_at command_outputs { command output } } } } }"""
 PROVED = {"filter_by_inputs": [{"field_name": "has_proof", "values": ["true"]}]}
 
 
@@ -50,7 +50,7 @@ def group(series: list[dict]) -> dict:
 
 
 async def apply(db, series: list[dict], proof: dict, find) -> tuple[int, set]:
-    """Write the open series as findings. proof: (ip, weakness id) -> True when a recent pentest proved it.
+    """Write the open series as findings. proof: (ip, weakness id) -> how a pentest proved it (truthy).
     Returns (findings written, their source ids), so the caller can close the rest."""
     from api.models.vuln import Finding, FindingStatus, Vulnerability
     now, n, seen, vulns = datetime.now(timezone.utc), 0, set(), {}
@@ -97,6 +97,8 @@ async def apply(db, series: list[dict], proof: dict, find) -> tuple[int, set]:
                      "where": str(s.get("affected_asset_short_name") or "")[:300], "series": str(s.get("uuid") or "")[:64],
                      "ransomware_use": bool(va.get("known_ransomware_campaign_use")), "last_pentest": str(s.get("last_op_id") or "")[:64],
                      "first_seen": g["first"].isoformat() if g["first"] else None, "last_seen": g["last"].isoformat() if g["last"] else None}
+        if isinstance(proof.get((ip, vid)), dict):   # what NodeZero ran and what came back (encrypted with the details)
+            f.details = {**f.details, "proof": proof[(ip, vid)]}
         seen.add(sid)
         n += 1
         if cve:   # NodeZero reached this CVE on this host: the same CVE from every other source there is reachable too

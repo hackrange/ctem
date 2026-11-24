@@ -206,19 +206,36 @@ async def test_open_weakness_series_are_findings_whichever_pentest_saw_them(db, 
         if "pentests_page" in query:
             return {"pentests_page": {"pentests": [] if page > 1 else [
                 {"op_id": "nov", "op_type": "NodeZero", "name": "November", "state": "done", "completed_at": now},
-                {"op_id": "june", "op_type": "NodeZero", "name": "June", "state": "done", "completed_at": "2026-06-15T23:14:19"}]}}
+                {"op_id": "june", "op_type": "NodeZero", "name": "June", "state": "done", "completed_at": "2026-06-15T23:14:19",
+                 "impacts_count": 1}]}}
+        if "attack_paths_page" in query:
+            assert "mutation" not in query
+            if variables["op_id"] != "june" or page > 1:
+                return {"attack_paths_page": {"attack_paths": []}}
+            g = {"nodes": [{"uuid": "w", "label": "Weakness", "description": f"NodeZero module dahua found {cve} on {camera}:65002", "created_at": "2026-06-15T01:00:00"},
+                           {"uuid": "nz", "label": "NodeZero", "description": "NodeZero was launched from host 203.0.113.9", "created_at": "2026-06-14T16:00:00"},
+                           {"uuid": "imp", "label": "ImpactEdge", "description": "Camera takeover", "created_at": None},
+                           {"uuid": "h", "label": "Address", "description": f"NodeZero module host_discovery discovered host {camera}", "created_at": "2026-06-14T16:01:00"}],
+                 "edges": [{"source": "w", "target": "imp"}, {"source": "nz", "target": "h"}, {"source": "h", "target": "w"}]}
+            return {"attack_paths_page": {"attack_paths": [{"uuid": "HostCompromise/w", "attack_path_title": "Camera auth bypass", "score": 9.8,
+                    "severity": "CRITICAL", "impact_type": "HostCompromise", "impact_title": "Host Compromise", "impact_description": "Full control of the device",
+                    "time_to_finding_s": 3600, "hosts": [{"ip": camera, "host_name": None}], "weaknesses": [{"uuid": "w", "vuln_id": cve, "ip": camera, "port": 65002}],
+                    "attack_vector": {"attack_graph": g}}]}}
         if "weaknesses_page" in query:
             if page > 1:
                 return {"weaknesses_page": {"weaknesses": []}}
             if variables["op_id"] == "june":   # months old, outside the window: asked only for what it proved
                 assert variables["page_input"]["filter_by_inputs"] == [{"field_name": "has_proof", "values": ["true"]}]
-                return {"weaknesses_page": {"weaknesses": [{"vuln_id": cve, "ip": camera}]}}
+                return {"weaknesses_page": {"weaknesses": [{"vuln_id": cve, "ip": camera, "port": 65002, "time_to_finding_s": 116_748,
+                        "proofs": [{"proof_type": "CommandOutputProofResource", "created_at": "2026-06-15T03:54:15",
+                                    "command_outputs": [{"command": "nuclei -l urls.txt",
+                                                         "output": "POST /RPC2_Login\nCookie: s=abc\nsession: " + "Z" * 40}]}]}]}}
             return {"weaknesses_page": {"weaknesses": [{"vuln_id": cve, "ip": ip, "has_proof": True}]}}
         if "services_page" in query:
             return {"services_page": {"services": [] if page > 1 else [{"ip": ip, "port": 445, "protocol": "TCP"}, {"ip": ip, "port": 139}]}}
         if "hosts_page" in query:
             return {"hosts_page": {"hosts": [] if page > 1 else [{"ip": ip, "ip_addresses": [ip], "is_in_scope": True, "services_count": 2}]}}
-        return {k: {} for k in ("attack_paths_page", "credentials_page", "data_stores_page")}
+        return {k: {} for k in ("credentials_page", "data_stores_page")}
     monkeypatch.setattr(Horizon3Connector, "_gql", gql)
 
     class Client:
@@ -246,5 +263,45 @@ async def test_open_weakness_series_are_findings_whichever_pentest_saw_them(db, 
     r = await client_admin.get("/api/v1/vulns", params={"exploited": "true", "q": cve, "sort": "pentest_exploited", "order": "desc"})
     assert r.status_code == 200 and {x["source"] for x in r.json()["vulns"]} == {"horizon3", "t_h3s"}
     assert all(x["pentest_exploited"] for x in r.json()["vulns"])
+    # How it was proved, kept on the finding (its details are encrypted), with credentials masked
+    pr = cf.details["proof"]
+    assert pr["pentest"] == "June" and pr["found_after_s"] == 116_748 and pr["port"] == 65002
+    assert pr["steps"][0]["command"] == "nuclei -l urls.txt"
+    assert "Cookie: [redacted]" in pr["steps"][0]["output"] and "Z" * 40 not in pr["steps"][0]["output"]
+    # The June attack path through the camera, as the chain NodeZero walked, still active while its weakness is open
+    from api.models.risk import AttackPath
+    path = (await db.execute(fresh(AttackPath, AttackPath.target_device_id == cam.id, AttackPath.confirmed_by == "horizon3"))).scalar_one()
+    assert path.is_active and path.path_score == 9.8 and path.external_id == "june:HostCompromise/w"
+    assert [s["kind"] for s in path.graph["steps"]] == ["NodeZero", "Address", "Weakness", "Impact"]
+    assert path.graph["steps"][1]["assets"] == {camera: str(cam.id)}
+    r = await client_admin.get(f"/api/v1/devices/{cam.id}/pentest")
+    body = r.json()
+    assert r.status_code == 200 and body["chains"][0]["impact"] == "Host Compromise" and "pairs" not in body["chains"][0]
+    assert body["findings"][0]["proof"]["steps"][0]["command"] == "nuclei -l urls.txt"
+    from api.integrations import horizon3_story as story
+    await story.refresh_active(db, set())   # NodeZero closed every weakness: the path is no longer active
+    assert (await db.execute(fresh(AttackPath, AttackPath.id == path.id))).scalar_one().is_active is False
     dev = (await db.execute(fresh(Device, Device.id == d.id))).scalar_one()
     assert dev.pentest["open_services"] == [{"port": 445, "protocol": "tcp"}, {"port": 139, "protocol": "tcp"}]
+
+
+def test_only_read_only_queries_reach_horizon3():
+    from api.integrations.horizon3 import read_only
+    assert read_only("query q { pentests_page { pentests { op_id } } }")
+    assert read_only("{ pentests_page { pentests { op_id } } }")
+    for bad in ("mutation m { cancel_op(op_id: \"x\") { op_id } }", "  # just reading\nmutation m { create_op { op_id } }",
+                "query q { a } mutation m { delete_agent { uuid } }", "subscription s { ops { op_id } }"):
+        with pytest.raises(PermissionError):
+            read_only(bad)
+
+
+def test_steps_follow_the_edges_from_the_launch():
+    from api.integrations.horizon3_story import redact, steps_of
+    g = {"nodes": [{"uuid": "b", "label": "Service", "description": "web on 192.0.2.5:443"}, {"uuid": "a", "label": "NodeZero"},
+                   {"uuid": "c", "label": "ImpactEdge", "description": "Host Compromise"}],
+         "edges": [{"source": "b", "target": "c"}, {"source": "a", "target": "b"}]}
+    assert [s["kind"] for s in steps_of(g)] == ["NodeZero", "Service", "Impact"]
+    assert steps_of(g)[1]["ips"] == ["192.0.2.5"]
+    assert steps_of(None) == []
+    assert redact("Authorization: Bearer abc", 100) == "Authorization: [redacted]"
+    assert redact("x" * 50, 10).endswith("…")

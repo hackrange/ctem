@@ -49,6 +49,7 @@ class AttackPath(Base, UUIDPrimaryKey, TimestampMixin):
     external_id: Mapped[str | None] = mapped_column(String(256))                # NodeZero path ID
     is_active: Mapped[bool] = mapped_column(nullable=False, default=True)
     last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    graph: Mapped[dict | None] = mapped_column(EncryptedJSON)                    # NodeZero's chain, impact, pentest
 
     source_device: Mapped[object | None] = relationship("Device", foreign_keys=[source_device_id])
     target_device: Mapped[object | None] = relationship("Device", foreign_keys=[target_device_id])

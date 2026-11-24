@@ -141,9 +141,17 @@ async def device_pentest(device_id: uuid.UUID, u: User = Depends(require_permiss
         .order_by(Vulnerability.cvss_base.desc().nulls_last()).limit(200))).all()
     found = [{"vuln_id": str(v.id), "name": v.title, "cve": v.cve_id, "score": v.cvss_base, "kev": bool(v.is_kev),
               "ports": f.ports, "proved": bool((f.details or {}).get("has_proof")), "paths": (f.details or {}).get("impact_paths"),
-              "last_seen": f.last_seen.isoformat() if f.last_seen else None} for f, v in rows]
-    if not d.pentest and not found:
+              "last_seen": f.last_seen.isoformat() if f.last_seen else None, "source_vuln_id": v.source_vuln_id,
+              "description": (v.description or "")[:1200] or None, "proof": (f.details or {}).get("proof")} for f, v in rows]
+    from api.models.risk import AttackPath
+    chains = [{"title": p.path_description, "impact_detail": p.impact_description, "score": p.path_score, "active": p.is_active,
+               "seen": p.last_seen.isoformat() if p.last_seen else None, **(p.graph or {})}
+              for p in (await db.execute(select(AttackPath).where(AttackPath.target_device_id == d.id, AttackPath.confirmed_by == "horizon3")
+                                         .order_by(AttackPath.is_active.desc(), AttackPath.last_seen.desc().nulls_last()).limit(25))).scalars()]
+    for c in chains:
+        c.pop("pairs", None)
+    if not d.pentest and not found and not chains:
         return {"available": False}
     view = dict(d.pentest or {})
     view["open_services"] = sorted(view.get("open_services") or [], key=lambda s: (s.get("port") or 0, s.get("protocol") or ""))
-    return {"available": True, **view, "findings": found}
+    return {"available": True, **view, "findings": found, "chains": chains}

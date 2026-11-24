@@ -29,7 +29,7 @@ SOURCE = "horizon3"
 PAGE = 100            # the API's maximum
 _CVE = re.compile(r"^CVE-\d{4}-\d{4,}$")
 _PENTESTS = """query q($page_input: PageInput) { pentests_page(page_input: $page_input) { pentests {
-  op_id op_type name state launched_at completed_at hosts_count services_count weaknesses_count } } }"""
+  op_id op_type name state launched_at completed_at hosts_count services_count weaknesses_count impacts_count } } }"""
 _WEAK = """query q($op_id: String!, $page_input: PageInput) { weaknesses_page(input: {op_id: $op_id}, page_input: $page_input) {
   weaknesses { uuid vuln_id vuln_name vuln_category vuln_aliases vuln_cisa_kev vuln_known_ransomware_campaign_use severity
   score base_score context_score ip host_name has_proof impact_paths_count affected_asset_text } } }"""
@@ -47,6 +47,14 @@ _STORES = """query q($op_id: String!, $page_input: PageInput) { data_stores_page
 # host_name; the API doesn't allow schema introspection)
 _SERVICES = """query q($op_id: String!, $page_input: PageInput) { services_page(input: {op_id: $op_id}, page_input: $page_input) {
   services { ip port protocol host_name } } }"""
+
+
+def read_only(query: str) -> str:
+    """CTEM only reads from NodeZero: one query operation, never a mutation or subscription."""
+    body = re.sub(r"#[^\n]*", "", str(query)).strip()
+    if not body.startswith(("query", "{")) or re.search(r"\b(mutation|subscription)\b", body):
+        raise PermissionError("Horizon3: CTEM sends read-only queries only")
+    return query
 
 
 def _dt(v):
@@ -79,6 +87,7 @@ class Horizon3Connector(BaseConnector):
         return self._token
 
     async def _gql(self, client, query: str, variables: dict | None = None) -> dict:
+        read_only(query)
         for attempt in range(2):
             tok = await self._auth(client)
             r = await client.post(f"{self._base}/v1/graphql", json={"query": query, "variables": variables or {}},
@@ -135,6 +144,32 @@ class Horizon3Connector(BaseConnector):
                 log.warning("Horizon3 %s not available: %s", key, str(e)[:160])
         return out
 
+    async def _paths(self, client, db, ops: list[dict], open_series: list[dict] | None) -> None:
+        """Attack paths with their chain, from every pentest that had an impact: read once, then again while recent."""
+        from api.integrations import horizon3_apply as apply
+        from api.integrations import horizon3_story as story
+        from api.integrations.base import load_sync_state, save_sync_state
+        state = await load_sync_state(db, getattr(self, "integration_id", None))
+        read = set(state.get("paths_read") or [])
+        recent = datetime.now(timezone.utc) - timedelta(days=int(self.config.get("op_days") or 30))
+        still_open = None if open_series is None else {(s.get("ip"), str(s.get("vuln_id") or "")[:200]) for s in open_series}
+        cache: dict = {}
+        for op in ops:
+            if str(op.get("state") or "").lower() not in ("done", "complete", "completed", "ended") or not op.get("impacts_count"):
+                continue
+            if op["op_id"] in read and (_dt(op.get("completed_at")) or recent) < recent:
+                continue
+            try:
+                paths = await self._pages(client, story.PATHS_QUERY, "attack_paths_page", "attack_paths", {"op_id": op["op_id"]}, cap=50)
+            except ValueError as e:
+                self.notes.append("Horizon3 didn't answer the attack path chain, so paths keep their summary only")
+                log.warning("Horizon3 attack paths refused: %s", str(e)[:200])
+                return
+            await story.save_paths(db, op, paths, lambda ip, name: apply._device(db, ip, name, cache, create=False), still_open)
+            read.add(op["op_id"])
+        await story.refresh_active(db, still_open)
+        await save_sync_state(db, getattr(self, "integration_id", None), {**state, "paths_read": sorted(read)[-2000:]})
+
     async def _open_series(self, client) -> list[dict] | None:
         """Every open weakness series (NodeZero's weaknesses tracked across pentests); None if the API has none."""
         from api.integrations.horizon3_series import OPEN, QUERY
@@ -188,15 +223,19 @@ class Horizon3Connector(BaseConnector):
                 n += await self._apply(db, apply, op, weak, services, extra, findings=open_series is None)
             if open_series is not None:   # every weakness NodeZero still has open, whichever pentest last saw it
                 # What each pentest proved, however old: an exploited weakness stays exploited while it's open
+                from api.integrations import horizon3_story as story
                 for op in (o for o in ops if str(o.get("state") or "").lower() in ("done", "complete", "completed", "ended")):
                     for w in await self._pages(client, series.PROVED_QUERY, "weaknesses_page", "weaknesses",
                                                {"op_id": op["op_id"]}, cap=100, page_extra=series.PROVED):
-                        proof[(w.get("ip"), str(w.get("vuln_id") or "")[:200])] = True
+                        key = (w.get("ip"), str(w.get("vuln_id") or "")[:200])
+                        if not isinstance(proof.get(key), dict):   # ops come newest first: the newest proof wins
+                            proof[key] = story.proof_of(w, op)
                 cache: dict = {}
                 wrote, seen = await series.apply(db, open_series, proof, lambda ip: apply._device(db, ip, None, cache))
                 closed = await series.close_the_rest(db, seen)
                 log.info("Horizon3: %d open weaknesses from %d series, %d closed", wrote, len(open_series), closed)
                 n += wrote
+            await self._paths(client, db, ops, open_series)
         if self.notes:
             log.info("Horizon3: %s", "; ".join(self.notes))
         return n

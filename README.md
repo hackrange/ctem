@@ -78,7 +78,7 @@ Every source is matched to the same device row by host name, however it spells i
 | Rapid7 InsightVM | Vulnerability | Assets, per-asset findings and asset tags (custom, location, owner, criticality; cloud v4 API or on-prem console) |
 | Rapid7 InsightAppSec | Vulnerability | Web app findings with triage status |
 | Rapid7 InsightCloudSec | Cloud | Cloud posture findings (Cloud type; resources are cloud resources, not hosts) |
-| Horizon3 NodeZero | Pentest | Reachability validation |
+| Horizon3 NodeZero | Pentest | Reachability validation, exploit proofs, attack paths with their chain and impact (read-only GraphQL queries; mutations are refused) |
 | AWS | Cloud exposure | EC2 instances, public IPs, security groups and network ACLs (read-only: only seven allow-listed Describe and STS actions can run) |
 | Azure | Cloud exposure | VMs, public IPs, NIC and subnet NSGs (Reader app registration) |
 | Oracle Cloud (OCI) | Cloud exposure | Instances, public IPs, security lists and NSGs (API signing key) |
