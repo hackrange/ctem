@@ -176,7 +176,7 @@
       const days = Math.max(0, Math.floor((Date.now() - new Date(d.last_seen).getTime()) / 86400000));
       const text = days === 0 ? 'Today' : days === 1 ? '1 day ago' : `${days.toLocaleString()} days ago`;
       const each = Object.entries(d.seen_by || {}).map(([k, v]) => `${k}: ${new Date(v).toLocaleString()}`).join('\n');
-      return `<span title="${esc(each)}">${esc(text)}</span>${d.last_seen_by ? ` <span class="text-sm text-muted">${esc(d.last_seen_by)}</span>` : ''}`;
+      return `<span title="${esc(each)}">${esc(text)}</span>${d.last_seen_by ? ` <span class="text-sm text-muted">(${esc(d.last_seen_by)})</span>` : ''}`;
     },
     // Where the scanner found a finding and what its CVSS vector needs; the hover text is the score's reason
     reach(f) {

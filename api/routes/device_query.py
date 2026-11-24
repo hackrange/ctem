@@ -36,8 +36,9 @@ def _greatest_sqlite(element, compiler, **kw):
     return f"max({compiler.process(element.clauses, **kw)})"
 
 
-# Every tool's sign of life for a device: a scan, an EDR heartbeat, an AD computer logon
-SEEN_BY = (("Scanner", "last_seen"), ("EDR", "edr_last_seen"), ("AD logon", "ad_last_logon"))
+# Every tool's sign of life for a device: a scan, an EDR heartbeat, an AD computer logon, a network probe answer
+# (display and sorting only: last_seen itself stays the scanner's, which the coverage checks rely on)
+SEEN_BY = (("Scanner", "last_seen"), ("EDR", "edr_last_seen"), ("AD logon", "ad_last_logon"), ("net probe", "alive_at"))
 _NEVER = datetime(1970, 1, 1, tzinfo=timezone.utc)
 LAST_SEEN_ANY = greatest(*(func.coalesce(getattr(Device, col), _NEVER) for _, col in SEEN_BY))
 
@@ -66,7 +67,7 @@ SORTS = {
     "risk_score": Device.risk_score,
     "open_findings": Device.open_findings,
     "kev_findings": Device.kev_findings,
-    "last_seen": LAST_SEEN_ANY,   # the freshest of scanner, EDR and AD logon
+    "last_seen": LAST_SEEN_ANY,   # the freshest of scanner, EDR, AD logon and network probe
     "edr_active": Device.edr_active,
     "source": Device.source,
     "firewall_enabled": Device.firewall_enabled,

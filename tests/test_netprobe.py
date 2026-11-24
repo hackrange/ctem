@@ -205,3 +205,19 @@ def test_the_box_command_passes_only_through_and_has_probe():
     sh = (Path(np.__file__).parent / "install.sh").read_text()
     assert sh.count(r'run --force "\${@:2}"') == 2
     assert sh.count(r'probe "\${@:2}"') == 2 and sh.count("probe [--dry-run]") == 2
+
+
+@pytest.mark.asyncio
+async def test_a_probe_answer_counts_as_last_seen(db, client_cyber):
+    from datetime import timedelta
+
+    from api.models.device import Device, DeviceType
+    name = f"seen-{uuid.uuid4().hex[:6]}"
+    now = datetime.now(timezone.utc)
+    db.add(Device(hostname=name, device_type=DeviceType.server, sources=",rapid7_insightvm,netprobe,",
+                  last_seen=now - timedelta(days=40), alive_at=now - timedelta(minutes=5)))
+    await db.commit()
+    d = [x for x in (await client_cyber.get("/api/v1/devices", params={"q": name})).json()["devices"] if x["hostname"].lower() == name][0]
+    assert d["last_seen_by"] == "net probe" and d["last_seen"].startswith(now.date().isoformat())
+    assert d["scan_last_seen"].startswith((now - timedelta(days=40)).date().isoformat())   # the scanner's own date stays
+    assert "net probe" in d["seen_by"]
