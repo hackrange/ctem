@@ -56,6 +56,7 @@
       rows.push(info('Assigned to (CTEM)', txt(c.assigned_to || c.user)));
       if (c.internet_exposed) rows.push(info('Internet exposed', '<span class="chip chip--high">yes</span>'));
     }
+    (d.context || []).forEach(([k, v]) => rows.push(info(k.replace(/[._]/g, ' '), mono(v))));   // logon and identity fields, as Falcon named them
     rows.push(info('Alert ID', `<span class="text-mono text-sm">${txt(a.id.replace(/^threat_alert_/, ''))}</span>`));
     $('al-info').innerHTML = rows.join('');
   }

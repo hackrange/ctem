@@ -108,9 +108,10 @@ class CrowdStrikeConnector(BaseConnector):
             return False
 
     async def sync(self, db: AsyncSession) -> int:
+        from api.core import cs_alert_refresh
         token = await self._get_token()
         devices = await self._list_devices(token)
-        detections = await self._list_detections(token)
+        detections = await self._list_detections(token, await cs_alert_refresh.due(db))
         count = await self._upsert(devices, detections, db)
         await self._cache_threats(detections, db)
         return count
@@ -161,14 +162,20 @@ class CrowdStrikeConnector(BaseConnector):
                             out.append({**d, "hidden": flag or is_hidden(d)})
         return out
 
-    async def _list_detections(self, token: str) -> list[dict]:
-        """Alerts (API v2) from the last 30 days in any status, in the shipper's shape. The Detects API is retired."""
+    async def _list_detections(self, token: str, again: list[str] | None = None) -> list[dict]:
+        """Alerts (API v2) from the last 30 days in any status, in the shipper's shape, plus any CTEM has without their
+        detail (`again`, asked for by id). The Detects API is retired."""
         from datetime import datetime, timedelta, timezone
 
         from api.core.cs_alert import csa
         since = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
         out: list[dict] = []
         async with safe_client() as client:
+            for i in range(0, len(again or []), 500):
+                detail = await client.post(f"{_API_BASE}/alerts/entities/alerts/v2", headers={"Authorization": f"Bearer {token}"},
+                                           json={"composite_ids": again[i:i + 500]})
+                if detail.status_code < 300:
+                    out += [x for x in map(csa.summary, detail.json().get("resources") or []) if x]
             for offset in range(0, 10000, 1000):   # the query endpoint stops at 10k
                 resp = await client.get(
                     f"{_API_BASE}/alerts/queries/alerts/v2",

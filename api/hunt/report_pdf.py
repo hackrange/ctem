@@ -242,7 +242,7 @@ def _appendix(story: list, r: _Report, issue: dict, result: dict) -> None:
         if lk.get("spl"):
             head.append(Paragraph(r.t(lk["spl"], 2000), r.s["mono"]))
         story.append(KeepTogether(head))
-        cols = [str(c) for c in lk.get("columns") or []]
+        cols = [str(c) for c in lk.get("columns") or [] if c != "alert_page"]   # a link only works in CTEM
         for row in (lk.get("rows") or [])[:ROWS_SHOWN]:
             if not isinstance(row, dict):
                 continue

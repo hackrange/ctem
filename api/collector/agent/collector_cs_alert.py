@@ -33,6 +33,53 @@ ACTIONS = {
 }
 LIST_CAP = 50
 
+# Logon and identity alerts say where an attempt came from and which accounts it touched in fields of their own
+# (source and target endpoint, address, account, domain, logon type), which vary by alert type: keep any field whose
+# name says it is one of those, as short text. Hashes, paths, command lines and ids are kept elsewhere or not at all.
+_CTX_KEY = re.compile(r"(^|_)(ip|ip4|ip6|ipv4|ipv6|address|addr|host|hostname|endpoint|account|user|upn|domain|logon|"
+                      r"src|source|target|dest|destination|remote|client|workstation|computer|port|protocol|country|"
+                      r"city|asn|isp)s?(_|$)", re.I)
+_CTX_SKIP = re.compile(r"(hash|sha|md5|cmd|command|path|link|url|description|_id$|^id$|cid|aid|timestamp|time$|name_space)", re.I)
+_CTX_TAKEN = {"device", "parent_details", "grandparent_details", "quarantined_files", "network_accesses", "dns_requests",
+              "files_written", "executables_written", "documents_accessed", "mitre_attack", "pattern_disposition_details",
+              "user_name", "logon_domain", "user_principal", "user_id", "filename", "filepath", "cmdline"}
+_CTX_NAME = re.compile(r"^[a-z0-9_.]{1,80}$")
+CTX_CAP = 25
+
+
+def _ctx_value(v):
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, (int, float)):
+        return str(v)[:32]
+    if isinstance(v, list):
+        vals = [x for x in (txt(i, 120) if isinstance(i, str) else (str(i) if isinstance(i, int) and not isinstance(i, bool) else None)
+                            for i in v[:5]) if x]
+        return ", ".join(vals)[:300] or None
+    return txt(v, 300)
+
+
+def context(a):
+    """[[field, value], ...]: where a logon or identity alert came from and what it touched, as Falcon named it."""
+    out = []
+
+    def take(key, v):
+        if len(out) >= CTX_CAP or not _CTX_KEY.search(key) or _CTX_SKIP.search(key) or not _CTX_NAME.match(key.lower()):
+            return
+        val = _ctx_value(v)
+        if val:
+            out.append([key.lower(), val])
+    for k, v in a.items():
+        if not isinstance(k, str) or k in _CTX_TAKEN:
+            continue
+        if isinstance(v, dict):   # one level down (for example source_endpoint.ip_address)
+            for k2, v2 in list(v.items())[:40]:
+                if isinstance(k2, str) and not isinstance(v2, dict):
+                    take(f"{k}.{k2}", v2)
+        else:
+            take(k, v)
+    return out
+
 
 def txt(v, cap=300):
     """A single-line, capped string, or None."""
@@ -170,6 +217,7 @@ def detail(a):
         "network": _list(a.get("network_accesses"), _net),
         "dns": _list(a.get("dns_requests"), _dns),
         "mitre": _list(a.get("mitre_attack"), _mitre, 10),
+        "context": context(a),
         "prevalence": {k: v for k, v in {"global": txt(a.get("global_prevalence"), 32),
                                          "local": txt(a.get("local_prevalence"), 32)}.items() if v} or None,
         "host": {k: v for k, v in {
@@ -290,6 +338,9 @@ def clean(d):
                                               "technique_id": "tech"}, 10),
         "prevalence": _clean_flat(d.get("prevalence"), {"global": 32, "local": 32}),
         "host": host,
+        "context": [[k.lower(), txt(v, 300)] for k, v in (x for x in (d.get("context") or [])[:CTX_CAP]
+                                                          if isinstance(x, list) and len(x) == 2 and isinstance(x[0], str))
+                    if _CTX_NAME.match(k.lower()) and txt(v, 300)] if isinstance(d.get("context"), list) else None,
     }
     if out["disposition"] and not out["disposition"]["summary"] and not out["disposition"]["actions"]:
         out["disposition"] = None

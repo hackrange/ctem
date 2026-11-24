@@ -269,3 +269,15 @@ async def alert_action_results(integration_id: str, request: Request, db: AsyncS
     n = await cs_alert_actions.report(db, integration_id, [r.model_dump() for r in body.results])
     await db.commit()
     return {"recorded": n}
+
+
+@router.get("/alert-refresh/{integration_id}")
+async def alert_refresh(integration_id: str, request: Request, db: AsyncSession = Depends(get_session)):
+    """CrowdStrike alerts CTEM has without their detail, for this shipper's CrowdStrike pull to fetch again by id
+    (a read, the same Alerts API the pull uses; api/core/cs_alert_refresh.py)."""
+    from api.core import cs_alert_refresh
+    tok = await ingest.authenticate(request, db)
+    await ingest.scoped_integration(tok, integration_id, "crowdstrike", db)
+    ids = await cs_alert_refresh.due(db)
+    await db.commit()
+    return {"ids": ids}

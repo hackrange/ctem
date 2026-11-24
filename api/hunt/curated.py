@@ -14,6 +14,7 @@ import json
 import logging
 import re
 from datetime import datetime, timedelta, timezone
+from urllib.parse import quote
 
 from sqlalchemy import select
 
@@ -101,8 +102,35 @@ async def known_names(db) -> set[str]:
     return {n for n in hosts | users if len(n) >= 3}
 
 
+async def _who_where(db, hits: list[dict]) -> None:
+    """Each hit's user, where it came from and what it targeted, from its encrypted detail (the first 50 only)."""
+    from api.core.threat_graph import origin
+    from api.routes.threat import _detail
+    for h in hits[:50]:
+        if not h.get("has_detail"):
+            continue
+        d = await _detail(db, h["id"].partition("#")[0])
+        u = d.get("user") or {}
+        src = origin(d)
+        h["user"] = f"{u['domain']}\\{u['name']}" if u.get("domain") and u.get("name") else u.get("name")
+        h["from_ips"], h["from_hosts"], h["accounts"], h["targets"] = src["ips"], src["hosts"], src["accounts"], src["targets"]
+
+
+def _line(h: dict) -> str:
+    bits = [h.get("title") or ""]
+    if h.get("from_ips") or h.get("from_hosts"):
+        bits.append("from " + ", ".join([*h.get("from_ips", []), *h.get("from_hosts", [])][:4]))
+    if h.get("targets"):
+        bits.append("against " + ", ".join(h["targets"][:4]))
+    if h.get("user"):
+        bits.append(f"as {h['user']}")
+    return " ".join(bits)[:300]
+
+
 def _issue(rule, hits: list[dict], lookup_no: int) -> dict:
-    hosts = sorted({h["hostname"] for h in hits if h.get("hostname")})
+    hosts = sorted({h["hostname"] for h in hits if h.get("hostname")} | {x for h in hits for x in h.get("from_hosts", [])})
+    users = sorted({x for h in hits for x in [h.get("user"), *h.get("accounts", []), *h.get("targets", [])] if x})
+    ips = sorted({x for h in hits for x in h.get("from_ips", [])})
     when = sorted(hits, key=lambda h: h.get("detected_at") or "")
     return {
         "title": rule.name, "severity": rule.severity, "confidence": "high", "from_rule": str(rule.id),
@@ -110,8 +138,8 @@ def _issue(rule, hits: list[dict], lookup_no: int) -> dict:
                           f"matched the curated rule \"{rule.name}\".")[:1500],
         "why_it_matters": (rule.description or "")[:600],
         "timeline": [{"time": str(h.get("detected_at") or "")[:16].replace("T", " "), "source": h.get("source") or "",
-                      "what": (h.get("title") or "")[:300], "lookup": lookup_no} for h in when[:12]],
-        "involved": {"hosts": hosts[:15], "users": [], "ips": []},
+                      "what": _line(h), "lookup": lookup_no} for h in when[:12]],
+        "involved": {"hosts": hosts[:15], "users": users[:15], "ips": ips[:15]},
         "what_to_do": [str(x)[:300] for x in (rule.what_to_do or [])][:8],
         "attack": rule.attack or [], "lookups": [lookup_no],
     }
@@ -136,8 +164,13 @@ async def run(db, splunk, time_range: str, first_lookup: int) -> tuple[list[dict
                 hosts = {a.get("hostname") for a in hits if a.get("hostname")}
                 if not hits or len(hits) < rule.match["min_alerts"] or len(hosts) < rule.match["min_hosts"]:
                     continue
-                rows = [{"detected": a.get("detected_at"), "host": a.get("hostname"), "source": a.get("source"),
-                         "alert": a.get("title"), "technique": a.get("technique_id")} for a in hits[:100]]
+                hits = [dict(a) for a in hits]
+                await _who_where(db, hits)
+                rows = [{"detected": a.get("detected_at"), "host": a.get("hostname"), "user": a.get("user"),
+                         "from": ", ".join([*a.get("from_ips", []), *a.get("from_hosts", [])][:6]) or None,
+                         "targeted": ", ".join(a.get("targets", [])[:6]) or None, "source": a.get("source"),
+                         "alert": a.get("title"), "technique": a.get("technique_id"),
+                         "alert_page": f"/threat/alert?id={quote(a['id'], safe='')}"} for a in hits[:100]]
                 explained |= {a["id"] for a in hits}
             elif rule.kind == "splunk" and splunk is not None:
                 from api.hunt.spl_guard import TIME_RANGES, vet_spl
@@ -153,7 +186,7 @@ async def run(db, splunk, time_range: str, first_lookup: int) -> tuple[list[dict
             log.warning("curated rule %s failed", rule.id, exc_info=True)
             continue
         n = first_lookup + len(lookups)
-        cols = list(rows[0].keys())[:12] if rows else []
+        cols = [c for c in (rows[0].keys() if rows else []) if any(r.get(c) not in (None, "") for r in rows)][:12]
         lookups.append({"source": "ctem", "source_label": "Curated rule", "title": f"Curated rule: {rule.name}",
                         "why": "A Threat Curated Rule; no AI tokens spent", "columns": cols,
                         "rows": [{c: r.get(c) for c in cols} for r in rows], "count": len(rows), "table": "curated", "filters": {}})

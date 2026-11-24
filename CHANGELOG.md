@@ -7,6 +7,11 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+### Added
+- **Logon and identity alerts say where they came from.** CrowdStrike alerts now keep the fields Falcon gives logon and identity detections (source address and host, source and targeted accounts, logon type and similar), encrypted with the rest of the detail; hashes, paths, command lines and ids are left out. The alert page lists them, and its map shows the source addresses and hosts leading in and the accounts targeted. Needs shipper 1.8.1 (or the direct connector).
+- **Threat Curated Rule findings are actionable.** A rule's finding now names the user, the source addresses and hosts and the accounts targeted for each alert it matched, in its story, its people and machines involved, and its evidence, with a link to each alert; the PDF report has them too.
+- **Alerts saved without detail are fetched again.** CrowdStrike alerts CTEM has without their detail (saved by an early pull and older than the 30 days each pull reads) are asked for by id in the next CrowdStrike pull, the same read the pull already does, at most once a week each, so their source, accounts, process tree and actions fill in where Falcon still has them.
+
 ### Fixed
 - **Shipper 1.8.1: an approval shows in CTEM right away.** Each source runs in its own process and reported the approvals it started with when it checked in at the end, so a long run that began before `open-ctem-collector approve` put the old approval back in CTEM, and the shipper showed "waiting for approve on the box" until the next check-in. Check-ins now read the approvals saved on the box.
 

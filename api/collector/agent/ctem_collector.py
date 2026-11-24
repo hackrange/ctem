@@ -211,6 +211,11 @@ def _run_source(sh, m, cfg, state, secrets, problems):
     missing = [f for f in core.mod(kind).SECRETS if f not in secret]
     if missing:
         return f"no {', '.join(missing)} set in CTEM yet"
+    if kind == "crowdstrike":   # alerts CTEM has without detail, fetched again by id in this pull (read only)
+        try:
+            s["refresh_ids"] = (sh.api.call("GET", f"/api/v1/collector/alert-refresh/{m['integration_id']}") or {}).get("ids") or []
+        except Exception:  # noqa: BLE001 -- an older CTEM has no such list; the pull goes on without it
+            s["refresh_ids"] = []
     if kind == "netprobe":   # what to probe, fresh from CTEM; the box still limits it to the approved scope
         s["targets"] = sh.api.call("GET", f"/api/v1/collector/netprobe/{m['integration_id']}/targets") or {}
     if kind == "splunk":

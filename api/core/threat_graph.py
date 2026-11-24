@@ -4,10 +4,34 @@ page (threat_graph.js) draws it and highlights the path to whatever is clicked. 
 cleaned detail (api/core/cs_alert.py), so nothing here is fetched or trusted beyond that."""
 from __future__ import annotations
 
+import re
+
 from api.core.attack_map import layout
 from api.core.threat_timeline import _name, actions_text
 
 MAX_PER_KIND = 6
+
+
+_IPV4 = re.compile(r"^\d{1,3}(\.\d{1,3}){3}$")
+
+
+def origin(detail: dict) -> dict:
+    """Where a logon or identity alert came from and what it touched, from the fields Falcon gave it (context):
+    {"ips", "hosts", "accounts", "targets"}, each a short list."""
+    out: dict[str, list[str]] = {"ips": [], "hosts": [], "accounts": [], "targets": []}
+
+    def add(kind, v):
+        if v and v not in out[kind] and len(out[kind]) < 8:
+            out[kind].append(v)
+    for k, v in detail.get("context") or []:
+        for part in (p.strip() for p in str(v).split(",")):
+            if any(x in k for x in ("ip", "address", "addr")) and (_IPV4.match(part) or ":" in part and len(part) <= 45):
+                add("ips", part)
+            elif any(x in k for x in ("host", "workstation", "computer", "endpoint")) and "name" in k or k.endswith(("host", "hostname")):
+                add("hosts", part)
+            elif any(x in k for x in ("account", "user", "upn")):
+                add("targets" if "target" in k or "dest" in k else "accounts", part)
+    return out
 
 
 def _facts(*pairs) -> list[list[str]]:
@@ -30,7 +54,18 @@ def build(alert: dict, detail: dict) -> dict:
     host = node("host", "host", alert.get("hostname") or "Host", 0, " / ".join(x for x in (h.get("platform"), h.get("os_version")) if x),
                 facts=_facts(("OS", h.get("os_version")), ("Internal IP", h.get("local_ip")), ("External IP", h.get("external_ip")),
                              ("Domain", h.get("domain")), ("Site", h.get("site")), ("Falcon containment", h.get("containment"))))
-    at, col = host, 1
+    src = origin(detail)
+    for i, ip in enumerate(src["ips"][:4]):   # where the logon attempts or connections came from
+        node(f"from{i}", "ip", ip, -1, "source address", facts=_facts(("Source address", ip), ("Accounts", ", ".join(src["accounts"])),
+                                                                        ("Targeted", ", ".join(src["targets"]))))
+        edge(f"from{i}", host, "from", hot=True)
+    for i, h in enumerate([x for x in src["hosts"] if x.lower() != (alert.get("hostname") or "").lower()][:4]):
+        node(f"fromh{i}", "host", h, -1, "source host", facts=_facts(("Source host", h)))
+        edge(f"fromh{i}", host, "from", hot=True)
+    for i, t in enumerate(src["targets"][:4]):
+        node(f"tgt{i}", "user", t, 1, "account targeted", facts=_facts(("Account targeted", t)))
+        edge(host, f"tgt{i}", "targeted", hot=True)
+    at, col = host, 1 + bool(src["targets"])
     if u.get("name"):
         at = node("user", "user", f"{u['domain']}\\{u['name']}" if u.get("domain") else u["name"], 1, "signed-in user",
                   facts=_facts(("User", u.get("name")), ("Domain", u.get("domain")), ("Principal", u.get("principal")), ("SID", u.get("sid"))))

@@ -268,6 +268,11 @@ def collect(s, secret, state):
         yield {"warnings": list(dict.fromkeys(policies.notes))[:10]}
     if not cse.on(s, "alerts"):
         return
+    again = [i for i in (s.get("refresh_ids") or []) if isinstance(i, str) and csa._ALERT_ID.match(i)][:500]
+    for i in range(0, len(again), 500):   # alerts CTEM has without detail, asked for again by id
+        rows = api.call("POST", "/alerts/entities/alerts/v2", {"composite_ids": again[i:i + 500]}).get("resources") or []
+        if rows:
+            yield {"detections": [x for x in map(_alert, rows) if x]}
     for offset in range(0, 10000, 1000):  # the alerts query endpoint stops at 10k
         found = api.call("GET", _alert_query(offset)).get("resources") or []
         if not found:
