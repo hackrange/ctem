@@ -57,11 +57,15 @@ class GripSecurityConnector(BaseConnector):
             # Old setting from when FairTPRM was expected to relay Grip; it never did, so ignore it
             log.warning("Grip: ignoring fairtprm_grip_passthrough; FairTPRM doesn't relay Grip data")
 
+        from api.integrations import grip_extras
+        ext_count, self._risky_by_person = await grip_extras.sync_extensions(self, db)
         counts = [
             await self._sync_itdr_threats(db),
             await self._sync_posture_checks(db),
             await self._sync_saas_apps(db),
             await self._sync_ai_agents(db),
+            ext_count,
+            await grip_extras.sync_desktop_ai(self, db),
             await self._sync_users(db),
         ]
         total = sum(counts)
@@ -301,11 +305,14 @@ class GripSecurityConnector(BaseConnector):
             rec.shadow_saas_score = min(100.0, saas_count * 5.0)   # 5 pts per shadow app
 
             rec.last_synced = datetime.now(timezone.utc)
+            from api.integrations.grip_extras import person_scores
+            person_scores(rec, gd, (getattr(self, "_risky_by_person", None) or {}).get(email_hash, []))
 
-            # Composite identity risk
-            rec.composite_identity_score = round(   # a new record has no posture or shadow AI score until it is saved
-                rec.itdr_score * 0.50
-                + (rec.posture_score or 0.0) * 0.25
+            # Composite identity risk; a new record has no posture or shadow AI score until it is saved
+            rec.composite_identity_score = round(
+                rec.itdr_score * 0.40
+                + (rec.posture_score or 0.0) * 0.20
+                + rec.credential_score * 0.15     # leaked or reused passwords, risky extensions, low MFA coverage
                 + rec.shadow_saas_score * 0.15
                 + (rec.shadow_ai_score or 0.0) * 0.10,
                 2,
@@ -352,6 +359,15 @@ class GripSecurityConnector(BaseConnector):
             offset += len(items)
 
         return results
+
+    async def _get_json(self, url: str):
+        """One GET (an item's detail); None if Grip refuses it."""
+        async with safe_client() as client:
+            resp = await client.get(url, headers=self._headers())
+        if resp.status_code != 200 or "json" not in resp.headers.get("content-type", ""):
+            log.warning("Grip %s returned %d", url.rsplit("/public", 1)[-1][:80], resp.status_code)
+            return None
+        return resp.json()
 
     def _headers(self) -> dict:
         # Grip requires access-token header -- not Authorization: Bearer

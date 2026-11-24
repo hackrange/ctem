@@ -114,6 +114,13 @@ class IdentityRiskScore(Base, UUIDPrimaryKey, TimestampMixin):
     shadow_saas_score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     shadow_ai_score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     composite_identity_score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False, index=True)
+    # Credentials and browser (Grip passwordPosture, mfaStatusByApp and extensions; api/integrations/grip_extras.py)
+    credential_score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    leaked_password_accounts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    reused_password_accounts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    weak_password_accounts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    risky_extensions: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    mfa_coverage_pct: Mapped[int | None] = mapped_column(Integer)
 
     # Counts for quick display
     active_itdr_alerts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
