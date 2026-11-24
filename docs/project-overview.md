@@ -19,6 +19,7 @@ What open-ctem covers, how it scores risk, and how it has been reviewed and hard
 | 1.6.0 | 2026-11-24 | Asset locations and Sites, network discovery, data retention, Threat Curated Rules |
 | 1.7.0 | 2026-11-24 | View as, stale AD user export, cloud finding grades, security review fixes, CVE de-duplication across scanner and pentest |
 | 1.8.0 | 2026-11-24 | CrowdStrike alert updates from CTEM, interactive attack maps for alerts, hunts and pentests, AI alert reads, PDF hunt reports, built-in hunt rules, stricter headers |
+| 1.8.1 | 2026-11-24 | Logon and identity details on alerts and in hunt rule findings, more of the Falcon console in CTEM, old alerts fetched again, shipper approval fix |
 
 The on-prem shipper has its own version numbers (1.0 to 1.7.x), separate from the application's.
 

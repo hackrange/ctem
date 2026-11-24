@@ -3,9 +3,11 @@
 All notable changes to open-ctem are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
-open-ctem is a Python rewrite of an earlier PHP version begun about 18 months before this repository; that history isn't in this repository (see [docs/project-overview.md](docs/project-overview.md)). Versions here start with the Python release, and each version is tagged (`v1.1.0` ... `v1.8.0`) at the commit that finished it. The on-prem shipper has its own version numbers.
+open-ctem is a Python rewrite of an earlier PHP version begun about 18 months before this repository; that history isn't in this repository (see [docs/project-overview.md](docs/project-overview.md)). Versions here start with the Python release, and each version is tagged (`v1.1.0` ... `v1.8.1`) at the commit that finished it. The on-prem shipper has its own version numbers.
 
 ## [Unreleased]
+
+## [1.8.1] - 2026-11-24
 
 ### Added
 - **Logon and identity alerts say where they came from.** CrowdStrike alerts now keep the fields Falcon gives logon and identity detections (source address and host, source and targeted accounts, logon type and similar), encrypted with the rest of the detail; hashes, paths, command lines and ids are left out. The alert page lists them, and its map shows the source addresses and hosts leading in and the accounts targeted. Needs shipper 1.8.1 (or the direct connector).
