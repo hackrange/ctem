@@ -119,8 +119,10 @@ def _issue(rule, hits: list[dict], lookup_no: int) -> dict:
 
 async def run(db, splunk, time_range: str, first_lookup: int) -> tuple[list[dict], list[dict], set[str]]:
     """Every enabled rule over the time range. Returns (issues, their evidence as lookups, alert ids they explain)."""
+    from api.hunt import curated_pack
     from api.models.threat_rule import ThreatRule
     from api.routes.threat import _alerts
+    await curated_pack.sync(db)
     rules = (await db.execute(select(ThreatRule).where(ThreatRule.enabled.is_(True)))).scalars().all()
     if not rules:
         return [], [], set()

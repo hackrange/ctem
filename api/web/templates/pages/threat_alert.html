@@ -3,6 +3,8 @@
 
 {% block title %}Alert -- open-ctem{% endblock %}
 
+{% block extra_head %}<link rel="stylesheet" href="{{ static('css/threat_graph.css') }}" />{% endblock %}
+
 {% block content %}
 <div class="page-header">
   <div style="min-width:0">
@@ -18,10 +20,24 @@
   <div class="panel__body" id="al-story"></div>
 </div>
 
+<div class="panel agp-ai" id="al-ai-panel" style="margin-bottom:16px;display:none">
+  <div class="panel__header"><span class="panel__title">AI read</span></div>
+  <div class="panel__body" id="al-ai"></div>
+</div>
+
+<div class="panel" id="al-graph-panel" style="margin-bottom:16px;display:none;padding:0">
+  <div class="panel__header"><span class="panel__title" id="agp-title">Attack path</span>
+    <span class="text-sm text-muted">Click a step for its path, a box to follow it; drag to move, scroll to zoom</span></div>
+  <div class="agp">
+    <div class="agp__steps" id="agp-steps" aria-label="The story: this alert and the alerts tied to it"></div>
+    <div id="agp-map"></div>
+  </div>
+</div>
+
 <div id="al-nodetail" class="panel" style="display:none;margin-bottom:16px">
-  <div class="panel__body text-sm text-muted">Only the summary of this alert reached CTEM. The process tree, actions
-    taken, indicators, network activity and timeline arrive with the next CrowdStrike pull after shipper 1.0.6 is
-    installed (Settings &gt; Integrations &gt; Shippers), or from CTEM's direct CrowdStrike connector.</div>
+  <div class="panel__body text-sm text-muted">Only the summary of this alert reached CTEM: it was saved by an early
+    CrowdStrike pull and is older than the 30 days each pull reads, so its process tree, actions and timeline can't be
+    shown here. Open it in CrowdStrike for everything Falcon recorded; you can still update it below.</div>
 </div>
 
 <div class="panel">
@@ -29,6 +45,11 @@
   <div class="panel__body">
     <dl id="al-info" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px 24px;margin:0"></dl>
   </div>
+</div>
+
+<div class="panel" id="al-update-panel" style="margin-top:16px;display:none">
+  <div class="panel__header"><span class="panel__title">Update in CrowdStrike</span></div>
+  <div class="panel__body" id="al-update"></div>
 </div>
 
 <div class="panel" id="al-desc-panel" style="margin-top:16px;display:none">
@@ -57,7 +78,7 @@
 </div>
 
 <div class="panel" id="al-related-panel" style="margin-top:16px;display:none;padding:0">
-  <div class="panel__header"><span class="panel__title">Other alerts on this host</span></div>
+  <div class="panel__header"><span class="panel__title">Tied to this alert (same host, user or process tree)</span></div>
   <div class="dt-scroll"><table class="data-table data-table--striped">
     <thead><tr><th>Detected</th><th>Severity</th><th>Alert</th><th>MITRE</th><th>Status</th></tr></thead>
     <tbody id="al-related"></tbody>
@@ -67,5 +88,9 @@
 
 {% block extra_scripts %}
 <script src="{{ static('js/threat_common.js') }}"></script>
+<script src="{{ static('js/threat_alert_update.js') }}"></script>
+<script src="{{ static('js/threat_alert_ai.js') }}"></script>
+<script src="{{ static('js/attack_map.js') }}"></script>
+<script src="{{ static('js/threat_graph.js') }}"></script>
 <script src="{{ static('js/threat_alert.js') }}"></script>
 {% endblock %}

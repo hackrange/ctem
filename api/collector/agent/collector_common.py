@@ -234,7 +234,9 @@ DEST_KEYS = {"ldap": ("host", "port", "tls"), "rapid7_console": ("host", "port")
 
 # Destinations added later count only once set (each anchor key with the keys that go with it), so existing
 # approvals stay valid: a new place a secret goes still needs a yes on the box
-DEST_EXTRA = {"crowdstrike": {"fdr_queue_url": ("fdr_queue_url",)}, "splunk": {"hec_host": ("hec_host", "hec_port")}}
+# Alert updates (writes to CrowdStrike) count the same way: turning them on needs a yes on the box
+DEST_EXTRA = {"crowdstrike": {"fdr_queue_url": ("fdr_queue_url",), "alert_updates": ("alert_updates",)},
+              "splunk": {"hec_host": ("hec_host", "hec_port")}}
 
 
 def dest_of(kind, settings):

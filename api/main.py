@@ -100,6 +100,7 @@ def create_app() -> FastAPI:
     from api.routes.retention_settings import router as retention_router
     from api.routes.me_hidden import router as me_hidden_router
     from api.routes.threat_rules import router as threat_rules_router
+    from api.routes.threat_actions import router as threat_actions_router
     from api.routes.impersonate import router as impersonate_router
     from api.routes.hunt_data import router as hunt_data_router
     from api.routes.email_test import router as email_test_router
@@ -167,6 +168,7 @@ def create_app() -> FastAPI:
     app.include_router(retention_router)
     app.include_router(me_hidden_router)
     app.include_router(threat_rules_router)
+    app.include_router(threat_actions_router)
     app.include_router(impersonate_router)
     app.include_router(hunt_data_router)
     app.include_router(email_test_router)
@@ -193,7 +195,7 @@ def create_app() -> FastAPI:
     @app.get("/health", include_in_schema=False)
     @app.get("/healthz", include_in_schema=False)
     async def health():
-        return {"status": "ok", "version": settings.app_version}
+        return {"status": "ok"}   # no version to the unauthenticated world; signed-in pages and the shipper info have it
 
     # ── 401: redirect browsers to login, return JSON for API clients ─────────
     @app.exception_handler(HTTPException)

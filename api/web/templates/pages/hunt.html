@@ -97,10 +97,15 @@
 .profile-actions { margin-top: 18px; }
 .flow-wrap { overflow-x: auto; margin: 4px 0 8px; color: var(--text); }
 .flow-svg { display: block; max-width: none; }
+.agp--hunt { height: 480px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin: 6px 0 10px; }
+.agp__mapbox { position: relative; min-height: 0; }
 .issue-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 .cat-item__head { display: flex; gap: 8px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
 </style>
 <script src="{{ static('js/hunt_diagram.js') }}"></script>
+<link rel="stylesheet" href="{{ static('css/threat_graph.css') }}" />
+<script src="{{ static('js/attack_map.js') }}"></script>
+<script src="{{ static('js/hunt_map.js') }}"></script>
 <script src="{{ static('js/hunt.js') }}"></script>
 <script src="{{ static('js/hunt_profile.js') }}"></script>
 {% endblock %}

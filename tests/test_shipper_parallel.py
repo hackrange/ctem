@@ -61,6 +61,6 @@ def test_installer_writes_a_unit_per_source_and_starts_each():
 
     import ctem_collector as agent
     sh = (Path(agent.__file__).parent / "install.sh").read_text()
-    assert "SOURCES='ldap rapid7_console crowdstrike splunk netprobe'" in sh and "-source@.service" in sh
+    assert "SOURCES='ldap rapid7_console crowdstrike splunk netprobe alert_actions'" in sh and "-source@.service" in sh
     assert "ctem_collector.py run --only %i" in sh and "for k in %s; do systemctl start --no-block %s-source@$k.service; done" in sh
     assert set(agent.core.MODULES) == {"ldap", "rapid7_console", "crowdstrike", "splunk", "netprobe"}   # the installer's list matches

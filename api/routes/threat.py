@@ -106,12 +106,87 @@ async def get_threat_alert(
     await _link_devices(db, found)
     alert = found[0]
     detail = await _detail(db, key) if alert.get("has_detail") else {}
-    related = await _related(db, alert)
+    everything = await _alerts(db)
+    related = await _related(db, alert, everything)
+    from api.core import threat_graph
     from api.core.threat_timeline import actions_text, story, timeline
     return {**alert, "detail": detail, "story": story(alert, detail) if detail else None,
             "actions_text": actions_text(detail) if detail else [],
             "timeline": timeline(alert, detail, related), "related": related,
-            "ctem_device": await _ctem_device(db, alert.get("device_id"))}
+            "steps": (steps := threat_graph.steps(alert, related, _console_links(alert, related, everything))),
+            "graph": threat_graph.build(alert, detail),
+            "ai": await _ai_read(db, alert, detail, steps),
+            "ctem_device": await _ctem_device(db, alert.get("device_id")),
+            **await _updates(db, alert, everything)}
+
+
+def _console_links(alert: dict, related: list[dict], everything: list[dict]) -> dict:
+    """Each story step's own CrowdStrike console link (made like the others' when it was saved without one)."""
+    from api.core import cs_alert_actions as act
+    by_id = {a["id"]: a for a in everything}
+    known = [a["link"] for a in everything if a.get("link") and a.get("source") == "crowdstrike"][:5]
+    out = {}
+    for r in [alert, *related]:
+        a = by_id.get(r["id"], r)
+        cid = act.composite_id(a["id"]) if a.get("source") == "crowdstrike" else None
+        if cid:
+            out[a["id"]] = a.get("link") or act.console_link(cid, known)
+    return out
+
+
+async def _ai_read(db: AsyncSession, alert: dict, detail: dict, steps: list[dict]) -> dict:
+    from api.core import threat_explain
+    from api.hunt.ai import get_ai
+    if await get_ai(db) is None:
+        return {"available": False, "read": None}
+    return {"available": True, "read": await threat_explain.cached(db, alert, detail, steps)}
+
+
+async def story_of(db: AsyncSession, alert_key: str) -> tuple[dict, dict, list[dict]] | None:
+    """An alert, its opened detail and its story steps (for the AI read; the caller checks the role)."""
+    from api.core import threat_graph
+    key = alert_key.partition("#")[0]
+    found = [a for a in await _alerts(db, key) if a["id"] == alert_key]
+    if not found:
+        return None
+    alert = found[0]
+    detail = await _detail(db, key) if alert.get("has_detail") else {}
+    return alert, detail, threat_graph.steps(alert, await _related(db, alert))
+
+
+@router.get("/alerts/graph")
+async def get_threat_alert_graph(
+    id: str = Query(..., min_length=14, max_length=300, pattern=r"^threat_alert_[^#\s]+(#\d{1,4})?$"),
+    _: User = Depends(require_cyber_or_admin),
+    db: AsyncSession = Depends(get_session),
+):
+    """One alert's attack map, for the story on another alert's page (clicking one of its steps)."""
+    from api.core import threat_graph
+    key = id.partition("#")[0]
+    found = [a for a in await _alerts(db, key) if a["id"] == id]
+    if not found:
+        raise HTTPException(404, detail="Alert not found")
+    a = found[0]
+    detail = await _detail(db, key) if a.get("has_detail") else {}
+    return {"id": a["id"], "title": a.get("title"), "severity": a.get("severity"), "status": a.get("status"),
+            "detected_at": a.get("detected_at"), "hostname": a.get("hostname"), "tactic": a.get("tactic"),
+            "technique": a.get("technique"), "has_detail": bool(detail), "graph": threat_graph.build(a, detail)}
+
+
+async def _updates(db: AsyncSession, alert: dict, everything: list[dict]) -> dict:
+    """For a CrowdStrike alert: its console link (made from the others' when it was saved without one), whether it can
+    be updated from here and how, and the updates already made (api/core/cs_alert_actions.py)."""
+    if alert.get("source") != "crowdstrike":
+        return {}
+    from api.core import cs_alert_actions as act
+    cid = act.composite_id(alert["id"])
+    if cid is None:
+        return {}
+    link = alert.get("link") or act.console_link(cid, [a["link"] for a in everything if a.get("link") and a["source"] == "crowdstrike"])
+    r = await act.route(db)
+    return {"link": link, "link_made": bool(link and not alert.get("link")),
+            "can_update": {"ok": bool(r["via"]), "via": r["via"], "why": r["why"]},
+            "updates": await act.history(db, alert["id"])}
 
 
 async def _detail(db: AsyncSession, key: str) -> dict:
@@ -131,31 +206,34 @@ async def _detail(db: AsyncSession, key: str) -> dict:
         return {}
 
 
-async def _related(db: AsyncSession, alert: dict, days: int = 7) -> list[dict]:
-    """Other alerts on the same host within a week either side (or from the same process tree)."""
+async def _related(db: AsyncSession, alert: dict, everything: list[dict] | None = None, days: int = 7) -> list[dict]:
+    """The alert's story: other alerts on the same host, for the same person on any host, or from the same process
+    tree, within a week either side (the same process tree at any time). Each says why it's tied in."""
     from datetime import timedelta
-    host, agg = (alert.get("hostname") or "").lower(), alert.get("aggregate_id")
+    host, agg, who = (alert.get("hostname") or "").lower(), alert.get("aggregate_id"), alert.get("user_key")
     try:
         at = datetime.fromisoformat(alert["detected_at"]) if alert.get("detected_at") else None
     except ValueError:
         at = None
     out = []
-    for a in await _alerts(db):
+    for a in everything if everything is not None else await _alerts(db):
         if a["id"] == alert["id"]:
             continue
-        same = (agg and a.get("aggregate_id") == agg) or (host and (a.get("hostname") or "").lower() == host)
-        if not same:
+        why = ("same process tree" if agg and a.get("aggregate_id") == agg
+               else "same host" if host and (a.get("hostname") or "").lower() == host
+               else "same user" if who and a.get("user_key") == who else None)
+        if why is None:
             continue
-        if at and a.get("detected_at") and not (agg and a.get("aggregate_id") == agg):
+        if at and a.get("detected_at") and why != "same process tree":
             try:
                 if abs(datetime.fromisoformat(a["detected_at"]) - at) > timedelta(days=days):
                     continue
             except (ValueError, TypeError):   # unparseable, or one side has no time zone
                 continue
-        out.append({k: a.get(k) for k in ("id", "title", "severity", "status", "detected_at", "technique_id",
-                                          "source_code")})
+        out.append({**{k: a.get(k) for k in ("id", "title", "severity", "status", "detected_at", "technique_id", "technique",
+                                             "tactic", "source", "source_code", "hostname")}, "why": why})
     out.sort(key=lambda r: r.get("detected_at") or "")
-    return out[:25]
+    return out[:200]
 
 
 async def _ctem_device(db: AsyncSession, device_id: str | None) -> dict | None:

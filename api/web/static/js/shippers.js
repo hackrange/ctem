@@ -22,6 +22,7 @@ const SOURCES = {
         ['discover', 'Discover applications'], ['alerts', 'Alerts (endpoint, identity...)'], ['intel', 'Intel indicators'],
         ['event_stream', 'Event stream (real time)']].map(([key, label]) => (
       { key, label, type: 'select', opts: [['on', 'On (skipped if not licensed)'], ['off', 'Off']] })),
+    { key: 'alert_updates', label: 'Alert updates from CTEM (needs Alerts: Write; approve on the box)', type: 'select', opts: [['', 'Off (read only)'], ['on', 'On: cyber and admin can close, classify and comment']] },
     { key: 'fdr', label: 'Falcon Data Replicator (hunting)', type: 'select', opts: [['off', 'Off'], ['on', 'On']] },
     { key: 'fdr_queue_url', label: 'FDR SQS queue URL', ph: 'https://sqs.us-west-1.amazonaws.com/123456789012/acme-fdr', wide: true },
     { key: 'fdr_region', label: 'FDR region', ph: 'us-west-1' },

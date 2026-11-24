@@ -40,7 +40,7 @@ open-ctem is a Continuous Threat Exposure Management platform. It brings asset, 
 
 ## Integrations
 
-There are about 30 connectors. Each one reads from the vendor; none changes anything in a vendor's tenant. The exceptions are the tools CTEM is meant to send data to: FairTPRM, GitHub Code Review, ServiceNow tickets and the AI providers. Which connectors have been checked against a real vendor API is tracked in [integration-validation.md](integration-validation.md).
+There are about 30 connectors. Each one reads from the vendor; none changes anything in a vendor's tenant. The exceptions are the tools CTEM is meant to send data to (FairTPRM, GitHub Code Review, ServiceNow tickets and the AI providers) and CrowdStrike alert updates: cyber and admin can close, reopen, classify and comment on a Falcon alert from CTEM, and nothing else in Falcon is ever changed. Which connectors have been checked against a real vendor API is tracked in [integration-validation.md](integration-validation.md).
 
 | Category | Connectors |
 |---|---|
@@ -152,7 +152,7 @@ Grouped by area; the version each landed in is in the CHANGELOG.
   - AWS can run only seven allow-listed actions.
   - Horizon3 refuses mutations.
   - InsightCloudSec uses GET only.
-  - CrowdStrike scopes are read-only.
+  - CrowdStrike scopes are read-only, except Alerts: Write for alert updates: only status, comment and `ctem_` classification tags, built from an allow-list and checked again on the shipper's box, which has to approve turning it on.
   - Integration secrets are masked, and changing an endpoint requires re-entering its credentials.
 - **Supply chain:**
   - Dependencies are kept clear of known advisories, with current pip in the image.

@@ -44,6 +44,14 @@ def story(alert: dict, detail: dict) -> str | None:
     return " ".join(parts) if parts else None
 
 
+def _same_alerts(related: list[dict]) -> list[list[dict]]:
+    """Related alerts grouped by title and severity, each group oldest first, in order of first appearance."""
+    groups: dict[tuple, list[dict]] = {}
+    for r in sorted(related, key=lambda r: r.get("detected_at") or ""):
+        groups.setdefault(((r.get("title") or "").lower(), r.get("severity"), (r.get("hostname") or "").lower()), []).append(r)
+    return list(groups.values())
+
+
 def timeline(alert: dict, detail: dict, related: list[dict]) -> list[dict]:
     """Every timestamped step, oldest first: process starts, file / network / DNS activity, detection,
     what Falcon did, other alerts on the host, and the latest status change."""
@@ -70,8 +78,8 @@ def timeline(alert: dict, detail: dict, related: list[dict]) -> list[dict]:
         add(d.get("at"), "dns", f"DNS lookup: {d['domain']}", d.get("type"))
     detected = detail.get("event_time") or alert.get("detected_at")
     mitre = " / ".join(x for x in (alert.get("technique_id"), alert.get("technique")) if x)
-    add(detected, "detection", f"Falcon detected: {alert.get('title') or 'alert'}",
-        " · ".join(x for x in (mitre, alert.get("description")) if x) or None)
+    desc = alert.get("description") if alert.get("description") != alert.get("title") else None
+    add(detected, "detection", f"Falcon detected: {alert.get('title') or 'alert'}", " · ".join(x for x in (mitre, desc) if x) or None)
     acts = actions_text(detail)
     q = [x.get("filename") or x.get("sha256") for x in detail.get("quarantined", [])]
     if acts or q:
@@ -81,9 +89,17 @@ def timeline(alert: dict, detail: dict, related: list[dict]) -> list[dict]:
         add(detail["created"], "alert", "Alert raised in Falcon")
     if (detail.get("process") or {}).get("end"):
         add(detail["process"]["end"], "process", f"Process ended: {_name(detail['process']) or 'unknown'}")
-    for r in related:
-        add(r.get("detected_at"), "related", f"Other alert on this host: {r.get('title') or 'alert'}",
-            r.get("severity"), r.get("id"))
+    for group in _same_alerts(related):   # the same detection firing again and again is one line, with how many times
+        r, n = group[0], len(group)
+        title = r.get("title") or "alert"
+        where = {"same user": f"for the same user on {r.get('hostname') or 'another host'}",
+                 "same process tree": "in the same process tree"}.get(r.get("why"), "on this host")
+        if n == 1:
+            add(r.get("detected_at"), "related", f"Other alert {where}: {title}", r.get("severity"), r.get("id"))
+        else:
+            span = f"{n} times from {(r.get('detected_at') or '')[:10]} to {(group[-1].get('detected_at') or '')[:10]}"
+            add(r.get("detected_at"), "related", f"Other alerts {where}: {title}",
+                " · ".join(x for x in (r.get("severity"), span) if x), r.get("id"))
     if detail.get("updated"):
         bits = [f"status {alert.get('status').replace('_', ' ')}" if alert.get("status") else None,
                 f"assigned to {detail['assigned_to']}" if detail.get("assigned_to") else None,

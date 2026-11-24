@@ -66,7 +66,10 @@ def normalize(key: str, item: dict, first_seen: datetime | None = None) -> dict:
         "id": key,
         "source": src or None,
         "source_code": SOURCE_CODES.get(src, src.upper()[:8] or "?"),
-        "title": _s(item.get("title")) or _s(item.get("name")) or _s(item.get("attack")) or (desc[:300] if desc else None),
+        # Without a title: a short description, else what it did (its technique), never a whole paragraph
+        "title": _s(item.get("title")) or _s(item.get("name")) or _s(item.get("attack"))
+                 or (desc if desc and len(desc) <= 120 else None) or _s(item.get("technique"), 128)
+                 or (desc[:120].rsplit(" ", 1)[0] + "..." if desc else None),
         "description": desc,
         "severity": _severity(item.get("severity")),
         "status": status.lower().replace(" ", "_") if status else None,
@@ -80,6 +83,7 @@ def normalize(key: str, item: dict, first_seen: datetime | None = None) -> dict:
         "technique_id": _technique(item),
         "link": link if link and _LINK.match(link) else None,
         "aggregate_id": _s(item.get("aggregate_id"), 200),
+        "user_key": _s(item.get("user_key"), 128),   # keyed hash of the alert's user, for tying alerts together
         "has_detail": bool(item.get("detail_enc")),
     }
 

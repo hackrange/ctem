@@ -53,6 +53,7 @@ import api.models.cloud       # noqa: F401, E402
 import api.models.utilization # noqa: F401, E402
 import api.models.snapshot    # noqa: F401, E402
 import api.models.threat_rule  # noqa: F401, E402
+import api.models.alert_action  # noqa: F401, E402
 
 _TEST_DB_URL = os.environ["DATABASE_URL"]
 
@@ -236,3 +237,15 @@ def _many_shippers_per_source(monkeypatch):
     (api/collector/service.ONE_PER_FLEET) would trip over earlier tests' leftovers; its own test turns it back on."""
     from api.collector import service
     monkeypatch.setattr(service, "ONE_PER_FLEET", {})
+
+
+@pytest.fixture(autouse=True)
+def _no_builtin_pack(request, monkeypatch):
+    """The built-in Threat Curated Rules would join every hunt once any test enables CrowdStrike; only their own
+    tests (marked builtin_pack) see them."""
+    if request.node.get_closest_marker("builtin_pack") is None:
+        from api.hunt import curated_pack
+
+        async def _none(db):
+            return 0
+        monkeypatch.setattr(curated_pack, "sync", _none)

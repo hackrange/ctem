@@ -125,11 +125,12 @@
   }
 
   function related(a) {
-    const r = a.related || [];
+    const r = (a.steps || []).filter(x => !x.current);
     if (!r.length) return;
     $('al-related').innerHTML = r.map(x => `<tr data-href="${esc(T.href(x))}" style="cursor:pointer">
-      <td class="text-sm">${esc(at(x.detected_at))}</td><td>${T.sevChip(x.severity)}</td>
-      <td class="text-sm"><a class="dt-link" href="${esc(T.href(x))}">${esc(x.title || x.id)}</a></td>
+      <td class="text-sm">${esc(at(x.first))}${x.count > 1 ? `<div class="text-muted">to ${esc(at(x.last))}</div>` : ''}</td><td>${T.sevChip(x.severity)}</td>
+      <td class="text-sm"><a class="dt-link" href="${esc(T.href(x))}">${esc(x.title || x.id)}</a>${x.count > 1 ? ` <span class="chip chip--info" style="font-size:.7rem">&times;${esc(x.count)}</span>` : ''}
+        <div class="text-muted">${esc(x.hostname || '')} &middot; ${esc(x.why)}</div></td>
       <td>${T.mitre(x)}</td><td>${T.statusChip(x.status)}</td></tr>`).join('');
     show('al-related-panel', true);
   }
@@ -152,7 +153,8 @@
     $('al-title').textContent = a.title || a.id;
     $('al-sub').innerHTML = `${T.sevChip(a.severity)} ${T.statusChip(a.status)} ${T.sourceChip(a)}`;
     if (a.link) {
-      $('al-actions').innerHTML = `<a class="btn btn--ghost btn--sm" href="${esc(a.link)}" target="_blank" rel="noopener noreferrer">Open in ${esc(T.sourceName(a))} &#8599;</a>`;
+      const made = a.link_made ? ' title="Saved without a link: made the same way as your other alerts\' links"' : '';
+      $('al-actions').innerHTML = `<a class="btn btn--ghost btn--sm" href="${esc(a.link)}"${made} target="_blank" rel="noopener noreferrer">Open in ${esc(T.sourceName(a))} &#8599;</a>`;
     }
     show('al-nodetail', a.source === 'crowdstrike' && !a.has_detail);
     story(a, d);
@@ -166,6 +168,9 @@
     indicators(d);
     network(d);
     related(a);
+    if (window.AlertUpdate) window.AlertUpdate.render(a);
+    if (window.AlertAI) window.AlertAI.render(a);
+    if (window.ThreatGraph) window.ThreatGraph.render(a, T);
   }
   load();
 })();

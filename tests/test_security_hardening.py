@@ -243,3 +243,19 @@ async def test_only_the_api_docs_page_may_load_its_pinned_cdn_files(client_admin
     other = await client_admin.get("/api/v1/impersonate")
     assert page.status_code == 200 and "cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.17.14/" in page.headers["content-security-policy"]
     assert "cdnjs" not in other.headers["content-security-policy"]
+
+
+@pytest.mark.asyncio
+async def test_sign_in_allows_no_inline_script_json_loads_nothing_and_health_has_no_version(client):
+    page = await client.get("/login")
+    csp = page.headers["content-security-policy"]
+    assert "script-src 'self';" in csp and "unsafe-inline" not in csp.split("script-src", 1)[1].split(";", 1)[0]
+    assert "<script" not in page.text and " onclick=" not in page.text   # the page really has no script to break
+    h = await client.get("/healthz")
+    assert h.json() == {"status": "ok"}
+    assert h.headers["content-security-policy"].startswith("default-src 'none'") and "frame-ancestors 'none'" in h.headers["content-security-policy"]
+    for r in (h, page, await client.get("/api")):
+        assert r.headers["x-frame-options"] == "DENY" and r.headers["x-content-type-options"] == "nosniff"
+        assert "includeSubDomains" in r.headers["strict-transport-security"] and r.headers["cross-origin-opener-policy"] == "same-origin"
+        assert r.headers["cross-origin-resource-policy"] == "same-origin" and "content-security-policy" in r.headers
+    assert h.headers["cache-control"] == "no-store"

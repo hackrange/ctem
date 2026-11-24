@@ -71,6 +71,8 @@ async def _checked(db, kind: str, match: dict, skip_id: str | None = None) -> tu
 
 @router.get("")
 async def list_rules(_: User = Depends(require_admin), db: AsyncSession = Depends(get_session)):
+    from api.hunt import curated_pack
+    await curated_pack.sync(db)   # the built-in pack appears as soon as CrowdStrike is enabled
     rows = (await db.execute(select(ThreatRule).order_by(ThreatRule.status, ThreatRule.hits.desc(), ThreatRule.name))).scalars()
     return {"rules": [_view(r) for r in rows]}
 
@@ -119,7 +121,9 @@ async def edit_rule(rule_id: uuid.UUID, body: RulePatch, admin: User = Depends(r
 async def delete_rule(rule_id: uuid.UUID, admin: User = Depends(require_admin), db: AsyncSession = Depends(get_session)):
     from api.routes.admin import _audit
     r = await _rule(db, rule_id)
+    from api.hunt import curated_pack
     await _audit(admin, "threat_rule.delete", "threat_rule", str(r.id), f"Threat curated rule removed: {r.name}", db)
+    await curated_pack.forget(db, r)   # a deleted built-in rule stays deleted
     await db.delete(r)
     await db.commit()
     return {"ok": True}

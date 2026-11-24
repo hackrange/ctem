@@ -2,7 +2,8 @@
 (() => {
   const $ = id => document.getElementById(id);
   const API = '/api/v1/threat-rules';
-  const STATUS = { learned: ['Learned, not reviewed', 'chip--medium'], reviewed: ['Reviewed', 'chip--low'], manual: ['Manual', 'chip--info'] };
+  const STATUS = { learned: ['Learned, not reviewed', 'chip--medium'], reviewed: ['Reviewed', 'chip--low'], manual: ['Manual', 'chip--info'],
+                   builtin: ['Built in', 'chip--info'] };
   let rules = [], editing = null;
   const call = async (path, method, body) => {
     const r = await fetch(API + path, { method, headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
@@ -25,7 +26,7 @@
       : `${learned ? `<p class="text-sm" style="padding:10px 14px 0"><b>${esc(learned)}</b> learned rule${learned === 1 ? '' : 's'} waiting for review (already active).</p>` : ''}
         <table class="data-table"><thead><tr><th>Rule</th><th>Matches</th><th>Severity</th><th>Status</th><th>Hits</th><th>Last hit</th><th>On</th><th></th></tr></thead><tbody>
         ${rules.map((r, i) => `<tr><td class="text-sm"><b>${esc(r.name)}</b>${r.description ? `<div class="text-muted" style="font-size:.75rem">${esc(r.description)}</div>` : ''}
-            ${r.learned_from ? `<div class="text-muted" style="font-size:.7rem">Learned from: ${esc(r.learned_from.slice(0, 120))}</div>` : ''}</td>
+            ${r.learned_from ? `<div class="text-muted" style="font-size:.7rem">${r.status === 'builtin' ? 'Built-in pack' : `Learned from: ${esc(r.learned_from.slice(0, 120))}`}</div>` : ''}</td>
           <td class="text-sm text-mono" style="max-width:340px;overflow-wrap:anywhere">${esc(summary(r))}</td>
           <td><span class="chip chip--${esc(r.severity)}">${esc(r.severity)}</span></td>
           <td><span class="chip ${(STATUS[r.status] || ['', ''])[1]}" style="font-size:.7rem">${esc((STATUS[r.status] || [r.status])[0])}</span></td>

@@ -1,7 +1,7 @@
 // Admin > AI Usage: month-to-date spend vs limits, daily chart, breakdowns, prices and limits form.
 (function () {
   const API = '/api/v1/admin/ai-usage';
-  const PURPOSES = { hunt: 'Threat hunt', threat_analysis: 'Alert analysis', test: 'Connection test', general: 'Other' };
+  const PURPOSES = { hunt: 'Threat hunt', threat_analysis: 'Alert analysis', threat_explain: 'Alert AI read', test: 'Connection test', general: 'Other' };
   let days = 30;
   let loaded = false;
 

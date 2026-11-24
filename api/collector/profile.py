@@ -60,6 +60,8 @@ class CrowdStrikeSettings(_Source):
     fdr_queue_url: Annotated[str, StringConstraints(max_length=300, pattern=r"^https://sqs\.[a-z0-9-]+\.amazonaws\.com/[0-9]{12}/[A-Za-z0-9_-]{1,80}$")] | None = None
     fdr_region: Annotated[str, StringConstraints(pattern=r"^[a-z]{2}(-gov)?-[a-z]+-[0-9]$")] | None = None
     fdr_access_key_id: Annotated[str, StringConstraints(pattern=r"^[A-Z0-9]{16,128}$")] | None = None
+    # Lets cyber and admin close, reopen, classify and comment on alerts from CTEM through this shipper (Alerts: Write)
+    alert_updates: Literal["on"] | None = None
 
 
 class SplunkSettings(_Source):
@@ -137,7 +139,9 @@ DEST_KEYS = {"ldap": ("host", "port", "tls"), "rapid7_console": ("host", "port")
              # what the network probe may touch and how: only ever changed with a yes on the box
              "netprobe": ("exclude_cidrs", "ports", "sweep_subnets")}
 # Destinations added later count only once set, so existing approvals stay valid (the agent has the same rule)
-DEST_EXTRA = {"crowdstrike": {"fdr_queue_url": ("fdr_queue_url",)}, "splunk": {"hec_host": ("hec_host", "hec_port")}}
+# Alert updates (writes to CrowdStrike) count the same way: turning them on needs a yes on the box
+DEST_EXTRA = {"crowdstrike": {"fdr_queue_url": ("fdr_queue_url",), "alert_updates": ("alert_updates",)},
+              "splunk": {"hec_host": ("hec_host", "hec_port")}}
 SECRET_FIELDS = {"ldap": ("password",), "rapid7_console": ("password",),
                  "crowdstrike": ("client_secret", "fdr_secret_key"), "splunk": ("password", "hec_token"), "netprobe": ()}
 SCHEDULES = (15, 30, 60, 120, 240, 360, 720, 1440)

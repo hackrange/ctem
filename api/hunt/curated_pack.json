@@ -1,0 +1,1514 @@
+{
+ "version": 1,
+ "requires": "crowdstrike",
+ "rules": [
+  {
+   "key": "lsass-memory-access",
+   "name": "LSASS memory accessed or opened by another process",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "lsass"
+    ]
+   },
+   "severity": "high",
+   "description": "Reading LSASS memory is the most common way to steal Windows passwords and hashes, and it usually comes right before lateral movement.",
+   "what_to_do": [
+    "Isolate the host if the accessing process is not a known security or backup tool.",
+    "Reset the passwords of every account that logged on to the host recently, privileged ones first.",
+    "Look for new logons from those accounts on other hosts."
+   ],
+   "attack": [
+    "T1003.001"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1003/001/",
+    "https://www.cisa.gov/news-events/cybersecurity-advisories/aa25-071a",
+    "https://thedfirreport.com/2025/08/05/from-bing-search-to-ransomware-bumblebee-and-adaptixc2-deliver-akira/"
+   ]
+  },
+  {
+   "key": "credential-dumping-tool",
+   "name": "Credential dumping tool or behavior detected",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "credential dumping",
+     "credentialdump",
+     "mimikatz",
+     "credtheft",
+     "hashdump",
+     "security account manager",
+     "lsa secrets",
+     "samdump"
+    ]
+   },
+   "severity": "high",
+   "description": "The endpoint caught a tool or behavior that extracts stored credentials, which gives an attacker the keys to move further.",
+   "what_to_do": [
+    "Contain the host and capture the process tree from the alert.",
+    "Treat every credential cached on the host as exposed and rotate them.",
+    "Hunt for the same tool name or hash across other hosts."
+   ],
+   "attack": [
+    "T1003",
+    "T1003.002",
+    "T1003.004"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1003/",
+    "https://www.cisa.gov/stopransomware/ransomware-guide",
+    "https://www.cisa.gov/news-events/cybersecurity-advisories/aa25-071a"
+   ]
+  },
+  {
+   "key": "credential-dumping-multi-host",
+   "name": "Credential dumping on 3 or more hosts",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "credential dumping",
+     "credentialdump",
+     "lsass",
+     "ntds",
+     "dcsync",
+     "mimikatz"
+    ],
+    "min_hosts": 3
+   },
+   "severity": "critical",
+   "description": "Credential theft repeated across several machines points to an attacker working through the network with stolen accounts, not a single bad download.",
+   "what_to_do": [
+    "Open an incident and contain all affected hosts together.",
+    "Rotate privileged and service account credentials, including krbtgt if a domain controller is involved.",
+    "Trace the first host in the timeline to find the entry point."
+   ],
+   "attack": [
+    "T1003"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1003/",
+    "https://www.cisa.gov/news-events/cybersecurity-advisories/aa25-071a",
+    "https://thedfirreport.com/2025/08/05/from-bing-search-to-ransomware-bumblebee-and-adaptixc2-deliver-akira/"
+   ]
+  },
+  {
+   "key": "ntds-dcsync",
+   "name": "Active Directory database theft or DCSync replication",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "ntds",
+     "dcsync",
+     "dcshadow",
+     "directory replication"
+    ]
+   },
+   "severity": "critical",
+   "description": "Copying NTDS.dit or abusing directory replication hands the attacker every domain password hash, which means the whole domain should be treated as compromised.",
+   "what_to_do": [
+    "Confirm whether the source is a real domain controller or a backup job; if not, escalate as a domain compromise.",
+    "Plan a double krbtgt reset and rotate all privileged and service accounts.",
+    "Review who holds replication rights in the domain and remove any that are not needed."
+   ],
+   "attack": [
+    "T1003.003",
+    "T1003.006"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1003/003/",
+    "https://www.cisa.gov/news-events/cybersecurity-advisories/aa25-071a",
+    "https://thedfirreport.com/2025/08/05/from-bing-search-to-ransomware-bumblebee-and-adaptixc2-deliver-akira/"
+   ]
+  },
+  {
+   "key": "kerberoasting",
+   "name": "Kerberoasting or AS-REP roasting of service accounts",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "kerberoast",
+     "as-rep",
+     "asrep",
+     "steal or forge kerberos tickets"
+    ]
+   },
+   "severity": "high",
+   "description": "Requesting service tickets to crack offline lets an attacker recover service account passwords, and service accounts are often over-privileged.",
+   "what_to_do": [
+    "Identify which service accounts were targeted and give them long random passwords or managed service accounts.",
+    "Remove 'do not require Kerberos preauthentication' where it is not needed.",
+    "Watch for those service accounts logging on from unusual hosts."
+   ],
+   "attack": [
+    "T1558.003",
+    "T1558.004"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1558/003/",
+    "https://www.crowdstrike.com/en-us/cybersecurity-101/cyberattacks/kerberoasting/"
+   ]
+  },
+  {
+   "key": "forged-kerberos-ticket",
+   "name": "Forged Kerberos ticket, pass-the-ticket or pass-the-hash",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "golden ticket",
+     "silver ticket",
+     "goldenticket",
+     "pass the ticket",
+     "pass-the-ticket",
+     "forged ticket",
+     "pass the hash",
+     "pass-the-hash",
+     "passthehash",
+     "use alternate authentication material"
+    ]
+   },
+   "severity": "critical",
+   "description": "Logging on with a forged ticket or a stolen hash instead of a password means the attacker already holds stolen secrets and can impersonate users.",
+   "what_to_do": [
+    "Identify the account and source host, and contain the source.",
+    "For forged tickets, reset krbtgt twice with replication time between, and rotate affected service keys.",
+    "For a stolen hash, rotate the account and stop privileged accounts logging on to workstations."
+   ],
+   "attack": [
+    "T1558.001",
+    "T1550.003",
+    "T1550.002"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1558/001/",
+    "https://www.cisa.gov/news-events/cybersecurity-advisories/aa25-071a"
+   ]
+  },
+  {
+   "key": "brute-force-password-spray",
+   "name": "Brute force, password spraying or credential scanning",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "brute force",
+     "bruteforce",
+     "password spray",
+     "passwordspray",
+     "credential scanning",
+     "credential stuffing"
+    ]
+   },
+   "severity": "high",
+   "description": "Many failed logons across accounts usually means someone is guessing passwords; one success is enough to get in.",
+   "what_to_do": [
+    "Check whether any targeted account had a successful logon after the failures.",
+    "Block the source and enforce MFA or lockout on the targeted accounts.",
+    "Reset any account that was successfully guessed."
+   ],
+   "attack": [
+    "T1110"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1110/",
+    "https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-320a"
+   ]
+  },
+  {
+   "key": "password-store-browser-credentials",
+   "name": "Credentials read from password stores or browsers (infostealer behavior)",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "credentialsfrompasswordstores",
+     "credentials from password stores",
+     "credentials from web browsers",
+     "browser credential",
+     "stealer",
+     "credential manager"
+    ]
+   },
+   "severity": "high",
+   "description": "Infostealers grab saved browser passwords and vault secrets in seconds, and the stolen logins are then sold or used for SaaS and VPN access.",
+   "what_to_do": [
+    "Contain the host and identify the process that read the store.",
+    "Have the user change every password saved in the browser, starting with work, VPN and SaaS accounts.",
+    "Revoke the user's active sessions and tokens in the identity provider."
+   ],
+   "attack": [
+    "T1555",
+    "T1555.003"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1555/",
+    "https://redcanary.com/blog/threat-detection/2025-threat-detection-report/",
+    "https://slapopotamus.github.io/HuntPack/"
+   ]
+  },
+  {
+   "key": "session-token-theft-aitm",
+   "name": "Session cookie or token theft, AiTM or token replay",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "steal web session cookie",
+     "steal application access token",
+     "token theft",
+     "tokentheft",
+     "adversary-in-the-middle",
+     "aitm",
+     "token replay",
+     "session hijack",
+     "device code"
+    ]
+   },
+   "severity": "high",
+   "description": "A stolen session cookie or token gets past MFA entirely, which is how most recent cloud and SaaS account takeovers start.",
+   "what_to_do": [
+    "Revoke all sessions and refresh tokens for the affected identity.",
+    "Check the identity provider for sign-ins from new devices or locations after the alert.",
+    "Look for new inbox rules, MFA methods or OAuth consents added by the account."
+   ],
+   "attack": [
+    "T1539",
+    "T1528",
+    "T1557"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1539/",
+    "https://redcanary.com/blog/threat-detection/2025-threat-detection-report/",
+    "https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-320a",
+    "https://www.crowdstrike.com/en-us/resources/reports/threat-hunting-report/"
+   ]
+  },
+  {
+   "key": "cloud-credential-access",
+   "name": "Cloud credentials or instance metadata accessed",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "cloud instance metadata",
+     "unsecured credentials",
+     "credentials in files",
+     "cloud credential",
+     "instance metadata",
+     "imds"
+    ]
+   },
+   "severity": "high",
+   "description": "Reading cloud keys from files or the instance metadata service lets an attacker leave the host and act directly in the cloud account.",
+   "what_to_do": [
+    "Identify which keys or roles were exposed and rotate them.",
+    "Review cloud audit logs for API calls made with those keys after the alert.",
+    "Require IMDSv2 or equivalent and remove long-lived keys from disk."
+   ],
+   "attack": [
+    "T1552.005",
+    "T1552.001"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1552/005/",
+    "https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-320a"
+   ]
+  },
+  {
+   "key": "ad-reconnaissance",
+   "name": "Active Directory reconnaissance (domain trusts, groups, LDAP mapping tools)",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "reconactivedirectory",
+     "ad enum",
+     "domain trust discovery",
+     "domain groups",
+     "nltest",
+     "bloodhound",
+     "sharphound",
+     "adfind",
+     "ldap",
+     "adexplorer"
+    ]
+   },
+   "severity": "medium",
+   "description": "Mapping the domain with nltest, net group, LDAP queries or tools like AdFind and BloodHound is routine for admins but is also among the first things an intruder does after landing.",
+   "what_to_do": [
+    "Check whether the user normally administers the domain.",
+    "Look at the parent process: a script host, Office app or remote access tool is a bad sign.",
+    "Contain the host if the use is not approved, and look for credential theft alerts on it."
+   ],
+   "attack": [
+    "T1482",
+    "T1069.002",
+    "T1087.002"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1482/",
+    "https://www.cisa.gov/stopransomware/ransomware-guide",
+    "https://thedfirreport.com/2025/08/05/from-bing-search-to-ransomware-bumblebee-and-adaptixc2-deliver-akira/"
+   ]
+  },
+  {
+   "key": "recon-command-burst",
+   "name": "Burst of reconnaissance and discovery alerts",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "recon",
+     "discovery"
+    ],
+    "min_alerts": 10
+   },
+   "severity": "medium",
+   "description": "Many discovery alerts in one hunt window often mark the hands-on-keyboard phase right after initial access.",
+   "what_to_do": [
+    "Group the alerts by host and find the earliest one.",
+    "Review the parent processes for remote access tools or script hosts.",
+    "Contain any host that also shows credential or lateral movement alerts."
+   ],
+   "attack": [
+    "T1082",
+    "T1059"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1082/",
+    "https://thedfirreport.com/2025/08/05/from-bing-search-to-ransomware-bumblebee-and-adaptixc2-deliver-akira/"
+   ]
+  },
+  {
+   "key": "shadow-copy-recovery-inhibition",
+   "name": "Shadow copies deleted or system recovery disabled",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "shadow",
+     "inhibit system recovery",
+     "vssadmin",
+     "wbadmin",
+     "bcdedit",
+     "recoveryinhibit"
+    ]
+   },
+   "severity": "critical",
+   "description": "Deleting shadow copies and disabling recovery is a near-universal last step before ransomware encrypts files.",
+   "what_to_do": [
+    "Isolate the host immediately and check for encryption activity.",
+    "Check other hosts for the same behavior in the same time window.",
+    "Verify offline backups are intact and protected."
+   ],
+   "attack": [
+    "T1490"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1490/",
+    "https://www.cisa.gov/stopransomware/ransomware-guide",
+    "https://www.cisa.gov/news-events/cybersecurity-advisories/aa25-071a"
+   ]
+  },
+  {
+   "key": "ransomware-encryption",
+   "name": "Ransomware encryption or data destruction",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "ransom",
+     "data encrypted for impact",
+     "cryptor",
+     "mass file rename",
+     "file encryption",
+     "data destruction",
+     "disk wipe",
+     "wiper",
+     "disk structure wipe",
+     "disk content wipe"
+    ]
+   },
+   "severity": "critical",
+   "description": "The endpoint saw ransomware, file encryption or wiper behavior, which means impact is already happening and speed of containment decides how much is lost.",
+   "what_to_do": [
+    "Isolate the host and any others with the same alert.",
+    "Disable the account that ran the encryptor and look for how it was deployed (GPO, PsExec, RMM).",
+    "Start the incident response and backup restore plan."
+   ],
+   "attack": [
+    "T1486",
+    "T1485",
+    "T1561"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1486/",
+    "https://www.cisa.gov/stopransomware/ransomware-guide",
+    "https://www.cisa.gov/news-events/cybersecurity-advisories/aa25-071a"
+   ]
+  },
+  {
+   "key": "edr-tampering",
+   "name": "EDR or security tool tampering, or event logs cleared",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "tamper",
+     "disable or modify tools",
+     "impair defenses",
+     "sensor uninstall",
+     "defender disabled",
+     "disable security",
+     "clear windows event logs",
+     "wevtutil"
+    ]
+   },
+   "severity": "critical",
+   "description": "Attackers turn off endpoint protection right before the noisy part of an attack, so a tamper alert is a strong signal even on its own.",
+   "what_to_do": [
+    "Confirm the sensor is still running and reporting on the host.",
+    "Isolate the host from the console if possible and check how the change was made.",
+    "Look for the same tamper attempt on other hosts."
+   ],
+   "attack": [
+    "T1562.001",
+    "T1070.001"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1562/001/",
+    "https://www.cisa.gov/news-events/cybersecurity-advisories/aa25-071a",
+    "https://slapopotamus.github.io/HuntPack/hunts/GentleKiller-Hunt.html"
+   ]
+  },
+  {
+   "key": "byovd-vulnerable-driver",
+   "name": "Vulnerable or malicious kernel driver loaded (BYOVD)",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "vulnerable driver",
+     "vulnerabledriver",
+     "byovd",
+     "malicious driver",
+     "maliciousdriver",
+     "driverload",
+     "rootkit"
+    ]
+   },
+   "severity": "critical",
+   "description": "Loading a signed but vulnerable driver lets ransomware crews kill EDR from the kernel, so this often comes minutes before encryption.",
+   "what_to_do": [
+    "Isolate the host and check the driver name and hash against known vulnerable driver lists.",
+    "Enable the vulnerable driver blocklist and HVCI where possible.",
+    "Hunt for the same driver on other hosts."
+   ],
+   "attack": [
+    "T1068",
+    "T1014"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1068/",
+    "https://www.loldrivers.io/",
+    "https://slapopotamus.github.io/HuntPack/hunts/Medusa-BYOVD-Hunt.html",
+    "https://slapopotamus.github.io/HuntPack/hunts/GentleKiller-Hunt.html"
+   ]
+  },
+  {
+   "key": "uac-bypass-privesc",
+   "name": "UAC bypass or local privilege escalation",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "uacbypass",
+     "bypassuac",
+     "bypass user account control",
+     "privesc",
+     "exploitation for privilege escalation"
+    ]
+   },
+   "severity": "medium",
+   "description": "Bypassing UAC or exploiting a local flaw raises a process to admin without the user's consent, a common step for malware that wants to persist.",
+   "what_to_do": [
+    "Review the process that elevated and its parent.",
+    "Check whether the user is a local admin and remove that right if not needed.",
+    "Look for persistence created right after the elevation."
+   ],
+   "attack": [
+    "T1548.002",
+    "T1068"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1548/002/",
+    "https://lolbas-project.github.io/"
+   ]
+  },
+  {
+   "key": "process-injection-hollowing",
+   "name": "Process injection, hollowing or reflective code loading",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "injection",
+     "hollow",
+     "hijackedprocess",
+     "reflective code loading",
+     "dotnetassemblyload"
+    ]
+   },
+   "severity": "high",
+   "description": "Injecting code into a trusted process hides malware inside something that looks legitimate, and is common in loaders and C2 implants.",
+   "what_to_do": [
+    "Identify the injecting process and the target process.",
+    "Check the target for outbound connections to unknown hosts.",
+    "Contain the host if the injector is not a known security product."
+   ],
+   "attack": [
+    "T1055",
+    "T1055.012",
+    "T1620"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1055/",
+    "https://www.cisa.gov/stopransomware/ransomware-guide"
+   ]
+  },
+  {
+   "key": "certutil-download",
+   "name": "Certutil used to download or decode a file",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "certutil"
+    ]
+   },
+   "severity": "high",
+   "description": "Certutil is a signed Windows tool that attackers use to pull payloads past web filters and decode them on disk.",
+   "what_to_do": [
+    "Get the URL and output file from the alert details.",
+    "Block the URL and remove the file.",
+    "Check the parent process to see what started the download."
+   ],
+   "attack": [
+    "T1105",
+    "T1140"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1105/",
+    "https://lolbas-project.github.io/",
+    "https://www.cisa.gov/news-events/cybersecurity-advisories/aa25-071a"
+   ]
+  },
+  {
+   "key": "rundll32-regsvr32-proxy",
+   "name": "Mshta, Rundll32 or Regsvr32 proxy execution",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "mshta",
+     "rundll32",
+     "regsvr32",
+     "squiblydoo",
+     "system binary proxy execution"
+    ]
+   },
+   "severity": "high",
+   "description": "Mshta, Rundll32 and Regsvr32 run attacker scripts or DLLs under a trusted Windows name; mshta is a favorite of fake CAPTCHA lures and rundll32 with comsvcs is a common way to dump LSASS.",
+   "what_to_do": [
+    "Check which DLL or script was loaded and where it lives.",
+    "Look for a comsvcs MiniDump command line, which means credential theft.",
+    "Contain the host if the DLL is from a user-writable folder."
+   ],
+   "attack": [
+    "T1218.005",
+    "T1218.011",
+    "T1218.010"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1218/",
+    "https://lolbas-project.github.io/",
+    "https://redcanary.com/blog/threat-detection/2025-threat-detection-report/",
+    "https://thedfirreport.com/2025/08/05/from-bing-search-to-ransomware-bumblebee-and-adaptixc2-deliver-akira/"
+   ]
+  },
+  {
+   "key": "msbuild-trusted-developer-utility",
+   "name": "MSBuild or another developer utility used to run code",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "msbuild",
+     "trusted developer utilities",
+     "installutil",
+     "regasm",
+     "regsvcs"
+    ]
+   },
+   "severity": "high",
+   "description": "MSBuild and similar developer tools compile and run inline code, which lets malware run without a separate executable.",
+   "what_to_do": [
+    "Check whether the host is a developer or build machine.",
+    "Review the project file or assembly that was run.",
+    "Contain the host if it is not a build system."
+   ],
+   "attack": [
+    "T1127.001",
+    "T1218.004"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1127/001/",
+    "https://lolbas-project.github.io/"
+   ]
+  },
+  {
+   "key": "powershell-download-cradle",
+   "name": "PowerShell download cradle",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "pshelldownload",
+     "powershell download",
+     "downloadcradle",
+     "download cradle",
+     "invoke-webrequest"
+    ]
+   },
+   "severity": "high",
+   "description": "PowerShell fetching and running code from the internet is how many loaders, ClickFix lures and RMM installs begin.",
+   "what_to_do": [
+    "Get the URL and command line from the alert.",
+    "Block the URL and check what the script dropped.",
+    "Check how PowerShell was started (browser, Run dialog, Office, RMM)."
+   ],
+   "attack": [
+    "T1059.001",
+    "T1105"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1059/001/",
+    "https://www.cisa.gov/news-events/cybersecurity-advisories/aa25-071a",
+    "https://slapopotamus.github.io/HuntPack/hunts/ClickFix-Loaders-Hunt.html"
+   ]
+  },
+  {
+   "key": "encoded-obfuscated-commands",
+   "name": "Encoded or obfuscated command execution",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "encodedcommand",
+     "encoded command",
+     "encodedpowershell",
+     "obfuscated files or information",
+     "deobfuscate",
+     "obfuscat"
+    ]
+   },
+   "severity": "medium",
+   "description": "Base64 or otherwise obfuscated commands hide intent from people and simple filters, and are common in loaders and post-exploit tools.",
+   "what_to_do": [
+    "Decode the command line to see what it does.",
+    "Check for network connections or files created right after.",
+    "Escalate if the decoded content downloads or injects code."
+   ],
+   "attack": [
+    "T1027",
+    "T1140"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1027/",
+    "https://www.cisa.gov/news-events/cybersecurity-advisories/aa25-071a"
+   ]
+  },
+  {
+   "key": "clickfix-paste-and-run",
+   "name": "ClickFix, fake CAPTCHA or paste-and-run execution",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "clickfix",
+     "malicious copy and paste",
+     "paste and run",
+     "pasteandrun",
+     "fake captcha",
+     "runmru"
+    ]
+   },
+   "severity": "high",
+   "description": "Users are tricked by a fake CAPTCHA or error into pasting a command into the Run dialog, which installs stealers and RATs without any exploit.",
+   "what_to_do": [
+    "Get the pasted command line and block its URLs.",
+    "Treat the user's browser sessions and saved passwords as stolen and reset them.",
+    "Check for a stealer or remote access tool dropped right after."
+   ],
+   "attack": [
+    "T1204.004",
+    "T1059.001"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1204/004/",
+    "https://slapopotamus.github.io/HuntPack/hunts/ClickFix-Loaders-Hunt.html",
+    "https://redcanary.com/blog/threat-detection/2025-threat-detection-report/"
+   ]
+  },
+  {
+   "key": "lnk-iso-html-smuggling",
+   "name": "Shortcut, disk image or HTML smuggling delivery",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "malicious shortcut",
+     "lnk",
+     "html smuggling",
+     "mark-of-the-web",
+     "mark of the web",
+     "mountediso",
+     "disk image"
+    ]
+   },
+   "severity": "medium",
+   "description": "Shortcut files, mounted disk images and smuggled HTML downloads are used to slip payloads past mail filters and Mark-of-the-Web warnings.",
+   "what_to_do": [
+    "Find the email or download the file came from.",
+    "Check what the shortcut or image ran.",
+    "Block the sender or site and remove the file from other mailboxes."
+   ],
+   "attack": [
+    "T1204.002",
+    "T1553.005",
+    "T1027.006"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1204/002/",
+    "https://redcanary.com/blog/threat-detection/2025-threat-detection-report/"
+   ]
+  },
+  {
+   "key": "hacktool-malicious-tool",
+   "name": "Known attack or post-exploitation tool executed",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "malwareprocess",
+     "malicious tool execution",
+     "hacktool",
+     "post-exploit"
+    ]
+   },
+   "severity": "high",
+   "description": "A known offensive tool ran on the host, which is rarely legitimate outside an approved test.",
+   "what_to_do": [
+    "Check whether a penetration test or red team is in progress.",
+    "If not, contain the host and identify how the tool got there.",
+    "Search for the same tool on other hosts."
+   ],
+   "attack": [
+    "T1588.002"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1588/002/",
+    "https://www.cisa.gov/stopransomware/ransomware-guide"
+   ]
+  },
+  {
+   "key": "ml-high-confidence-multi-host",
+   "name": "High-confidence malicious file on 3 or more hosts",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_all": [
+     "high confidence",
+     "malicious"
+    ],
+    "min_hosts": 3
+   },
+   "severity": "critical",
+   "description": "The same high-confidence machine learning verdict on several hosts in one window suggests a spreading file or a mass deployment.",
+   "what_to_do": [
+    "Compare the file hashes and paths across the hosts.",
+    "Block the hash and quarantine the files everywhere.",
+    "Find the delivery path: email, share, deployment tool or RMM."
+   ],
+   "attack": [
+    "T1204.002"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1204/002/",
+    "https://redcanary.com/blog/threat-detection/2025-threat-detection-report/"
+   ]
+  },
+  {
+   "key": "rmm-tool-abuse",
+   "name": "Remote monitoring or remote access tool flagged",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "remotemonitoringandmanagement",
+     "rmm",
+     "remote access tools",
+     "remote access software",
+     "remote desktop software",
+     "anydesk",
+     "screenconnect",
+     "netsupport"
+    ]
+   },
+   "severity": "medium",
+   "description": "Attackers install legitimate remote access tools for persistent, hard-to-spot access, so an unapproved RMM is a common sign of an intrusion.",
+   "what_to_do": [
+    "Check whether the tool is your approved remote support product.",
+    "If not, remove it, block it and find who installed it.",
+    "Review the session history for file transfers or commands."
+   ],
+   "attack": [
+    "T1219"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1219/",
+    "https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-320a",
+    "https://www.cisa.gov/news-events/cybersecurity-advisories/aa25-071a",
+    "https://slapopotamus.github.io/HuntPack/hunts/NetSupportManager-Hunt.html"
+   ]
+  },
+  {
+   "key": "rmm-tool-multi-host",
+   "name": "Remote access tools on 3 or more hosts",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "remotemonitoringandmanagement",
+     "rmm",
+     "remote access tools",
+     "remote access software",
+     "remote desktop software",
+     "anydesk",
+     "screenconnect",
+     "netsupport",
+     "quick assist"
+    ],
+    "min_hosts": 3
+   },
+   "severity": "high",
+   "description": "Remote access tools appearing on several hosts at once can mean an attacker is setting up re-entry points across the estate.",
+   "what_to_do": [
+    "List the tools and hosts and compare against your approved RMM list.",
+    "Remove unapproved tools and block their installers.",
+    "Check for credential theft on the same hosts."
+   ],
+   "attack": [
+    "T1219"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1219/",
+    "https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-320a",
+    "https://www.cisa.gov/news-events/cybersecurity-advisories/aa25-071a"
+   ]
+  },
+  {
+   "key": "quick-assist-teams-vishing",
+   "name": "Quick Assist or help desk vishing remote session",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "quick assist",
+     "quickassist",
+     "vishing",
+     "helpdesk impersonation",
+     "teams external"
+    ]
+   },
+   "severity": "high",
+   "description": "Callers posing as IT, often over external chat or phone, talk users into opening Quick Assist so they can run loaders and later ransomware.",
+   "what_to_do": [
+    "Ask the user whether they were contacted by someone claiming to be IT.",
+    "End the session, contain the host and reset the user's credentials.",
+    "Restrict external chat tenants and remove Quick Assist where it is not used."
+   ],
+   "attack": [
+    "T1219",
+    "T1566.004"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1219/",
+    "https://slapopotamus.github.io/HuntPack/hunts/STAC4749-TeamsVishing-Chaos-Hunt.html",
+    "https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-320a"
+   ]
+  },
+  {
+   "key": "reverse-shell",
+   "name": "Reverse shell detected",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "reverseshell",
+     "reverse shell"
+    ]
+   },
+   "severity": "critical",
+   "description": "A reverse shell gives an attacker an interactive command line on the host from outside the network.",
+   "what_to_do": [
+    "Isolate the host and record the remote address from the alert.",
+    "Find the vulnerability or credential that let the shell start.",
+    "Block the remote address at the firewall."
+   ],
+   "attack": [
+    "T1059.004",
+    "T1071"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1059/004/",
+    "https://www.cisa.gov/stopransomware/ransomware-guide"
+   ]
+  },
+  {
+   "key": "tunneling-tool",
+   "name": "Tunneling or reverse proxy tool",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "tunnel",
+     "ngrok",
+     "cloudflared",
+     "chisel",
+     "ligolo"
+    ]
+   },
+   "severity": "high",
+   "description": "Tunneling tools punch a hole out of the network so the attacker can reach internal systems directly.",
+   "what_to_do": [
+    "Check whether the tool is approved for that host.",
+    "Remove it and block its domains if not.",
+    "Review what was reached through the tunnel."
+   ],
+   "attack": [
+    "T1572",
+    "T1090"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1572/",
+    "https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-320a",
+    "https://www.cisa.gov/stopransomware/ransomware-guide"
+   ]
+  },
+  {
+   "key": "psexec-smb-service-execution",
+   "name": "PsExec or remote service execution over SMB",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "psexec",
+     "serviceexeconsmb",
+     "smb/windows admin shares",
+     "admin shares",
+     "service execution",
+     "remote service"
+    ]
+   },
+   "severity": "high",
+   "description": "Running a service on another host through admin shares is how many attackers and ransomware deployers move laterally and push the encryptor.",
+   "what_to_do": [
+    "Identify the source host and the account used.",
+    "Check whether that account normally administers the target.",
+    "Contain the source if the activity is not an approved admin task."
+   ],
+   "attack": [
+    "T1021.002",
+    "T1569.002"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1021/002/",
+    "https://www.cisa.gov/news-events/cybersecurity-advisories/aa25-071a",
+    "https://www.cisa.gov/stopransomware/ransomware-guide"
+   ]
+  },
+  {
+   "key": "wmi-remote-execution-multi-host",
+   "name": "WMI execution on 3 or more hosts",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "wmiexec",
+     "wmi execution",
+     "wmiexecution",
+     "remote wmi",
+     "windows management instrumentation"
+    ],
+    "min_hosts": 3
+   },
+   "severity": "medium",
+   "description": "WMI is used to run commands on remote hosts without dropping files, and the same WMI pattern on several hosts often means lateral movement.",
+   "what_to_do": [
+    "Find the source host driving the WMI calls.",
+    "Rule out management or inventory software.",
+    "Contain the source if the activity is not approved."
+   ],
+   "attack": [
+    "T1047"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1047/",
+    "https://www.cisa.gov/news-events/cybersecurity-advisories/aa25-071a",
+    "https://thedfirreport.com/2025/08/05/from-bing-search-to-ransomware-bumblebee-and-adaptixc2-deliver-akira/"
+   ]
+  },
+  {
+   "key": "rdp-lateral-movement",
+   "name": "RDP lateral movement or rogue RDP connection file",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "rdpfile",
+     "rdp file",
+     "remote desktop protocol"
+    ]
+   },
+   "severity": "high",
+   "description": "Falcon flagged RDP used to move between hosts, or an .rdp file that connects the user to an outside server that can read drives and the clipboard.",
+   "what_to_do": [
+    "Map the source and destination hosts and the account used.",
+    "For an .rdp file, find the email or download it came from and block outbound RDP to the internet.",
+    "Restrict RDP to admin jump hosts and reset accounts that should not use it."
+   ],
+   "attack": [
+    "T1021.001",
+    "T1566.001"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1021/001/",
+    "https://www.cisa.gov/news-events/cybersecurity-advisories/aa25-071a",
+    "https://redcanary.com/blog/threat-detection/2025-threat-detection-report/"
+   ]
+  },
+  {
+   "key": "lateral-movement-spread",
+   "name": "Lateral movement techniques on 5 or more hosts",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "remote desktop protocol",
+     "smb/windows admin shares",
+     "windows management instrumentation",
+     "psexec",
+     "remote services",
+     "lateral tool transfer",
+     "service execution",
+     "windows remote management",
+     "distributed component object model"
+    ],
+    "min_hosts": 5
+   },
+   "severity": "critical",
+   "description": "Remote execution across many hosts in one window is the pattern seen right before a domain-wide ransomware push.",
+   "what_to_do": [
+    "Escalate as an active intrusion.",
+    "Disable the accounts used for the remote execution.",
+    "Segment or isolate affected networks while the source is found."
+   ],
+   "attack": [
+    "T1021",
+    "T1570"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1021/",
+    "https://www.cisa.gov/stopransomware/ransomware-guide",
+    "https://www.cisa.gov/news-events/cybersecurity-advisories/aa25-071a"
+   ]
+  },
+  {
+   "key": "registry-run-key-persistence",
+   "name": "Registry run key or startup folder persistence",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "registrypersist",
+     "registry run keys",
+     "startup folder",
+     "run key",
+     "runonce"
+    ]
+   },
+   "severity": "medium",
+   "description": "A program added to the run keys or startup folder starts every time the user logs on, a simple and common way for malware to stay.",
+   "what_to_do": [
+    "Check the value added and the file it points to.",
+    "Remove it if the file is not legitimate software.",
+    "Find what process created the entry."
+   ],
+   "attack": [
+    "T1547.001"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1547/001/",
+    "https://slapopotamus.github.io/HuntPack/"
+   ]
+  },
+  {
+   "key": "scheduled-task-service-persistence",
+   "name": "Scheduled task or new service created for persistence",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "scheduled task",
+     "scheduledtask",
+     "schtasks",
+     "windows service",
+     "new service",
+     "servicecreation"
+    ]
+   },
+   "severity": "medium",
+   "description": "Scheduled tasks and new services keep attacker tools running after a reboot and are also used to run code on remote hosts.",
+   "what_to_do": [
+    "Review the task or service name, command and creator.",
+    "Remove it if it runs from a temp or user folder.",
+    "Look for the same task or service on other hosts."
+   ],
+   "attack": [
+    "T1053.005",
+    "T1543.003"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1053/005/",
+    "https://www.cisa.gov/stopransomware/ransomware-guide"
+   ]
+  },
+  {
+   "key": "persistence-multi-host",
+   "name": "Persistence created on 3 or more hosts",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "registry run keys",
+     "registrypersist",
+     "scheduled task",
+     "windows service",
+     "create or modify system process",
+     "boot or logon autostart",
+     "startup folder"
+    ],
+    "min_hosts": 3
+   },
+   "severity": "high",
+   "description": "The same persistence on several hosts points to malware spreading or an attacker planting re-entry points.",
+   "what_to_do": [
+    "Compare the persistence entries to find the shared payload.",
+    "Remove them everywhere and block the payload.",
+    "Find how the payload reached each host."
+   ],
+   "attack": [
+    "T1547",
+    "T1053"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1547/",
+    "https://www.cisa.gov/stopransomware/ransomware-guide"
+   ]
+  },
+  {
+   "key": "account-creation-manipulation",
+   "name": "New account created or account privileges changed",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "createaccount",
+     "create account",
+     "account manipulation",
+     "additional cloud credentials",
+     "privileged group"
+    ]
+   },
+   "severity": "high",
+   "description": "Attackers add accounts or grant extra rights so they can return even after passwords are reset.",
+   "what_to_do": [
+    "Check whether the account was created through a ticketed request.",
+    "Disable unknown accounts and remove added group memberships.",
+    "Review what the new account has accessed."
+   ],
+   "attack": [
+    "T1136",
+    "T1098"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1136/",
+    "https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-320a",
+    "https://thedfirreport.com/2025/08/05/from-bing-search-to-ransomware-bumblebee-and-adaptixc2-deliver-akira/"
+   ]
+  },
+  {
+   "key": "web-shell-public-facing",
+   "name": "Web shell or exploitation of a public-facing application",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "webshell",
+     "web shell",
+     "server software component",
+     "exploit public-facing application",
+     "w3wp"
+    ]
+   },
+   "severity": "critical",
+   "description": "A web server process running shells or dropping scripts means an internet-facing system has likely been exploited.",
+   "what_to_do": [
+    "Isolate the server and preserve its web logs.",
+    "Find and patch the exploited application and remove dropped files.",
+    "Rotate credentials stored on the server."
+   ],
+   "attack": [
+    "T1505.003",
+    "T1190"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1505/003/",
+    "https://www.crowdstrike.com/en-us/resources/reports/threat-hunting-report/",
+    "https://slapopotamus.github.io/HuntPack/"
+   ]
+  },
+  {
+   "key": "c2-beaconing-multi-host",
+   "name": "Command and control alerts on 3 or more hosts",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "command and control",
+     "beacon",
+     "application layer protocol",
+     "data encoding",
+     "web service",
+     "commonly used port",
+     "encrypted channel",
+     "non-standard port"
+    ],
+    "min_hosts": 3
+   },
+   "severity": "high",
+   "description": "C2 patterns such as encoded traffic, common ports or web services seen on several hosts suggest multiple machines are under remote control.",
+   "what_to_do": [
+    "Group the alerts by destination to find shared C2 infrastructure.",
+    "Block the destinations at the proxy and firewall.",
+    "Contain the hosts and find the initial infection."
+   ],
+   "attack": [
+    "T1071",
+    "T1132"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1071/",
+    "https://www.cisa.gov/stopransomware/ransomware-guide"
+   ]
+  },
+  {
+   "key": "c2-framework-implant",
+   "name": "Known C2 framework or implant detected",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "cobaltstrike",
+     "cobalt strike",
+     "sliver",
+     "meterpreter",
+     "metasploit",
+     "bruteratel",
+     "adaptix"
+    ]
+   },
+   "severity": "critical",
+   "description": "Cobalt Strike, Sliver and similar frameworks are the standard hands-on-keyboard toolkits of ransomware crews.",
+   "what_to_do": [
+    "Isolate the host at once.",
+    "Find the C2 destination and block it everywhere.",
+    "Hunt for the same beacon on other hosts and for credential theft."
+   ],
+   "attack": [
+    "T1071.001",
+    "T1055"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1071/001/",
+    "https://www.cisa.gov/stopransomware/ransomware-guide",
+    "https://thedfirreport.com/2025/08/05/from-bing-search-to-ransomware-bumblebee-and-adaptixc2-deliver-akira/"
+   ]
+  },
+  {
+   "key": "threat-intel-indicator",
+   "name": "Threat intelligence indicator match",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "intel",
+     "intelligence indicator"
+    ]
+   },
+   "severity": "high",
+   "description": "The host contacted a domain or ran a file that threat intelligence links to known malicious activity.",
+   "what_to_do": [
+    "Identify the process that made the connection.",
+    "Block the indicator and check other hosts for it.",
+    "Contain the host if the process is not a browser visiting a single page."
+   ],
+   "attack": [
+    "T1071"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1071/",
+    "https://www.crowdstrike.com/en-us/resources/reports/threat-hunting-report/"
+   ]
+  },
+  {
+   "key": "exfiltration-tool",
+   "name": "Data exfiltration tool or upload to cloud storage",
+   "kind": "alert",
+   "match": {
+    "sources": [
+     "crowdstrike"
+    ],
+    "title_any": [
+     "rclone",
+     "exfiltration",
+     "exfil",
+     "megasync",
+     "filezilla",
+     "winscp"
+    ]
+   },
+   "severity": "high",
+   "description": "Tools like rclone and file transfer clients are used to steal data before ransomware, so the data may already be gone.",
+   "what_to_do": [
+    "Identify the destination and how much data was sent.",
+    "Block the destination and kill the transfer.",
+    "Start breach and legal notification assessment if sensitive data moved."
+   ],
+   "attack": [
+    "T1567.002",
+    "T1048"
+   ],
+   "references": [
+    "https://attack.mitre.org/techniques/T1567/002/",
+    "https://www.cisa.gov/news-events/cybersecurity-advisories/aa25-071a",
+    "https://www.cisa.gov/stopransomware/ransomware-guide"
+   ]
+  }
+ ]
+}

@@ -77,4 +77,4 @@ async def test_detail_is_encrypted_and_the_page_gets_story_timeline_related(db, 
     kinds = [e["kind"] for e in a["timeline"]]
     assert kinds[0] == "process" and {"dns", "network", "detection", "action", "related", "status"} <= set(kinds)
     assert [e["at"] for e in a["timeline"]] == sorted(e["at"] for e in a["timeline"])
-    assert [r["title"] for r in a["related"]] == ["Suspicious PowerShell"]
+    assert [r["title"] for r in a["related"] if tag in r["id"]] == ["Suspicious PowerShell"]   # other tests' jdoe alerts tie in too

@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Annotated, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import Field, TypeAdapter, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapter, ValidationError
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,6 +25,10 @@ log = logging.getLogger("open-ctem.collector")
 router = APIRouter(prefix="/api/v1/collector", tags=["collector"])
 
 _MAX_BODY = 8 * 1024 * 1024
+
+
+class _Strict(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 _Batch = TypeAdapter(Annotated[Union[LdapBatch, Rapid7Batch, CrowdStrikeBatch, SplunkBatch, NetProbeBatch], Field(discriminator="kind")])
 
 
@@ -225,3 +229,43 @@ async def netprobe_targets(integration_id: str, request: Request, db: AsyncSessi
     tok = await ingest.authenticate(request, db)
     await ingest.scoped_integration(tok, integration_id, "netprobe", db)
     return await netprobe.targets(db)
+
+
+class _ActionResult(_Strict):
+    id: Annotated[str, StringConstraints(pattern=r"^[0-9a-f-]{36}$")]
+    ok: bool
+    error: Annotated[str, StringConstraints(max_length=300)] | None = None
+
+
+class _ActionResults(_Strict):
+    results: list[_ActionResult] = Field(max_length=50)
+
+
+async def _alert_updates_on(tok, integration_id: str, db: AsyncSession) -> None:
+    """Only the shipper that owns this CrowdStrike source, with Alert updates turned on (and approved on its box)."""
+    await ingest.scoped_integration(tok, integration_id, "crowdstrike", db)
+    prof = await ingest.profile_of(tok, db)
+    if (((prof.modules or {}).get("crowdstrike") or {}).get("settings") or {}).get("alert_updates") != "on":
+        raise HTTPException(404)
+
+
+@router.get("/alert-actions/{integration_id}")
+async def alert_actions(integration_id: str, request: Request, db: AsyncSession = Depends(get_session)):
+    """CrowdStrike alert updates people made in CTEM, for this shipper to send (api/core/cs_alert_actions.py)."""
+    from api.core import cs_alert_actions
+    tok = await ingest.authenticate(request, db)
+    await _alert_updates_on(tok, integration_id, db)
+    out = await cs_alert_actions.claim(db, integration_id)
+    await db.commit()
+    return {"actions": out}
+
+
+@router.post("/alert-actions/{integration_id}/results")
+async def alert_action_results(integration_id: str, request: Request, db: AsyncSession = Depends(get_session)):
+    from api.core import cs_alert_actions
+    tok = await ingest.authenticate(request, db)
+    await _alert_updates_on(tok, integration_id, db)
+    body: _ActionResults = await _json_body(request, _ActionResults)
+    n = await cs_alert_actions.report(db, integration_id, [r.model_dump() for r in body.results])
+    await db.commit()
+    return {"recorded": n}

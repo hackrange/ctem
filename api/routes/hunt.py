@@ -168,10 +168,54 @@ async def hunt_report(source: str, index: int, request: Request,
         "issue": issue, "evidence": evidence, "question": result.get("question", ""),
         "by_source": by_source, "by_source_max": max([c for _, c in by_source] or [1]),
         "sources": result.get("sources", []), "report_id": f"{source[:8]}-{index + 1}".upper(),
+        "pdf_url": f"/api/v1/hunt/report/{source}/{index}/pdf",
         "generated": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         "prepared_by": current_user.username, "app_title": brand.get("title", "open-ctem"),
         "org_name": brand.get("org_name"), "accent_color": brand.get("accent_color", "#f5a623"),
     })
+
+
+def _report_meta(source: str, index: int, user: User, brand: dict, issue: dict) -> dict:
+    from datetime import datetime, timezone
+
+    from api.hunt.graph import build
+    return {"report_id": f"{source[:8]}-{index + 1}".upper(), "generated": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+            "prepared_by": user.username, "app_title": brand.get("title", "open-ctem"), "org_name": brand.get("org_name"),
+            "accent_color": brand.get("accent_color", "#f5a623"), "logo_url": brand.get("logo_url"),
+            "light_logo_url": brand.get("login_logo_url"), "graph": build(issue)}
+
+
+@router.get("/graph/{source}/{index}")
+async def hunt_graph(source: str, index: int, current_user: User = Depends(require_cyber_or_admin),
+                     db: AsyncSession = Depends(get_session)):
+    """One finding as an attack map with its steps (api/hunt/graph.py)."""
+    from api.hunt.graph import build
+    from api.hunt.handoff import load_issue
+    if not re.match(r"^[A-Za-z0-9-]{1,64}$", source):
+        raise HTTPException(404)
+    _, issue = await load_issue(db, source, index, _owner_of, str(current_user.id))
+    return build(issue)
+
+
+@router.get("/report/{source}/{index}/pdf", include_in_schema=False)
+async def hunt_report_pdf(source: str, index: int, current_user: User = Depends(require_cyber_or_admin),
+                          db: AsyncSession = Depends(get_session)):
+    """The incident report as a PDF: logo, story line, attack map, evidence cards (api/hunt/report_pdf.py)."""
+    import asyncio
+
+    from fastapi.responses import Response
+
+    from api.hunt.handoff import load_issue
+    from api.hunt.report_pdf import build
+    from api.main import _get_branding
+    if not re.match(r"^[A-Za-z0-9-]{1,64}$", source):
+        raise HTTPException(404)
+    result, issue = await load_issue(db, source, index, _owner_of, str(current_user.id))
+    meta = _report_meta(source, index, current_user, await _get_branding(db), issue)
+    pdf = await asyncio.to_thread(build, issue, result, meta)   # CPU work off the event loop
+    name = f"incident-report-{meta['report_id']}.pdf"
+    return Response(pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{name}"',
+                                                                "Cache-Control": "no-store"})
 
 
 @router.get("/watch")

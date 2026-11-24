@@ -50,6 +50,20 @@ class _Falcon:
                     raise
         raise RuntimeError(f"Falcon API kept failing on {path}")
 
+    def write(self, method, path, body):
+        """An alert update (collector_cs_actions): sent once, never retried on 5xx or 429, so a comment can't land twice."""
+        if not self.token or time.time() - self.born > 25 * 60:
+            self._login()
+        try:
+            return cc.url_json(method, f"{self.base}{path}", body=body, cafile=self.cafile,
+                               headers={"Authorization": f"Bearer {self.token}"}) or {}
+        except cc.HttpError as e:
+            if e.status != 401:
+                raise
+        self._login()
+        return cc.url_json(method, f"{self.base}{path}", body=body, cafile=self.cafile,
+                           headers={"Authorization": f"Bearer {self.token}"}) or {}
+
 
 def test(s, secret):
     _Falcon(s, secret).call("GET", "/devices/queries/devices/v1?limit=1")

@@ -39,6 +39,11 @@ _CSP = (
 )
 
 
+# Pages with no inline script (sign-in) get no 'unsafe-inline' for scripts, so injected markup can't run there
+CSP_STRICT_SCRIPT = _CSP.replace("script-src 'self' 'unsafe-inline';", "script-src 'self';")
+# JSON is never rendered as a page: it may load nothing and be framed by nothing
+_CSP_DATA = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none';"
+
 _ROBOTS = "noindex, nofollow, noarchive, nosnippet, noimageindex, noai, noimageai"
 
 
@@ -50,9 +55,16 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-XSS-Protection"] = "0"  # modern browsers use CSP instead
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        response.headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=()"
-        if "content-security-policy" not in response.headers:   # a page that sets its own (API docs) keeps it
-            response.headers["Content-Security-Policy"] = _CSP
+        response.headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=(), payment=(), usb=(), browsing-topics=()"
+        # No other site's window keeps a handle on ours (sign-in uses redirects, never pop-ups)
+        response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+        data = response.headers.get("content-type", "").startswith("application/json")
+        if not request.url.path.startswith("/static/"):   # static files stay loadable as before (logos in mail clients)
+            response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
+        if data and "cache-control" not in response.headers:   # API data is per person: never kept by a browser or proxy
+            response.headers["Cache-Control"] = "no-store"
+        if "content-security-policy" not in response.headers:   # a page that sets its own (API docs, sign-in) keeps it
+            response.headers["Content-Security-Policy"] = _CSP_DATA if data else _CSP
         # Private app: keep it out of search engines and AI crawlers/training
         response.headers["X-Robots-Tag"] = _ROBOTS
         # Remove fingerprinting headers (MutableHeaders uses __delitem__, not pop)

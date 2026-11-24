@@ -33,6 +33,26 @@ def falcon_time(v) -> datetime | None:
     return v if v.tzinfo else v.replace(tzinfo=timezone.utc)
 
 
+_SERVICE_SIDS = {"S-1-5-18", "S-1-5-19", "S-1-5-20"}
+_SERVICE_NAMES = {"system", "local service", "network service", "localsystem"}
+
+
+def alert_user_key(detail: dict) -> str | None:
+    """A keyed hash of the person behind an alert, so Cyber Threats can tie their alerts together across hosts
+    without the name leaving the encrypted detail. Machine and service accounts would tie everything together, so
+    they get none."""
+    from api.core.encryption import search_hash
+    from api.core.user_match import bare
+    u = detail.get("user") or {}
+    name = u.get("name") or (detail.get("process") or {}).get("user")
+    if not isinstance(name, str) or u.get("sid") in _SERVICE_SIDS:
+        return None
+    b = bare(name)
+    if not b or b.endswith("$") or b in _SERVICE_NAMES:
+        return None
+    return search_hash(f"alert-user:{b}")
+
+
 def is_hidden(d: dict) -> bool:
     return bool(d.get("hidden")) or str(d.get("host_hidden_status") or "").lower() == "hidden"
 
@@ -281,7 +301,7 @@ class CrowdStrikeConnector(BaseConnector):
             detail = csa.clean(det.get("detail"))
             if detail:
                 rows[f"threat_alert_{det['detection_id']}"].update({
-                    "aggregate_id": detail.get("aggregate_id"),
+                    "aggregate_id": detail.get("aggregate_id"), "user_key": alert_user_key(detail),
                     "detail_enc": encrypt(json.dumps(detail, separators=(",", ":")))})
         keys = list(rows)
         for i in range(0, len(keys), 500):

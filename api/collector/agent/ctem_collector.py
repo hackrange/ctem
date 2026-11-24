@@ -9,6 +9,7 @@ Config and sealed passwords come from CTEM; destinations only change after `appr
   ctem_collector.py test           check every source with the current config, ship nothing
   ctem_collector.py run [--force]  check in, and ship if the schedule says so (cron fires this)
   ctem_collector.py daemon         Docker mode: check in every 5 minutes forever
+  ctem_collector.py run --only alert_actions   send CrowdStrike alert updates made in CTEM (cron does this too)
 """
 import argparse
 import fcntl
@@ -27,6 +28,7 @@ import collector_core as core  # noqa: E402
 TICK = 5 * 60
 SPOOL_MAX_AGE = 7 * 86400
 MAX_BODY = 768 * 1024  # load balancers commonly stop at 1 MB
+ACTIONS = "alert_actions"   # not a source: CrowdStrike alert updates made in CTEM, every tick
 
 
 def _state(update=None, kind=None):
@@ -120,6 +122,10 @@ def run(force=False, only=None):
             return 0
     sh = core.Shipper()
     cfg = sh.checkin()
+    if only in (None, ACTIONS):
+        alert_actions(sh)
+        if only == ACTIONS:
+            return 0
     mods = [m for m in sh.modules() if only is None or m["kind"] == only]
     if only is None:
         _prune_spool({m["integration_id"] for m in sh.modules()})
@@ -149,6 +155,31 @@ def run(force=False, only=None):
             _state(state, kind=kind)   # this source's run is recorded now, whatever the others do
             sh.checkin({kind: err} if err else {}, ran=True)
     return worst
+
+
+def alert_actions(sh):
+    """Alert updates people made in CTEM (close, classify, comment), sent to CrowdStrike with this box's own API client.
+    Only when "Alert updates" is on for the CrowdStrike source and approved on this box; its own lock, so a long
+    CrowdStrike pull never holds them up."""
+    m = next((x for x in sh.modules() if x["kind"] == "crowdstrike"), None)
+    s = sh.settings_for(m) if m else None
+    if not s or s.get("alert_updates") != "on":
+        return
+    with open(os.path.join(core.STATE_DIR, f"run.{ACTIONS}.lock"), "w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            return
+        secrets, problems = sh.secrets()
+        if "crowdstrike" in problems or "client_secret" not in secrets.get("crowdstrike", {}):
+            cc.say("alert updates: no CrowdStrike client secret on this box yet")
+            return
+        import collector_crowdstrike as cs
+        import collector_cs_actions as csx
+        try:
+            csx.run(cs._Falcon(s, secrets["crowdstrike"]), sh.api, m["integration_id"], cc.say)
+        except Exception as e:  # noqa: BLE001 -- the sources still run
+            cc.say(f"alert updates: FAILED {cc.short_error(e)}")
 
 
 def _every(m, cfg):
@@ -239,7 +270,7 @@ def daemon():
         for kind, proc in list(running.items()):
             if proc.poll() is not None:
                 running.pop(kind)
-        for kind in core.MODULES:
+        for kind in [*core.MODULES, ACTIONS]:
             if kind not in running:
                 running[kind] = subprocess.Popen([sys.executable, os.path.abspath(__file__), "run", "--only", kind])  # nosec B603
         time.sleep(TICK + random.randint(0, 30))  # nosec B311 - jitter, not crypto
@@ -291,7 +322,7 @@ def main(argv=None):
     sub.add_parser("test")
     rp = sub.add_parser("run")
     rp.add_argument("--force", action="store_true")
-    rp.add_argument("--only", choices=sorted(core.MODULES), help="run just this source (one per systemd instance)")
+    rp.add_argument("--only", choices=sorted([*core.MODULES, ACTIONS]), help="run just this source (one per systemd instance)")
     sub.add_parser("daemon")
     pr = sub.add_parser("probe", help="network discovery: show what it would touch (--dry-run) or run it now")
     pr.add_argument("--dry-run", action="store_true", help="list the addresses and ports, probe nothing")

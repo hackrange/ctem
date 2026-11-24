@@ -44,7 +44,7 @@ _DUMMY_HASH = local.hash_password(secrets.token_hex(16))
 async def _render_login(request: Request, db: AsyncSession, *, error: str | None = None,
                         status: int = 200, totp_step: bool = False, enroll: dict | None = None,
                         notice: str | None = None) -> HTMLResponse:
-    from api.core.security import generate_csrf_token
+    from api.core.security import CSP_STRICT_SCRIPT, generate_csrf_token
     from api.models.settings import AppSetting
     mode, cfg = await sso_config.effective(db)
     if "session_id" not in request.session:
@@ -66,7 +66,7 @@ async def _render_login(request: Request, db: AsyncSession, *, error: str | None
         "logo_url": branding.get("login_logo_url") or branding.get("logo_url"),   # its own logo, else the menu's
         "org_name": branding.get("org_name"),
         "favicon_v": _icon_version(branding.get("favicon_url")),
-    }, status_code=status)
+    }, status_code=status, headers={"Content-Security-Policy": CSP_STRICT_SCRIPT})   # the page has no script at all
 
 
 def _check_csrf(request: Request, token: str | None) -> None:

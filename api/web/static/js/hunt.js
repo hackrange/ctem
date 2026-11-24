@@ -146,7 +146,9 @@ function issueCard(issue, lookups, idx) {
       <span class="text-sm text-muted">${esc(SURE[issue.confidence] || '')}</span></div>
     <h4>What happened</h4><p>${esc(issue.what_happened)}</p>
     ${issue.why_it_matters ? `<h4>Why it matters</h4><p>${esc(issue.why_it_matters)}</p>` : ''}
-    ${issue.timeline && issue.timeline.length ? `<h4>How it unfolded</h4>${flowDiagram(issue.timeline)}<details class="hunt-details"><summary>Step by step</summary><ol class="flow">${issue.timeline.map(t => `
+    ${issue.timeline && issue.timeline.length ? `<h4>How it unfolded <span class="text-muted text-sm">(click a step or a box to follow its path)</span></h4>${currentSource
+      ? `<div class="agp agp--hunt" data-hunt-map="${idx}"><div class="agp__steps"></div><div class="agp__mapbox"></div></div>`
+      : flowDiagram(issue.timeline)}<details class="hunt-details"><summary>Step by step</summary><ol class="flow">${issue.timeline.map(t => `
       <li><span class="flow__time">${esc(t.time)}</span><span class="chip chip--info">${esc(t.source)}</span> ${esc(t.what)}</li>`).join('')}</ol></details>` : ''}
     ${people.length ? `<h4>Who and what was involved <span class="text-muted text-sm">(click for the full picture)</span></h4><div class="who">${people.map(([k, v]) =>
       `<button type="button" class="pref-chip" data-profile="${ref({ kind: k, value: v, ...win })}">${esc(v)}</button>`).join('')}</div>` : ''}
@@ -165,7 +167,8 @@ function issueActions(idx) {
   const t = huntStatus.tickets || {};
   const ticket = (method, label) => `<button type="button" class="btn btn--ghost btn--sm" data-ticket="${ref({ source: currentSource, issue: idx, method })}">${label}</button>`;
   return `<div class="issue-actions">
-    <a class="btn btn--primary btn--sm" target="_blank" rel="noopener" href="${API}/hunt/report/${encodeURIComponent(currentSource)}/${idx}">Generate report</a>
+    <a class="btn btn--primary btn--sm" href="${API}/hunt/report/${encodeURIComponent(currentSource)}/${idx}/pdf" download>Generate report (PDF)</a>
+    <a class="btn btn--ghost btn--sm" target="_blank" rel="noopener" href="${API}/hunt/report/${encodeURIComponent(currentSource)}/${idx}">Open as a page</a>
     ${t.api ? ticket('api', 'Create ServiceNow ticket') : ''}${t.email ? ticket('email', 'Email ServiceNow') : ''}
     <span class="text-sm text-muted" data-ticket-msg></span></div>`;
 }
@@ -201,6 +204,7 @@ function render(r) {
   }
   if ((r.notes || []).length) html += `<p class="text-sm text-muted">${r.notes.map(esc).join('<br>')}</p>`;
   $('hunt-answer').innerHTML = html;
+  if (window.HuntMap) HuntMap.mountAll($('hunt-answer'), currentSource);
 }
 
 async function loadCatalog() {
