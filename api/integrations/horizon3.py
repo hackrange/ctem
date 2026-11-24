@@ -165,9 +165,11 @@ class Horizon3Connector(BaseConnector):
                 self.notes.append("Horizon3 didn't answer the attack path chain, so paths keep their summary only")
                 log.warning("Horizon3 attack paths refused: %s", str(e)[:200])
                 return
-            await story.save_paths(db, op, paths, lambda ip, name: apply._device(db, ip, name, cache, create=False), still_open)
+            await story.save_paths(db, op, paths, lambda ip, name: apply._device(db, ip, name, cache, create=False), still_open, recent)
             read.add(op["op_id"])
-        await story.refresh_active(db, still_open)
+        pruned = await story.prune(db, still_open, recent)
+        if pruned["paths"] or pruned["assets"]:
+            log.info("Horizon3: removed %d attack paths and %d assets that are no longer real", pruned["paths"], pruned["assets"])
         await save_sync_state(db, getattr(self, "integration_id", None), {**state, "paths_read": sorted(read)[-2000:]})
 
     async def _open_series(self, client) -> list[dict] | None:

@@ -3,8 +3,9 @@ ordered chain NodeZero walked (launch, host, service, weakness, impact). Field n
 API, which allows no introspection. Read only: queries, never mutations (api/integrations/horizon3.py refuses those).
 
 Proofs are kept on the finding (its details are encrypted at rest); attack paths in attack_paths, one row per path
-per asset it runs through, with the chain in an encrypted column. A path stays active while NodeZero still has one
-of its weaknesses open."""
+per asset it runs through, with the chain in an encrypted column. Only what's real now is kept: a path through a
+weakness while NodeZero still has that weakness open, a path through credentials alone while its pentest is recent.
+Anything else is deleted, and so is an asset only NodeZero knew once nothing of NodeZero's is left on it."""
 from __future__ import annotations
 
 import logging
@@ -75,9 +76,18 @@ def steps_of(graph: dict | None) -> list[dict]:
     return out[:40]
 
 
-async def save_paths(db, op: dict, paths: list[dict], find, still_open: set | None) -> int:
-    """Each path, on every asset it runs through. find(ip, name) -> the CTEM asset or None (never creates one).
-    still_open: (ip, weakness id) NodeZero has open, or None when the API gave no series (then: active)."""
+def is_active(pairs, completed, still_open: set | None, recent) -> bool:
+    """Real now: one of its weaknesses is still open in NodeZero; with no weakness (credentials only), its pentest is recent."""
+    if still_open is None:
+        return True
+    if pairs:
+        return any((ip, v) in still_open for ip, v in pairs)
+    return bool(completed) and _when(completed) >= recent
+
+
+async def save_paths(db, op: dict, paths: list[dict], find, still_open: set | None, recent=None) -> int:
+    """Each path that's real now, on every asset it runs through. find(ip, name) -> the CTEM asset or None (never
+    creates one). still_open: (ip, weakness id) NodeZero has open, or None when the API gave no series."""
     from api.models.risk import AttackPath
     when = _when(op.get("completed_at"))
     n = 0
@@ -98,14 +108,16 @@ async def save_paths(db, op: dict, paths: list[dict], find, still_open: set | No
                 if d is not None:
                     s.setdefault("assets", {})[ip] = str(d.id)
         weak = {(w.get("ip"), str(w.get("vuln_id") or "")[:200]) for w in p.get("weaknesses") or []}
-        active = still_open is None or bool(weak & still_open)
+        pairs = [(ip, v) for ip, v in weak if ip and v]
+        if not is_active(pairs, op.get("completed_at"), still_open, recent or datetime.min.replace(tzinfo=timezone.utc)):
+            continue   # fixed since, or an old credential path: not shown, not kept
         ext = f"{op.get('op_id')}:{p.get('uuid')}"[:256]
         graph = {"pentest": str(op.get("name") or "")[:200], "pentest_id": str(op.get("op_id") or "")[:64],
                  "impact_type": str(p.get("impact_type") or "")[:64] or None, "impact": str(p.get("impact_title") or "")[:120] or None,
                  "severity": str(p.get("severity") or "")[:16] or None, "where": redact(p.get("affected_asset_text"), 300),
                  "minutes_to_find": round(p["time_to_finding_s"] / 60) if isinstance(p.get("time_to_finding_s"), (int, float)) else None,
                  "weaknesses": sorted({v for _, v in weak if v})[:20], "pairs": sorted([ip, v] for ip, v in weak if ip and v)[:40],
-                 "steps": steps}
+                 "completed_at": op.get("completed_at"), "steps": steps}
         for did in assets:
             row = (await db.execute(select(AttackPath).where(AttackPath.confirmed_by == SOURCE, AttackPath.external_id == ext,
                                                              AttackPath.target_device_id == did))).scalar_one_or_none()
@@ -115,21 +127,35 @@ async def save_paths(db, op: dict, paths: list[dict], find, still_open: set | No
             row.path_description = str(p.get("attack_path_title") or "")[:2048] or None
             row.impact_description = redact(p.get("impact_description"), 1000)
             row.path_score = float(p["score"]) if isinstance(p.get("score"), (int, float)) else 0.0
-            row.is_active, row.last_seen, row.graph = active, when, graph
+            row.is_active, row.last_seen, row.graph = True, when, graph
             n += 1
     await db.commit()
     return n
 
 
-async def refresh_active(db, still_open: set | None) -> None:
-    """A path whose weaknesses NodeZero has all closed since is no longer active (the GRC attack path check reads this)."""
-    if still_open is None:
-        return
+async def prune(db, still_open: set | None, recent) -> dict:
+    """Keep only what's real now: delete paths that aren't, then assets only NodeZero knew with nothing of its left."""
+    from sqlalchemy import delete
+
+    from api.models.device import Device
     from api.models.risk import AttackPath
-    for row in (await db.execute(select(AttackPath).where(AttackPath.confirmed_by == SOURCE, AttackPath.is_active.is_(True)))).scalars():
-        if not any((ip, v) in still_open for ip, v in (row.graph or {}).get("pairs") or []):
-            row.is_active = False
+    from api.models.vuln import Finding
+    if still_open is None:   # no series from the API: nothing to judge by, so nothing is removed
+        return {"paths": 0, "assets": 0}
+    gone = [row.id for row in (await db.execute(select(AttackPath).where(AttackPath.confirmed_by == SOURCE))).scalars()
+            if not is_active([tuple(x) for x in (row.graph or {}).get("pairs") or []], (row.graph or {}).get("completed_at")
+                             or row.last_seen, still_open, recent)]
+    for i in range(0, len(gone), 500):
+        await db.execute(delete(AttackPath).where(AttackPath.id.in_(gone[i:i + 500])))
+    has_finding = select(Finding.device_id).where(Finding.source == SOURCE)
+    has_path = select(AttackPath.target_device_id).where(AttackPath.confirmed_by == SOURCE, AttackPath.target_device_id.is_not(None))
+    # Only NodeZero ever knew it and nothing of NodeZero's is left: it isn't an asset any more
+    stale = (await db.execute(select(Device.id).where(Device.sources == f",{SOURCE},", Device.id.not_in(has_finding),
+                                                     Device.id.not_in(has_path)))).scalars().all()
+    for i in range(0, len(stale), 500):
+        await db.execute(delete(Device).where(Device.id.in_(stale[i:i + 500])))
     await db.commit()
+    return {"paths": len(gone), "assets": len(stale)}
 
 
 def _when(v):

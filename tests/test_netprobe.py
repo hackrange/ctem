@@ -19,10 +19,10 @@ import collector_netprobe as np  # noqa: E402
 
 
 def test_scope_is_internal_minus_exclusions_and_sweeps_skip_managed_hosts():
-    s = {"targets": {"hosts": ["10.82.180.50", "8.8.8.8", "10.40.1.1", "not-an-ip"], "sweep": ["10.82.180.0/24", "10.0.0.0/8"],
+    s = {"targets": {"hosts": ["10.82.180.50", "198.51.100.7", "10.40.1.1", "not-an-ip"], "sweep": ["10.82.180.0/24", "10.0.0.0/8"],
                      "skip": ["10.82.180.11"]}, "exclude_cidrs": "10.40.0.0/16"}
     got = np.targets(s, np.exclusions(s), 10_000)
-    assert got[0] == "10.82.180.50" and "8.8.8.8" not in got and "10.40.1.1" not in got   # public and excluded: never
+    assert got[0] == "10.82.180.50" and "198.51.100.7" not in got and "10.40.1.1" not in got   # public and excluded: never
     assert "10.82.180.11" not in got and "10.82.180.12" in got and len(got) == 253          # the /24 minus one managed host
     assert not any(ip.startswith("10.0.") for ip in got)                                     # nothing wider than a /24 is swept
     assert len(np.targets({**s, "sweep_subnets": "off"}, [], 10_000)) == 2
@@ -84,7 +84,7 @@ def test_results_refuse_public_addresses():
     from api.collector.schemas import NetProbeResult
     assert NetProbeResult(ip="10.1.2.3", alive=True, ports=[22]).ip == "10.1.2.3"
     with pytest.raises(ValidationError):
-        NetProbeResult(ip="8.8.8.8")
+        NetProbeResult(ip="198.51.100.7")
 
 
 @pytest.mark.asyncio

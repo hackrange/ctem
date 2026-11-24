@@ -251,7 +251,7 @@ async def test_open_weakness_series_are_findings_whichever_pentest_saw_them(db, 
         return select(model).where(*where).execution_options(populate_existing=True)
     mine = (await db.execute(fresh(Finding, Finding.source == "horizon3", Finding.device_id == d.id, Finding.status == FindingStatus.open))).scalars().all()
     assert len(mine) == 1 and mine[0].ports == "139/tcp 445/tcp" and mine[0].details["has_proof"] and mine[0].is_reachable is True
-    assert (await db.execute(fresh(Finding, Finding.id == stale.id))).scalar_one().status == FindingStatus.remediated   # no longer open
+    assert (await db.execute(fresh(Finding, Finding.id == stale.id))).scalar_one_or_none() is None   # no longer open: gone, not history
     assert (await db.execute(fresh(Finding, Finding.id == other.id))).scalar_one().is_reachable is True    # same CVE, other source
     cam = (await db.execute(select(Device).where(Device.ip_hash == search_hash(camera)))).scalar_one()      # seen in June only: an asset
     cf = (await db.execute(fresh(Finding, Finding.source == "horizon3", Finding.device_id == cam.id))).scalar_one()
@@ -279,8 +279,19 @@ async def test_open_weakness_series_are_findings_whichever_pentest_saw_them(db, 
     assert r.status_code == 200 and body["chains"][0]["impact"] == "Host Compromise" and "pairs" not in body["chains"][0]
     assert body["findings"][0]["proof"]["steps"][0]["command"] == "nuclei -l urls.txt"
     from api.integrations import horizon3_story as story
-    await story.refresh_active(db, set())   # NodeZero closed every weakness: the path is no longer active
-    assert (await db.execute(fresh(AttackPath, AttackPath.id == path.id))).scalar_one().is_active is False
+    # NodeZero closes every weakness: the path is deleted, and an asset only NodeZero knew with nothing left goes too
+    from datetime import timedelta as _td
+    ghost = Device(hostname=f"ghost-{n}", device_type=DeviceType.unknown, sources=",horizon3,")
+    kept = Device(hostname=f"kept-{n}", device_type=DeviceType.unknown, sources=",horizon3,rapid7_insightvm,")
+    db.add_all([ghost, kept])
+    await db.commit()
+    ghost_id, kept_id, path_id = ghost.id, kept.id, path.id
+    got = await story.prune(db, set(), datetime.now(timezone.utc) - _td(days=30))
+    assert got["paths"] >= 1 and got["assets"] >= 1
+    assert (await db.execute(fresh(AttackPath, AttackPath.id == path_id))).scalar_one_or_none() is None
+    assert (await db.execute(fresh(Device, Device.id == ghost_id))).scalar_one_or_none() is None
+    assert (await db.execute(fresh(Device, Device.id == kept_id))).scalar_one_or_none() is not None   # another tool knows it
+    assert (await db.execute(fresh(Device, Device.id == cam.id))).scalar_one_or_none() is not None    # its finding is still open
     dev = (await db.execute(fresh(Device, Device.id == d.id))).scalar_one()
     assert dev.pentest["open_services"] == [{"port": 445, "protocol": "tcp"}, {"port": 139, "protocol": "tcp"}]
 
@@ -305,3 +316,18 @@ def test_steps_follow_the_edges_from_the_launch():
     assert steps_of(None) == []
     assert redact("Authorization: Bearer abc", 100) == "Authorization: [redacted]"
     assert redact("x" * 50, 10).endswith("…")
+
+
+
+def test_a_path_is_real_only_while_its_weakness_is_open_or_its_credentials_are_recent():
+    from datetime import timedelta
+
+    from api.integrations.horizon3_story import is_active
+    now = datetime.now(timezone.utc)
+    recent = now - timedelta(days=30)
+    open_ = {("192.0.2.5", "CVE-2021-33044")}
+    assert is_active([("192.0.2.5", "CVE-2021-33044")], "2026-01-01T00:00:00", open_, recent)    # weakness still open, however old
+    assert not is_active([("192.0.2.5", "CVE-2020-0001")], now.isoformat(), open_, recent)      # its weakness is fixed
+    assert is_active([], (now - timedelta(days=3)).isoformat(), open_, recent)                  # credentials, recent pentest
+    assert not is_active([], (now - timedelta(days=90)).isoformat(), open_, recent)             # credentials, old pentest
+    assert is_active([], None, None, recent)                                                    # no series: nothing to judge by

@@ -67,6 +67,8 @@ class Settings(BaseSettings):
     phone_default_region: str = Field("US", pattern=r"^[A-Za-z]{2}$")
     # Comma-separated prefixes of admin/alt accounts that belong to a person (sulocal_jdoe -> jdoe)
     account_alias_prefixes: str = Field("sulocal_", max_length=512, pattern=r"^[A-Za-z0-9_.,-]*$")
+    # A host no tool has seen in this many days, that doesn't answer the network probe either, loses its findings
+    stale_host_days: int = Field(30, ge=7, le=365)
 
     # ── Email ─────────────────────────────────────────────────────────────────
     # EMAIL_MODE: smtp | ms365 | disabled

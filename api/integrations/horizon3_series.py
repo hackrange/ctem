@@ -126,11 +126,12 @@ async def mark_exploited(db, vuln_ids: set, cves: set) -> None:
 
 
 async def close_the_rest(db, seen: set) -> int:
-    """NodeZero findings whose weakness series is no longer open: fixed, as NodeZero says."""
-    from api.models.vuln import Finding, FindingStatus
-    n = 0
-    for f in (await db.execute(select(Finding).where(Finding.source == SOURCE, Finding.status == FindingStatus.open))).scalars():
-        if f.source_id not in seen:
-            f.status, n = FindingStatus.remediated, n + 1
+    """NodeZero findings whose weakness series is no longer open are gone: CTEM keeps only what NodeZero has open now."""
+    from sqlalchemy import delete
+
+    from api.models.vuln import Finding
+    ids = [f.id for f in (await db.execute(select(Finding).where(Finding.source == SOURCE))).scalars() if f.source_id not in seen]
+    for i in range(0, len(ids), 500):
+        await db.execute(delete(Finding).where(Finding.id.in_(ids[i:i + 500])))
     await db.commit()
-    return n
+    return len(ids)
