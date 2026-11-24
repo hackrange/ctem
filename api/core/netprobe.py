@@ -1,8 +1,9 @@
 """The shipper's network discovery (api/collector/agent/collector_netprobe.py), CTEM's half.
 
-targets(): what to probe. Only addresses nothing manages: hosts with an internal address that no vulnerability
-scanner, EDR or directory covers (a pentest or cloud inventory found them), plus the /24s they sit in so unknown
-devices turn up, minus every managed host in those /24s. The box limits it again to its own approved scope.
+targets(): what to probe. Addresses nothing manages: hosts with an internal address that no vulnerability scanner,
+EDR or directory covers (a pentest or cloud inventory found them), plus the /24s they sit in so unknown devices turn
+up, minus every managed host in those /24s. Also any host no tool has seen in the retention window, so it can be
+confirmed offline before its findings are removed (api/core/stale_hosts.py). The box limits it to its own scope.
 
 apply(): what came back. An answering address CTEM knows gets "alive" with its open ports; one it doesn't know is a
 new asset from source netprobe: a device on the network no tool manages."""
@@ -40,8 +41,11 @@ async def targets(db) -> dict:
             hosts.append(str(d.ip).strip())
             nets[net] = nets.get(net, 0) + 1
     sweep = sorted(nets, key=lambda n: -nets[n])[:MAX_NETS]   # the /24s with the most unmanaged hosts first
-    skip = sorted({ip for n in sweep for ip in managed_by_net.get(n, ())})
-    return {"hosts": sorted(set(hosts))[:MAX_HOSTS], "sweep": sweep, "skip": skip[:MAX_HOSTS * 2]}
+    # Hosts no tool has seen in the retention window are tried too, so they're confirmed offline before anything goes
+    from api.core.stale_hosts import candidates
+    stale = set(await candidates(db))
+    skip = sorted({ip for n in sweep for ip in managed_by_net.get(n, ())} - stale)
+    return {"hosts": sorted(set(hosts) | stale)[:MAX_HOSTS], "sweep": sweep, "skip": skip[:MAX_HOSTS * 2]}
 
 
 async def apply(db, probes: list[dict]) -> int:

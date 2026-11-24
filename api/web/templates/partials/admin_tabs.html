@@ -10,4 +10,6 @@
      {% if admin_tab == 'sso' %}aria-current="page"{% endif %}>Single sign-on</a>
   <a class="page-tabs__tab{% if admin_tab == 'maintenance' %} is-active{% endif %}" href="/admin/maintenance"
      {% if admin_tab == 'maintenance' %}aria-current="page"{% endif %}>Maintenance</a>
+  <a class="page-tabs__tab{% if admin_tab == 'retention' %} is-active{% endif %}" href="/admin/retention"
+     {% if admin_tab == 'retention' %}aria-current="page"{% endif %}>Data retention</a>
 </nav>

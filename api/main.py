@@ -94,6 +94,7 @@ def create_app() -> FastAPI:
     from api.routes.device_edr import router as device_edr_router
     from api.routes.device_context import router as device_context_router
     from api.routes.locations import router as locations_router
+    from api.routes.retention_settings import router as retention_router
     from api.routes.hunt_data import router as hunt_data_router
     from api.routes.email_test import router as email_test_router
     from api.routes.sla_settings import router as sla_router
@@ -157,6 +158,7 @@ def create_app() -> FastAPI:
     app.include_router(device_edr_router)
     app.include_router(device_context_router)
     app.include_router(locations_router)
+    app.include_router(retention_router)
     app.include_router(hunt_data_router)
     app.include_router(email_test_router)
     app.include_router(software_router)
@@ -318,6 +320,7 @@ def _register_web_routes(app: FastAPI) -> None:
     # ── Admin ─────────────────────────────────────────────────────────────────
     app.get("/admin", response_class=HTMLResponse, include_in_schema=False)(_render("pages/admin.html", "/admin"))
     app.get("/admin/maintenance", response_class=HTMLResponse, include_in_schema=False)(_render("pages/maintenance.html", "/admin"))
+    app.get("/admin/retention", response_class=HTMLResponse, include_in_schema=False)(_render("pages/retention.html", "/admin"))
 
     # ── Profile ───────────────────────────────────────────────────────────────
     app.get("/profile", response_class=HTMLResponse, include_in_schema=False)(_render("pages/profile.html", "/"))

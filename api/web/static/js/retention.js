@@ -1,0 +1,23 @@
+// Admin > Data retention (api/routes/retention_settings.py). Everything shown goes through esc() or textContent.
+(() => {
+  const $ = id => document.getElementById(id);
+  async function load() {
+    const r = await fetch('/api/v1/retention', { headers: { Accept: 'application/json' } });
+    if (!r.ok) { $('ret-msg').textContent = 'Couldn\'t load the settings.'; return; }
+    const d = await r.json();
+    $('ret-enabled').checked = d.enabled;
+    $('ret-days').value = d.stale_host_days;
+    $('ret-probe').value = d.probe_within_days;
+    $('ret-now').innerHTML = `Right now: <b>${esc(d.now.unseen_with_findings)}</b> hosts with findings haven't been seen in ${esc(d.stale_host_days)} days;
+      <b>${esc(d.now.confirmed_offline)}</b> of them the probe has confirmed offline (those lose their findings at the next daily run, 03:30 UTC).`;
+  }
+  $('ret-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const body = { enabled: $('ret-enabled').checked, stale_host_days: Number($('ret-days').value), probe_within_days: Number($('ret-probe').value) };
+    const r = await fetch('/api/v1/retention', { method: 'PUT', headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const d = await r.json().catch(() => ({}));
+    $('ret-msg').textContent = r.ok ? 'Saved.' : (typeof d.detail === 'string' ? d.detail : 'Check the numbers: days 7-365, probe 1-30.');
+    if (r.ok) load();
+  });
+  load();
+})();
