@@ -226,8 +226,10 @@ async def test_forwarded_headers_count_only_from_the_proxy():
         return {"type": "http", "client": (peer, 5555), "scheme": "http",
                 "headers": [(b"x-forwarded-for", b"203.0.113.9"), (b"x-forwarded-proto", b"https")]}
     mw = TrustedProxyMiddleware(app, "localhost")
-    await mw(scope("127.0.0.1"), None, None)
+    via = scope("127.0.0.1")
+    await mw(via, None, None)
     assert seen == {"client": ("203.0.113.9", 0), "scheme": "https"}
+    assert via["client"] == ("203.0.113.9", 0)   # the server's own scope too, for its access log
     await mw(scope("10.100.142.8"), None, None)                 # another container on the network
     assert seen == {"client": ("10.100.142.8", 5555), "scheme": "http"}
     await TrustedProxyMiddleware(app, "")(scope("127.0.0.1"), None, None)   # no proxy configured: headers ignored

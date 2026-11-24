@@ -65,11 +65,11 @@ class TrustedProxyMiddleware:
                     ip = xff.split(",")[-1].strip()   # the entry the proxy itself wrote
                     try:
                         ipaddress.ip_address(ip)
-                        scope = {**scope, "client": (ip, 0)}
+                        scope["client"] = (ip, 0)   # in place, so uvicorn's access log shows the real client too
                     except ValueError:
                         pass
                 proto = (_header(scope, b"x-forwarded-proto") or "").strip().lower()
                 if proto in ("http", "https"):
                     scheme = ("wss" if proto == "https" else "ws") if scope["type"] == "websocket" else proto
-                    scope = {**scope, "scheme": scheme}
+                    scope["scheme"] = scheme
         await self.app(scope, receive, send)
