@@ -151,3 +151,44 @@ async def test_context_tab_shows_neighbors_gaps_and_is_for_the_security_team(db,
     assert body["subnet_coverage"]["edr"] == 1
     assert (await client_read_only.get(f"/api/v1/devices/{cam_id}/context")).status_code == 404
     assert (await client_cyber.get(f"/api/v1/devices/{uuid.uuid4()}/context")).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_sites_and_location_filters(db, client_cyber, client_read_only):
+    import random
+
+    from api.core.encryption import search_hash
+    from api.models.device import Device, DeviceType
+    from api.models.vuln import Finding, FindingStatus, Vulnerability
+    tag = uuid.uuid4().hex[:6]
+    city, net = f"Springfield{tag}", f"10.{random.randint(200, 250)}.{random.randint(0, 255)}"
+    a = Device(hostname=f"a-{tag}", device_type=DeviceType.workstation, sources=",rapid7_insightvm,crowdstrike,", edr_vendor="crowdstrike",
+               ip=f"{net}.5", ip_hash=search_hash(f"{net}.5"), subnet_hash=search_hash(f"{net}.0/24"), loc_city=city, loc_state="IL",
+               loc_confidence="high", open_findings=2)
+    b = Device(hostname=f"b-{tag}", device_type=DeviceType.unknown, sources=",horizon3,", ip=f"{net}.50", ip_hash=search_hash(f"{net}.50"),
+               subnet_hash=search_hash(f"{net}.0/24"), loc_city=city, loc_state="IL", loc_confidence="medium")
+    other = Device(hostname=f"c-{tag}", device_type=DeviceType.server, loc_city="Dallas", loc_state="TX")
+    v = Vulnerability(source="t_loc", source_vuln_id=f"v{tag}", title=f"Loc vuln {tag}", cvss_base=9.0)
+    db.add_all([a, b, other, v])
+    await db.flush()
+    db.add_all([Finding(device_id=a.id, vuln_id=v.id, source="t_loc", status=FindingStatus.open),
+                Finding(device_id=other.id, vuln_id=v.id, source="t_loc", status=FindingStatus.open)])
+    await db.commit()
+
+    r = await client_cyber.get("/api/v1/locations")
+    row = next(x for x in r.json()["locations"] if x["city"] == city)
+    assert (row["assets"], row["scanner"], row["edr"], row["pentest"], row["pentest_only"], row["open_findings"]) == (2, 1, 1, 1, 1, 2)
+    assert f"{city}|IL" in r.json()["cities"]
+    assert (await client_read_only.get("/api/v1/locations")).status_code == 404
+    resp = await client_cyber.get("/api/v1/locations/subnets", params={"loc_city": city, "loc_state": "IL"})
+    subs = resp.json()["subnets"]
+    assert subs[0]["subnet"] == f"{net}.0/24" and subs[0]["assets"] == 2 and subs[0]["pentest_only"] == 1
+
+    names = lambda r: sorted(d["hostname"].lower() for d in r.json()["devices"])   # noqa: E731
+    assert names(await client_cyber.get("/api/v1/devices", params={"loc_city": city, "asset": "hosts"})) == [f"a-{tag}", f"b-{tag}"]
+    assert names(await client_cyber.get("/api/v1/devices", params={"subnet": f"{net}.0/24", "q": tag})) == [f"a-{tag}", f"b-{tag}"]
+    assert names(await client_cyber.get("/api/v1/devices", params={"loc_state": "TX", "q": tag})) == [f"c-{tag}"]
+    assert (await client_cyber.get("/api/v1/devices", params={"asset": "cloud"})).status_code == 200   # the Vuln Dashboard's Cloud link
+    assert (await client_cyber.get("/api/v1/devices", params={"loc_city": "<x>"})).status_code == 422
+    vr = (await client_cyber.get("/api/v1/vulns", params={"q": f"Loc vuln {tag}", "loc_state": "IL"})).json()["vulns"]
+    assert len(vr) == 1 and vr[0]["affected_devices"] == 1   # only the Illinois asset counts

@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% set active_nav = 'sites' %}
+
+{% block title %}Sites -- open-ctem{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-header__title">Sites</h1>
+    <p class="page-header__sub">Where assets are (inferred from AD sites, people's offices and neighbors), which tools cover each place, and what only the pentest knows</p>
+  </div>
+</div>
+<div class="panel"><div id="sites-body" style="overflow:auto"><p class="text-muted text-sm" style="padding:14px">Loading...</p></div></div>
+<div class="panel" id="subnets-panel" hidden style="margin-top:16px">
+  <div class="panel__header"><span class="panel__title" id="subnets-title">Subnets</span></div>
+  <div id="subnets-body" style="overflow:auto"></div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ static('js/sites.js') }}"></script>
+{% endblock %}

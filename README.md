@@ -46,6 +46,7 @@ Multipliers applied for: NodeZero-confirmed exploitability, internet exposure, n
 |---|---|
 | Risk grades | A-F with % for every device and user |
 | CVE chaining | MITRE ATT&CK technique correlation detects multi-CVE attack paths |
+| Sites and neighborhoods | Each asset's likely office, city and state (from EDR AD sites, people's offices, and its /24 and public-address neighbors), with evidence; a Sites page with per-place tool coverage and pentest-only gaps; location filters on Devices and Vulnerabilities |
 | Compensating controls | Firewall, EDR, Zscaler, Guardicore policies auto-adjust scores |
 | CISA KEV override | KEV findings always floor at 75/100 |
 | KEV + EPSS enrichment | Daily CISA KEV flags and FIRST EPSS scores, refreshed again after every sync (`THREAT_FEEDS_ENABLED=false` to turn off) |

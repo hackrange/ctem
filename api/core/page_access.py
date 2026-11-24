@@ -55,6 +55,7 @@ _PAGES: dict[str, PagePolicy] = {p.slug: p for p in [
                                    tags=["threat","hunt","soc"]),
     PagePolicy("/hunt/telemetry",  allowed_roles=["admin","cyber"],
                                    tags=["threat","hunt","soc"]),
+    PagePolicy("/sites",           allowed_roles=["admin","cyber"]),   # matches the API: where everything is
     PagePolicy("/attack-paths",    allowed_roles=["admin","cyber"],
                                    tags=["threat","vuln"]),
     PagePolicy("/grc",             allowed_roles=["admin","cyber","business_stakeholder","read_only"],

@@ -73,6 +73,7 @@
       <option value="rapid7_cloudsec">Rapid7 CloudSec</option>
       <option value="ldap">Active Directory (AD)</option>
     </select>
+    <select id="filter-location" class="filter-select" aria-label="Location" hidden></select>
   </div>
 </div>
 
@@ -82,6 +83,7 @@
 {% endblock %}
 
 {% block extra_scripts %}
+<script src="{{ static('js/location_filter.js') }}"></script>
 <script src="{{ static('js/data_table.js') }}"></script>
 <script src="{{ static('js/device_assign.js') }}"></script>
 <script>
@@ -127,6 +129,7 @@ const CARD = {
   fix: [/^[A-Za-z0-9._:@\/+\-]{1,160}$/, v => `Needs fix: ${v.split(':').slice(1).join(':').slice(0, 60)}`],
   repo_org: [/^[A-Za-z0-9._\-]{1,100}$/, v => `Organization: ${v}`],
   repo: [/^[A-Za-z0-9._\-]{1,100}\/[A-Za-z0-9._\-]{1,150}$/, v => `Repository: ${v}`],
+  ...LocationFilter.CHIPS,
 };
 const card = {};
 Object.entries(CARD).forEach(([k, [re]]) => { const v = initial.get(k); if (v && re.test(v)) card[k] = v; });
@@ -136,6 +139,7 @@ const ASSETS = {
   hosts: { title: 'Hosts', sub: 'Workstations, servers, network devices and cloud instances', search: 'Hostname, user, IP, MAC, or tag' },
   repositories: { title: 'Repositories', sub: 'Code your SAST, dependency and secrets scanners check', search: 'Repository name or tag' },
   sites: { title: 'Web applications', sub: 'Sites your DAST and web scanners check', search: 'Site or tag' },
+  cloud: { title: 'Cloud resources', sub: 'Accounts, buckets, roles and networks your CSPM tool checks', search: 'Resource name or tag' },
   all: { title: 'All assets', sub: 'Hosts, repositories and web applications', search: 'Name, user, IP, MAC, or tag' },
 };
 const asset = ASSETS[initial.get('asset')] ? initial.get('asset') : 'hosts';
@@ -145,7 +149,7 @@ document.title = `${ASSETS[asset].title} -- open-ctem`;
 $('search-input').placeholder = ASSETS[asset].search;
 $('search-input').setAttribute('aria-label', `Search ${ASSETS[asset].title.toLowerCase()}`);
 document.querySelectorAll('#inv-kind [data-asset]').forEach(a => a.setAttribute('aria-current', a.dataset.asset === asset ? 'page' : 'false'));
-if (asset === 'repositories' || asset === 'sites') $('filter-type').hidden = true;
+if (asset === 'repositories' || asset === 'sites' || asset === 'cloud') $('filter-type').hidden = true;
 const tagVals = (d, prefix) => (d.tags || []).filter(t => t.toLowerCase().startsWith(prefix)).map(t => t.slice(prefix.length));
 function showStale() {
   const box = $('stale-filter');
@@ -227,5 +231,6 @@ TagFocus.chips($('tag-filters'), 'Tag');
 window.addEventListener('tag-focus-changed', () => table.reload());
 showStale();
 $('stale-filter').addEventListener('click', e => { const b = e.target.closest('[data-clear]'); if (b) { delete card[b.dataset.clear]; showStale(); table.reload(); } });
+LocationFilter.mount($('filter-location'), card, () => { showStale(); table.reload(); });
 </script>
 {% endblock %}

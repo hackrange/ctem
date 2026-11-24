@@ -84,6 +84,21 @@ def _like(q: str) -> str:
 INVENTORY_STATUSES = ("shipped", "lost", "stolen", "returned")
 
 
+def location_filters(card: dict) -> list:
+    """Where an asset is: office, AD site, city, state, or one internal subnet (matched by its keyed hash)."""
+    out = []
+    for key, col in (("loc_state", Device.loc_state), ("loc_city", Device.loc_city), ("loc_site", Device.loc_site),
+                     ("loc_office", Device.loc_office)):
+        if card.get(key):
+            out.append(col == str(card[key])[:128])
+    if card.get("subnet"):
+        from api.core.encryption import search_hash
+        from api.core.location import subnet_of
+        net = subnet_of(str(card["subnet"]).split("/")[0])
+        out.append(Device.subnet_hash == (search_hash(net) if net else "-"))
+    return out
+
+
 def card_filters(card: dict) -> list:
     """Same conditions the asset widgets count with, so a card and its list always agree."""
     from datetime import timedelta
@@ -104,6 +119,7 @@ def card_filters(card: dict) -> list:
         out.append(Device.device_type.not_in(NON_HOST_TYPES))
     elif card.get("asset") == "cloud":       # its Cloud tab: resources a CSPM tool checks
         out.append(Device.device_type == DeviceType.cloud_resource)
+    out += location_filters(card)
     if card.get("repo"):   # one code repository, by its "org/name"
         out += [Device.device_type == DeviceType.code_repository, Device.hostname == card["repo"]]
     if card.get("repo_org"):   # every repository of one organization; its own _ and % are not LIKE wildcards
@@ -454,4 +470,14 @@ def with_tags(scope, tags: list[str] | None):
     cond = tag_cond(tags)
     if cond is None:
         return scope
+    return cond if scope is None else and_(scope, cond)
+
+
+def with_location(scope, card: dict):
+    """A viewer's device scope narrowed to where assets are (the Vulnerabilities page's location filter)."""
+    from sqlalchemy import and_
+    conds = location_filters(card)
+    if not conds:
+        return scope
+    cond = and_(*conds)
     return cond if scope is None else and_(scope, cond)

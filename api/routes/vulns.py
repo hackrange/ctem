@@ -50,6 +50,16 @@ def _oldest(scope):
     return stmt.correlate(Vulnerability).scalar_subquery()
 
 
+def _PLACE():   # one per parameter: FastAPI binds a shared Query object to the first name it sees
+    return Query(None, max_length=128, pattern=r"^[^\x00-\x1f<>]+$")
+
+
+def _where(loc_state: str | None = _PLACE(), loc_city: str | None = _PLACE(), loc_site: str | None = _PLACE(),
+           loc_office: str | None = _PLACE()) -> dict:
+    """Only vulnerabilities on assets in this place (api/core/location.py)."""
+    return {"loc_state": loc_state, "loc_city": loc_city, "loc_site": loc_site, "loc_office": loc_office}
+
+
 _AGE = Query(None, ge=0, le=36500, description="Only vulnerabilities whose oldest open finding is at least this many days old")
 _TYPE = Query(None, alias="type", pattern="^(infra|code|web|cloud)$", description="Infrastructure, Code, Web apps or Cloud; none = all")
 
@@ -129,9 +139,10 @@ async def list_vulns(
     order: str | None = Query(None, pattern="^(asc|desc)$"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0, le=1_000_000),
+    where: dict = Depends(_where),
     _sla: None = Depends(sla.fresh),
 ):
-    scope = dq.with_tags(await device_scope(current_user, db), tag)
+    scope = dq.with_location(dq.with_tags(await device_scope(current_user, db), tag), where)
     # People who see only some assets see only vulnerabilities on at least one of them: the catalog of everything
     # else would open onto empty affected lists
     affected_only = affected_only or scope is not None
@@ -156,9 +167,10 @@ async def export_vulns(
     min_age_days: int | None = _AGE,
     sort: str | None = Query(None, max_length=32),
     order: str | None = Query(None, pattern="^(asc|desc)$"),
+    where: dict = Depends(_where),
     _sla: None = Depends(sla.fresh),
 ):
-    scope = dq.with_tags(await device_scope(current_user, db), tag)
+    scope = dq.with_location(dq.with_tags(await device_scope(current_user, db), tag), where)
     affected_only = affected_only or scope is not None
     stmt, cols = _vuln_query(scope, q, is_kev, min_cvss, source, affected_only, vtype, min_age_days, exploited)
     stmt = _sorted_vulns(stmt, cols, sort, order)

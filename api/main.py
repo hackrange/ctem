@@ -93,6 +93,7 @@ def create_app() -> FastAPI:
     from api.routes.integration_truncate import router as truncate_router
     from api.routes.device_edr import router as device_edr_router
     from api.routes.device_context import router as device_context_router
+    from api.routes.locations import router as locations_router
     from api.routes.hunt_data import router as hunt_data_router
     from api.routes.email_test import router as email_test_router
     from api.routes.sla_settings import router as sla_router
@@ -155,6 +156,7 @@ def create_app() -> FastAPI:
     app.include_router(truncate_router)
     app.include_router(device_edr_router)
     app.include_router(device_context_router)
+    app.include_router(locations_router)
     app.include_router(hunt_data_router)
     app.include_router(email_test_router)
     app.include_router(software_router)
@@ -300,6 +302,7 @@ def _register_web_routes(app: FastAPI) -> None:
     app.get("/hunt", response_class=HTMLResponse, include_in_schema=False)(_render("pages/hunt.html", "/hunt"))
     app.get("/hunt/telemetry", response_class=HTMLResponse, include_in_schema=False)(_render("pages/hunt_telemetry.html", "/hunt/telemetry"))
     app.get("/attack-paths", response_class=HTMLResponse, include_in_schema=False)(_render("pages/attack_paths.html", "/attack-paths"))
+    app.get("/sites", response_class=HTMLResponse, include_in_schema=False)(_render("pages/sites.html", "/sites"))
     app.get("/grc", response_class=HTMLResponse, include_in_schema=False)(_render("pages/grc.html", "/grc"))
     app.get("/grc/checks/{check_type}", response_class=HTMLResponse, include_in_schema=False)(_render("pages/grc_check.html", "/grc"))
     app.get("/grc/assessments/{assessment_id}", response_class=HTMLResponse, include_in_schema=False)(_render("pages/grc_assessment.html", "/grc"))

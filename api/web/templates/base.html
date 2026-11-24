@@ -131,7 +131,7 @@
     })();
   </script>
 
-  {% if can_see_any(user, ['/threat', '/identity', '/hunt', '/cloud', '/attack-paths', '/grc', '/cmdb']) %}
+  {% if can_see_any(user, ['/threat', '/identity', '/hunt', '/cloud', '/sites', '/attack-paths', '/grc', '/cmdb']) %}
   <div class="sidebar__section">
     <div class="sidebar__label">Analysis</div>
 {% if can_see(user, '/threat') %}
@@ -156,6 +156,12 @@
     <a href="/cloud" class="sidebar__link {% if active_nav == 'cloud' %}active{% endif %}">
       <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 10h-1.26A8 8 0 109 20h9a5 5 0 000-10z"/></svg>
       Cloud
+    </a>
+    {% endif %}
+{% if can_see(user, '/sites') %}
+    <a href="/sites" class="sidebar__link {% if active_nav == 'sites' %}active{% endif %}">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 21s-7-6.1-7-11a7 7 0 0 1 14 0c0 4.9-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+      Sites
     </a>
     {% endif %}
 {% if can_see(user, '/attack-paths') %}

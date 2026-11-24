@@ -56,6 +56,7 @@
       <option value="rapid7_cloudsec" data-types="cloud">Rapid7 CloudSec</option>
       <option value="horizon3" data-types="infra">NodeZero (pentest)</option>
     </select>
+    <select id="filter-location" class="filter-select" aria-label="Location" hidden></select>
     <label class="text-sm" style="display:flex;align-items:center;gap:6px">
       <input type="checkbox" id="filter-affected" checked> <span id="filter-affected-label">With affected devices</span>
     </label>
@@ -69,6 +70,7 @@
 {% endblock %}
 
 {% block extra_scripts %}
+<script src="{{ static('js/location_filter.js') }}"></script>
 <script src="{{ static('js/sla_settings.js') }}"></script>
 <script src="{{ static('js/data_table.js') }}"></script>
 <script src="{{ static('js/exception_modal.js') }}"></script>
@@ -112,6 +114,9 @@ const FILTERS = { q: 'search-input', is_kev: 'filter-kev', exploited: 'filter-ex
 
 const initial = new URLSearchParams(location.search);
 Object.entries(FILTERS).forEach(([k, id]) => { if (initial.get(k)) $(id).value = initial.get(k); });
+// Where the affected assets are (a Sites link, or the Location picker)
+const where = {};
+Object.entries(LocationFilter.CHIPS).forEach(([k, [re]]) => { const v = initial.get(k); if (k !== 'subnet' && v && re.test(v)) where[k] = v; });
 // "With affected ..." starts checked for Infrastructure and Code, unchecked for Web apps (a site scan's findings
 // matter even before they map to an asset); a link's own choice wins on load
 function affectedDefault() {
@@ -146,7 +151,7 @@ table = DataTable.create({
   params: () => ({
     q: $('search-input').value.trim(), is_kev: $('filter-kev').value, exploited: $('filter-exploited').value, min_cvss: $('filter-cvss').value,
     source: $('filter-source').value, affected_only: $('filter-affected').checked ? 'true' : 'false',
-    tag: TagFocus.get(), type: vkind === 'all' ? '' : vkind,
+    tag: TagFocus.get(), type: vkind === 'all' ? '' : vkind, ...where,
   }),
   onLoad: () => syncPicks && syncPicks(),
   columns: [
@@ -180,6 +185,7 @@ $('ex-btn').addEventListener('click', () => CtemFindings.exceptionForm({
 let timer;
 $('search-input').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => table && table.reload(), 300); });
 ['filter-kev', 'filter-exploited', 'filter-cvss', 'filter-source', 'filter-affected'].forEach(id => $(id).addEventListener('change', () => table && table.reload()));
+LocationFilter.mount($('filter-location'), where, () => table && table.reload());
 // A tag focus (from the dashboard or device pages) counts and lists only those devices' vulnerabilities
 TagFocus.chips($('tag-focus'), 'Viewing');
 window.addEventListener('tag-focus-changed', () => table && table.reload());
