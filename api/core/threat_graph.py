@@ -35,7 +35,7 @@ def origin(detail: dict) -> dict:
 
 
 def _facts(*pairs) -> list[list[str]]:
-    return [[k, str(v)] for k, v in pairs if v not in (None, "", [], {})][:12]
+    return [[k, str(v)] for k, v in pairs if v not in (None, "", [], {})][:16]
 
 
 def build(alert: dict, detail: dict) -> dict:
@@ -84,7 +84,8 @@ def build(alert: dict, detail: dict) -> dict:
         pid = node(k, "process", _name(p) or "process", col + i, f"PID {p['pid']}" if p.get("pid") is not None else None, hit=last,
                    facts=_facts(("Role", "Process that triggered the alert" if last else k.capitalize()), ("Path", p.get("filepath")),
                                 ("Command line", p.get("cmdline")), ("User", p.get("user")), ("PID", p.get("pid")),
-                                ("Started", p.get("start")), ("Ended", p.get("end")), ("SHA256", p.get("sha256")), ("MD5", p.get("md5")),
+                                ("Started", p.get("start")), ("Ended", p.get("end")), ("SHA256", p.get("sha256")), ("SHA1", p.get("sha1")),
+                                ("MD5", p.get("md5")),
                                 *((("Detected", alert.get("title")), ("MITRE", mitre)) if last else ())))
         edge(at, pid, "Ran" if i == 0 else "Started", hot=last or i == len(chain) - 2)
         at = pid
@@ -108,6 +109,9 @@ def build(alert: dict, detail: dict) -> dict:
            lambda f: _facts(("Path", f.get("filepath")), ("SHA256", f.get("sha256")), ("When", f.get("at"))), "files written")
     _group(node, edge, at, out, "d", "file", "Opened", detail.get("documents"), lambda f: f.get("filename") or f.get("filepath"),
            lambda f: _facts(("Path", f.get("filepath")), ("When", f.get("at"))), "documents opened")
+    _group(node, edge, at, out, "t", "file", "Went after", detail.get("files_accessed"),
+           lambda f: (f.get("filepath") or f.get("filename") or "").replace("\\", "/").rsplit("/", 1)[-1] or f.get("filepath"),
+           lambda f: _facts(("Path", f.get("filepath")), ("When", f.get("at"))), "files accessed")
     conns: dict[str, list[dict]] = {}
     for n in detail.get("network") or []:
         conns.setdefault(f"{n.get('remote')}{':' + str(n['remote_port']) if n.get('remote_port') is not None else ''}", []).append(n)

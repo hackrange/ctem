@@ -13,6 +13,7 @@ _TACTIC = re.compile(r"^TA\d{4}$")
 _LINK = re.compile(r"^https://falcon(?:\.[a-z0-9-]+)*\.crowdstrike\.com/[^\s\"'<>]*$")
 _SHA256 = re.compile(r"^[0-9a-fA-F]{64}$")
 _MD5 = re.compile(r"^[0-9a-fA-F]{32}$")
+_SHA1 = re.compile(r"^[0-9a-fA-F]{40}$")
 _IP = re.compile(r"^[0-9A-Fa-f:.]{2,45}$")
 _MAC = re.compile(r"^[0-9A-Fa-f]{2}([-:][0-9A-Fa-f]{2}){5}$")
 _CTRL = re.compile(r"[\x00-\x1f\x7f]")
@@ -37,11 +38,12 @@ LIST_CAP = 50
 # (source and target endpoint, address, account, domain, logon type), which vary by alert type: keep any field whose
 # name says it is one of those, as short text. Hashes, paths, command lines and ids are kept elsewhere or not at all.
 _CTX_KEY = re.compile(r"(^|_)(ip|ip4|ip6|ipv4|ipv6|address|addr|host|hostname|endpoint|account|user|upn|domain|logon|"
-                      r"src|source|target|dest|destination|remote|client|workstation|computer|port|protocol|country|"
+                      r"src|source|target|dest|destination|remote|client|workstation|computer|port|protocol|country|login|admin|server|"
                       r"city|asn|isp)s?(_|$)", re.I)
-_CTX_SKIP = re.compile(r"(hash|sha|md5|cmd|command|path|link|url|description|_id$|^id$|cid|aid|timestamp|time$|name_space)", re.I)
+_CTX_SKIP = re.compile(r"(hash|sha|md5|cmd|command|path|link|url|description|_id$|^id$|cid|aid|timestamp|name_space)", re.I)
 _CTX_TAKEN = {"device", "parent_details", "grandparent_details", "quarantined_files", "network_accesses", "dns_requests",
-              "files_written", "executables_written", "documents_accessed", "mitre_attack", "pattern_disposition_details",
+              "files_written", "executables_written", "documents_accessed", "files_accessed", "file_writes", "targeted_files",
+              "mitre_attack", "pattern_disposition_details",
               "user_name", "logon_domain", "user_principal", "user_id", "filename", "filepath", "cmdline"}
 _CTX_NAME = re.compile(r"^[a-z0-9_.]{1,80}$")
 CTX_CAP = 25
@@ -49,7 +51,7 @@ CTX_CAP = 25
 
 def _ctx_value(v):
     if isinstance(v, bool):
-        return None
+        return "yes" if v else "no"
     if isinstance(v, (int, float)):
         return str(v)[:32]
     if isinstance(v, list):
@@ -131,6 +133,7 @@ def _proc(p, user=None):
     out = {"filename": txt(p.get("filename") or p.get("image_file_name"), 260),
            "filepath": txt(p.get("filepath"), 1024), "cmdline": txt(p.get("cmdline"), 4000),
            "sha256": _match(_SHA256, p.get("sha256"), 64), "md5": _match(_MD5, p.get("md5"), 32),
+           "sha1": _match(_SHA1, p.get("sha1"), 40),
            "pid": _int(p.get("local_process_id") or p.get("process_id")),
            "start": when(p.get("process_start_time") or p.get("timestamp")),
            "end": when(p.get("process_end_time")),
@@ -214,6 +217,8 @@ def detail(a):
         "quarantined": _list(a.get("quarantined_files"), _quarantined, 20),
         "files_written": _list(a.get("files_written") or a.get("executables_written"), _file),
         "documents": _list(a.get("documents_accessed"), _file),
+        "files_accessed": _list(a.get("files_accessed") or a.get("file_writes") or a.get("targeted_files"), _file),
+        "ioa_name": txt(a.get("name") if a.get("name") != a.get("display_name") else a.get("pattern_name") or a.get("name"), 200),
         "network": _list(a.get("network_accesses"), _net),
         "dns": _list(a.get("dns_requests"), _dns),
         "mitre": _list(a.get("mitre_attack"), _mitre, 10),
@@ -266,7 +271,7 @@ def _clean_proc(p):
         return None
     out = {k: txt(p.get(k), cap) for k, cap in _PROC_KEYS.items()}
     out.update({"sha256": _match(_SHA256, p.get("sha256"), 64), "md5": _match(_MD5, p.get("md5"), 32),
-                "pid": _int(p.get("pid")), "start": when(p.get("start")), "end": when(p.get("end"))})
+                "sha1": _match(_SHA1, p.get("sha1"), 40), "pid": _int(p.get("pid")), "start": when(p.get("start")), "end": when(p.get("end"))})
     out = {k: v for k, v in out.items() if v is not None}
     return out or None
 
@@ -331,6 +336,8 @@ def clean(d):
         "quarantined": _clean_list(d.get("quarantined"), {"filename": 260, "sha256": "sha256", "state": 32}, 20),
         "files_written": _clean_list(d.get("files_written"), file_spec),
         "documents": _clean_list(d.get("documents"), file_spec),
+        "files_accessed": _clean_list(d.get("files_accessed"), file_spec),
+        "ioa_name": txt(d.get("ioa_name"), 200),
         "network": _clean_list(d.get("network"), {"direction": 16, "protocol": 16, "local": "ip", "local_port": "port",
                                                   "remote": "ip", "remote_port": "port", "at": "at"}),
         "dns": _clean_list(d.get("dns"), {"domain": 253, "type": 16, "at": "at"}),

@@ -41,6 +41,7 @@
       info('MITRE tactic', tactic),
       info('MITRE technique', technique),
     ];
+    if (d.ioa_name && d.ioa_name !== a.title) rows.push(info('IOA name', mono(d.ioa_name)));
     if (u.name) rows.push(info('User', `${esc(u.domain ? `${u.domain}\\${u.name}` : u.name)}${u.principal ? `<div class="text-sm text-mono">${esc(u.principal)}</div>` : ''}`));
     if (h.os_version || h.platform) rows.push(info('Host OS', txt([h.platform, h.os_version].filter(Boolean).join(' / '))));
     if (h.local_ip || h.external_ip) {
@@ -82,7 +83,7 @@
       <div style="font-weight:600;overflow-wrap:anywhere">${esc(p.filename || p.filepath || 'unknown')}</div>
       ${kv('Path', p.filepath, true)}${kv('Command line', p.cmdline, true)}${kv('User', p.user)}
       ${kv('PID', p.pid)}${kv('Started', p.start && at(p.start))}${kv('Ended', p.end && at(p.end))}
-      ${kv('SHA256', p.sha256, true)}${kv('MD5', p.md5, true)}</div>`;
+      ${kv('SHA256', p.sha256, true)}${kv('SHA1', p.sha1, true)}${kv('MD5', p.md5, true)}</div>`;
   }
 
   function tree(d) {
@@ -102,6 +103,7 @@
     parts.push(list('Quarantined', d.quarantined, f => `${esc(f.filename || '')} ${f.sha256 ? mono(f.sha256) : ''} ${f.state ? `<span class="text-muted">(${esc(f.state)})</span>` : ''}`));
     parts.push(list('Files written', d.files_written, f => `${mono(f.filepath || f.filename)} ${f.sha256 ? `<span class="text-muted">${esc(f.sha256.slice(0, 16))}...</span>` : ''}`));
     parts.push(list('Documents opened', d.documents, f => mono(f.filepath || f.filename)));
+    parts.push(list('Files it went after', d.files_accessed, f => `${mono(f.filepath || f.filename)} ${f.at ? `<span class="text-muted">${esc(at(f.at))}</span>` : ''}`));
     parts.push(list('MITRE ATT&CK', d.mitre, m => `${esc(m.tactic_id || '')} ${esc(m.tactic || '')} &rarr; ${m.technique_id ? T.mitre(m) : ''} ${esc(m.technique || '')}`));
     const html = parts.join('');
     if (!html) return;

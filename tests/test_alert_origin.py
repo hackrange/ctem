@@ -24,8 +24,8 @@ def test_the_parser_keeps_where_and_who_but_not_hashes_or_ids():
     assert ctx["source_endpoint_ip_address"] == "10.20.30.40" and ctx["source_endpoint_host_name"] == "WS-ATTACKER"
     assert ctx["target_account_name"] == "administrator" and ctx["failed_logons"] == "5, 7"
     assert not any(k in ctx for k in ("sha256", "agent_id", "cmdline", "filepath"))
-    hostile = csa.clean({"context": [["ok_ip", "1.2.3.4"], ["BAD KEY <x>", "v"], ["ctl", "a\x00b"], "junk", ["x", {"a": 1}]]})
-    assert hostile["context"] == [["ok_ip", "1.2.3.4"], ["ctl", "a b"]]
+    hostile = csa.clean({"context": [["ok_ip", "192.0.2.44"], ["BAD KEY <x>", "v"], ["ctl", "a\x00b"], "junk", ["x", {"a": 1}]]})
+    assert hostile["context"] == [["ok_ip", "192.0.2.44"], ["ctl", "a b"]]
 
 
 def test_the_map_shows_where_it_came_from_and_what_it_targeted():
@@ -96,3 +96,30 @@ async def test_alerts_without_detail_are_asked_for_again_once_a_week(db, client,
     assert r.status_code == 200 and isinstance(r.json()["ids"], list)
     assert (await client.get(f"/api/v1/collector/alert-refresh/{uuid.uuid4()}", headers=_auth(tok))).status_code == 404
     assert (await client.get(f"/api/v1/collector/alert-refresh/{iid}")).status_code in (401, 403)
+
+
+def test_the_tamper_alert_keeps_what_the_falcon_console_shows():
+    """The fields an analyst reads in the Falcon console for an EDR tampering alert are in CTEM too."""
+    from api.core.cs_alert import csa
+    from api.core.threat_graph import build
+    a = {**RAW, "composite_id": "cid:ind:tamper:1", "display_name": "FileSystemTamperFalconSensorDynamicConfiguration",
+         "name": "FileSystemTamperFalconSensorDynamicConfiguration", "filename": "dllhost.exe",
+         "filepath": "\\Device\\HarddiskVolume3\\Windows\\System32\\dllhost.exe",
+         "cmdline": "C:\\windows\\system32\\DllHost.exe /Processid:{4D111E08-CBF7-4F12-A926-2C7920AF52FC}",
+         "sha256": "b" * 64, "sha1": "f" * 40, "user_name": "admw11270", "user_id": "S-1-5-21-1-116646", "logon_domain": "ACME",
+         "local_admin": True, "logon_type": "CACHED_INTERACTIVE", "login_server": "DC05", "login_time": "2026-11-20T16:01:16Z",
+         "files_accessed": [{"filepath": "\\Device\\HarddiskVolume3\\Program Files\\CrowdStrike\\Database",
+                             "timestamp": "2026-10-13T10:39:42Z"}],
+         "pattern_disposition_details": {"fs_operation_blocked": True}, "global_prevalence": "common", "local_prevalence": "common"}
+    d = csa.clean(csa.summary(a)["detail"])
+    assert d["process"]["cmdline"].endswith("{4D111E08-CBF7-4F12-A926-2C7920AF52FC}") and d["process"]["sha1"] == "f" * 40
+    assert d["files_accessed"][0]["filepath"].endswith("CrowdStrike\\Database") and d["disposition"]["actions"] == ["fs_operation_blocked"]
+    assert d["user"]["sid"] == "S-1-5-21-1-116646" and d["prevalence"] == {"global": "common", "local": "common"}
+    ctx = dict(d["context"])
+    assert ctx["local_admin"] == "yes" and ctx["logon_type"] == "CACHED_INTERACTIVE" and ctx["login_server"] == "DC05"
+    assert ctx["login_time"] == "2026-11-20T16:01:16Z"
+    g = build({"hostname": "L-1", "title": "FileSystemTamperFalconSensorDynamicConfiguration", "technique": "Disable or Modify Tools"}, d)
+    went = [n for n in g["nodes"] if n["label"] == "Database"]
+    assert went and any(e["label"] == "Went after" for e in g["edges"])
+    proc = next(n for n in g["nodes"] if n["id"] == "process")
+    assert ["SHA1", "f" * 40] in proc["facts"] and any(k == "MITRE" for k, _ in proc["facts"])
