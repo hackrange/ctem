@@ -6,13 +6,15 @@ window.AttackMap = (() => {
   const NS = 'http://www.w3.org/2000/svg';
   const COLOR = { host: '#3a8ee8', user: '#e8913a', process: '#4a5568', detection: '#e05252', action: '#3aa76d', quarantine: '#e05252',
                   indicator: '#9b59b6', file: '#e8913a', network: '#e8913a', dns: '#e8913a', event: '#4a5568', alert: '#e05252',
-                  log: '#3a8ee8', ip: '#e8913a' };
+                  log: '#3a8ee8', ip: '#e8913a', launch: '#4a5568', service: '#e8913a', weakness: '#e05252', credential: '#9b59b6',
+                  impact: '#c62828' };
   const GLYPH = { host: '\u{1F5A5}', user: '\u{1F464}', process: '</>', detection: '!', action: '\u{1F6E1}', quarantine: '\u{1F512}',
                   indicator: '⚠', file: '\u{1F4C4}', network: '\u{1F310}', dns: '\u{1F50D}', event: '▶', alert: '!',
-                  log: '≡', ip: '\u{1F310}' };
+                  log: '≡', ip: '\u{1F310}', launch: '▶', service: '⚙', weakness: '⚡', credential: '\u{1F511}', impact: '\u{1F3AF}' };
   const KIND = { host: 'Host', user: 'User', process: 'Process', detection: 'Detection', action: 'What the EDR did',
                  quarantine: 'Quarantined file', indicator: 'Indicator', file: 'File', network: 'Connection', dns: 'DNS lookup',
-                 event: 'Step', alert: 'Alert', log: 'Log event', ip: 'Address' };
+                 event: 'Step', alert: 'Alert', log: 'Log event', ip: 'Address', launch: 'Pentest start', service: 'Service',
+                 weakness: 'Weakness exploited', credential: 'Credential', impact: 'Impact' };
   const R = 20;
   const cut = (s, n) => { s = String(s || ''); return s.length > n ? `${s.slice(0, n - 1)}…` : s; };
 

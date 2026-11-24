@@ -155,4 +155,5 @@ async def device_pentest(device_id: uuid.UUID, u: User = Depends(require_permiss
         return {"available": False}
     view = dict(d.pentest or {})
     view["open_services"] = sorted(view.get("open_services") or [], key=lambda s: (s.get("port") or 0, s.get("protocol") or ""))
-    return {"available": True, **view, "findings": found, "chains": chains}
+    from api.integrations.horizon3_graph import graphs
+    return {"available": True, **view, "findings": found, "chains": chains, "graphs": graphs(chains)}

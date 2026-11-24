@@ -22,7 +22,7 @@ def test_every_built_in_rule_is_valid_generic_and_unique():
         fps.add(fingerprint(r["kind"], m))
         keys.add(r["key"])
         assert r["severity"] in ("critical", "high", "medium", "low") and 2 <= len(r["what_to_do"]) <= 6
-        assert len(r["name"]) <= 120 and "—" not in json.dumps(r)
+        assert len(r["name"]) <= 120 and "\u2014" not in json.dumps(r, ensure_ascii=False)
     assert len(fps) == len(keys) == len(pack["rules"])
 
 

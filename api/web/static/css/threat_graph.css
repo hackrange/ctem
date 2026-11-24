@@ -32,6 +32,8 @@
 .agp-pill rect { fill: var(--surface); }
 .agp-pill text { font-size: 10.5px; }
 .agp-dim { opacity: .18; }
+.agp--pentest { height: 430px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin: 8px 14px 14px; }
+.agp--pentest .agp__mapbox, .agp--hunt .agp__mapbox { position: relative; min-height: 0; }
 .agp-ai { border-left: 4px solid var(--accent); }
 @media (max-width: 900px) { .agp { grid-template-columns: 1fr; height: auto; } .agp__steps { max-height: 300px; border-right: 0; }
   .agp__map { height: 460px; } }

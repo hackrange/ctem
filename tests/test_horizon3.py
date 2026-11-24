@@ -281,6 +281,9 @@ async def test_open_weakness_series_are_findings_whichever_pentest_saw_them(db, 
     r = await client_admin.get(f"/api/v1/devices/{cam.id}/pentest")
     body = r.json()
     assert r.status_code == 200 and body["chains"][0]["impact"] == "Host Compromise" and "pairs" not in body["chains"][0]
+    g = body["graphs"]["all"]   # the paths as a map: launch, host, weakness, impact, left to right
+    assert [n["kind"] for n in sorted(g["nodes"], key=lambda n: n["x"])] == ["launch", "host", "weakness", "impact"]
+    assert body["graphs"]["each"][0]["nodes"] and all(e["label"] for e in g["edges"])
     assert body["findings"][0]["proof"]["steps"][0]["command"] == "nuclei -l urls.txt"
     from api.integrations import horizon3_story as story
     # NodeZero closes every weakness: the path is deleted, and an asset only NodeZero knew with nothing left goes too

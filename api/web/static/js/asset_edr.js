@@ -128,6 +128,7 @@ window.AssetEdr = (() => {
           <td class="text-sm text-muted">${[c.cracked ? 'cracked' : '', c.proved ? 'proved working' : ''].filter(Boolean).join(', ') || 'found'}</td></tr>`))}
       ${list('Data it could reach', ['Where', 'Type'], (d.data_stores || []).map(s => `<tr><td class="text-sm text-mono">${esc(s.name || '')}${s.port ? `:${esc(s.port)}` : ''}</td>
           <td class="text-sm">${esc(s.type || '')}</td></tr>`))}`;
+    if (window.AssetPentest && AssetPentest.mount) AssetPentest.mount(panel, d);
   }
 
   async function one(id, kind, label, draw) {

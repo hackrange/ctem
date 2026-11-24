@@ -85,6 +85,7 @@
 <script src="{{ static('vendor/echarts-6.1.0/echarts.min.js') }}"></script>
 <script src="{{ static('js/asset_trend.js') }}"></script>
 <script src="{{ static('js/asset_software.js') }}"></script>
+<link rel="stylesheet" href="{{ static('css/threat_graph.css') }}" /><script src="{{ static('js/attack_map.js') }}"></script>
 <script src="{{ static('js/asset_pentest.js') }}"></script>
 <script src="{{ static('js/asset_context.js') }}"></script>
 <script src="{{ static('js/asset_edr.js') }}"></script>
@@ -484,7 +485,6 @@ function openForm(kind) {
 }
 $('ex-btn').addEventListener('click', () => openForm('exception'));
 $('fp-btn').addEventListener('click', () => openForm('false_positive'));
-
 let timer;
 $('f-search').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => table && table.reload(), 300); });
 $('f-status').addEventListener('change', () => table && table.reload());

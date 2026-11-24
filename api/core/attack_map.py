@@ -7,9 +7,11 @@ from __future__ import annotations
 COLW, ROWH, R, TOP, LEFT = 230, 88, 20, 60, 90
 COLOR = {"host": "#3a8ee8", "user": "#e8913a", "process": "#4a5568", "detection": "#e05252", "action": "#3aa76d",
          "quarantine": "#e05252", "indicator": "#9b59b6", "file": "#e8913a", "network": "#e8913a", "dns": "#e8913a",
-         "event": "#4a5568", "alert": "#e05252", "log": "#3a8ee8", "ip": "#e8913a"}
+         "event": "#4a5568", "alert": "#e05252", "log": "#3a8ee8", "ip": "#e8913a", "launch": "#4a5568", "service": "#e8913a",
+         "weakness": "#e05252", "credential": "#9b59b6", "impact": "#c62828"}
 LETTER = {"host": "H", "user": "U", "process": "P", "detection": "!", "action": "E", "quarantine": "Q", "indicator": "I",
-          "file": "F", "network": "N", "dns": "D", "event": "S", "alert": "!", "log": "L", "ip": "N"}
+          "file": "F", "network": "N", "dns": "D", "event": "S", "alert": "!", "log": "L", "ip": "N", "launch": "P", "service": "S",
+          "weakness": "W", "credential": "K", "impact": "!"}
 HOT, COOL = "#e05252", "#e8913a"
 
 
