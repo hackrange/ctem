@@ -155,9 +155,12 @@
     document.title = `${a.title || 'Alert'} -- open-ctem`;
     $('al-title').textContent = a.title || a.id;
     $('al-sub').innerHTML = `${T.sevChip(a.severity)} ${T.statusChip(a.status)} ${T.sourceChip(a)}${a.accepted_by ? ' <span class="chip chip--low">Accepted</span>' : ''}`;
+    const pdf = `<a class="btn btn--primary btn--sm" href="/api/v1/threat/alerts/pdf?id=${encodeURIComponent(a.id)}" download>Download PDF</a>`;
     if (a.link) {
       const made = a.link_made ? ' title="Saved without a link: made the same way as your other alerts\' links"' : '';
-      $('al-actions').innerHTML = `<a class="btn btn--ghost btn--sm" href="${esc(a.link)}"${made} target="_blank" rel="noopener noreferrer">Open in ${esc(T.sourceName(a))} &#8599;</a>`;
+      $('al-actions').innerHTML = `${pdf} <a class="btn btn--ghost btn--sm" href="${esc(a.link)}"${made} target="_blank" rel="noopener noreferrer">Open in ${esc(T.sourceName(a))} &#8599;</a>`;
+    } else {
+      $('al-actions').innerHTML = pdf;
     }
     show('al-nodetail', a.source === 'crowdstrike' && !a.has_detail);
     story(a, d);

@@ -21,6 +21,7 @@ What open-ctem covers, how it scores risk, and how it has been reviewed and hard
 | 1.8.0 | 2026-11-24 | CrowdStrike alert updates from CTEM, interactive attack maps for alerts, hunts and pentests, AI alert reads, PDF hunt reports, built-in hunt rules, stricter headers |
 | 1.8.1 | 2026-11-24 | Logon and identity details on alerts and in hunt rule findings, more of the Falcon console in CTEM, old alerts fetched again, shipper approval fix |
 | 1.8.2 | 2026-11-24 | Every connector loaded; Grip verified against a real tenant |
+| 1.9.0 | 2026-11-24 | Zscaler read-only posture and coverage, Grip extensions and credential risk, alert allow list, process and file in hunt findings, alert PDF, database upkeep |
 
 The on-prem shipper has its own version numbers (1.0 to 1.7.x), separate from the application's.
 

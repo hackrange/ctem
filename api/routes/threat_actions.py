@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -75,3 +75,25 @@ async def explain_alert(body: ExplainBody, _: User = Depends(require_cyber_or_ad
     if got is None:
         raise HTTPException(404, detail="Alert not found")
     return await threat_explain.explain(db, *got, fresh=body.fresh)
+
+
+@router.get("/alerts/pdf", include_in_schema=False)
+async def alert_pdf(me: User = Depends(require_cyber_or_admin), db: AsyncSession = Depends(get_session),
+                    id: str = Query(..., min_length=14, max_length=300, pattern=r"^threat_alert_[^#\s]+(#\d{1,4})?$")):
+    """The alert as a printable PDF (api/core/alert_pdf.py): everything on its page, inside the margins."""
+    import asyncio
+    from datetime import datetime, timezone
+
+    from fastapi.responses import Response
+
+    from api.core.alert_pdf import build
+    from api.main import _get_branding
+    from api.routes.threat import get_threat_alert
+    a = await get_threat_alert(id=id, _=me, db=db)
+    brand = await _get_branding(db)
+    meta = {"generated": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"), "prepared_by": me.username,
+            "app_title": brand.get("title", "open-ctem"), "org_name": brand.get("org_name"), "accent_color": brand.get("accent_color", "#f5a623"),
+            "logo_url": brand.get("logo_url"), "light_logo_url": brand.get("login_logo_url")}
+    pdf = await asyncio.to_thread(build, a, meta)   # CPU work off the event loop
+    return Response(pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": 'attachment; filename="alert-report.pdf"', "Cache-Control": "no-store"})

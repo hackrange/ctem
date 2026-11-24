@@ -174,3 +174,29 @@ def test_an_ai_story_step_names_the_process_and_file_of_its_alert():
     steps = issues[0]["timeline"]
     assert steps[0]["what"].endswith("Process: lsass.exe; File: C:\\Temp\\odd.dll.")
     assert steps[1]["what"] == "Unrelated step" and steps[2]["what"] == "No evidence"
+
+
+@pytest.mark.asyncio
+async def test_an_alert_prints_as_a_pdf_that_stays_inside_the_page(db, client_cyber, client_read_only):
+    from api.core.cs_alert import csa
+    from api.hunt import report_pdf
+    from api.integrations.base import get_connector
+    tag = uuid.uuid4().hex[:8]
+    raw = {**RAW, "composite_id": f"cid:ind:{tag}:1", "cmdline": "powershell -enc " + "A" * 3000, "source_endpoint_ip_address": "192.0.2.9"}
+    await get_connector("crowdstrike", {"client_id": "x", "client_secret": "y"})._cache_threats([csa.summary(raw)], db)
+    key = f"threat_alert_cid:ind:{tag}:1"
+    assert (await client_read_only.get("/api/v1/threat/alerts/pdf", params={"id": key})).status_code == 403
+    seen, real = [], report_pdf.Table.wrap
+
+    def wrap(self, aw, ah):
+        w, h = real(self, aw, ah)
+        seen.append((w, aw))
+        return w, h
+    report_pdf.Table.wrap = wrap
+    try:
+        r = await client_cyber.get("/api/v1/threat/alerts/pdf", params={"id": key})
+    finally:
+        report_pdf.Table.wrap = real
+    assert r.status_code == 200 and r.headers["content-type"] == "application/pdf" and r.content.startswith(b"%PDF")
+    assert seen and [x for x in seen if x[0] > x[1] + 0.5] == []
+    assert (await client_cyber.get("/api/v1/threat/alerts/pdf", params={"id": "threat_alert_nope:1"})).status_code == 404
