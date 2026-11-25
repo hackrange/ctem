@@ -79,7 +79,10 @@ def _from_raw(raw: dict) -> OidcConfig:
         source="database", provider=raw["provider"], issuer=issuer_for(raw["provider"], raw.get("fields", {})),
         client_id=raw["client_id"], client_secret=raw.get("client_secret", ""), scopes=raw.get("scopes") or p["scopes"],
         button_label=raw.get("button_label") or f"Sign in with {p['label']}",
-        default_role=raw.get("default_role") or NO_ACCESS, no_access_message=raw.get("no_access_message") or DEFAULT_MESSAGE)
+        # never admin as a default, whatever the stored settings say (the wizard refuses it; a row written in
+        # outside CTEM must not hand every new SSO sign-in the admin role)
+        default_role=(raw.get("default_role") if raw.get("default_role") not in (None, "", "admin") else NO_ACCESS),
+        no_access_message=raw.get("no_access_message") or DEFAULT_MESSAGE)
 
 
 async def effective(db: AsyncSession) -> tuple[str, OidcConfig | None]:
@@ -102,7 +105,6 @@ async def bind_unbound_subjects(db: AsyncSession) -> int:
     with, the one that issued their subjects. Sign-in then matches subject and issuer only, so pointing SSO at another
     IdP later can never attach its people to these accounts by a colliding subject. Disabled-but-stored settings still
     name the issuer; with no SSO set up at all the accounts are left alone."""
-    from sqlalchemy import update
     from api.models.user import User
     cfg = _env_config()
     if cfg is None:
@@ -114,10 +116,18 @@ async def bind_unbound_subjects(db: AsyncSession) -> int:
     issuer = (cfg.issuer or "").rstrip("/") if cfg else ""
     if not issuer:
         return 0
-    res = await db.execute(update(User).where(User.oidc_sub.isnot(None), User.oidc_issuer.is_(None))
-                           .values(oidc_issuer=issuer))
+    from sqlalchemy import select
+
+    from api.auth.account_seal import reseal, verified_roles
+    n = 0
+    for u in (await db.execute(select(User).where(User.oidc_sub.isnot(None), User.oidc_issuer.is_(None)))).scalars():
+        roles = await verified_roles(db, u)   # sealed with no issuer: rebound and sealed as it was checked
+        u.oidc_issuer = issuer
+        if roles is not None:
+            await reseal(db, u, roles)
+        n += 1
     await db.commit()
-    return res.rowcount or 0
+    return n
 
 
 async def no_access_message(db: AsyncSession) -> str:

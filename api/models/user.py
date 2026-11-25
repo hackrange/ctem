@@ -59,6 +59,8 @@ class User(Base, UUIDPrimaryKey, TimestampMixin):
     password_hash: Mapped[str | None] = mapped_column(Text)                 # Argon2id; null for OIDC-only users
     totp_secret: Mapped[str | None] = mapped_column(EncryptedString("users.totp_secret"))
     totp_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    totp_seal: Mapped[str | None] = mapped_column(String(64))   # keyed seal tying totp_secret to this account
+    auth_seal: Mapped[str | None] = mapped_column(String(64))   # keyed seal over sign-in state and roles (account_seal)
     recovery_codes: Mapped[list | None] = mapped_column(EncryptedJSON)      # list of Argon2id-hashed recovery codes
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_local: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
@@ -69,6 +71,9 @@ class User(Base, UUIDPrimaryKey, TimestampMixin):
     sessions_valid_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Hard lockout flag (Redis handles timed lockouts; this is permanent until admin clears)
     is_locked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # A password an admin set is a one-time key: replaced at the first sign-in, and no good after it expires
+    password_change_required: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    password_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     locked_reason: Mapped[str | None] = mapped_column(String(256))
     # OIDC subject identifier
     oidc_sub: Mapped[str | None] = mapped_column(String(256), index=True)
@@ -148,6 +153,7 @@ class ApiToken(Base, UUIDPrimaryKey, TimestampMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     # Per-token rate limit; None means fall back to global setting
     rate_limit_per_minute: Mapped[int | None] = mapped_column(nullable=True)
+    seal: Mapped[str | None] = mapped_column(String(64))   # keyed seal over the token row (api/auth/account_seal.py)
 
     user: Mapped[User] = relationship()
 

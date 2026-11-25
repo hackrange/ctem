@@ -24,6 +24,13 @@ def days_left(u: User) -> int | None:
     return (exp - datetime.now(timezone.utc)).days
 
 
+def _broken(u: User) -> bool:
+    """A sign-in account changed outside CTEM (its seal doesn't match): Admin > Users offers Repair."""
+    from api.auth.account_seal import intact_loaded
+    signs_in = (u.is_local and (u.password_hash or u.is_service_account)) or u.oidc_sub
+    return bool(signs_in) and not intact_loaded(u, quiet=True)
+
+
 def user_summary(u: User, risk: object | None = None) -> dict:
     return {
         "id": str(u.id),
@@ -46,6 +53,7 @@ def user_summary(u: User, risk: object | None = None) -> dict:
         "last_login": u.last_login.isoformat() if u.last_login else None,
         "ad": ad_summary(u),
         "roles": [{"role_name": ur.role_name} for ur in u.roles],
+        "needs_repair": _broken(u),
         "risk_score": risk.score if risk else None,
         "risk_grade": risk.grade if risk else None,
     }

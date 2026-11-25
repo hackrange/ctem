@@ -90,6 +90,16 @@ rollback_rev() {
   done
 }
 
+# 1.13.2 seals every account and credential (api/auth/account_seal.py). That happens once, as an upgrade finds
+# them; the marker lives on the host, out of reach of anyone who can only write to the database.
+SEAL_MARK="${INSTALL_DIR}/.accounts-sealed"
+seal_once() {
+  [[ -f "$SEAL_MARK" || ! -f api/maintenance/seal_accounts.py ]] && return 0
+  _compose exec -T app python -m api.maintenance.seal_accounts </dev/null \
+    || die "Sealing accounts failed, so nobody can sign in yet. Fix the cause, then re-run this upgrade."
+  touch "$SEAL_MARK"
+}
+
 if [[ "$MODE" == upgrade ]]; then
   say "open-ctem upgrade"
   [[ -d .git && -f "$ENV_FILE" ]] || die "No install at ${INSTALL_DIR}. Run without --upgrade for a fresh install."
@@ -125,7 +135,7 @@ if [[ "$MODE" == upgrade ]]; then
   git fetch --quiet origin "${BRANCH}" || die "Could not fetch from origin."
   git pull --quiet --ff-only origin "${BRANCH}" || die "Could not fast-forward. Merge manually, then re-run."
   POST_REV=$(git rev-parse HEAD)
-  [[ "$PRE_REV" != "$POST_REV" ]] || { ok "Already up to date."; exit 0; }
+  [[ "$PRE_REV" != "$POST_REV" ]] || { seal_once; ok "Already up to date."; exit 0; }
   ok "Code: ${PRE_REV:0:8} -> ${POST_REV:0:8}"
   git log --oneline "${PRE_REV}..${POST_REV}" | sed 's/^/     /'
   # the new code's own setup, so its compose mounts find their folders
@@ -150,6 +160,7 @@ if [[ "$MODE" == upgrade ]]; then
     _compose build && _compose up -d --remove-orphans && _compose up -d --no-deps --force-recreate app worker beat
     die "Upgrade rolled back. Backup: ${BACKUP_FILE:-none}"
   fi
+  seal_once
   docker image prune -f &>/dev/null || true
   ok "open-ctem upgraded to ${POST_REV:0:8}"
   hint "Backup:  ${BACKUP_FILE:-none}"
@@ -281,6 +292,7 @@ _compose build --pull --quiet </dev/null || die "Building the app image failed."
 say "Starting open-ctem..."
 _compose up -d --remove-orphans </dev/null
 wait_healthy 300 || die "App did not respond. Check logs: docker compose -f ${COMPOSE_FILE} logs app"
+touch "$SEAL_MARK"   # a new install seals its first admin itself
 
 echo
 printf '%s╔══════════════════════════════════════════════════════╗%s\n' "$c_ok" "$c_off"

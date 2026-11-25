@@ -123,3 +123,4 @@ test-infra/
 
 # Admin > Maintenance agent: spool, status and keys
 /run/
+.accounts-sealed

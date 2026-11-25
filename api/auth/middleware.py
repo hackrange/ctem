@@ -101,7 +101,8 @@ async def get_current_user(
     )
     user = result.scalar_one_or_none()
 
-    if user is None or not user.is_active or user.is_locked:
+    from api.auth.account_seal import intact_loaded
+    if user is None or not user.is_active or user.is_locked or not intact_loaded(user):   # roles or state changed outside CTEM
         raise HTTPException(401, detail="User not found or disabled")
 
     if from_session:
@@ -143,7 +144,8 @@ async def _authenticate_api_token(raw_token: str, request: Request, db: AsyncSes
 
     # Deliberate: return the same error whether the token is unknown, expired, or IP-blocked.
     # No oracle for which condition failed.
-    if api_token is None:
+    from api.auth.account_seal import intact_loaded, token_intact
+    if api_token is None or not token_intact(api_token):   # a row written in outside CTEM opens nothing
         raise HTTPException(401, detail="Invalid API token")
     exp = api_token.expires_at
     if exp is not None and exp.tzinfo is None:
@@ -160,7 +162,7 @@ async def _authenticate_api_token(raw_token: str, request: Request, db: AsyncSes
         select(User).where(User.id == str(api_token.user_id)).options(selectinload(User.roles))
     )
     user = result2.scalar_one_or_none()
-    if user is None or not user.is_active or user.is_locked:
+    if user is None or not user.is_active or user.is_locked or not intact_loaded(user):
         raise HTTPException(401, detail="Invalid API token")
 
     try:

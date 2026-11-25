@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from api.auth.account_seal import seal_token
 from api.auth.middleware import _client_ip
 from api.auth.rbac import require_admin
 from api.core.accounts import ctem_account, find_login
@@ -87,6 +88,8 @@ async def create_token(
         rate_limit_per_minute=body.rate_limit_per_minute,
     )
     db.add(api_token)
+    await db.flush()
+    seal_token(api_token)   # a token row written in outside CTEM opens nothing
     db.add(AuditLog(actor_user_id=str(current_user.id), actor_username=current_user.username, action="api_token_created",
                     resource_type="api_token", detail=f"token {body.name!r} for {owner.username}", ip_address=caller_ip))
     await db.commit()
@@ -108,7 +111,11 @@ async def update_token_ips(
 ):
     """Replace the allowed IP list for a token."""
     token = await _get_own_token(token_id, current_user, db)
+    from api.auth.account_seal import token_intact
+    if not token_intact(token):   # written outside CTEM: revoke it and issue a new one instead
+        raise HTTPException(409, detail="This token was changed outside CTEM. Revoke it and issue a new one.")
     token.allowed_ips = body.allowed_ips
+    seal_token(token)
     await db.commit()
     return _serialize(token)
 
@@ -130,6 +137,7 @@ async def revoke_token(
     if token is None:
         raise HTTPException(404)
     token.is_active = False
+    seal_token(token)
     await db.commit()
 
 

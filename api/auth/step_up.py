@@ -94,7 +94,7 @@ async def verify(request: Request, user: User, password: object, code: object) -
         if not re.fullmatch(r"[0-9]{6}", c):   # \d would also take Unicode digits
             await _failures(key, add=True)
             raise HTTPException(401, detail="Enter the 6-digit code from your authenticator app.")
-        await verify_totp(user.username, c, user.totp_secret)   # its own lockout and replay guard
+        await verify_totp(user.username, c, user.totp_secret, str(user.id), user.totp_seal)   # its own lockout and replay guard
     await _clear(key)
     until = int(time.time()) + STEP_UP_SECONDS
     request.session["step_up"] = {"uid": str(user.id), "until": until}

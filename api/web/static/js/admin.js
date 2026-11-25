@@ -59,7 +59,7 @@ async function loadUsers() {
     const users = data.users || [];
     document.getElementById('users-tbody').innerHTML = users.map(u => `
       <tr>
-        <td style="font-weight:600">${esc(u.username)}${u.is_local ? '' : ' <span class="chip chip--info" style="font-size:.65rem">SSO</span>'}</td>
+        <td style="font-weight:600">${esc(u.username)}${u.is_local ? '' : ' <span class="chip chip--info" style="font-size:.65rem">SSO</span>'}${u.needs_repair ? ' <span class="chip chip--critical" style="font-size:.65rem" title="Its sign-in details or roles were changed outside CTEM, so it can\'t sign in until it is repaired">Changed outside CTEM</span>' : ''}</td>
         <td class="text-muted text-sm">${esc(u.email_display || '') || '<span class="text-muted">--</span>'}</td>
         <td>${(u.roles || []).map(r => `<span class="chip chip--info">${esc(r.role_name)}</span>`).join(' ') || '<span class="text-muted text-sm">--</span>'}</td>
         <td>${u.totp_enabled ? '<span style="color:var(--severity-low)">&#10003; On</span>' : '<span class="text-muted text-sm">Off</span>'}</td>
@@ -67,7 +67,7 @@ async function loadUsers() {
         <td class="text-muted text-sm">${u.last_login ? new Date(u.last_login).toLocaleString() : 'Never'}</td>
         <td>
           <div style="display:flex;gap:6px;flex-wrap:wrap">
-            <button class="btn btn--ghost btn--sm" onclick="openEditModal(${esc(JSON.stringify(u))})">Edit</button>
+            ${u.needs_repair ? `<button class="btn btn--ghost btn--sm" style="color:var(--severity-critical)" onclick="repairUser(${esc(JSON.stringify(u.id))},${esc(JSON.stringify(u.username))},${!!u.is_local})">Repair</button>` : `<button class="btn btn--ghost btn--sm" onclick="openEditModal(${esc(JSON.stringify(u))})">Edit</button>`}
             <button class="btn btn--ghost btn--sm" style="color:var(--severity-${u.is_active ? 'critical' : 'low'})"
               onclick="toggleUser(${esc(JSON.stringify(u.id))},${esc(JSON.stringify(u.username))},${!!u.is_active})">${u.is_active ? 'Deactivate' : 'Activate'}</button>
             ${u.is_active && !u.is_locked && !(u.roles || []).some(r => r.role_name === 'admin') ? `<button class="btn btn--ghost btn--sm" title="See CTEM as this person sees it (read-only, 30 minutes)" onclick="viewAs(${esc(JSON.stringify(u.id))},${esc(JSON.stringify(u.username))})">View as</button>` : ''}
@@ -464,3 +464,24 @@ async function createRole() {
 }
 
 document.addEventListener('DOMContentLoaded', loadUsers);
+
+// An account changed outside CTEM: nothing it held is trusted. Its roles and state are chosen again, a local one gets
+// a new one-time password, and its authenticator (and an SSO identity link) go. Needs a fresh "confirm it's you".
+async function repairUser(id, username, isLocal) {
+  const roles = prompt(`Repair ${username}: its sign-in details or roles were changed outside CTEM.\n\nRoles to give it (comma separated, e.g. read_only):`, 'read_only');
+  if (roles === null) return;
+  let password = null;
+  if (isLocal) {
+    password = prompt('A new one-time password (12+ characters); they replace it at their next sign-in:');
+    if (!password) return;
+  }
+  const active = confirm('Leave the account active? (Cancel keeps it inactive until you activate it.)');
+  try {
+    await fetchJson(`${API}/admin/users/${encodeURIComponent(id)}/repair`, { method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify({ roles: roles.split(',').map(r => r.trim()).filter(Boolean), active, password }) });
+    toast(`${username} repaired`, 'success');
+    loadUsers();
+  } catch (e) {
+    toast(e.message || 'Repair failed', 'error');
+  }
+}

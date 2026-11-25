@@ -3,7 +3,7 @@
 **Continuous Threat Exposure Management** -- open source, risk-based, built to outclass every commercial CTEM product.
 
 > Author: Tim Rice &lt;tim.j.rice@hackrange.com&gt;  
-> Version: 1.13.1  
+> Version: 1.13.2  
 > License: MIT
 
 ## Install
@@ -307,7 +307,9 @@ TOTP brute force protection: 5 fails = 5 min lockout, 10 = 30 min, 15+ = hard lo
 
 Password brute force protection: 10 failed passwords on one account = 15 min cool-off, plus a per-IP limit on every sign-in endpoint.
 
-With `MFA_REQUIRED=true`, a local user without TOTP is walked through enrollment (QR code + first code) on their next sign-in. Users can also enroll or replace their authenticator from **My Profile**; replacing one requires a current code.
+A password an admin sets (a new account, or a reset) is a one-time key: the first sign-in replaces it with the person's own before anything else, and it stops working after 72 hours (`INITIAL_PASSWORD_HOURS`). Each account carries a keyed seal over its sign-in state and roles, and each API token one over itself: a role, password hash, authenticator or token written into the database outside CTEM opens nothing. After a manual upgrade to 1.13.2 or later, run `docker compose exec app python -m api.maintenance.seal_accounts` once (`install.sh --upgrade` and restores do it for you).
+
+With `MFA_REQUIRED=true`, a local user without TOTP is walked through enrollment (QR code + first code) on their next sign-in, right after setting their own password if an admin set it. Users can also enroll or replace their authenticator from **My Profile**; replacing one requires a current code.
 
 ---
 

@@ -58,8 +58,9 @@ async def route(db: AsyncSession) -> dict:
     from api.models.integration import IntegrationConfig, Vendor
     profiles = list((await db.execute(select(CollectorProfile))).scalars())
     cfgs = list((await db.execute(select(IntegrationConfig).where(IntegrationConfig.vendor == Vendor.crowdstrike))).scalars())
+    from api.auth.account_seal import collector_intact
     toks = {str(t.profile_id): t for t in (await db.execute(select(CollectorToken).where(
-        CollectorToken.is_active == True))).scalars()}  # noqa: E712
+        CollectorToken.is_active == True))).scalars() if collector_intact(t)}  # noqa: E712
     return decide(cfgs, profiles, toks)
 
 

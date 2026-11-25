@@ -80,6 +80,7 @@ async def test_nodezero_findings_proof_and_closed_ports(db, monkeypatch):
             return False
     monkeypatch.setattr("api.integrations.horizon3.safe_client", lambda **k: Client())
     c = Horizon3Connector({"api_key": "k", "region": "us"})
+    c.integration_id = str(uuid.uuid4())
     assert await c.sync(db) >= 3
 
     def fresh(fid):
@@ -245,7 +246,9 @@ async def test_open_weakness_series_are_findings_whichever_pentest_saw_them(db, 
         async def __aexit__(self, *a):
             return False
     monkeypatch.setattr("api.integrations.horizon3.safe_client", lambda **k: Client())
-    assert await Horizon3Connector({"api_key": "k", "region": "us"}).sync(db) >= 2
+    conn = Horizon3Connector({"api_key": "k", "region": "us"})
+    conn.integration_id = str(uuid.uuid4())
+    assert await conn.sync(db) >= 2
 
     def fresh(model, *where):
         return select(model).where(*where).execution_options(populate_existing=True)

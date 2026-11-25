@@ -183,4 +183,6 @@ async def _seed_admin_user(db: AsyncSession, settings) -> None:
     db.add(user)
     await db.flush()
     db.add(UserRole(user_id=user.id, role_name="admin"))
+    from api.auth.account_seal import reseal
+    await reseal(db, user, ["admin"])
     log.info("initial admin user '%s' created", username)

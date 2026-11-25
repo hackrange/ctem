@@ -168,6 +168,8 @@ async def revoke_shipper(profile_id: str, user: User = Depends(require_admin), d
     for t in (await db.execute(select(CollectorToken).where(
             CollectorToken.profile_id == prof.id, CollectorToken.is_active == True))).scalars():  # noqa: E712
         t.is_active = False
+        from api.auth.account_seal import seal_collector
+        seal_collector(t)
     await db.commit()
     log.info("shipper %s revoked by %s", prof.name, user.id)
     return {"revoked": True}

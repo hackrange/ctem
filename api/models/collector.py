@@ -65,3 +65,4 @@ class CollectorToken(Base, UUIDPrimaryKey, TimestampMixin):
     last_error: Mapped[str | None] = mapped_column(String(500))
     # {kind: digest of the destination the box has approved}; compared against the profile for "pending"
     approved: Mapped[dict | None] = mapped_column(EncryptedJSON)
+    seal: Mapped[str | None] = mapped_column(String(64))   # keyed seal over the credential (api/auth/account_seal.py)

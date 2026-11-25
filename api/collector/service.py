@@ -54,8 +54,11 @@ def check_schedule(minutes: int) -> int:
 
 
 async def active_token(db: AsyncSession, profile_id: str) -> CollectorToken | None:
-    return (await db.execute(select(CollectorToken).where(
-        CollectorToken.profile_id == profile_id, CollectorToken.is_active == True))).scalars().first()  # noqa: E712
+    """The profile's shipper credential; a row written in outside CTEM (unsealed) never receives secrets."""
+    from api.auth.account_seal import collector_intact
+    return next((t for t in (await db.execute(select(CollectorToken).where(
+        CollectorToken.profile_id == profile_id, CollectorToken.is_active == True))).scalars()  # noqa: E712
+        if collector_intact(t)), None)
 
 
 async def secrets_of(db: AsyncSession, profile_id: str) -> list[CollectorSecret]:

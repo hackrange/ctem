@@ -189,7 +189,7 @@ class Horizon3Connector(BaseConnector):
         from sqlalchemy.exc import DBAPIError
         for attempt in range(tries):
             try:
-                return await apply.op(db, op, weak, services, extra, findings=findings)
+                return await apply.op(db, op, weak, services, extra, findings=findings, iid=getattr(self, "integration_id", None))
             except DBAPIError as e:
                 await db.rollback()
                 if "deadlock" not in str(e).lower() or attempt == tries - 1:
@@ -233,8 +233,11 @@ class Horizon3Connector(BaseConnector):
                         if not isinstance(proof.get(key), dict):   # ops come newest first: the newest proof wins
                             proof[key] = story.proof_of(w, op)
                 cache: dict = {}
-                wrote, seen = await series.apply(db, open_series, proof, lambda ip: apply._device(db, ip, None, cache))
-                closed = await series.close_the_rest(db, seen)
+                iid = getattr(self, "integration_id", None)
+                wrote, seen = await series.apply(db, open_series, proof, lambda ip: apply._device(db, ip, None, cache), iid)
+                closed = await series.close_the_rest(db, seen, iid)
+                await series.mark_exploited(db)   # what's still open and proved, now that the rest is gone
+                await db.commit()
                 from api.integrations.pentest_merge import reconcile
                 await reconcile(db)   # what a scanner also has open stays one finding (the scanner's)
                 log.info("Horizon3: %d open weaknesses from %d series, %d closed", wrote, len(open_series), closed)

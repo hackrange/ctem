@@ -254,5 +254,9 @@ do_restore() {
   _compose exec -T app python -m api.maintenance.restore_check </dev/null \
     || die "The restored data does not open with the restored keys. Do not use this server; check the backup."
   ok "Encryption keys open the restored data."
+  # The restored accounts are what the person restoring chose to trust; seal them (older backups predate the seal)
+  _compose exec -T app python -m api.maintenance.seal_accounts </dev/null \
+    || die "Sealing the restored accounts failed. Run: docker compose exec app python -m api.maintenance.seal_accounts"
+  touch "${INSTALL_DIR}/.accounts-sealed"
   rm -f "$RESTORE_MARK"
 }

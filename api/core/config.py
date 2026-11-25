@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     totp_lockout_threshold_2: int = 10
     totp_lockout_minutes_2: int = 30
     totp_lockout_threshold_3: int = 15
+    initial_password_hours: int = 72   # how long a password an admin set works before its first sign-in replaces it
     # above threshold_3: account hard-locked, admin must unlock
 
     # IP-level rate limit: max auth attempts per window
@@ -64,7 +65,7 @@ class Settings(BaseSettings):
     public_url: str | None = None
     # The reverse proxy whose X-Forwarded-For / -Proto are believed (a hostname; empty = none). See api/core/trusted_proxy.py
     trusted_proxy_host: str = Field("", max_length=253, pattern=r"^[A-Za-z0-9.-]*$")
-    app_version: str = "1.13.1"
+    app_version: str = "1.13.2"
     # Country assumed for directory phone numbers with no country of their own (ISO 3166 alpha-2)
     phone_default_region: str = Field("US", pattern=r"^[A-Za-z]{2}$")
     # Comma-separated prefixes of admin/alt accounts that belong to a person (sulocal_jdoe -> jdoe)

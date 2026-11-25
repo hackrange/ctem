@@ -197,6 +197,8 @@ async def test_new_sso_person_lands_on_no_access_then_pinned_role_works(web, db,
     # Admin pins a real role; the next sign-in goes straight to the page they wanted
     await db.execute(UserRole.__table__.delete().where(UserRole.user_id == user.id))
     db.add(UserRole(user_id=user.id, role_name="cyber"))
+    from api.auth.account_seal import reseal
+    await reseal(db, user, ["cyber"])   # what Admin > Users does when it pins the role
     await db.commit()
     await web.get("/login?next=%2Fgrc")
     r = await _sso_round_trip(web, monkeypatch, client_admin, box, sub=sub)
@@ -247,11 +249,10 @@ async def test_sso_asks_for_the_authenticator_enrolled_in_ctem(web, db, monkeypa
     from sqlalchemy import select
 
     from api.auth import local
-    from api.core.encryption import decrypt, encrypt
     from api.models.user import User, UserRole
 
-    async def verify(username, code, stored, *rest):   # the real code check, minus Redis
-        if not pyotp.TOTP(decrypt(stored)).verify(code, valid_window=1):
+    async def verify(username, code, stored, user_id, seal):   # the real code check, minus Redis
+        if not pyotp.TOTP(local.open_totp(user_id, stored, seal)).verify(code, valid_window=1):
             raise HTTPException(401, detail="Invalid code")
     monkeypatch.setattr(local, "verify_totp", verify)
     box, sub, secret = [None], f"00u-{uuid.uuid4().hex[:8]}", pyotp.random_base32()
@@ -259,7 +260,10 @@ async def test_sso_asks_for_the_authenticator_enrolled_in_ctem(web, db, monkeypa
     user = (await db.execute(select(User).where(User.oidc_sub == sub))).scalar_one()
     await db.execute(UserRole.__table__.delete().where(UserRole.user_id == user.id))
     db.add(UserRole(user_id=user.id, role_name="cyber"))
-    user.totp_enabled, user.totp_secret = True, encrypt(secret)
+    user.totp_enabled = True
+    local.set_totp(user, secret)
+    from api.auth.account_seal import reseal
+    await reseal(db, user, ["cyber"])   # as Admin > Users and the person's own enrollment would
     await db.commit()
     r = await _sso_round_trip(web, monkeypatch, client_admin, box, sub=sub)
     assert r.status_code == 200 and 'action="/auth/totp"' in r.text   # the code step, not a session

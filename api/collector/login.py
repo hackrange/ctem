@@ -36,6 +36,11 @@ async def check_admin_password(db: AsyncSession, username: str, password: str) -
             await _pw_fail(username)
         raise _fail()
     await _pw_clear(username)
+    from api.auth.account_seal import intact
+    if not await intact(db, user):   # changed outside CTEM
+        raise _fail()
+    if user.password_change_required:   # an admin-set password: replaced in the browser first (and it may have expired)
+        raise HTTPException(403, detail="Sign in to the web UI and set a new password first")
     if "admin" not in user.role_names:
         raise HTTPException(403, detail="Collector enrollment needs an admin account")
     return user
@@ -55,4 +60,4 @@ async def check_mfa(user: User, code: str | None) -> None:
         raise HTTPException(403, detail="Finish MFA enrollment in the web UI first")
     if not code:
         raise _fail()
-    await local.verify_totp(user.username, code, user.totp_secret)
+    await local.verify_totp(user.username, code, user.totp_secret, str(user.id), user.totp_seal)

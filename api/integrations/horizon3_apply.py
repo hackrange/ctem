@@ -59,13 +59,16 @@ async def _device(db, ip: str | None, name: str | None, cache: dict, create: boo
 
 
 async def op(db: AsyncSession, pentest: dict, weaknesses: list[dict], services: list[dict] | None, extra: dict | None = None,
-             findings: bool = True) -> int:
+             findings: bool = True, iid: str | None = None) -> int:
     """findings=False when NodeZero's weakness series write the findings (api/integrations/horizon3_series.py): the
     pentest then adds its closed ports and its attacker view only."""
     from api.integrations import horizon3_view as view
     from api.models.vuln import Finding, FindingStatus, Vulnerability
     when = _dt(pentest.get("completed_at")) or datetime.now(timezone.utc)
     cache, tested, n = {}, set(), 0
+    if findings:   # this integration's findings only: another NodeZero account's are never matched or closed
+        from api.integrations.horizon3_series import scope
+        mine = await scope(db, iid)
     extra = extra or {}
     busy = view.hosts_with_something(weaknesses, extra)
     for h in extra.get("hosts") or []:   # every host it tested, matched to CTEM's assets first
@@ -96,10 +99,12 @@ async def op(db: AsyncSession, pentest: dict, weaknesses: list[dict], services: 
         v.exploit_available = bool(w.get("has_proof")) or v.exploit_available
         await db.flush()
         sid = f"{d.id}:{vid}"[:256]
-        f = (await db.execute(select(Finding).where(Finding.source == SOURCE, Finding.source_id == sid))).scalar_one_or_none()
+        f = (await db.execute(select(Finding).where(Finding.source == SOURCE, Finding.source_id == sid, mine)
+                              .limit(1))).scalar_one_or_none()
         if f is None:
             f = Finding(device_id=str(d.id), vuln_id=str(v.id), source=SOURCE, source_id=sid, domain="infra", first_detected=when)
             db.add(f)
+        f.integration_id = iid
         f.status, f.last_seen = FindingStatus.open, when
         f.first_detected = min(filter(None, [f.first_detected, when]))
         proof = bool(w.get("has_proof"))
@@ -115,7 +120,7 @@ async def op(db: AsyncSession, pentest: dict, weaknesses: list[dict], services: 
                 other.is_reachable, other.reachability_source, other.reachability_updated_at = True, SOURCE, when
     open_ports = await _services(db, services, cache, tested) if services is not None else None
     # NodeZero tested these hosts in this pentest: its weaknesses there that it no longer found are gone
-    for f in (await db.execute(select(Finding).where(Finding.source == SOURCE, Finding.device_id.in_(list(tested) or ["-"]),
+    for f in (await db.execute(select(Finding).where(Finding.source == SOURCE, Finding.device_id.in_(list(tested) or ["-"]), mine,
                                                      Finding.status == FindingStatus.open, Finding.last_seen < when))).scalars() if findings else []:
         f.status = FindingStatus.remediated
     if open_ports is not None:

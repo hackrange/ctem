@@ -68,7 +68,11 @@ async def _end_all_in_db(request: Request, db) -> None:
     try:
         user = await db.get(User, uid)
         if user is not None:
+            from api.auth.account_seal import reseal, verified_roles
+            roles = await verified_roles(db, user)
             user.sessions_valid_after = datetime.fromtimestamp(_ms() / 1000, timezone.utc)
+            if roles is not None:   # sealed as it was checked; a tampered account is refused anyway
+                await reseal(db, user, roles)
             await db.commit()
     except Exception:  # noqa: BLE001 -- the cookie is still cleared, and this process still refuses the id
         log.warning("signed-out session not recorded in the database either", exc_info=True)

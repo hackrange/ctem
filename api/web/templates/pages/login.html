@@ -252,6 +252,23 @@
     {% if notice %}
     <div class="login-notice" role="status">{{ notice }}</div>
     <p style="margin-top:14px;text-align:center"><a href="/login">Back to sign in</a></p>
+    {% elif pw_change %}
+    <form method="post" action="/auth/first-password" autocomplete="off">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}" />
+      <p class="login-sub" style="margin-bottom:12px">An administrator set this password. Choose your own to continue; the one you were given stops working.</p>
+      <div class="field">
+        <label for="new_password">New password</label>
+        <input type="password" id="new_password" name="new_password" required autofocus minlength="12" maxlength="1024"
+               autocomplete="new-password" placeholder="At least 12 characters" />
+      </div>
+      <div class="field">
+        <label for="confirm_password">Confirm new password</label>
+        <input type="password" id="confirm_password" name="confirm_password" required minlength="12" maxlength="1024"
+               autocomplete="new-password" />
+      </div>
+      <button type="submit" class="btn-signin">Set password</button>
+      <p style="margin-top:12px;text-align:center"><a href="/login">Start over</a></p>
+    </form>
     {% elif totp_step %}
     <form method="post" action="/auth/totp" autocomplete="off">
       <input type="hidden" name="_csrf" value="{{ csrf_token }}" />
@@ -291,7 +308,7 @@
     </form>
     {% endif %}
 
-    {% if auth_mode in ('both', 'oidc_only') and not totp_step and not notice %}
+    {% if auth_mode in ('both', 'oidc_only') and not totp_step and not pw_change and not notice %}
     {% if auth_mode == 'both' %}<div class="login-divider">or</div>{% endif %}
     <a href="/auth/sso" class="btn-sso">{{ sso_label or 'Continue with SSO' }}</a>
     {% endif %}

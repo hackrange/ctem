@@ -64,8 +64,10 @@ async def _mint(db: AsyncSession, prof: CollectorProfile, pem: str, host: str, v
     # One box per profile; re-installing replaces the old box's credential and key
     old = await db.execute(select(CollectorToken).where(
         CollectorToken.profile_id == prof.id, CollectorToken.is_active == True))  # noqa: E712
+    from api.auth.account_seal import seal_collector
     for t in old.scalars():
         t.is_active = False
+        seal_collector(t)
     await ingest.ensure_integrations(db, prof)
     plain = ingest.TOKEN_PREFIX + secrets.token_hex(32)
     tok = CollectorToken(
@@ -74,6 +76,8 @@ async def _mint(db: AsyncSession, prof: CollectorProfile, pem: str, host: str, v
         last_seen=now, last_seen_ip=ip, approved={},
     )
     db.add(tok)
+    await db.flush()
+    seal_collector(tok)
     await db.commit()
     log.info("shipper for profile %s enrolled from %s key %s", prof.name, ip, fp[:16])
     return {"token": plain, "collector_id": str(tok.id), "key_fp": fp,
@@ -158,6 +162,8 @@ async def checkin(request: Request, db: AsyncSession = Depends(get_session)):
     prof = await ingest.profile_of(tok, db)
     tok.collector_host, tok.agent_version = body.hostname, body.agent_version
     tok.approved = dict(body.approved)
+    from api.auth.account_seal import seal_collector
+    seal_collector(tok)   # what its own box approved, after it signed in with this credential
     if body.errors:
         await ingest.record_error(db, tok, prof, dict(body.errors))
     elif body.ran:

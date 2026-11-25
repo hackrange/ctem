@@ -49,12 +49,26 @@ def group(series: list[dict]) -> dict:
     return out
 
 
-async def apply(db, series: list[dict], proof: dict, find) -> tuple[int, set]:
+async def scope(db, iid: str | None):
+    """This integration's NodeZero findings, plus untagged older ones while it's the only Horizon3 integration:
+    another NodeZero account's findings are never written, closed or deleted by this one's run."""
+    from sqlalchemy import func, or_
+
+    from api.models.integration import IntegrationConfig, Vendor
+    from api.models.vuln import Finding
+    if not iid:
+        raise RuntimeError("NodeZero findings are only written or closed for a known integration")
+    every = (await db.execute(select(func.count()).select_from(IntegrationConfig)
+                              .where(IntegrationConfig.vendor == Vendor.horizon3))).scalar_one()
+    return or_(Finding.integration_id == iid, Finding.integration_id.is_(None)) if every <= 1 else Finding.integration_id == iid
+
+
+async def apply(db, series: list[dict], proof: dict, find, iid: str | None = None) -> tuple[int, set]:
     """Write the open series as findings. proof: (ip, weakness id) -> how a pentest proved it (truthy).
     Returns (findings written, their source ids), so the caller can close the rest."""
     from api.models.vuln import Finding, FindingStatus, Vulnerability
+    mine = await scope(db, iid)
     now, n, seen, vulns = datetime.now(timezone.utc), 0, set(), {}
-    hit_vulns, hit_cves = set(), set()
     for (ip, vid), g in group(series).items():
         d = await find(ip)
         if d is None:
@@ -77,16 +91,14 @@ async def apply(db, series: list[dict], proof: dict, find) -> tuple[int, set]:
             vulns[vid] = v
         proved = bool(proof.get((ip, vid)))
         v.exploit_available = proved or v.exploit_available
-        if proved:
-            hit_vulns.add(v.id)
-            if cve:
-                hit_cves.add(cve)
         sid = f"{d.id}:{vid}"[:256]
-        f = (await db.execute(select(Finding).where(Finding.source == SOURCE, Finding.source_id == sid))).scalar_one_or_none()
+        f = (await db.execute(select(Finding).where(Finding.source == SOURCE, Finding.source_id == sid, mine)
+                              .limit(1))).scalar_one_or_none()
         if f is None:
             f = Finding(device_id=str(d.id), vuln_id=str(v.id), source=SOURCE, source_id=sid, domain="infra",
                         first_detected=g["first"] or now)
             db.add(f)
+        f.integration_id = iid   # claims an untagged older row; another integration's rows were never matched
         f.status, f.last_seen = FindingStatus.open, g["last"] or now
         f.first_detected = min(filter(None, [f.first_detected, g["first"]]))
         if g["ports"]:
@@ -108,14 +120,21 @@ async def apply(db, series: list[dict], proof: dict, find) -> tuple[int, set]:
                 other.is_reachable, other.reachability_source, other.reachability_updated_at = True, SOURCE, now
         if n % 500 == 0:
             await db.commit()
-    await mark_exploited(db, hit_vulns, hit_cves)
+    await db.flush()
+    await mark_exploited(db)
     await db.commit()
     return n, seen
 
 
-async def mark_exploited(db, vuln_ids: set, cves: set) -> None:
-    """Pentest-exploited, on NodeZero's own entry and on that CVE from every source; cleared once nothing is open."""
-    from api.models.vuln import Vulnerability
+async def mark_exploited(db) -> None:
+    """Pentest-exploited, on NodeZero's own entry and on that CVE from every source; cleared once nothing is open.
+    Worked out from every NodeZero integration's open proved findings, so one integration's run never clears what
+    another's pentests proved."""
+    from api.models.vuln import Finding, FindingStatus, Vulnerability
+    vuln_ids = {vid for vid, d in (await db.execute(select(Finding.vuln_id, Finding.details).where(
+        Finding.source == SOURCE, Finding.status == FindingStatus.open))).all() if (d or {}).get("has_proof")}
+    cves = {c for (c,) in (await db.execute(select(Vulnerability.cve_id).where(
+        Vulnerability.id.in_(list(vuln_ids) or ["-"]), Vulnerability.cve_id.isnot(None)))).all()}
     await db.execute(update(Vulnerability).where(Vulnerability.pentest_exploited.is_(True)).values(pentest_exploited=False))
     ids = list(vuln_ids)
     for i in range(0, len(ids), 500):
@@ -125,12 +144,15 @@ async def mark_exploited(db, vuln_ids: set, cves: set) -> None:
         await db.execute(update(Vulnerability).where(Vulnerability.cve_id.in_(cl[i:i + 500])).values(pentest_exploited=True))
 
 
-async def close_the_rest(db, seen: set) -> int:
-    """NodeZero findings whose weakness series is no longer open are gone: CTEM keeps only what NodeZero has open now."""
+async def close_the_rest(db, seen: set, iid: str | None) -> int:
+    """This integration's NodeZero findings whose weakness series is no longer open are gone: CTEM keeps only what
+    NodeZero has open now. Another integration's are never candidates (and nothing runs without an integration)."""
     from sqlalchemy import delete
 
     from api.models.vuln import Finding
-    ids = [f.id for f in (await db.execute(select(Finding).where(Finding.source == SOURCE))).scalars() if f.source_id not in seen]
+    mine = await scope(db, iid)
+    ids = [f.id for f in (await db.execute(select(Finding).where(Finding.source == SOURCE, mine))).scalars()
+           if f.source_id not in seen]
     for i in range(0, len(ids), 500):
         await db.execute(delete(Finding).where(Finding.id.in_(ids[i:i + 500])))
     await db.commit()

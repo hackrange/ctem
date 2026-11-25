@@ -33,6 +33,9 @@ def can_be_viewed(target: User) -> str | None:
     """Why this person can't be viewed as, or None."""
     if not target.is_active or target.is_locked:
         return "That account is disabled or locked."
+    from api.auth.account_seal import intact_loaded
+    if not intact_loaded(target, quiet=True):
+        return "That account was changed outside CTEM; repair it first."
     if "admin" in target.role_names:
         return "Admins can't be viewed as."
     return None

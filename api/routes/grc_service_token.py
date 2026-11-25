@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.auth.account_seal import seal_token
 from api.auth.rbac import require_admin
 from api.core.db import get_session
 from api.models.settings import AuditLog
@@ -54,6 +55,9 @@ async def _service_user(db: AsyncSession) -> User:
                     is_active=True, is_locked=False, is_service_account=True, password_hash=None)
         db.add(user)
         await db.flush()
+    elif not user.is_service_account or user.oidc_sub or user.password_hash:
+        # someone renamed another account to this name: never adopt (and downgrade) it
+        raise HTTPException(409, detail=f"An account named {SERVICE_USER} exists that isn't the service account")
     # Exactly one role, and it's the read-only GRC one, whatever someone set by hand
     roles = (await db.execute(select(UserRole).where(UserRole.user_id == str(user.id)))).scalars().all()
     for r in roles:
@@ -61,7 +65,15 @@ async def _service_user(db: AsyncSession) -> User:
             await db.delete(r)
     if ROLE not in [r.role_name for r in roles]:
         db.add(UserRole(user_id=str(user.id), role_name=ROLE))
-    user.is_active, user.is_locked = True, False
+    # Whatever anyone wrote into the row, it goes back to what this account is: no password, no authenticator,
+    # no SSO identity, one role. Only then is it sealed.
+    user.is_active, user.is_locked, user.is_local, user.password_hash = True, False, True, None
+    user.totp_enabled, user.totp_secret, user.totp_seal, user.recovery_codes = False, None, None, None
+    user.oidc_sub = user.oidc_issuer = None
+    user.password_change_required, user.password_expires_at = False, None
+    user.sessions_valid_after = datetime.now(timezone.utc)   # no session from before is good for it
+    from api.auth.account_seal import reseal
+    await reseal(db, user, [ROLE])
     return user
 
 
@@ -72,6 +84,7 @@ async def issue_fairtprm_token(body: ServiceTokenRequest, request: Request,
     for old in (await db.execute(select(ApiToken).where(ApiToken.user_id == str(user.id),
                                                          ApiToken.is_active == True))).scalars():  # noqa: E712
         old.is_active = False
+        seal_token(old)
     plain = secrets.token_hex(32)
     tok = ApiToken(user_id=str(user.id), name="FairTPRM continuous monitors",
                    description="Reads CTEM control checks and evidence; issued from the GRC page",
@@ -79,6 +92,8 @@ async def issue_fairtprm_token(body: ServiceTokenRequest, request: Request,
                    expires_at=datetime.now(timezone.utc) + timedelta(days=body.expires_in_days),
                    is_active=True, rate_limit_per_minute=RATE_PER_MIN)
     db.add(tok)
+    await db.flush()
+    seal_token(tok)
     db.add(AuditLog(actor_user_id=str(admin.id), actor_username=admin.username, action="grc_service_token_issued",
                     resource_type="api_token", detail=f"for {SERVICE_USER}, ips {', '.join(body.allowed_ips)}"))
     await db.commit()
@@ -97,6 +112,7 @@ async def revoke_fairtprm_token(admin: User = Depends(require_admin), db: AsyncS
         for t in (await db.execute(select(ApiToken).where(ApiToken.user_id == str(user.id),
                                                            ApiToken.is_active == True))).scalars():  # noqa: E712
             t.is_active, n = False, n + 1
+            seal_token(t)
         db.add(AuditLog(actor_user_id=str(admin.id), actor_username=admin.username, action="grc_service_token_revoked",
                         resource_type="api_token", detail=f"{n} token(s) for {SERVICE_USER}"))
         await db.commit()

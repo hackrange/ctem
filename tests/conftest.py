@@ -253,3 +253,43 @@ def _no_builtin_pack(request, monkeypatch):
         async def _none(db):
             return 0
         monkeypatch.setattr(curated_pack, "sync", _none)
+
+
+# Accounts and API tokens a test builds straight in the database have no seal (api/auth/account_seal.py), which
+# the app rightly refuses. Seal those fixture rows on commit, and keep re-sealing just those as the test changes
+# them. Rows the app sealed itself are never touched, so tampering with them is still caught; tests that plant
+# unsealed rows on purpose are marked raw_rows.
+_FIXTURE_SEALED: set[str] = set()
+
+
+@pytest.fixture(autouse=True)
+def _seal_fixture_rows(request):
+    if request.node.get_closest_marker("raw_rows") is not None:
+        yield
+        return
+    from sqlalchemy import event, select
+    from sqlalchemy.orm import Session
+
+    from api.auth.account_seal import collector_seal, token_seal, user_seal
+    from api.models.collector import CollectorToken
+    from api.models.user import ApiToken, User, UserRole
+
+    def seal(session, *_):
+        new = list(session.new)   # held only weakly once flushed: a row the test kept no name for would be gone
+        session.flush()
+        for obj in {id(o): o for o in [*new, *session.identity_map.values()]}.values():
+            if isinstance(obj, User) and (obj.auth_seal is None or obj.id in _FIXTURE_SEALED):
+                roles = session.execute(select(UserRole.role_name).where(UserRole.user_id == obj.id)).scalars().all()
+                obj.auth_seal = user_seal(obj, roles)
+                _FIXTURE_SEALED.add(obj.id)
+            elif isinstance(obj, ApiToken) and (obj.seal is None or obj.id in _FIXTURE_SEALED):
+                obj.seal = token_seal(obj)
+                _FIXTURE_SEALED.add(obj.id)
+            elif isinstance(obj, CollectorToken) and (obj.seal is None or obj.id in _FIXTURE_SEALED):
+                obj.seal = collector_seal(obj)
+                _FIXTURE_SEALED.add(obj.id)
+    event.listen(Session, "before_commit", seal)
+    try:
+        yield
+    finally:
+        event.remove(Session, "before_commit", seal)

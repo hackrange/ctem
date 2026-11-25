@@ -7,6 +7,26 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.13.2] - 2026-11-25
+
+### Security
+- **Accounts and API tokens are sealed (CTE-031).** Whoever could write to the database, without the app's keys, could take over an account without touching a secret. They could copy a known authenticator secret into an admin's row (anyone mid-enrollment holds one, readable in their session cookie), switch an admin's MFA off so it re-enrolled, write in a password hash they knew, add the admin role to their own account, or add an API token row for anyone. Now:
+  - each account carries a keyed seal over its sign-in state and roles (password hash, MFA on or off and its secret, active, locked, local or SSO identity, the first-password flag, when its sessions were last ended, its page access), and each API token and shipper credential one over itself (a planted shipper credential would otherwise be sent future secrets sealed to its own key);
+  - the seal is checked on every request and at each sign-in step before anything is written, so a planted role or token opens nothing and a tampered account is never offered enrollment;
+  - only CTEM's own changes re-seal, and only with the state they checked (a role slipped in while a change runs is not sealed in): admin create, reset, roles, enable and disable, unlock, authenticator setup and removal, the person's own enrollment and password change, new SSO accounts, issuing, editing and revoking tokens, enrolling and revoking shippers;
+  - an admin change to an account someone else edited is refused (409). **Admin > Users > Repair** trusts nothing it held: the admin picks its roles and whether it's active, a local account gets a new one-time password, its authenticator goes, and an SSO account loses its identity link;
+  - View As refuses such an account, and a stored SSO setting can never make admin the default role for new sign-ins.
+- **Upgrading: seal the existing accounts once.** `install.sh --upgrade` does it (re-running a failed upgrade finishes it; it keeps a marker on the host, not in the database), and every restore does it for what it restored. After a manual upgrade, run `docker compose exec app python -m api.maintenance.seal_accounts`. Until it runs, nobody can sign in. It never runs at app start or from anything stored in the database, so a database writer can't trigger it. An account refused afterwards was changed outside CTEM: an admin resets it. Accepted, not covered:
+  - a database writer can replay a row's own earlier state with its earlier seal, from a copy taken before a change (an old backup's password hash, a revoked token);
+  - what each role is allowed to do (role permissions), device tags and assignments, and the access rules built on them are not sealed. A database writer could widen a role, though not to admin or cyber, which are checked by name;
+  - changing `ENCRYPTION_KEY` breaks every seal; `seal_accounts` restores them by trusting the database as it is then, so check it first.
+- **A password an admin sets is a one-time key (CTE-035).** Creating an account or resetting a password marks it to be replaced at the first sign-in, and it expires after 72 hours (`INITIAL_PASSWORD_HOURS`). That sign-in asks for the person's own password before anything else, MFA enrollment included, and the MFA step can't be skipped to. Shipper enrollment refuses such an account until it's done in the browser. Someone who learns the given password later, or after it expires, holds nothing.
+
+- **NodeZero findings belong to their integration.** A Horizon3 sync deleted every NodeZero finding it didn't see, whichever NodeZero account reported it, and cleared every "exploited by a pentest" flag before setting its own. Findings are now tied to their integration. Only a run's own findings are matched, closed or deleted, and nothing is deleted for an unnamed integration. The exploited flag is worked out from every integration's open, proved findings. Older untagged findings are taken over while there is a single Horizon3 integration.
+
+### Changed
+- Signed-in self-service (authenticator enrollment, profile preferences, password change) moved to `api/routes/auth_profile.py`; the routes are unchanged.
+
 ## [1.13.1] - 2026-11-25
 
 ### Security

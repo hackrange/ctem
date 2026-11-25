@@ -45,9 +45,41 @@ def verify_password(password: str, hashed: str) -> bool:
 
 # ── TOTP ──────────────────────────────────────────────────────────────────────
 
+def totp_seal(user_id: str, stored: str) -> str:
+    """A keyed seal over this account's id and its stored authenticator secret (users.totp_seal). The secret itself
+    stays as older versions read it, so a rollback keeps working; a secret copied in from another row, or the
+    unbound form enrollment puts in a session cookie, has no valid seal for this account."""
+    import hmac as _hmac
+
+    from api.auth.account_seal import derived_key
+    return _hmac.new(derived_key(b"open-ctem|totp-seal|v2"), f"{user_id}|{stored}".encode(), hashlib.sha256).hexdigest()
+
+
+def set_totp(user, secret: str) -> None:
+    """Store an authenticator secret for this account, sealed to it."""
+    user.totp_secret = encrypt(secret)
+    user.totp_seal = totp_seal(str(user.id), user.totp_secret)
+
+
+def open_totp(user_id: str, stored: str | None, seal: str | None) -> str:
+    """This account's authenticator secret. Raises when its seal doesn't match the account and the stored value."""
+    import hmac as _hmac
+    if not stored or not seal or not _hmac.compare_digest(seal, totp_seal(str(user_id), stored)):
+        raise ValueError("authenticator secret isn't sealed to this account")
+    return decrypt(stored)
+
+
+def one_time_password(user) -> None:
+    """A password an admin sets is replaced at the account's first sign-in, and expires if that doesn't come."""
+    from datetime import datetime, timedelta, timezone
+    user.password_change_required = True
+    user.password_expires_at = datetime.now(timezone.utc) + timedelta(hours=max(1, get_settings().initial_password_hours))
+
+
 def begin_mfa_step(session, user_id: str) -> None:
     """The authenticator step after a first factor (password or SSO): bound to the account and to when it began."""
     session.pop("totp_enroll", None)
+    session.pop("pw_change", None)   # another account's "choose your password" step never carries over
     session["pending_user_id"] = user_id
     session["pending_at"] = int(time.time())
     session["pending_ms"] = time.time_ns() // 1_000_000   # compared with sessions_valid_after
@@ -70,7 +102,7 @@ def totp_qr_png(secret: str, username: str) -> bytes:
     return buf.getvalue()
 
 
-async def verify_totp(username: str, code: str, secret_encrypted: str) -> None:
+async def verify_totp(username: str, code: str, secret_encrypted: str, user_id: str, seal: str | None) -> None:
     """Verify TOTP code. Raises HTTPException on failure, lockout, or replay."""
     settings = get_settings()
     # ASCII digits only: the code check normalizes full-width and other Unicode digits to the same code, so each
@@ -98,9 +130,14 @@ async def verify_totp(username: str, code: str, secret_encrypted: str) -> None:
     if new_count > settings.totp_lockout_threshold_3:
         raise HTTPException(429, detail="Account locked due to repeated failures. Contact admin.")
 
-    secret = decrypt(secret_encrypted)
-    totp = pyotp.TOTP(secret)
-    if not totp.verify(code, valid_window=1):
+    try:
+        secret = open_totp(user_id, secret_encrypted, seal)
+    except Exception:  # noqa: BLE001 -- sealed to another account, or not bound: it never verifies
+        import logging
+        logging.getLogger("open-ctem.auth").warning("authenticator secret for %s refused: not bound to the account", user_id)
+        secret = None
+    totp = pyotp.TOTP(secret) if secret else None
+    if totp is None or not totp.verify(code, valid_window=1):
 
         if new_count >= settings.totp_lockout_threshold_3:
             # Hard lock -- requires admin to clear
@@ -131,28 +168,21 @@ async def _flag_hard_lockout(username: str) -> None:
         result = await db.execute(select(User).where(User.username == username))
         user = result.scalar_one_or_none()
         if user:
+            from api.auth.account_seal import reseal, verified_roles
+            roles = await verified_roles(db, user)
             user.is_locked = True
             user.locked_reason = "Excessive TOTP failures"
+            if roles is not None:   # a tampered account is refused anyway; it's never sealed from here
+                await reseal(db, user, roles)
             await db.commit()
 
 
-async def admin_unlock_user(username: str) -> None:
-    """Admin unlocks a user -- clears Redis lockout AND DB flag."""
+async def admin_unlock_user(username: str, db_flag: bool = False) -> None:
+    """Clears the Redis lockout counters; the caller clears the DB flag and re-seals (api/routes/admin_repair.py)."""
     r = _redis()
     await r.delete(_TOTP_LOCK_KEY.format(username=username))
     await r.delete(_TOTP_FAIL_KEY.format(username=username))
     await r.delete(f"pw_fail:{username.lower()}", f"pw_lock:{username.lower()}")
-
-    from api.core import db as core_db
-    from api.models.user import User
-    from sqlalchemy import select
-    async with core_db._session_factory() as db:
-        result = await db.execute(select(User).where(User.username == username))
-        user = result.scalar_one_or_none()
-        if user:
-            user.is_locked = False
-            user.locked_reason = None
-            await db.commit()
 
 
 # ── Recovery codes ────────────────────────────────────────────────────────────
@@ -169,3 +199,11 @@ def hash_recovery_codes(codes: list[str]) -> list[str]:
 def verify_recovery_code(code: str, hashed_codes: list[str]) -> bool:
     h = hashlib.sha256(code.strip().lower().encode()).hexdigest()
     return any(secrets.compare_digest(h, stored) for stored in hashed_codes)
+
+
+def qr_png_b64(uri: str) -> str:
+    """A QR code PNG as a base64 data URI, no CDN needed."""
+    import base64
+    buf = io.BytesIO()
+    qrcode.make(uri).save(buf, format="PNG")
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()

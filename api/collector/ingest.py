@@ -52,7 +52,8 @@ async def authenticate(request: Request, db: AsyncSession) -> CollectorToken:
     tok = (await db.execute(
         select(CollectorToken).where(CollectorToken.token_hash == digest, CollectorToken.is_active == True)  # noqa: E712
     )).scalar_one_or_none()
-    if tok is None or not hmac.compare_digest(tok.token_hash, digest):
+    from api.auth.account_seal import collector_intact
+    if tok is None or not hmac.compare_digest(tok.token_hash, digest) or not collector_intact(tok):
         raise _deny()
     ip = _client_ip(request)
     if not _ip_allowed(ip, tok.allowed_ips or []):

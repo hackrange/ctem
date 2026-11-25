@@ -1,4 +1,4 @@
-"""Login, logout, OIDC callback, TOTP enrollment, profile."""
+"""Sign-in: password, MFA, OIDC callback, logout. Signed-in self-service lives in api/routes/auth_profile.py."""
 from __future__ import annotations
 
 import logging
@@ -12,14 +12,13 @@ from urllib.parse import parse_qs, urlsplit
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.auth import local, oidc, sso_config
+from api.auth import account_seal, local, oidc, sso_config
 from api.auth.return_to import SESSION_KEY as RETURN_KEY
 from api.auth.return_to import safe_next
-from api.auth.middleware import create_access_token, get_current_user
+from api.auth.middleware import create_access_token
 from api.core.accounts import find_login, same_name
 from api.core.config import get_settings
 from api.core.db import get_session
@@ -44,7 +43,7 @@ _DUMMY_HASH = local.hash_password(secrets.token_hex(16))
 
 async def _render_login(request: Request, db: AsyncSession, *, error: str | None = None,
                         status: int = 200, totp_step: bool = False, enroll: dict | None = None,
-                        notice: str | None = None) -> HTMLResponse:
+                        notice: str | None = None, pw_change: bool = False) -> HTMLResponse:
     from api.core.security import CSP_STRICT_SCRIPT, generate_csrf_token
     from api.models.settings import AppSetting
     mode, cfg = await sso_config.effective(db)
@@ -61,6 +60,7 @@ async def _render_login(request: Request, db: AsyncSession, *, error: str | None
         "auth_mode": mode,
         "sso_label": cfg.button_label if cfg else None,
         "totp_step": totp_step,
+        "pw_change": pw_change,
         "enroll": enroll,
         "app_title": branding.get("title", "open-ctem"),
         "accent_color": branding.get("accent_color", "#f5a623"),
@@ -157,7 +157,6 @@ async def browser_login(
 ):
     if not _csrf_ok(request, csrf):
         return await _stale_form(request, db)
-    settings = get_settings()
     if (await sso_config.effective(db))[0] == "oidc_only":
         raise HTTPException(400, detail="Local auth is disabled")
 
@@ -172,9 +171,18 @@ async def browser_login(
             await _pw_fail(username)
         return await _render_login(request, db, error=_LOGIN_FAILED)
     await _pw_clear(username)
+    if not await account_seal.intact(db, user):   # changed outside CTEM: refused before anything is written
+        return await _render_login(request, db, error=_LOGIN_FAILED)
+    if user.password_change_required:   # an admin-set password: replaced first, and only while it's fresh
+        from api.routes.auth_first_password import start
+        return await start(request, db, user)
+    return await _after_password(request, db, user)
 
+
+async def _after_password(request: Request, db: AsyncSession, user: User):
+    """The MFA step after a good password (or a first password just replaced), else the session."""
     request.session.pop("totp_enroll", None)   # an enrollment secret from an earlier attempt never carries over
-    if user.totp_enabled or settings.mfa_required:
+    if user.totp_enabled or get_settings().mfa_required:
         local.begin_mfa_step(request.session, str(user.id))
         if user.totp_enabled and user.totp_secret:
             return await _render_login(request, db, totp_step=True)
@@ -195,6 +203,9 @@ async def browser_totp(
 ):
     if not _csrf_ok(request, csrf):
         return await _stale_form(request, db)
+    if request.session.get("pw_change"):   # the new password comes first; this step can't be skipped to
+        request.session.clear()
+        return await _render_login(request, db, error="Sign-in expired. Please start again.")
     uid = request.session.get("pending_user_id")
     started = int(request.session.get("pending_at", 0))
     if not uid or time.time() - started > _PENDING_TTL:
@@ -202,7 +213,8 @@ async def browser_totp(
         return await _render_login(request, db, error="Sign-in expired. Please start again.")
 
     user = (await db.execute(select(User).where(User.id == uid))).scalar_one_or_none()
-    if user is None or not user.is_active or user.is_locked:
+    roles = await account_seal.verified_roles(db, user) if user is not None else None
+    if user is None or not user.is_active or user.is_locked or roles is None:
         return await _render_login(request, db, error=_LOGIN_FAILED)
     begun = request.session.get("pending_ms")
     if _predates_cutoff(user, begun if isinstance(begun, int) else started * 1000):
@@ -223,14 +235,15 @@ async def browser_totp(
         if not pyotp.TOTP(secret).verify(totp_code.strip(), valid_window=1):
             return await _render_login(request, db, error="That code didn't match. Try the next one.",
                                        totp_step=True, enroll=_enroll_view(secret, user.username))
-        user.totp_secret = enrolling  # same shape as the other enrollment paths
+        local.set_totp(user, secret)   # sealed to this account
         user.totp_enabled = True
+        await account_seal.reseal(db, user, roles)
         return await _create_session(request, user, db)
 
     if not user.totp_secret:
         return await _render_login(request, db, error=_LOGIN_FAILED)
     try:
-        await local.verify_totp(user.username, totp_code.strip(), user.totp_secret)
+        await local.verify_totp(user.username, totp_code.strip(), user.totp_secret, str(user.id), user.totp_seal)
     except HTTPException as e:
         return await _render_login(request, db, error=str(e.detail), totp_step=True)
     return await _create_session(request, user, db)
@@ -245,8 +258,7 @@ def _predates_cutoff(user: User, begun_ms: int) -> bool:
 
 
 def _enroll_view(secret: str, username: str) -> dict:
-    from api.routes.admin import _qr_png_b64
-    return {"secret": secret, "qr_png": _qr_png_b64(local.totp_provisioning_uri(secret, username))}
+    return {"secret": secret, "qr_png": local.qr_png_b64(local.totp_provisioning_uri(secret, username))}
 
 
 @router.get("/auth/logout")
@@ -261,6 +273,9 @@ async def logout(request: Request, db: AsyncSession = Depends(get_session)):
 async def _create_session(request: Request, user: User, db: AsyncSession):
     """Every sign-in path ends here: password, MFA and SSO. Access is decided once, in one place."""
     roles = list((await db.execute(select(UserRole.role_name).where(UserRole.user_id == str(user.id)))).scalars())
+    if user.password_change_required or not account_seal._check(user, roles):   # every way in ends here
+        request.session.clear()
+        return await _render_login(request, db, error=_LOGIN_FAILED)
     nxt = safe_next(request.session.get(RETURN_KEY))
     # Fresh session on every login so nothing from before sign-in carries over
     request.session.clear()
@@ -340,137 +355,6 @@ async def _pw_clear(username: str) -> None:
         log.warning("could not clear failed-login counter (Redis down?)")
 
 
-def _require_browser_session(request: Request, user: User) -> None:
-    """MFA and password changes are browser-only; a leaked API token can't touch them."""
-    if request.session.get("user_id") != str(user.id):
-        raise HTTPException(403, detail="Use the web interface for this action")
-
-
-# ── MFA enrollment ────────────────────────────────────────────────────────────
-
-class TotpSetupRequest(BaseModel):
-    current_code: str | None = Field(None, max_length=8)
-
-
-class TotpCodeRequest(BaseModel):
-    code: str = Field(min_length=6, max_length=8)
-
-
-@router.get("/api/v1/auth/totp/status")
-async def totp_status(current_user: User = Depends(get_current_user)):
-    return {"totp_enabled": bool(current_user.totp_enabled)}
-
-
-@router.post("/api/v1/auth/totp/setup")
-async def self_totp_setup(
-    request: Request,
-    body: TotpSetupRequest | None = None,
-    current_user: User = Depends(get_current_user),
-):
-    """Start enrollment. Nothing changes on the account until /verify succeeds."""
-    _require_browser_session(request, current_user)
-    if current_user.totp_enabled:
-        if not body or not body.current_code:
-            raise HTTPException(400, detail="Enter your current authenticator code to replace it")
-        await local.verify_totp(current_user.username, body.current_code, current_user.totp_secret)
-    secret = local.generate_totp_secret()
-    request.session["totp_pending"] = encrypt(secret)
-    uri = local.totp_provisioning_uri(secret, current_user.username)
-    from api.routes.admin import _qr_png_b64
-    return {"provisioning_uri": uri, "secret": secret, "qr_png": _qr_png_b64(uri)}
-
-
-@router.post("/api/v1/auth/totp/verify")
-async def self_totp_verify(
-    request: Request,
-    body: TotpCodeRequest,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_session),
-):
-    import pyotp
-    _require_browser_session(request, current_user)
-    pending = request.session.get("totp_pending")
-    if not pending:
-        raise HTTPException(400, detail="Start setup first")
-    if not pyotp.TOTP(decrypt(pending)).verify(body.code.strip(), valid_window=1):
-        raise HTTPException(400, detail="That code didn't match. Try the next one.")
-    # Same storage shape as admin setup: the column encrypts again on write
-    current_user.totp_secret = pending
-    current_user.totp_enabled = True
-    request.session.pop("totp_pending", None)
-    await db.commit()
-    return {"totp_enabled": True}
-
-
-# ── Profile ───────────────────────────────────────────────────────────────────
-
-_EMAIL_RE = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,189}\.[A-Za-z]{2,}$")
-
-
-class PrefsUpdate(BaseModel):
-    theme: str | None = Field(None, pattern="^(system|light|dark)$")
-    font_size: str | None = Field(None, pattern="^(small|medium|large|xlarge)$")
-    high_contrast: bool | None = None
-    reduce_motion: bool | None = None
-    dyslexic_font: bool | None = None
-    email: str | None = Field(None, max_length=254)
-
-    @field_validator("email")
-    @classmethod
-    def _email(cls, v: str | None) -> str | None:
-        if v is not None and not _EMAIL_RE.match(v.strip()):
-            raise ValueError("Enter a valid email address")
-        return v.strip() if v else v
-
-
-class PasswordChange(BaseModel):
-    current_password: str = Field(min_length=1, max_length=1024)
-    new_password: str = Field(min_length=12, max_length=1024)
-
-
-@router.get("/api/v1/profile/prefs")
-async def get_prefs(current_user: User = Depends(get_current_user)):
-    """Return the authenticated user's UI preferences."""
-    return {"prefs": current_user.ui_prefs or {}, "email": current_user.email}
-
-
-@router.patch("/api/v1/profile/prefs")
-async def update_prefs(
-    body: PrefsUpdate,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_session),
-):
-    """Merge preference changes into the user's ui_prefs store."""
-    updates = body.model_dump(exclude_unset=True)
-    if "email" in updates:
-        email_val = updates.pop("email")
-        current_user.email = email_val or None
-        current_user.email_hash = search_hash(email_val) if email_val else None
-    prefs = {**(current_user.ui_prefs or {}), **updates}
-    current_user.ui_prefs = prefs
-    await db.commit()
-    return {"prefs": prefs}
-
-
-@router.post("/api/v1/profile/password")
-async def change_password(
-    request: Request,
-    body: PasswordChange,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_session),
-):
-    _require_browser_session(request, current_user)
-    if not current_user.is_local or not current_user.password_hash:
-        raise HTTPException(400, detail="This account signs in through SSO")
-    if not local.verify_password(body.current_password, current_user.password_hash):
-        raise HTTPException(400, detail="Current password is incorrect")
-    current_user.password_hash = local.hash_password(body.new_password)
-    from api.auth import sessions
-    sessions.new_password(request, current_user)   # every other session of this account ends; this one stays
-    await db.commit()
-    return {"changed": True}
-
-
 async def _upsert_oidc_user(info: dict, db: AsyncSession, cfg) -> User | None:
     """Find the SSO account by its stable subject within the configured issuer. Never attaches to an existing local
     or directory account, nor to one another IdP created (subjects are only unique per issuer). Accounts from before
@@ -488,7 +372,10 @@ async def _upsert_oidc_user(info: dict, db: AsyncSession, cfg) -> User | None:
         db.add(user)
         await db.flush()
         db.add(UserRole(user_id=user.id, role_name=cfg.default_role))
+        await account_seal.reseal(db, user, [cfg.default_role])
         log.info("new SSO account %s created with role %s", user.id, cfg.default_role)
+    elif not await account_seal.intact(db, user):   # an SSO account changed outside CTEM signs nobody in
+        return None
     if not user.is_active or user.is_locked:
         return None
     if info.get("email"):

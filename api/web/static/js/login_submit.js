@@ -7,7 +7,7 @@ document.querySelectorAll('form[action^="/auth/"]').forEach(form => {
     const b = form.querySelector('button[type="submit"]');
     if (b) {
       b.dataset.label = b.textContent;
-      b.textContent = form.action.endsWith('/auth/totp') ? 'Verifying...' : 'Signing in...';
+      b.textContent = form.action.endsWith('/auth/totp') ? 'Verifying...' : form.action.endsWith('/auth/first-password') ? 'Saving...' : 'Signing in...';
       b.disabled = true;   // after the submit event fired, so the form still goes
       b.setAttribute('aria-busy', 'true');
     }

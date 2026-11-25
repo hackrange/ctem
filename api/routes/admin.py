@@ -15,7 +15,7 @@ from sqlalchemy.orm import selectinload
 
 from api.auth.middleware import get_current_user
 from api.auth.rbac import require_admin
-from api.auth import local as local_auth, step_up
+from api.auth import account_seal, local as local_auth, step_up
 from api.auth import sessions as auth_sessions
 from api.core.db import get_session
 from api.core.accounts import ctem_account, same_name
@@ -87,6 +87,7 @@ async def create_user(
         raise HTTPException(409, detail="Username already exists")
     await _require_roles_exist(body.roles, db)
     user = User(username=body.username, is_local=True, password_hash=local_auth.hash_password(body.password))
+    local_auth.one_time_password(user)
     if body.email:
         user.email = body.email
         user.email_hash = search_hash(body.email)
@@ -94,27 +95,12 @@ async def create_user(
     await db.flush()  # assigns user.id before UserRole FK
     for role in body.roles:
         db.add(UserRole(user_id=user.id, role_name=role))
+    await account_seal.reseal(db, user, body.roles)
 
     await db.commit()
     await db.refresh(user, attribute_names=["roles"])
     await _audit(admin, "create_user", "user", str(user.id), f"Created user {body.username}", db)
     return _user_summary(user)
-
-
-@router.patch("/users/{user_id}/unlock")
-async def unlock_user(
-    user_id: uuid.UUID,
-    admin: User = Depends(require_admin),
-    db: AsyncSession = Depends(get_session),
-):
-    """Clear both Redis lockout and DB flag. Admin only."""
-    result = await db.execute(select(User).where(User.id == str(user_id)))
-    user = result.scalar_one_or_none()
-    if user is None:
-        raise HTTPException(404)
-    await local_auth.admin_unlock_user(user.username)
-    await _audit(admin, "unlock_user", "user", str(user_id), f"Unlocked {user.username}", db)
-    return {"unlocked": True}
 
 
 @router.patch("/users/{user_id}/toggle")
@@ -130,7 +116,9 @@ async def toggle_user_active(
     user = result.scalar_one_or_none()
     if user is None:
         raise HTTPException(404)
+    roles = await account_seal.checked(db, user)
     user.is_active = not user.is_active
+    await account_seal.reseal(db, user, roles)
     action = "activate_user" if user.is_active else "deactivate_user"
     await _audit(admin, action, "user", str(user_id), f"{action} {user.username}", db)
     await db.commit()
@@ -151,11 +139,13 @@ async def update_user_roles(
     await _require_roles_exist(body.roles, db)
     if "admin" in body.roles and "admin" not in user.role_names:
         step_up.require(request, admin)
+    await account_seal.checked(db, user)
     # Remove old roles, assign new
     for ur in user.roles:
         await db.delete(ur)
     for role_name in body.roles:
         db.add(UserRole(user_id=user.id, role_name=role_name))
+    await account_seal.reseal(db, user, body.roles)
     await db.commit()
     await _audit(admin, "update_user_roles", "user", str(user_id), f"Roles set to {body.roles}", db)
     return {"updated": True}
@@ -176,12 +166,15 @@ async def update_user(
         raise HTTPException(404)
     if body.password:
         step_up.require(request, admin)
+        roles = await account_seal.checked(db, user)   # before anything here changes the row
     if body.email is not None:
         user.email = body.email if body.email else None  # EncryptedString encrypts on write
         user.email_hash = _search_hash(body.email) if body.email else None
     if body.password:   # and whoever was signed in as them is signed out
         user.password_hash, user.is_locked = local_auth.hash_password(body.password), False
+        local_auth.one_time_password(user)
         auth_sessions.new_password(request, user)
+        await account_seal.reseal(db, user, roles)
     await db.commit()
     await _audit(admin, "update_user", "user", str(user_id), f"Updated {user.username}", db)
     return _user_summary(user)
@@ -195,19 +188,20 @@ async def admin_setup_totp(
 ):
     """Generate a new TOTP secret for a user. Returns QR code URI and secret."""
     step_up.require(request, admin)
-    from api.auth.local import generate_totp_secret, totp_provisioning_uri
-    from api.core.encryption import encrypt
+    from api.auth.local import generate_totp_secret, set_totp, totp_provisioning_uri
     result = await db.execute(select(User).where(User.id == str(user_id)))
     user = result.scalar_one_or_none()
     if user is None:
         raise HTTPException(404)
+    roles = await account_seal.checked(db, user)
     secret = generate_totp_secret()
-    user.totp_secret = encrypt(secret)
+    set_totp(user, secret)   # sealed to this account
     user.totp_enabled = True
+    await account_seal.reseal(db, user, roles)
     await db.commit()
     uri = totp_provisioning_uri(secret, user.username)
     await _audit(admin, "setup_totp", "user", str(user_id), f"Admin set up TOTP for {user.username}", db)
-    return {"provisioning_uri": uri, "secret": secret, "qr_png": _qr_png_b64(uri)}
+    return {"provisioning_uri": uri, "secret": secret, "qr_png": local_auth.qr_png_b64(uri)}
 
 
 @router.delete("/users/{user_id}/totp")
@@ -222,8 +216,9 @@ async def admin_remove_totp(
     user = result.scalar_one_or_none()
     if user is None:
         raise HTTPException(404)
-    user.totp_secret = None
-    user.totp_enabled = False
+    roles = await account_seal.checked(db, user)
+    user.totp_secret, user.totp_seal, user.totp_enabled = None, None, False
+    await account_seal.reseal(db, user, roles)
     await db.commit()
     await _audit(admin, "remove_totp", "user", str(user_id), f"Removed TOTP for {user.username}", db)
     return {"totp_enabled": False}
@@ -324,15 +319,6 @@ async def get_audit_log(
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _qr_png_b64(uri: str) -> str:
-    """Generate a QR code PNG as a base64 data URI -- no CDN needed."""
-    import io, base64, qrcode
-    img = qrcode.make(uri)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
-
-
 async def _audit(actor: User, action: str, resource_type: str, resource_id: str, detail: str, db: AsyncSession) -> None:
     db.add(AuditLog(actor_user_id=str(actor.id), actor_username=actor.username, action=action, resource_type=resource_type, resource_id=resource_id, detail=detail))
     await db.commit()
@@ -412,7 +398,9 @@ async def update_user_page_tags(
     cleaned = [t.lower().strip() for t in body.page_tags if t.strip()]
     cleaned = [t for t in cleaned if t.replace("-", "").isalnum()][:50]
 
+    roles = await account_seal.checked(db, target)
     target.page_tags = cleaned or None
+    await account_seal.reseal(db, target, roles)
     await db.commit()
     await _audit(current_user, "update_page_tags", "user", str(target.id),
                  f"set page_tags={cleaned}", db)

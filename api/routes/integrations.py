@@ -382,8 +382,9 @@ async def _collector_recent(cfg: IntegrationConfig, db: AsyncSession) -> bool:
 
     from api.models.collector import CollectorToken
     cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+    from api.auth.account_seal import collector_intact
     toks = (await db.execute(select(CollectorToken).where(CollectorToken.is_active == True))).scalars()  # noqa: E712
-    for t in toks:
+    for t in (t for t in toks if collector_intact(t)):
         seen = t.last_seen
         if seen is not None and seen.tzinfo is None:
             seen = seen.replace(tzinfo=timezone.utc)
