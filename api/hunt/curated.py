@@ -161,8 +161,10 @@ async def run(db, splunk, time_range: str, first_lookup: int) -> tuple[list[dict
     rules = (await db.execute(select(ThreatRule).where(ThreatRule.enabled.is_(True)))).scalars().all()
     if not rules:
         return [], [], set()
-    since = (datetime.now(timezone.utc) - timedelta(days=DAYS.get(time_range, 7))).isoformat()
-    alerts = [a for a in await _alerts(db) if (a.get("detected_at") or "") >= since] if any(r.kind == "alert" for r in rules) else []
+    since_at = datetime.now(timezone.utc) - timedelta(days=DAYS.get(time_range, 7))
+    since = since_at.isoformat()
+    every = await _alerts(db) if any(r.kind == "alert" for r in rules) else []   # the history context weighs hits against
+    alerts = [a for a in every if (a.get("detected_at") or "") >= since]
     if alerts:   # accepted alerts (the allow list) never raise a finding
         from api.core.alert_allow import accepted
         gone = await accepted(db, alerts, count=True)
@@ -205,7 +207,13 @@ async def run(db, splunk, time_range: str, first_lookup: int) -> tuple[list[dict
         lookups.append({"source": "ctem", "source_label": "Curated rule", "title": f"Curated rule: {rule.name}",
                         "why": "A Threat Curated Rule; no AI tokens spent", "columns": cols,
                         "rows": [{c: r.get(c) for c in cols} for r in rows], "count": len(rows), "table": "curated", "filters": {}})
-        issues.append(_issue(rule, hits, n))
+        issue = _issue(rule, hits, n)
+        if rule.kind == "alert":   # how this time looks against what CTEM already knows (api/hunt/context.py)
+            from api.hunt.context import explain, weigh
+            ctx = weigh(hits, every, since_at)
+            issue["confidence"], issue["context"] = ctx["confidence"], ctx["notes"]
+            issue["what_happened"] = (issue["what_happened"] + explain(ctx))[:1500]
+        issues.append(issue)
         rule.hits, rule.last_hit_at = (rule.hits or 0) + 1, now
         if len(issues) >= MAX_ISSUES:
             break
