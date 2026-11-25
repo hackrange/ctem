@@ -77,6 +77,19 @@ if [[ "$MODE" == backup ]]; then
 fi
 
 # ── Upgrade ───────────────────────────────────────────────────────────────────
+# The commit an upgrade rolls code back to. Code from before 1.11.3 can't read the encryption envelope 1.11.4 writes
+# (and rewrites stored secrets in at start), so an upgrade from there goes back to the newest commit that reads that
+# envelope but still writes the old one. Prints nothing when there is no such commit: don't roll back the code then.
+_reads_v2() { git show "$1:api/core/encryption.py" 2>/dev/null | grep '^_V2 = "e2:"' >/dev/null; }
+_writes_v2() { git show "$1:api/core/encryption.py" 2>/dev/null | grep '^WRITE_V2 = True' >/dev/null; }
+rollback_rev() {
+  local pre=$1 post=$2 c
+  if _reads_v2 "$pre" || ! _writes_v2 "$post"; then echo "$pre"; return; fi
+  for c in $(git log --format=%H "${pre}..${post}" -- api/core/encryption.py); do
+    if _reads_v2 "$c" && git show "$c:api/core/encryption.py" | grep '^WRITE_V2 = False' >/dev/null; then echo "$c"; return; fi
+  done
+}
+
 if [[ "$MODE" == upgrade ]]; then
   say "open-ctem upgrade"
   [[ -d .git && -f "$ENV_FILE" ]] || die "No install at ${INSTALL_DIR}. Run without --upgrade for a fresh install."
@@ -126,8 +139,14 @@ if [[ "$MODE" == upgrade ]]; then
   # compose doesn't always notice a rebuilt image on worker and beat, so make sure all of them run the new code
   _compose up -d --no-deps --force-recreate app worker beat
   if ! wait_healthy 300; then
-    warn "App did not come up healthy. Rolling back code to ${PRE_REV:0:8}..."
-    git checkout "${PRE_REV}" -- .
+    BACK_REV=$(rollback_rev "${PRE_REV}" "${POST_REV}")
+    if [[ -z "$BACK_REV" ]]; then
+      warn "App did not come up healthy. ${PRE_REV:0:8} can't read secrets this version has re-encrypted, so the code stays at ${POST_REV:0:8}."
+      die "Fix the cause and re-run, or restore the backup taken before the upgrade: ${BACKUP_FILE:-none}"
+    fi
+    [[ "$BACK_REV" == "$PRE_REV" ]] || warn "${PRE_REV:0:8} can't read secrets this version has re-encrypted; rolling back to ${BACK_REV:0:8} instead."
+    warn "App did not come up healthy. Rolling back code to ${BACK_REV:0:8}..."
+    git checkout "${BACK_REV}" -- .
     _compose build && _compose up -d --remove-orphans && _compose up -d --no-deps --force-recreate app worker beat
     die "Upgrade rolled back. Backup: ${BACKUP_FILE:-none}"
   fi

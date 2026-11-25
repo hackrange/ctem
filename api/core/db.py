@@ -216,6 +216,12 @@ async def _run_seed() -> None:
                 log.info("SSO: %d account(s) from before issuers were kept bound to the configured issuer", n)
     except Exception:  # noqa: BLE001 -- start anyway; those accounts just can't sign in through SSO until bound
         log.exception("SSO: binding accounts to the configured issuer failed")
+    try:
+        from api.core.reseal import reseal_secrets
+        async with _session_factory() as db:
+            await reseal_secrets(db)
+    except Exception:  # noqa: BLE001 -- start anyway; those values stay in the older envelope and still read
+        log.exception("re-sealing stored secrets in the bound envelope failed")
 
 
 # ── Session helpers ───────────────────────────────────────────────────────────

@@ -1,13 +1,13 @@
 """AES-256-GCM column encryption. Assumes the DB can be breached.
 
 Two envelopes are read:
-  - v1 (every value written before 1.11.3): base64(nonce + ciphertext), no associated data
+  - v1 (every value written before 1.11.4): base64(nonce + ciphertext), no associated data
   - v2: "e2:" + base64(nonce + ciphertext), with associated data naming what the value is: a bare
     encrypt() call, a text column or a JSON column, plus the column itself for the secret-bearing ones. A v2 value
     copied into a column of another kind (or out of a named column) fails authentication instead of opening there.
-v1 values keep opening everywhere until they are next written. New writes use v2 only once WRITE_V2 is on: a release
-first has to read v2 everywhere (app, worker, scheduler, and any version it may be rolled back to) before any
-process writes it, or an older process would read a v2 value as if it were plaintext. The base64 alphabet has no ":", so the prefix never
+v1 values keep opening everywhere until they are next written; the secret-bearing ones are rewritten as v2 at start
+(api/core/reseal.py). Writes are v2 from 1.11.4 (WRITE_V2). 1.11.3 reads v2, so 1.11.4 can run beside it and roll
+back to it, but not to 1.11.2 or earlier, which would read a v2 value as if it were plaintext. The base64 alphabet has no ":", so the prefix never
 collides with a v1 value, and stripping it makes the tag fail (v1 is checked with no associated data)."""
 from __future__ import annotations
 
@@ -28,8 +28,8 @@ log = logging.getLogger("open-ctem.encryption")
 _NONCE_LEN = 12  # 96-bit GCM nonce
 _V2 = "e2:"
 _MIN_SEALED = _NONCE_LEN + 16  # nonce + GCM tag
-# 1.11.3 reads v2 and still writes v1, so it can run beside (and roll back to) 1.11.2; the next release writes v2
-WRITE_V2 = False
+# 1.11.3 read v2 but still wrote v1 (so it could run beside 1.11.2); from 1.11.4 every write is v2
+WRITE_V2 = True
 
 
 def _enc_key() -> bytes:

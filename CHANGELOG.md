@@ -3,9 +3,15 @@
 All notable changes to open-ctem are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
-open-ctem is a Python rewrite of an earlier PHP version begun about 18 months before this repository; that history isn't in this repository (see [docs/project-overview.md](docs/project-overview.md)). Versions here start with the Python release, and each version is tagged (`v1.1.0` ... `v1.11.3`) at the commit that finished it. The on-prem shipper has its own version numbers.
+open-ctem is a Python rewrite of an earlier PHP version begun about 18 months before this repository; that history isn't in this repository (see [docs/project-overview.md](docs/project-overview.md)). Versions here start with the Python release, and each version is tagged (`v1.1.0` ... `v1.11.4`) at the commit that finished it. The on-prem shipper has its own version numbers.
 
 ## [Unreleased]
+
+## [1.11.4] - 2026-11-25
+
+### Security
+- **Encryption:** every new encrypted value is written in the envelope that ties it to its kind and, for secrets, to its column (read since 1.11.3). At start, stored integration settings, shipper secrets and authenticator secrets are rewritten in that envelope, so a copy of one placed in another column by someone with database write access no longer opens there. SSO settings and the evidence signing key are rewritten too, bound to their kind. Other encrypted values move over as they are next written. Copies taken before the upgrade (an old dump or backup) still open, so rotate any credential such a copy may have exposed.
+- **Rollback:** 1.11.4 can run beside and roll back to 1.11.3, but not to 1.11.2 or earlier. `install.sh --upgrade` from an older version now rolls back to 1.11.3 if the new version doesn't come up, instead of to the version it started from.
 
 ## [1.11.3] - 2026-11-25
 
