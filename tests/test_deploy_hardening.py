@@ -64,3 +64,9 @@ def test_the_app_code_is_not_owned_by_the_user_it_runs_as():
 def test_the_collector_image_python_is_patched():
     m = re.search(r"^FROM python:3\.12\.(\d+)", (ROOT / "api" / "collector" / "agent" / "Dockerfile").read_text(), re.M)
     assert m and int(m.group(1)) >= 14
+
+
+def test_the_scheduler_keeps_its_schedule_file_outside_the_read_only_code():
+    compose = (ROOT / "docker" / "docker-compose.yml").read_text()
+    beat = [ln for ln in compose.splitlines() if " beat " in ln and "celery" in ln]
+    assert beat and all("--schedule /tmp/" in ln for ln in beat)

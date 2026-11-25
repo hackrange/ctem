@@ -3,9 +3,14 @@
 All notable changes to open-ctem are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
-open-ctem is a Python rewrite of an earlier PHP version begun about 18 months before this repository; that history isn't in this repository (see [docs/project-overview.md](docs/project-overview.md)). Versions here start with the Python release, and each version is tagged (`v1.1.0` ... `v1.11.0`) at the commit that finished it. The on-prem shipper has its own version numbers.
+open-ctem is a Python rewrite of an earlier PHP version begun about 18 months before this repository; that history isn't in this repository (see [docs/project-overview.md](docs/project-overview.md)). Versions here start with the Python release, and each version is tagged (`v1.1.0` ... `v1.11.1`) at the commit that finished it. The on-prem shipper has its own version numbers.
 
 ## [Unreleased]
+
+## [1.11.1] - 2026-11-25
+
+### Fixed
+- The scheduler could not start after 1.10.2 made the app's code read-only: it kept its schedule file there. It now keeps it in temp space, so hourly and nightly jobs run again.
 
 ## [1.11.0] - 2026-11-25
 

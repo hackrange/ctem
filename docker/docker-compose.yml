@@ -42,7 +42,8 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    command: celery -A api.core.tasks.celery_app beat --loglevel=info
+    # The schedule file goes in temp space: the app's code directory is read-only to the user it runs as
+    command: celery -A api.core.tasks.celery_app beat --loglevel=info --schedule /tmp/celerybeat-schedule
     env_file: ../.env
     depends_on:
       db:

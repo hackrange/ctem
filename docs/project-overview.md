@@ -28,6 +28,7 @@ What open-ctem covers, how it scores risk, and how it has been reviewed and hard
 | 1.10.1 | 2026-11-25 | Posture exceptions by device, tag, device type or everywhere |
 | 1.10.2 | 2026-11-25 | Load balancer trust list, read-only app code, patched collector Python |
 | 1.11.0 | 2026-11-25 | Remediated findings rolled up and removed, suppress similar alerts, context-weighed curated rules |
+| 1.11.1 | 2026-11-25 | Scheduler schedule file moved out of the read-only code directory |
 
 The on-prem shipper has its own version numbers (1.0 to 1.7.x), separate from the application's.
 
