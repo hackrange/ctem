@@ -3,7 +3,7 @@
 **Continuous Threat Exposure Management** -- open source, risk-based, built to outclass every commercial CTEM product.
 
 > Author: Tim Rice &lt;tim.j.rice@hackrange.com&gt;  
-> Version: 1.10.1  
+> Version: 1.10.2  
 > License: MIT
 
 ## Install
@@ -393,7 +393,7 @@ sudo /data/docker/ctem/upgrade.sh --check    # only say whether an update is ava
 
 ### Behind an upstream load balancer
 
-Set `LB_BIND_IP` in `.env` to the private IP your load balancer reaches this host on. nginx publishes a dedicated listener on `LB_BIND_IP:8085` that trusts only the client IP the load balancer appends to `X-Forwarded-For`. Leave it unset and the listener binds to loopback only. The public `:80` and `:443` listeners never trust client-supplied forwarding headers.
+Set `LB_BIND_IP` in `.env` to the private IP your load balancer reaches this host on. nginx publishes a dedicated listener on `LB_BIND_IP:8085` that trusts only the client IP the load balancer appends to `X-Forwarded-For`. Set `LB_TRUSTED_IPS` to the load balancers' own addresses (comma separated IPs or CIDRs): only connections from them may set the client IP there, and anything else that reaches the listener is seen as itself. Until it is set, the listener keeps believing any peer and nginx logs a warning at start. Leave `LB_BIND_IP` unset and the listener binds to loopback only. The public `:80` and `:443` listeners never trust client-supplied forwarding headers.
 
 ---
 

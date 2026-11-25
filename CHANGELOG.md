@@ -3,9 +3,19 @@
 All notable changes to open-ctem are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
-open-ctem is a Python rewrite of an earlier PHP version begun about 18 months before this repository; that history isn't in this repository (see [docs/project-overview.md](docs/project-overview.md)). Versions here start with the Python release, and each version is tagged (`v1.1.0` ... `v1.10.1`) at the commit that finished it. The on-prem shipper has its own version numbers.
+open-ctem is a Python rewrite of an earlier PHP version begun about 18 months before this repository; that history isn't in this repository (see [docs/project-overview.md](docs/project-overview.md)). Versions here start with the Python release, and each version is tagged (`v1.1.0` ... `v1.10.2`) at the commit that finished it. The on-prem shipper has its own version numbers.
 
 ## [Unreleased]
+
+## [1.10.2] - 2026-11-25
+
+### Security
+- **The load-balancer listener believes client IPs only from the load balancers.** Set `LB_TRUSTED_IPS` to their addresses: only connections from them may set the client IP on `:8085`, so another container on the Docker network can no longer pose as any address to get past API token IP limits or sign-in throttling. Catch-all ranges are refused. An install that publishes the listener and hasn't set it yet keeps working as before, and nginx logs a warning at start.
+- **The app's code is read-only to the user it runs as.** The image no longer hands `/app` to that user, so nothing running in the app can rewrite it; the app still writes to its spool and temp space.
+- **The collector image runs Python 3.12.15** (was 3.12.8), which carries the fixes for the published CPython advisories. Rebuild on-prem collectors to pick it up.
+
+### Fixed
+- The supplier gaps API's description now states its real access rule (anyone with GRC read, as for the supplier list); a test fails if a GRC grant narrower than all-scope is ever added without a scope check.
 
 ## [1.10.1] - 2026-11-25
 
