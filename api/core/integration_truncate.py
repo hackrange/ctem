@@ -96,8 +96,14 @@ async def run(db: AsyncSession, cfg, actor: str) -> dict:
     if slug == "ldap":
         await db.execute(update(Device).where(Device.ad_dn.is_not(None)).values(
             **{f: None for f in _AD_FIELDS}, ad_joined=False).execution_options(synchronize_session=False))
-    from api.models.identity import IdentityThreat, PostureFinding
-    for model in (IdentityThreat, PostureFinding):
+    from api.models.identity import IdentityThreat, IdpAppAccess, PostureFinding
+    if slug == "okta":   # what the identity provider added to people and computers
+        from api.models.user import User
+        await db.execute(update(User).where(User.idp.is_not(None)).values(idp=None, mfa_phone=None)
+                         .execution_options(synchronize_session=False))
+        await db.execute(update(Device).where(Device.idp_device.is_not(None)).values(idp_device=None)
+                         .execution_options(synchronize_session=False))
+    for model in (IdentityThreat, PostureFinding, IdpAppAccess):
         await db.execute(delete(model).where(model.source == slug).execution_options(synchronize_session=False))
     same = [str(i) for (i,) in (await db.execute(select(IntegrationConfig.id).where(IntegrationConfig.vendor == vendor))).all()]
     await db.execute(delete(CloudAsset).where(CloudAsset.integration_id.in_(same)).execution_options(synchronize_session=False))

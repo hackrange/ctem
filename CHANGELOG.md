@@ -7,6 +7,15 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-11-25
+
+### Added
+- **Okta app access:** who holds which app, and when they last signed in to it, groundwork for proposing access nobody uses.
+  - **Holdings:** each person's app list (their Okta dashboard apps) is read weekly, oldest first, up to 3,000 people a sync (`app_budget`). Access that disappears from the list keeps its sign-in history, marked no longer held.
+  - **Sign-ins:** the newest SSO sign-in per person per app comes from the System Log. The first syncs catch up 90 days back (all Okta keeps), up to 150,000 sign-ins a sync.
+  - Works with a token that can't list apps. An app no one holds doesn't appear, nor do apps that aren't on people's dashboards; a Read-Only Administrator token would close that gap.
+- **Truncate on an Okta integration** now also removes what Okta added to people (account state, MFA phone, app access) and to computers (the Okta device record).
+
 ## [1.12.1] - 2026-11-25
 
 ### Fixed

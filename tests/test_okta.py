@@ -15,7 +15,7 @@ ORG = "acme.okta.com"
 def test_only_allow_listed_gets_on_the_org_itself():
     from api.integrations.okta import allowed
     ok = ("/api/v1/users?limit=200", "/api/v1/devices?limit=200&expand=user", "/api/v1/logs?since=x",
-          "/api/v1/users/00uABCDEFGHIJ12345/factors")
+          "/api/v1/users/00uABCDEFGHIJ12345/factors", "/api/v1/users/00uABCDEFGHIJ12345/appLinks")
     for p in ok:
         assert allowed("GET", f"https://{ORG}{p}", ORG), p
     for method in ("POST", "PUT", "PATCH", "DELETE", "HEAD"):
@@ -66,9 +66,11 @@ async def test_a_next_link_to_another_host_is_refused_before_the_token_is_sent(m
 
 def test_okta_code_sends_nothing_but_get():
     root = Path(__file__).resolve().parents[1]
-    for f in ("api/integrations/okta.py", "api/integrations/okta_ingest.py", "api/integrations/okta_signals.py"):
+    for f in ("api/integrations/okta.py", "api/integrations/okta_ingest.py", "api/integrations/okta_signals.py",
+              "api/integrations/okta_apps.py"):
         src = (root / f).read_text()
-        assert not re.search(r"\.(post|put|patch|delete|request|stream)\(", src), f
+        assert not re.search(r"\.(post|put|patch|request|stream)\(", src), f
+        assert not re.search(r"(?<!db)\.delete\(", src), f   # db.delete removes a row; no HTTP DELETE
 
 
 def test_factor_summary_keeps_the_phone_but_not_device_names():
@@ -187,7 +189,9 @@ async def test_sync_matches_people_and_computers_and_reads_signals(db, monkeypat
     assert "okta:mfa:phone_only" in found and upn not in found["okta:mfa:phone_only"].description
     threat = (await db.execute(select(IdentityThreat).where(IdentityThreat.external_id == f"ev-{t}"))).scalar_one()
     assert threat.threat_type.value == "mfa_fatigue" and threat.user_email_hash == search_hash(upn) and upn not in threat.user_display
-    assert set(calls) <= {"/api/v1/users", "/api/v1/devices", "/api/v1/logs", "/api/v1/users/00uPersonAAAAAAAAAA1/factors", "/api/v1/users/00uNewbieAAAAAAAAAA1/factors"}
+    assert {c for c in calls if not c.endswith("/appLinks")} <= {"/api/v1/users", "/api/v1/devices", "/api/v1/logs",
+                                                                 "/api/v1/users/00uPersonAAAAAAAAAA1/factors",
+                                                                 "/api/v1/users/00uNewbieAAAAAAAAAA1/factors"}
     # a second run saves the event once and doesn't re-read factors read this week
     calls.clear()
     await conn.sync(db)
@@ -340,3 +344,84 @@ async def test_okta_500s_are_retried_and_a_failed_device_pull_does_not_sink_the_
     await conn.sync(db)   # doesn't raise
     assert any("device pull stopped" in w for w in conn.warnings)
     assert "devices_at" not in await load_sync_state(db, conn.integration_id)   # so the next sync tries again
+
+
+def test_app_links_and_sso_events_parse_strictly():
+    from api.integrations.okta_apps import app_links, sso_event
+    links = app_links([{"appInstanceId": "0oaAPPAAAAAAAAAAAAA1", "label": "Payroll", "appName": "bookmark", "hidden": False},
+                       {"appInstanceId": "../evil", "label": "x"}, {"appInstanceId": "0oaAPPAAAAAAAAAAAAA2", "label": "<b>x</b>"}, "junk"])
+    assert set(links) == {"0oaAPPAAAAAAAAAAAAA1", "0oaAPPAAAAAAAAAAAAA2"}
+    assert links["0oaAPPAAAAAAAAAAAAA1"]["label"] == "Payroll" and links["0oaAPPAAAAAAAAAAAAA2"]["label"] is None
+    ev = {"outcome": {"result": "SUCCESS"}, "published": "2026-11-20T10:00:00.000Z", "actor": {"alternateId": "JDoe@acme.example"},
+          "target": [{"type": "AppInstance", "id": "0oaAPPAAAAAAAAAAAAA1", "displayName": "Payroll"}]}
+    who = {"jdoe@acme.example": "u1"}
+    assert sso_event(ev, who)[:2] == ("0oaAPPAAAAAAAAAAAAA1", "u1")
+    assert sso_event({**ev, "outcome": {"result": "FAILURE"}}, who) is None
+    assert sso_event(ev, {}) is None
+    assert sso_event({**ev, "target": [{"type": "AppInstance", "id": "bad id"}]}, who) is None
+
+
+@pytest.mark.asyncio
+async def test_app_access_is_pulled_weekly_with_last_sign_ins(db, monkeypatch):
+    from sqlalchemy import select
+
+    from api.core.encryption import search_hash
+    from api.core.integration_truncate import run as truncate
+    from api.integrations.okta import OktaConnector
+    from api.models.identity import IdpAppAccess
+    from api.models.user import User
+    t = uuid.uuid4().hex[:6]
+    upn = f"ana{t}@acme.example"
+    ana = User(username=f"ana{t}", is_local=False, upn=upn, upn_hash=search_hash(upn))
+    db.add(ana)
+    await db.commit()
+    ana_id = ana.id
+    oid = f"00uAna{t}".ljust(20, "A")
+    a1, a2, a3 = (f"0oa{k}{t}".ljust(20, "A") for k in ("pay", "crm", "old"))
+    recent = (datetime.now(timezone.utc) - timedelta(days=2)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    sso = [{"uuid": f"s1{t}", "eventType": "user.authentication.sso", "published": recent, "outcome": {"result": "SUCCESS"},
+            "actor": {"type": "User", "alternateId": upn}, "target": [{"type": "AppInstance", "id": a1, "displayName": "Payroll"}]},
+           {"uuid": f"s2{t}", "eventType": "user.authentication.sso", "published": recent, "outcome": {"result": "SUCCESS"},
+            "actor": {"type": "User", "alternateId": upn}, "target": [{"type": "AppInstance", "id": a3, "displayName": "Old CRM"}]}]
+    data = {"/api/v1/users": [{"id": oid, "status": "ACTIVE", "profile": {"login": upn}}],
+            f"/api/v1/users/{oid}/appLinks": [{"appInstanceId": a1, "label": "Payroll", "appName": "bookmark"},
+                                              {"appInstanceId": a2, "label": "CRM", "appName": "salesforce"}]}
+    calls = []
+
+    async def fake_fetch(self, url, client):
+        path = url.split("?", 1)[0].replace(f"https://{ORG}", "")
+        calls.append(path)
+        if path == "/api/v1/logs":
+            return (sso if "user.authentication.sso" in url else []), None
+        return data.get(path, []), None
+
+    monkeypatch.setattr(OktaConnector, "fetch", fake_fetch)
+    conn = OktaConnector({"base_url": f"https://{ORG}", "api_token": "example-not-a-real-token"})
+    conn.integration_id = str(uuid.uuid4())
+    await conn.sync(db)
+    rows = {r.app_id: r for r in (await db.execute(select(IdpAppAccess).where(IdpAppAccess.user_id == ana_id))).scalars()}
+    assert set(rows) == {a1, a2, a3}
+    assert rows[a1].assigned and rows[a1].last_sign_in is not None and rows[a1].app_label == "Payroll"
+    assert rows[a2].assigned and rows[a2].last_sign_in is None                       # held, never used
+    assert not rows[a3].assigned and rows[a3].last_sign_in is not None               # used, but not on the list
+    # Payroll is taken away: its sign-in history stays, unassigned; CRM (never used) would simply go
+    data[f"/api/v1/users/{oid}/appLinks"] = [{"appInstanceId": a2, "label": "CRM", "appName": "salesforce"}]
+    calls.clear()
+    await conn.sync(db)
+    assert f"/api/v1/users/{oid}/appLinks" not in calls                               # weekly, not every sync
+    await db.refresh(ana)
+    ana.idp = {**ana.idp, "apps_at": "2020-01-01T00:00:00+00:00"}
+    await db.commit()
+    await conn.sync(db)
+    db.expire_all()
+    rows = {r.app_id: r for r in (await db.execute(select(IdpAppAccess).where(IdpAppAccess.user_id == ana_id))).scalars()}
+    assert not rows[a1].assigned and rows[a1].last_sign_in is not None and rows[a2].assigned
+    # truncating the Okta integration takes all of it away
+    from api.models.integration import IntegrationConfig, Vendor
+    cfg = IntegrationConfig(vendor=Vendor.okta, name=f"Okta {t}", config={"base_url": f"https://{ORG}"})
+    db.add(cfg)
+    await db.commit()
+    await truncate(db, cfg, "tester")
+    db.expire_all()
+    assert not (await db.execute(select(IdpAppAccess).where(IdpAppAccess.user_id == ana_id))).scalars().all()
+    assert (await db.get(User, ana_id)).idp is None

@@ -34,6 +34,7 @@ _ID = r"[A-Za-z0-9]{10,40}"
 ALLOWED = (
     re.compile(r"^/api/v1/users$"),
     re.compile(rf"^/api/v1/users/{_ID}/factors$"),
+    re.compile(rf"^/api/v1/users/{_ID}/appLinks$"),
     re.compile(r"^/api/v1/devices$"),
     re.compile(r"^/api/v1/logs$"),
 )
@@ -79,7 +80,8 @@ def next_link(link: str | None) -> str | None:
 class OktaConnector(BaseConnector):
     """Config: base_url (https://acme.okta.com), api_token (an SSWS token of a read-only admin), create_devices
     (add Okta-registered computers CTEM has never seen), factor_budget (MFA lookups per sync, default 3000),
-    device_interval_days (how often the slow device pull runs, default 7; 0 = every sync)."""
+    device_interval_days (how often the slow device pull runs, default 7; 0 = every sync), app_budget (people whose
+    app list is read per sync, default 3000; each person's list is refreshed weekly)."""
 
     def __init__(self, config: dict) -> None:
         super().__init__(config)
@@ -184,7 +186,7 @@ class OktaConnector(BaseConnector):
         await save_sync_state(db, self.integration_id, {**state, "devices_at": datetime.now(timezone.utc).isoformat()})
 
     async def sync(self, db: AsyncSession) -> int:
-        from api.integrations import okta_ingest, okta_signals
+        from api.integrations import okta_apps, okta_ingest, okta_signals
         self.warnings = []
         async with self.client() as client:
             people = await okta_ingest.users(self, client, db)
@@ -202,6 +204,8 @@ class OktaConnector(BaseConnector):
             if not pulled:
                 await okta_ingest.device_owners(db, people)   # who's on a computer, from the last device pull
             n += await okta_ingest.factors(self, client, db, people)
+            n += await okta_apps.assignments(self, client, db, people)
+            n += await okta_apps.sign_ins(self, client, db, people)
             n += await okta_signals.posture(self, db, people)
             n += await okta_signals.threats(self, client, db, people)
         log.info("Okta sync: %d records, %d API calls", n, self.calls)

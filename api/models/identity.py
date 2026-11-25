@@ -5,7 +5,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, Float, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from api.models.base import Base, TimestampMixin, UUIDPrimaryKey
@@ -159,3 +159,20 @@ class PostureFinding(Base, UUIDPrimaryKey, TimestampMixin):
     is_resolved: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
     detected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class IdpAppAccess(Base, UUIDPrimaryKey, TimestampMixin):
+    """One person's access to one app at the identity provider (Okta): on their app list at the last pull, and when
+    they last signed in to it. The groundwork for proposing access nobody uses."""
+    __tablename__ = "idp_app_access"
+    __table_args__ = (UniqueConstraint("source", "app_id", "user_id", name="uq_idp_app_access"),)
+
+    source: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    app_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)       # the IdP's app instance id
+    app_label: Mapped[str | None] = mapped_column(String(256))
+    app_name: Mapped[str | None] = mapped_column(String(128))                         # the app's kind (amazon_aws, bookmark)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    assigned: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)    # on their app list at the last pull
+    hidden: Mapped[bool | None] = mapped_column(Boolean)
+    seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))         # the last pull that listed it
+    last_sign_in: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)

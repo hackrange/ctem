@@ -3,7 +3,7 @@
 **Continuous Threat Exposure Management** -- open source, risk-based, built to outclass every commercial CTEM product.
 
 > Author: Tim Rice &lt;tim.j.rice@hackrange.com&gt;  
-> Version: 1.12.1  
+> Version: 1.13.0  
 > License: MIT
 
 ## Install
@@ -99,7 +99,7 @@ Every source is matched to the same device row by host name, however it spells i
 | Fortinet | Firewall | Policy data |
 | Zscaler (OneAPI, read only) | Network / SSE | Client Connector coverage gaps (no agent or a silent one on workstations CTEM sees), ZIA policy weaknesses (risky URL categories allowed, broad SSL bypass, any-to-any firewall rules, DLP off or monitor only), admin sign-in and super admins, ZDX reporting; one token POST then allow-listed GETs only |
 | Grip Security | SaaS | Shadow IT, SaaS risk |
-| Okta (read only) | Identity provider | Who signs in on each Windows and macOS computer (Okta Verify), so a workstation with no EDR still gets its user; the phone each person's SMS or voice MFA factor reaches, their factors and account state; computer posture (disk encryption, TPM, managed, serial); posture findings (no or phishable-only MFA, unencrypted computers, computers with no EDR, computers only Okta knows, one name claimed by two serial numbers); System Log threats (ThreatInsight, denied pushes, lockouts, suspicious-activity reports, breached credentials, admin role grants, MFA resets). GETs on an allow-list of paths on the org's own host only. The device pull runs on its own interval (weekly by default) |
+| Okta (read only) | Identity provider | Who signs in on each Windows and macOS computer (Okta Verify), so a workstation with no EDR still gets its user; the phone each person's SMS or voice MFA factor reaches, their factors and account state; computer posture (disk encryption, TPM, managed, serial); posture findings (no or phishable-only MFA, unencrypted computers, computers with no EDR, computers only Okta knows, one name claimed by two serial numbers); System Log threats (ThreatInsight, denied pushes, lockouts, suspicious-activity reports, breached credentials, admin role grants, MFA resets); who holds which app and their last sign-in to each (app lists weekly, SSO sign-ins 90 days back). GETs on an allow-list of paths on the org's own host only. The device pull runs on its own interval (weekly by default) |
 | ServiceNow | ITSM + CMDB | Ticket creation, CMDB export |
 | Snyk | AppSec | Code and container findings |
 | GitHub Advanced Security | AppSec | SAST/secret scan findings |

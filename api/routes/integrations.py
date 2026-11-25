@@ -60,6 +60,8 @@ def _check_vendor_config(vendor: Vendor, config: dict) -> None:
                 raise ValueError("the Okta domain must start with https://")
             if config.get("factor_budget") not in (None, "") and not 0 <= int(config["factor_budget"]) <= 20000:
                 raise ValueError("MFA lookups per sync must be from 0 to 20000")
+            if config.get("app_budget") not in (None, "") and not 0 <= int(config["app_budget"]) <= 20000:
+                raise ValueError("App list lookups per sync must be from 0 to 20000")
             if config.get("device_interval_days") not in (None, "") and not 0 <= int(config["device_interval_days"]) <= 90:
                 raise ValueError("The device pull interval must be from 0 to 90 days")
         except ValueError as exc:
