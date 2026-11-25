@@ -35,6 +35,7 @@ What open-ctem covers, how it scores risk, and how it has been reviewed and hard
 | 1.12.0 | 2026-11-25 | Okta identity provider integration, Identity tab, bulk software approval, double-submitted sign-in fix |
 | 1.12.1 | 2026-11-25 | Okta: retry its intermittent 500s; a failed device pull no longer fails the sync |
 | 1.13.0 | 2026-11-25 | Okta app access: who holds which app and their last sign-in to it |
+| 1.13.1 | 2026-11-25 | Fixes from a third penetration test |
 
 The on-prem shipper has its own version numbers (1.0 to 1.7.x), separate from the application's.
 

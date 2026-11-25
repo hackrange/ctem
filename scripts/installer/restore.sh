@@ -163,10 +163,16 @@ _load_database() {
   ok "Database loaded."
 }
 
+# The archive's own owners, setuid/setgid/sticky bits, links, device files and paths outside the folder never
+# land: Python's "data" filter (3.12) refuses or strips them, where tar -p as root kept whatever the archive said
+_SAFE_UNTAR='import sys, tarfile
+with tarfile.open(fileobj=sys.stdin.buffer, mode="r|") as t:
+    t.extractall("/app/uploads", filter="data")'
+
 _load_uploads() {
   local file="$1"
   CTEM_BACKUP_PASSWORD="$RESTORE_PW" archive cat --in "$file" --name volumes/app_uploads.tar \
-    | _compose run --rm --no-deps -T --user 0 --entrypoint tar app -C /app/uploads -xpf - \
+    | _compose run --rm --no-deps -T --user 0 --entrypoint python app -I -c "$_SAFE_UNTAR" \
     || die "Restoring uploaded files failed."
   ok "Uploaded files restored."
 }

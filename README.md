@@ -3,7 +3,7 @@
 **Continuous Threat Exposure Management** -- open source, risk-based, built to outclass every commercial CTEM product.
 
 > Author: Tim Rice &lt;tim.j.rice@hackrange.com&gt;  
-> Version: 1.13.0  
+> Version: 1.13.1  
 > License: MIT
 
 ## Install
@@ -297,7 +297,7 @@ Charts use [Apache ECharts](https://echarts.apache.org/) 6.1.0 (Apache-2.0) and 
 4. Choose the **default role** for new people (No Access unless you change it; never admin), the **message** people with No Access see, and SSO-and-local or SSO-only.
 5. **Test** checks the provider's live discovery document, issuer, signing keys, PKCE and client-secret support. Save, then sign in from a private window.
 
-Roles are pinned to people in **Admin > Users**; signing in never changes them. Anyone whose only role is **No Access** sees the configured message and gets no session. ID tokens are verified against the provider's signing keys (asymmetric algorithms only) with issuer, audience, expiry and nonce checks, and an SSO sign-in never attaches to an existing local or directory account.
+Roles are pinned to people in **Admin > Users**; signing in never changes them. Anyone whose only role is **No Access** sees the configured message and gets no session. ID tokens are verified against the provider's signing keys (asymmetric algorithms only) with issuer, audience, expiry and nonce checks, and an SSO sign-in never attaches to an existing local or directory account. An SSO account that enrolled an authenticator in CTEM (**My Profile**) is asked for its code after the identity provider too.
 
 **Break-glass:** environment variables win over the wizard. `AUTH_MODE=local_only` in `.env` brings the local sign-in back if the IdP or the settings break; `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` and `OIDC_REDIRECT_URI` configure SSO without the database. Remove `AUTH_MODE` from `.env` to let the wizard choose the sign-in mode. `PUBLIC_URL` must be set for SSO.
 

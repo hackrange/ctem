@@ -141,6 +141,9 @@ async def oidc_callback(request: Request, code: str | None = None, state: str | 
     user = await _upsert_oidc_user(user_info, db, cfg)
     if user is None:
         return await _render_login(request, db, error=_LOGIN_FAILED)
+    if user.totp_enabled and user.totp_secret:   # an authenticator enrolled in CTEM is asked for after SSO too
+        local.begin_mfa_step(request.session, str(user.id))
+        return await _render_login(request, db, totp_step=True)
     return await _create_session(request, user, db)
 
 
@@ -170,12 +173,9 @@ async def browser_login(
         return await _render_login(request, db, error=_LOGIN_FAILED)
     await _pw_clear(username)
 
-    # a new password step starts over: an enrollment secret from an earlier attempt never carries to this account
-    request.session.pop("totp_enroll", None)
+    request.session.pop("totp_enroll", None)   # an enrollment secret from an earlier attempt never carries over
     if user.totp_enabled or settings.mfa_required:
-        request.session["pending_user_id"] = str(user.id)
-        request.session["pending_at"] = int(time.time())
-        request.session["pending_ms"] = time.time_ns() // 1_000_000   # compared with sessions_valid_after
+        local.begin_mfa_step(request.session, str(user.id))
         if user.totp_enabled and user.totp_secret:
             return await _render_login(request, db, totp_step=True)
         # MFA is mandatory and this account has none yet: enroll right here

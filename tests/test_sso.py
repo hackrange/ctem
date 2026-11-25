@@ -235,3 +235,42 @@ async def test_env_auth_mode_wins(db, monkeypatch, client_admin):
     monkeypatch.delenv("AUTH_MODE")
     mode, cfg = await sso_config.effective(db)
     assert mode == "oidc_only" and cfg.issuer == ISSUER
+
+
+@pytest.mark.asyncio
+async def test_sso_asks_for_the_authenticator_enrolled_in_ctem(web, db, monkeypatch, client_admin):
+    """CTE-034: an SSO account with a CTEM authenticator gets the code step after the IdP, not a session."""
+    import re
+
+    import pyotp
+    from fastapi import HTTPException
+    from sqlalchemy import select
+
+    from api.auth import local
+    from api.core.encryption import decrypt, encrypt
+    from api.models.user import User, UserRole
+
+    async def verify(username, code, stored, *rest):   # the real code check, minus Redis
+        if not pyotp.TOTP(decrypt(stored)).verify(code, valid_window=1):
+            raise HTTPException(401, detail="Invalid code")
+    monkeypatch.setattr(local, "verify_totp", verify)
+    box, sub, secret = [None], f"00u-{uuid.uuid4().hex[:8]}", pyotp.random_base32()
+    await _sso_round_trip(web, monkeypatch, client_admin, box, sub=sub)
+    user = (await db.execute(select(User).where(User.oidc_sub == sub))).scalar_one()
+    await db.execute(UserRole.__table__.delete().where(UserRole.user_id == user.id))
+    db.add(UserRole(user_id=user.id, role_name="cyber"))
+    user.totp_enabled, user.totp_secret = True, encrypt(secret)
+    await db.commit()
+    r = await _sso_round_trip(web, monkeypatch, client_admin, box, sub=sub)
+    assert r.status_code == 200 and 'action="/auth/totp"' in r.text   # the code step, not a session
+    assert not await _signed_in(web)
+    token = re.search(r'name="_csrf" value="([^"]*)"', r.text).group(1)
+    bad = await web.post("/auth/totp", data={"totp_code": "000000", "_csrf": token})
+    assert bad.status_code == 200 and not await _signed_in(web)
+    token = re.search(r'name="_csrf" value="([^"]*)"', bad.text).group(1)
+    ok = await web.post("/auth/totp", data={"totp_code": pyotp.TOTP(secret).now(), "_csrf": token})
+    assert ok.status_code in (302, 303) and await _signed_in(web)
+
+
+async def _signed_in(web) -> bool:
+    return (await web.get("/api/v1/auth/totp/status", follow_redirects=False)).status_code == 200

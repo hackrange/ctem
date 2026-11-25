@@ -14,15 +14,16 @@ from __future__ import annotations
 
 import fnmatch
 import logging
+import re
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.integrations import gcr_fields
 from api.integrations.base import BaseConnector, register
 from api.integrations.gcr_client import Gcr, GcrError, floor
 from api.integrations.rapid7_common import parse_dt
-from api.models.integration import Vendor
+from api.models.integration import IntegrationConfig, Vendor
 from api.core import fixes
 
 log = logging.getLogger("open-ctem.gcr")
@@ -198,6 +199,22 @@ def web_details(x: dict, site: dict, scan: dict, base: str) -> dict:
     return {k: v for k, v in out.items() if v not in (None, [], "")}
 
 
+_SCOPED = re.compile(r"^[a-z_]+:[0-9a-f-]{36}:")
+
+
+def scoped_key(key: str, iid: str | None) -> str:
+    """code:123 -> code:<integration id>:123 (the kind stays first, so "dast:%" still finds web findings)."""
+    if not iid or _SCOPED.match(key):
+        return key
+    kind, rest = key.split(":", 1)
+    return f"{kind}:{iid}:{rest}"
+
+
+def plain_key(key: str) -> str:
+    """code:<integration id>:123 -> code:123."""
+    return re.sub(r"^([a-z_]+:)[0-9a-f-]{36}:", r"\1", key)
+
+
 def vuln_key(f: dict) -> tuple[str, str, str | None]:
     """(source id, title, CVE): one vulnerability per CVE or advisory for packages, one per GCR issue otherwise."""
     kind = f.get("kind") or "code"
@@ -247,16 +264,33 @@ class GitHubCodeReviewConnector(BaseConnector):
         rules = tag_map(self.config.get("tag_map"))
         base = (str(self.config.get("base_url") or "").strip().rstrip("/")) if str(self.config.get("base_url") or "").startswith("https://") else ""
         site_by_id = {s.get("id"): s for s in sites or []}
-        mine = {d.source_id: d for d in (await db.execute(select(Device).where(Device.source == SRC))).scalars()}
+        # Each integration's assets are its own (site ids are small numbers, repo names repeat across GCRs): its tags
+        # grant access, so another GCR integration must never land on, or retag, them. Older unscoped rows are
+        # claimed only when this is the sole GCR integration.
+        iid = str(self.integration_id) if self.integration_id else ""
+        pref = f"{iid}:" if iid else ""
+        mine, legacy = {}, {}
+        for d in (await db.execute(select(Device).where(Device.source == SRC))).scalars():
+            sid0 = d.source_id or ""
+            if pref and sid0.startswith(pref):
+                mine[sid0[len(pref):]] = d
+            elif sid0.startswith(("repo:", "site:")):
+                legacy[sid0] = d
+        sole = not iid or (await db.execute(select(func.count()).select_from(IntegrationConfig)
+                                            .where(IntegrationConfig.vendor == Vendor.github_code_review))).scalar_one() <= 1
         cache: dict = {}
 
         async def asset(sid: str, name: str, kind) -> Device:
             d = mine.get(sid)
+            if d is None and sole:
+                d = legacy.pop(sid, None)
+                if d is not None:
+                    d.source_id = pref + sid   # claimed for this integration
             if d is None:
-                d = Device(hostname=name[:253], device_type=kind, source=SRC, source_id=sid)
+                d = Device(hostname=name[:253], device_type=kind, source=SRC, source_id=pref + sid)
                 db.add(d)
                 await db.flush()
-                mine[sid] = d
+            mine[sid] = d
             d.hostname = name[:253]
             add_source(d, SRC)
             return d
@@ -321,19 +355,31 @@ class GitHubCodeReviewConnector(BaseConnector):
         have = {(f.device_id, f.vuln_id): f for f in (await db.execute(mine_q)).scalars()}
         seen: set = set()
         # Each repo keeps its own grade ("pkg:GHSA-x@info"); a regraded finding moves rows instead of closing
-        key_of = {v.id: k for k, v in vulns.items()}
+        key_of = {v.id: plain_key(k) for k, v in vulns.items()}
         family: dict = {}
         for (dev_id, vid), f in have.items():
             k = key_of.get(vid)
             if k and k.startswith("pkg:"):
                 family.setdefault((dev_id, k.split("@", 1)[0]), []).append(f)
 
+        # Issue numbers and titles are each GCR's own: a vulnerability row is this integration's ("code:<id>:123"),
+        # so another GCR can't rewrite its title, score or KEV flag. An older unscoped row is taken over only when
+        # every finding on it is this integration's (or untagged), so nothing is closed and reopened.
+        legacy = {k: v for k, v in vulns.items() if not _SCOPED.match(k)}
+        blocked = {vid for vid, owner in (await db.execute(
+            select(Finding.vuln_id, Finding.integration_id).where(Finding.vuln_id.in_([v.id for v in legacy.values()] or ["-"]))
+            .distinct())).all() if iid and owner not in (None, iid)}
+
         def vuln(key: str, title: str, cve: str | None, sev: str) -> Vulnerability:
-            v = vulns.get(key)
+            sk = scoped_key(key, iid)
+            v = vulns.get(sk)
+            if v is None and key in legacy and legacy[key].id not in blocked:
+                v = legacy.pop(key)
+                v.source_vuln_id = sk[:256]
             if v is None:
-                v = Vulnerability(source=SRC, source_vuln_id=key[:256], title=title)
+                v = Vulnerability(source=SRC, source_vuln_id=sk[:256], title=title)
                 db.add(v)
-                vulns[key] = v
+            vulns[sk] = vulns[key] = v   # the plain key only names it within this run
             v.title, v.cve_id = title, cve or v.cve_id
             v.domain = "web" if key.startswith("dast:") else "code"   # DAST findings are web apps, the rest code
             if v.cvss_base is None or sev:

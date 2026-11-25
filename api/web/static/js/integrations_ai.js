@@ -39,7 +39,7 @@ const AI_VENDOR_FIELDS = {
     {key:'base_url',   label:'API Base URL',    type:'text',     placeholder:'https://your-llm-provider.example.com', required:true},
     {key:'api_key',    label:'API Key',         type:'password', placeholder:'', required:false},
     {key:'model',      label:'Default Model',   type:'text',     placeholder:'', required:false},
-    {key:'extra_headers', label:'Extra Headers (JSON)',type:'text', placeholder:'{"X-Custom": "value"}', required:false},
+    {key:'extra_headers', label:'Extra Headers (JSON; may hold credentials, stored like a secret)',type:'secret_text', placeholder:'{"X-Custom": "value"}', required:false},
   ],
 };
 

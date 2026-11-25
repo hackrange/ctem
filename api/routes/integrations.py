@@ -272,11 +272,13 @@ async def update_integration(
         existing = dict(cfg.config or {})
         # A saved secret is only reused for the same endpoint, so it can't be pointed at another server. Blank
         # and missing are the same (an empty form field).
-        norm = lambda v: str(v if v is not None else "").strip().rstrip("/").lower()  # noqa: E731
-        moved = any(
-            k in body.config and norm(body.config[k]) != norm(existing.get(k))
-            for k in _ENDPOINT_KEYS
-        )
+        norm = lambda v: "" if v in (None, False, "false", "0", 0) else str(v).strip().rstrip("/").lower()  # noqa: E731
+        if "start_tls" in existing and "start_tls" not in body.config:   # set at creation, not on the form: an
+            body.config["start_tls"] = existing["start_tls"]             # edit must never drop StartTLS
+        # Every setting that says where requests (and so the saved secret) go, by name, whether sent, changed or
+        # left out: leaving base_url out while setting a fallback "domain" moves the endpoint just the same
+        moved = any(norm(body.config.get(k)) != norm(existing.get(k))
+                    for k in {*body.config, *existing} if _ENDPOINT_RE.search(k) or _TRANSPORT_RE.search(k))
         if moved and "__REDACTED__" in body.config.values():
             raise HTTPException(400, "Re-enter credentials when changing the endpoint")
         merged = {
@@ -390,8 +392,12 @@ async def _collector_recent(cfg: IntegrationConfig, db: AsyncSession) -> bool:
     return False
 
 
-_SECRET_RE = re.compile(r"(secret|passw|pass$|passphrase|token|api_?key|private_?key|credential)", re.I)
-_ENDPOINT_KEYS = ("base_url", "url", "host", "server", "instance_url", "tenant_url", "endpoint")
+# extra_headers can carry an Authorization header (the AI connector merges it into requests), so it's a secret too
+_SECRET_RE = re.compile(r"(secret|passw|pass$|passphrase|token|api_?key|private_?key|credential|headers)", re.I)
+# base_url, hec_url, console_host, vanity_domain, domain, instance_url, tenant_id...; not internal_domains (a list)
+_ENDPOINT_RE = re.compile(r"(^|_)(url|host|server|endpoint|domain|instance|tenant_id)$", re.I)
+# ...and how they travel: a saved password must not be reused once it would go in the clear or to another port
+_TRANSPORT_RE = re.compile(r"^(port|ssl_mode|no_ssl|use_ssl|use_tls|start_tls|tls_skip_verify|allow_http)$")
 
 
 def _mask_config(config: dict) -> dict:

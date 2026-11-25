@@ -7,6 +7,19 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.13.1] - 2026-11-25
+
+### Security
+Fixes from a third penetration test.
+- **GitHub Code Review assets belong to their integration (CTE-032).** Assets were keyed only by repository name or GCR site number, so a second GCR integration reporting the same name, or site 1, landed on the first one's asset and could retag it. The owner tags it wrote grant people access to that asset's findings. Each integration now keys its assets by its own id. Older unscoped assets are claimed on the next sync only when there is a single GCR integration; otherwise each integration builds its own. Two more crossings closed with it:
+  - **Vulnerabilities:** issue numbers and titles are each GCR's own, so another GCR's issue 7 rewrote the title, score and KEV flag of this one's issue 7. Each integration now has its own rows. An older row is taken over in place only when every finding on it is this integration's or untagged, so no finding is closed and reopened.
+  - **Exception write-back:** exceptions went to the first enabled GCR, whichever GCR the finding came from. Each now goes back to its own GCR only; an untagged older finding is sent only when there is a single GCR.
+- **A saved secret never follows a moved endpoint (CTE-036).** Editing an integration reuses saved secrets only while every endpoint setting stays the same. The check now covers the Splunk HEC URL (which kept its HEC token when pointed elsewhere), the Zscaler vanity domain, the SentinelOne console, the ServiceNow instance, tenant ids and the Okta domain. Leaving an endpoint setting out now counts as a change. So does weakening how the secret travels: the port, Splunk's SSL mode, LDAPS, StartTLS, skipping the certificate check, or allowing plain HTTP.
+- **LDAP edits kept StartTLS off.** New LDAP integrations are saved with StartTLS, but the form doesn't show it, so editing one dropped it and the bind password then went unencrypted. An edit now keeps it.
+- **Extra headers are masked (CTE-037).** An AI integration's extra headers can carry an Authorization header; they are now shown as a saved secret (the form field is a secret field) and kept on edit.
+- **Restored uploads (CTE-038):** they are extracted with Python's `data` filter instead of `tar -p` as root. Archive-supplied owners and setuid, setgid and sticky bits are dropped, and links, device files and paths that leave the folder are refused.
+- **SSO asks for the CTEM authenticator (CTE-034).** An SSO account that enrolled an authenticator in CTEM is asked for its code after the identity provider, the same as a password sign-in.
+
 ## [1.13.0] - 2026-11-25
 
 ### Added

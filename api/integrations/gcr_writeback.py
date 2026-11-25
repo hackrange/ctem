@@ -9,9 +9,10 @@ GCR host is called, through the SSRF-safe client; failures are recorded, never r
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 log = logging.getLogger("open-ctem.gcr-writeback")
 SRC = "github_code_review"
@@ -38,14 +39,15 @@ async def _find_in_scan(g, f) -> tuple:
     """The site, scan and finding key for a site finding stored before they were kept: from the site's latest
     scan in GCR, matched by title."""
     dev = getattr(f, "device", None)
-    sid = str(getattr(dev, "source_id", "") or "")
-    if not sid.startswith("site:") or not sid[5:].isdigit():
+    m = re.fullmatch(r"(?:[0-9a-f-]{36}:)?site:(\d{1,18})", str(getattr(dev, "source_id", "") or ""))   # [<integration id>:]site:12
+    if m is None:
         return None, None, None
-    scan = await g.latest_scan(int(sid[5:]))
+    site = int(m.group(1))
+    scan = await g.latest_scan(site)
     title = (getattr(getattr(f, "vuln", None), "title", "") or "").strip().lower()
     for x in (scan or {}).get("findings") or []:
         if (x.get("title") or "").strip().lower() == title and x.get("key"):
-            return int(sid[5:]), scan.get("id"), str(x["key"])[:64]
+            return site, scan.get("id"), str(x["key"])[:64]
     return None, None, None
 
 
@@ -77,14 +79,12 @@ async def _one(g, f, exc) -> dict:
 
 async def push(db, exception_ids: list[str] | None = None) -> int:
     """Send CTEM's approved exceptions on GCR findings to GCR. All that haven't been sent, or just these."""
-    from api.core.vuln_exceptions import is_active
-    from api.integrations.gcr_client import Gcr
     from api.models.integration import IntegrationConfig, Vendor
-    from api.models.settings import AuditLog
     from api.models.vuln import Finding, VulnException
-    cfg = (await db.execute(select(IntegrationConfig).where(IntegrationConfig.vendor == Vendor.github_code_review,
-                                                            IntegrationConfig.is_enabled.is_(True)))).scalars().first()
-    if cfg is None or (cfg.config or {}).get("no_push_exceptions") in (True, "true", "1"):
+    cfgs = {str(c.id): c for c in (await db.execute(select(IntegrationConfig).where(
+        IntegrationConfig.vendor == Vendor.github_code_review, IntegrationConfig.is_enabled.is_(True)))).scalars()}
+    cfgs = {i: c for i, c in cfgs.items() if (c.config or {}).get("no_push_exceptions") not in (True, "true", "1")}
+    if not cfgs:
         return 0
     from sqlalchemy.orm import selectinload
     q = (select(Finding).options(selectinload(Finding.device), selectinload(Finding.vuln))
@@ -98,6 +98,27 @@ async def push(db, exception_ids: list[str] | None = None) -> int:
         return 0
     excs = {str(e.id): e for e in (await db.execute(select(VulnException).where(
         VulnException.id.in_({str(f.exception_id) for f in findings})))).scalars()}
+    # Each finding goes back to the GCR it came from, never another: finding and site numbers repeat across GCRs.
+    # An untagged older finding is sent only when there's a single GCR it can be from.
+    every = (await db.execute(select(func.count()).select_from(IntegrationConfig)
+                              .where(IntegrationConfig.vendor == Vendor.github_code_review))).scalar_one()
+    by_cfg: dict[str, list] = {}
+    for f in findings:
+        owner = str(f.integration_id) if f.integration_id else (next(iter(cfgs)) if every == 1 and len(cfgs) == 1 else None)
+        if owner in cfgs:
+            by_cfg.setdefault(owner, []).append(f)
+    sent = 0
+    for owner, mine in by_cfg.items():
+        sent += await _push_to(db, cfgs[owner], mine, excs)
+    await db.commit()
+    log.info("GCR exception write-back: %d sent of %d", sent, len(findings))
+    return sent
+
+
+async def _push_to(db, cfg, findings: list, excs: dict) -> int:
+    from api.core.vuln_exceptions import is_active
+    from api.integrations.gcr_client import Gcr
+    from api.models.settings import AuditLog
     sent = 0
     async with Gcr({k: v for k, v in (cfg.config or {}).items() if v not in ("", None)}) as g:
         for f in findings:
@@ -114,6 +135,4 @@ async def push(db, exception_ids: list[str] | None = None) -> int:
             sent += res["state"] in ("approved", "requested", "already")
             db.add(AuditLog(actor_username="system", action="exception.pushed_to_gcr", resource_type="vuln_exception",
                             resource_id=str(exc.id), detail=f"finding {f.source_id}: {res['state']}"))
-    await db.commit()
-    log.info("GCR exception write-back: %d sent of %d", sent, len(findings))
     return sent

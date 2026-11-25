@@ -45,6 +45,14 @@ def verify_password(password: str, hashed: str) -> bool:
 
 # ── TOTP ──────────────────────────────────────────────────────────────────────
 
+def begin_mfa_step(session, user_id: str) -> None:
+    """The authenticator step after a first factor (password or SSO): bound to the account and to when it began."""
+    session.pop("totp_enroll", None)
+    session["pending_user_id"] = user_id
+    session["pending_at"] = int(time.time())
+    session["pending_ms"] = time.time_ns() // 1_000_000   # compared with sessions_valid_after
+
+
 def generate_totp_secret() -> str:
     return pyotp.random_base32()
 
