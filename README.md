@@ -3,7 +3,7 @@
 **Continuous Threat Exposure Management** -- open source, risk-based, built to outclass every commercial CTEM product.
 
 > Author: Tim Rice &lt;tim.j.rice@hackrange.com&gt;  
-> Version: 1.10.2  
+> Version: 1.11.0  
 > License: MIT
 
 ## Install

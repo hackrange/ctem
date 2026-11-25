@@ -3,11 +3,14 @@
 All notable changes to open-ctem are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
-open-ctem is a Python rewrite of an earlier PHP version begun about 18 months before this repository; that history isn't in this repository (see [docs/project-overview.md](docs/project-overview.md)). Versions here start with the Python release, and each version is tagged (`v1.1.0` ... `v1.10.2`) at the commit that finished it. The on-prem shipper has its own version numbers.
+open-ctem is a Python rewrite of an earlier PHP version begun about 18 months before this repository; that history isn't in this repository (see [docs/project-overview.md](docs/project-overview.md)). Versions here start with the Python release, and each version is tagged (`v1.1.0` ... `v1.11.0`) at the commit that finished it. The on-prem shipper has its own version numbers.
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-11-25
+
 ### Added
+- **Curated rule hits are weighed against context before they become findings.** A Threat Curated Rule says a pattern can be an attack; CTEM now checks whether this time looks like one. Alerts the tool itself rates informational are never high confidence (low ones at most medium). A detection seen steadily for two weeks or more without spreading faster is routine, and one first seen in the hunt's range is called new. Most of its earlier alerts already closed in the tool lowers it. One person per machine lowers it, while one account across several hosts, or a new detection reaching several new hosts within two days, keeps it high whatever else says. Each step down lowers confidence by one, the reasons are written into the finding, and anything below the watch's bar still shows in on-demand hunts.
 - **Suppress similar from a hunt finding.** Each finding on the Hunt page (the watch included) has Suppress similar: it lists the signatures among its alerts (the detection, the process and the process that started it, with how many alerts, hosts and file versions) and accepts the ones you tick, everywhere or only on the finding's hosts, and optionally only for those exact files by hash. Alerts with that signature stop raising hunt, watch, hourly-check and SIEM findings and show as Accepted; each entry needs a reason and an end date within a year, and is audited. A watch finding whose every alert is now accepted leaves the watch at once.
 - Accepted alerts can be narrowed to the parent process too (only when started by Code.exe, say), from an alert's page as well.
 - **Remediated findings are removed after a retention window, without losing history.** A remediated finding last seen more than 90 days ago (Admin > Data retention, 30 to 365) is counted into a daily summary (found and fixed per day, by source, kind of work, severity and KEV, with its days to fix) and then removed, daily at 04:15 UTC. The vulnerability trend, fix counts, quarterly numbers and mean time to remediate read the summary for those days, so they come out the same as before. A view narrowed to a device type, a tag scope or a repository covers only the window.
