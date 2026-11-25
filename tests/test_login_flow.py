@@ -27,10 +27,13 @@ async def test_login_without_csrf_rejected(client):
     assert r.status_code == 200 and "form expired" in r.text
 
 
-async def test_a_double_submitted_sign_in_lands_signed_in_not_on_a_403(client, db):
+async def test_a_double_submitted_sign_in_lands_signed_in_not_on_a_403(client, db, monkeypatch):
     """The first submit signs in and starts a fresh session, so the second one's token can't match. It mustn't be
     processed, and the person, who is signed in, goes on to where they were headed (on this site only)."""
     import uuid
+
+    from api.core.config import get_settings
+    monkeypatch.setattr(get_settings(), "mfa_required", False)   # a password-only sign-in, whatever .env says
     from api.auth.local import hash_password
     from api.models.user import User, UserRole
     name = f"twice_{uuid.uuid4().hex[:6]}"
