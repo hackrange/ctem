@@ -153,6 +153,9 @@
 <!-- Tag mapping tab (rendered by admin_tag_roles.js) -->
 <div id="pane-tags" style="display:none"></div>
 
+<!-- Risk model tab (rendered by admin_risk_model.js) -->
+<div id="pane-risk" style="display:none"></div>
+
 <!-- Utilization tab (rendered by admin_utilization.js) -->
 <div id="pane-util" style="display:none"></div>
 
@@ -433,7 +436,7 @@
 <script src="{{ static('js/user_access.js') }}"></script>
 <script src="{{ static('js/ai_usage.js') }}"></script>
 <script src="{{ static('js/curated_rules.js') }}"></script>
-<script src="{{ static('js/admin_tag_roles.js') }}"></script>
+<script src="{{ static('js/admin_tag_roles.js') }}"></script><script src="{{ static('js/admin_risk_model.js') }}"></script>
 <script src="{{ static('vendor/echarts-6.1.0/echarts.min.js') }}"></script>
 <script src="{{ static('js/admin_utilization.js') }}"></script>
 {% endblock %}

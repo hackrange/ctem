@@ -28,6 +28,7 @@ class ControlContext:
     host_firewall: tuple | None = None      # (factor, reason) for this finding's ports
     threat_actors: list | None = None       # adversaries the EDR's threat intel ties to this flaw
     port_closed: str | None = None          # NodeZero tested the host and the port wasn't open: why, for the reason
+    device_type: str | None = None          # workstation, server...: a client-side flaw is reached differently on each
 
 
 def apply_multipliers(base_score: float, ctx: ControlContext) -> tuple[float, list[str]]:
@@ -81,6 +82,28 @@ def apply_multipliers(base_score: float, ctx: ControlContext) -> tuple[float, li
         reasons.append(f"Device offline {ctx.device_offline_days}d (-30%)")
 
     return max(0.0, min(100.0, score)), reasons
+
+
+def protections(ctx: ControlContext) -> tuple[float, float, list[str]]:
+    """The risk-based model's protections (api/scoring/risk_model.py): (likelihood factor, impact factor, reasons).
+    What's in place on the host changes how likely an exploit is to succeed (the EDR and what its policy blocks,
+    days offline) or what it would cost (privileged credentials there). Reachability, exposure and threat use are
+    already in the model, so they aren't applied again."""
+    reasons: list[str] = []
+    if ctx.edr_active:
+        lik, why = _edr(1.0, ctx)
+        reasons.extend(why)
+    else:
+        lik = 1.3
+        reasons.append("No EDR installed on asset (+30%)")
+    if ctx.device_offline_days > 30:
+        lik *= 0.7
+        reasons.append(f"Device offline {ctx.device_offline_days}d (-30%)")
+    imp = 1.0
+    if ctx.holds_privileged_creds:
+        imp = 1.4
+        reasons.append("Asset holds privileged credentials (+40%)")
+    return lik, imp, reasons
 
 
 def _edr(score: float, ctx: ControlContext) -> tuple[float, list[str]]:

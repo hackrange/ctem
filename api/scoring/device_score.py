@@ -22,8 +22,14 @@ def score_finding(
 ) -> tuple[float, list[str]]:
     """
     Composite score for a single finding on a device.
-    Returns (score_0_100, list_of_reasons).
+    Returns (score_0_100, list_of_reasons). The risk-based model (api/scoring/risk_model.py) when it's on, the
+    classic CVE-weighted one otherwise.
     """
+    from api.scoring import risk_model
+    cfg = risk_model.current()
+    if cfg["enabled"]:
+        return risk_model.score(cvss_base, epss_score, is_kev, asset_criticality, ctx, ctx.device_type or "", cfg,
+                                is_reachable=is_reachable)
     # Normalize CVSS 0-10 to 0-100
     cvss_norm = (cvss_base / 10.0) * 100.0
 

@@ -38,6 +38,7 @@ What open-ctem covers, how it scores risk, and how it has been reviewed and hard
 | 1.13.1 | 2026-11-25 | Fixes from a third penetration test |
 | 1.13.2 | 2026-11-25 | Accounts and API tokens sealed; admin-set passwords one-time; NodeZero findings scoped to their integration |
 | 1.13.3 | 2026-11-25 | Post-sync scoring: only changed devices, one run at a time, EPSS once a day |
+| 1.14.0 | 2026-11-25 | Risk-based scoring (likelihood, reachability, impact), tunable in Admin > Risk model |
 
 The on-prem shipper has its own version numbers (1.0 to 1.7.x), separate from the application's.
 

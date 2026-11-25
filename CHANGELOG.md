@@ -7,6 +7,18 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-11-25
+
+### Added
+- **Risk-based scoring, on by default.** Each finding is scored by how likely it is to be exploited, whether an attacker can reach it on that host, and what it would cost, combined as a weighted geometric mean, so one weak dimension isn't averaged away: a CVSS 10 flaw with a 0.2% EPSS on a host with no listening service drops, while a guessable SNMP community on a live service rises.
+  - **Likelihood:** the strongest of KEV, EPSS (counted in full at 20%), a pentest's proof and threat-actor use, after the EDR's protection (what its policy blocks, exploit mitigations for memory flaws) and days offline.
+  - **Reachability:** from evidence instead of "unknown counts as half". A pentest's result first, then a listening service (internet-facing or internal, through the cloud firewall where known), a client-side flaw (higher on workstations, where people browse and open files), or a flaw needing the same segment, local or physical access; host firewall rules and segmentation scale it down.
+  - **Impact:** severity and asset criticality, raised where the host holds privileged credentials.
+  - **Admin > Risk model:** the weights, likelihood values and reachability ladder, each beside its default; Reset restores them, and turning it off returns to the classic CVE-weighted score. Every change is audited and rescores the fleet.
+    An internet-facing host with no data on which service a flaw sits on gets its own rung; a flaw the scanner saw on a live port counts as reachable whatever NVD's attack vector says, but a local or physical vector never gets the internet-facing rung. Client-side rungs apply to workstations and servers only, not network appliances.
+  - On this server's data (1,000 random devices, 250,000 findings), the top 1% of findings holds two thirds more KEV findings and seven times as many with EPSS of 10% or more, and half as many that are only "CVSS 9 or above". B-grade findings fall from 31,000 to 2,300. Hosts with something actively exploited move to D or F (D and F: 67 to 184 of 1,000); C nearly empties.
+  - The settings API takes strict numbers only, and the audit log records every value that changed, old and new.
+
 ## [1.13.3] - 2026-11-25
 
 ### Added

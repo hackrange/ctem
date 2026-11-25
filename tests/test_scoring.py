@@ -7,6 +7,14 @@ from api.scoring.user_score import compute_user_score
 from api.scoring.chain import detect_chains, chain_score
 
 
+@pytest.fixture(autouse=True)
+def _classic_model(monkeypatch):
+    """These pin the classic CVE-weighted model; the risk-based one has its own tests (test_risk_model.py)."""
+    from api.scoring import risk_model
+    off = risk_model.merged({"enabled": False})
+    monkeypatch.setattr(risk_model, "current", lambda: off)
+
+
 # ── score_finding ──────────────────────────────────────────────────────────────
 
 def test_score_finding_kev_floor():

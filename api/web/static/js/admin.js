@@ -5,7 +5,7 @@ let _auditCursor = null;
 
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 
-const PANES = ['users','tokens','roles','rules','tags','branding','audit', 'ai', 'util'];
+const PANES = ['users','tokens','roles','rules','tags','risk','branding','audit', 'ai', 'util'];
 function switchTab(name) {
   PANES.forEach(p => {
     document.getElementById('pane-'+p).style.display = p === name ? '' : 'none';
@@ -18,6 +18,7 @@ function switchTab(name) {
   if (name === 'ai' && window.AIUsage) AIUsage.load();
   if (name === 'rules' && window.CuratedRules) CuratedRules.load();
   if (name === 'tags' && window.TagRoles) TagRoles.load();
+  if (name === 'risk' && window.RiskModel) RiskModel.load();
   if (name === 'util' && window.AdminUtilization) AdminUtilization.load();
 }
 

@@ -3,7 +3,7 @@
 **Continuous Threat Exposure Management** -- open source, risk-based, built to outclass every commercial CTEM product.
 
 > Author: Tim Rice &lt;tim.j.rice@hackrange.com&gt;  
-> Version: 1.13.3  
+> Version: 1.14.0  
 > License: MIT
 
 ## Install
@@ -20,13 +20,17 @@ Ubuntu 22.04 or newer. Installs Docker and everything else it needs, then prints
 
 open-ctem continuously discovers, prioritizes, validates, and mobilizes remediation of real exposure across your entire environment. Unlike compliance scanners that report CVE counts, open-ctem scores **reachability** -- whether an attacker can actually exploit a finding given your compensating controls, network segmentation, and EDR posture.
 
-**Risk score formula:**
+**Risk score (risk-based, the default):** each finding is scored by how likely it is to be exploited, whether an attacker can reach it on that host, and what it would cost, as a weighted geometric mean, so a severe flaw nobody exploits or can reach stays low and a likely, reachable one rises:
 
 ```
-score = (CVSS × 0.25) + (EPSS × 0.30) + (KEV × 0.20) + (asset_criticality × 0.15) + (reachability × 0.10)
+score = 100 × likelihood^0.45 × reachability^0.35 × impact^0.20
+likelihood   = strongest of KEV, EPSS (full at 20%), pentest proof, threat actors   × EDR protection, days offline
+reachability = pentest proof, else listening service (internet-facing or internal), client-side flaw (workstation
+               or server), adjacent, local or physical access; scaled down by host firewall and segmentation
+impact       = CVSS and asset criticality                                           × privileged credentials held
 ```
 
-Multipliers applied for: NodeZero-confirmed exploitability, internet exposure, no EDR, Zscaler/firewall segmentation, offline status.
+A device's score is the average of its worst tenth of findings. Weights, the likelihood values and the reachability ladder are set in **Admin > Risk model** (Reset restores the defaults); turning it off goes back to the classic CVE-weighted score (CVSS 25%, EPSS 30%, KEV 20%, criticality 15%, reachability 10%, then multipliers).
 
 **Cloud Inventory.** The Cloud page lists every AWS, Azure and OCI instance with its internet reachability (ports and the firewall that allows them), scanner and EDR coverage and findings, and singles out the ones breachable now.
 

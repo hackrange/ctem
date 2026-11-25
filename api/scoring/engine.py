@@ -115,10 +115,13 @@ async def _recalculate_device(device: Device, db: AsyncSession) -> RiskScore:
     cloud = await for_device(db, device.id)
     cloud_ports = [p for a in cloud for p in a["ports"]] if cloud else None   # None: not a cloud instance
     findings_data = []
+    from api.scoring import risk_model
+    await risk_model.load(db)   # which model, and its weights
     days_offline = _days_since(device.last_seen)
     edr = await _edr_facts(device, db)
     for f in findings:
         ctx = ControlContext(
+            device_type=device.device_type.value,
             edr_active=device.edr_active,
             edr_vendor=device.edr_vendor,
             is_internet_exposed=device.is_internet_exposed,
@@ -173,7 +176,9 @@ async def _recalculate_device(device: Device, db: AsyncSession) -> RiskScore:
                 asset_criticality=data["asset_criticality"], is_reachable=data["is_reachable"],
                 ctx=data["control_context"],
             )
-            if fs > worst[0]:
+            if fs > worst[0] and mult and str(mult[0]).startswith("Likelihood "):
+                worst = (fs, list(mult))   # the risk-based reasons already name CVSS, EPSS, KEV and criticality
+            elif fs > worst[0]:
                 base = [f"CVSS {data['cvss_base']:.1f}", f"EPSS {data['epss_score'] * 100:.1f}%"]
                 base += ["known exploited (KEV)"] if data["is_kev"] else []
                 base += [f"asset criticality {data['asset_criticality']:.2f}"]
