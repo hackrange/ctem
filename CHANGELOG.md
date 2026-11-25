@@ -7,6 +7,13 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+### Added
+- **Remediated findings are removed after a retention window, without losing history.** A remediated finding last seen more than 90 days ago (Admin > Data retention, 30 to 365) is counted into a daily summary (found and fixed per day, by source, kind of work, severity and KEV, with its days to fix) and then removed, daily at 04:15 UTC. The vulnerability trend, fix counts, quarterly numbers and mean time to remediate read the summary for those days, so they come out the same as before. A view narrowed to a device type, a tag scope or a repository covers only the window.
+- **Each device's trend line keeps a year.** Every device's open, critical and high counts are saved on each day they change (the first run fills in the past year from its findings), and the trend line reads them for days older than the window.
+
+### Changed
+- Risk score history older than a year keeps one entry per entity per week.
+
 ## [1.10.2] - 2026-11-25
 
 ### Security

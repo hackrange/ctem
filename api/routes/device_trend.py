@@ -1,6 +1,7 @@
 """An asset's trend: open findings per day (all, critical, high) and its daily risk score, for the sparkline in
-the Details panel and the chart it opens. Built from the asset's own findings (first found and last seen), so it
-covers any range from day one; the score comes from the score history where there is some."""
+the Details panel and the chart it opens. Built from the asset's own findings (first found and last seen); days
+older than the remediated-findings window (Admin > Data retention), whose fixed findings have been removed, come
+from its daily counts instead (api/core/finding_history.py). The score comes from the score history."""
 from __future__ import annotations
 
 import uuid
@@ -60,6 +61,19 @@ def series(rows, start: date, end: date) -> dict:
     return {"days": [(start + timedelta(days=i)).isoformat() for i in range(n)], **out}
 
 
+async def _older_days(db, device_id: str, start: date, end: date, out: dict) -> None:
+    """Days before the window: the device's recorded counts, once they have been filled in."""
+    from api.core import finding_history as fh
+    from api.core import retention
+    if not (await fh.state(db)).get("backfilled"):
+        return
+    cut = end - timedelta(days=(await retention.load(db))["remediated_days"])
+    if start >= cut:
+        return
+    for i, (o, c, h) in enumerate(await fh.device_counts(db, device_id, start, cut - timedelta(days=1))):
+        out["open"][i], out["critical"][i], out["high"][i] = o, c, h
+
+
 @router.get("/{device_id}/trend")
 async def device_trend(
     device_id: uuid.UUID,
@@ -77,6 +91,7 @@ async def device_trend(
         .join(Vulnerability, Vulnerability.id == Finding.vuln_id)
         .where(Finding.device_id == device.id, Finding.first_detected.is_not(None)))).all()
     out = series(rows, start, end)
+    await _older_days(db, str(device.id), start, end, out)
     hist = (await db.execute(
         select(RiskScoreHistory.recorded_at, RiskScoreHistory.score)
         .where(RiskScoreHistory.entity_type == "device", RiskScoreHistory.entity_id == str(device.id),

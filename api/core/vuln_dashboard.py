@@ -4,7 +4,9 @@ Trends need no snapshot table. A finding counts as open on day D if it was first
 is still open, or was remediated after D. So open(D) = sum(new up to D) - sum(fixed up to D), where "new" is
 every open or remediated finding by first-detected day and "fixed" is every remediated finding by its last-seen
 day. That is exact for everything CTEM has tracked; findings fixed before CTEM started aren't in the data, so
-points before `tracking_since` read low (the page says so).
+points before `tracking_since` read low (the page says so). Remediated findings removed after the retention window
+are counted back in from their daily rollup (api/core/finding_history.py) when the view's filters are ones the
+rollup records (source, kind of work); a view narrowed to a device type, scope or repository covers the window only.
 """
 from __future__ import annotations
 
@@ -188,8 +190,9 @@ async def _units(db, w) -> dict:
     return out
 
 
-async def _trend(db, w, days: int | None) -> dict:
-    """Daily open count by severity (and KEV), plus new and fixed per day, over the range."""
+async def _trend(db, w, days: int | None, roll=None) -> dict:
+    """Daily open count by severity (and KEV), plus new and fixed per day, over the range. roll: the rolled-up
+    removed findings this view covers (finding_history.roll_for), or None."""
     sev = _sev()
     d_new = cast(func.date_trunc("day", Finding.first_detected), Date)
     d_fix = cast(func.date_trunc("day", Finding.last_seen), Date)
@@ -201,6 +204,9 @@ async def _trend(db, w, days: int | None) -> dict:
         select(d_fix, sev, Vulnerability.is_kev, func.count()).select_from(Finding).join(Vulnerability, Vulnerability.id == Finding.vuln_id)
         .where(Finding.status == FindingStatus.remediated, Finding.last_seen.is_not(None), *w)
         .group_by(d_fix, sev, Vulnerability.is_kev))).all()
+    if roll is not None:
+        from api.core import finding_history as fh
+        new_rows, fix_rows = [*new_rows, *await fh.by_day(db, roll, "new")], [*fix_rows, *await fh.by_day(db, roll, "fixed")]
     return series(new_rows, fix_rows, _now().date(), days)
 
 
@@ -252,14 +258,21 @@ async def _aging(db, w) -> dict:
     return out
 
 
-async def _mttr(db, w) -> dict:
-    """Mean days to remediate, by month the fix was seen, for critical and high."""
+async def _mttr(db, w, roll=None) -> dict:
+    """Mean days to remediate, by month the fix was seen, for critical and high (rolled-up fixes counted in)."""
     sev, month = _sev(), cast(func.date_trunc("month", Finding.last_seen), Date)
     days = func.avg(func.extract("epoch", Finding.last_seen - Finding.first_detected) / 86400)
     rows = (await db.execute(select(month, sev, days, func.count()).select_from(Finding).join(Vulnerability, Vulnerability.id == Finding.vuln_id)
                              .where(Finding.status == FindingStatus.remediated, Finding.first_detected.is_not(None),
                                     Finding.last_seen >= _now() - timedelta(days=365), *w)
                              .group_by(month, sev))).all()
+    if roll is not None:
+        from api.core import finding_history as fh
+        live = {(m, s): (float(a or 0) * n, n) for m, s, a, n in rows}
+        for k, (n, took) in (await fh.fix_time_by_month(db, roll, (_now() - timedelta(days=365)).date())).items():
+            t, c = live.get(k, (0.0, 0))
+            live[k] = (t + took, c + n)
+        rows = [(m, s, (t / c) if c else None, c) for (m, s), (t, c) in live.items()]
     months = sorted({r[0] for r in rows})
     out = {"months": [m.isoformat()[:7] for m in months], **{s: [None] * len(months) for s in SEVERITIES}}
     for m, s, avg, _n in rows:
@@ -324,10 +337,16 @@ async def build(db: AsyncSession, source: str | None, device_type: str | None, s
     """Everything for one filter combination, with the trend over the whole history (ranges are sliced later)."""
     from api.core import sla
     await sla.load(db)
+    from api.core import finding_history as fh
     w = _where(source, device_type, kind, code) + scoped(scope)
+    roll = fh.roll_for(source, device_type, scope, kind, code)
     k = await _kpis(db, w)
-    return {"generated_at": _now().isoformat(), "tracking_since": k.pop("_fixes_since"), "sla_days": SLA_DAYS,
-            "kpis": k, "trend": await _trend(db, w, None), "aging": await _aging(db, w), "mttr": await _mttr(db, w),
+    since = k.pop("_fixes_since")
+    rolled = await fh.first_fix(db, roll) if roll is not None else None
+    if rolled is not None and (since is None or rolled.isoformat() < since):
+        since = rolled.isoformat()
+    return {"generated_at": _now().isoformat(), "tracking_since": since, "sla_days": SLA_DAYS,
+            "kpis": k, "trend": await _trend(db, w, None, roll), "aging": await _aging(db, w), "mttr": await _mttr(db, w, roll),
             **await _breakdowns(db, w, kind), "units": await _units(db, w),
             # exception counts are fleet-wide, so scoped viewers don't get them
             "exceptions": await _exceptions(db) if scope is None else {"active": None, "pending": 0, "ending_14d": 0}}

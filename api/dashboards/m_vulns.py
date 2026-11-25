@@ -51,6 +51,12 @@ def _w(ctx, p) -> list:
     return w
 
 
+def _roll(ctx, p):
+    """The rolled-up removed findings this widget covers (api/core/finding_history.py), or None."""
+    from api.core import finding_history as fh
+    return fh.roll_for(_srcs(p), p.get("device_type"), ctx.scope, severity=p.get("severity", "any"), kev_only=p.get("kev_only"))
+
+
 async def _ready(ctx, p) -> dict | None:
     """The Vuln Dashboard's cached answer, when it covers this widget."""
     if ctx.scope is not None or p.get("severity", "any") != "any" or p.get("kev_only"):
@@ -125,8 +131,8 @@ async def _mttr_number(ctx, p):
     from api.models.vuln import FindingStatus
     days, end = int(p.get("days") or 90), fleet.now()
     w = _w(ctx, p) + [Finding.status == FindingStatus.remediated, Finding.first_detected.is_not(None)]
-    cur, n = await _mttr_between(ctx, w, end - timedelta(days=days), end)
-    was, _ = await _mttr_between(ctx, w, end - timedelta(days=2 * days), end - timedelta(days=days))
+    cur, n = await _mttr_between(ctx, w, end - timedelta(days=days), end, _roll(ctx, p))
+    was, _ = await _mttr_between(ctx, w, end - timedelta(days=2 * days), end - timedelta(days=days), _roll(ctx, p))
     srcs = _srcs(p)
     which = f" from {', '.join(s.replace('_', ' ') for s in srcs)}" if srcs else ""
     return {"value": cur, "unit": " days", "delta": fleet.delta(cur, was), "href": "/vulns/dashboard",

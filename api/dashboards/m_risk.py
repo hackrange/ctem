@@ -8,6 +8,7 @@ from datetime import date, timedelta
 
 from sqlalchemy import Date, case, cast, func, select
 
+from api.core import finding_history as fh
 from api.core import vuln_dashboard as vd
 from api.dashboards import fleet
 from api.dashboards.catalog import Metric, Param, metric
@@ -108,6 +109,10 @@ async def _remediated(ctx, p):
         w.append(Finding.first_detected >= fleet.now() - timedelta(days=fleet.RANGE_DAYS[p["range"]]))
     fixed, open_ = (await ctx.db.execute(select(func.count().filter(Finding.status == FindingStatus.remediated),
                                                 func.count().filter(Finding.status.in_(vd.OPEN))).where(*w))).one()
+    roll = fh.roll_for(scope=ctx.scope)
+    if roll is not None:   # removed after the retention window: every one of them was found, then fixed
+        since = None if p["range"] == "all" else fleet.now() - timedelta(days=fleet.RANGE_DAYS[p["range"]])
+        fixed += await fh.count(ctx.db, roll, "new", since)
     total = fixed + open_
     return {"value": round(100 * fixed / total, 1) if total else None, "unit": "%", "max": 100, "better": "up",
             "note": f"{fixed:,} of {total:,} findings remediated", "href": "/vulns"}
@@ -121,18 +126,29 @@ def _mttr_where(ctx, p) -> list:
     return w
 
 
-async def _mttr_between(ctx, w, a, b) -> tuple[float | None, int]:
-    """Mean days from detection to fix, and how many fixes, for findings fixed in [a, b)."""
+async def _mttr_between(ctx, w, a, b, roll=None) -> tuple[float | None, int]:
+    """Mean days from detection to fix, and how many fixes, for findings fixed in [a, b). roll: the rolled-up
+    removed fixes the view covers (finding_history.roll_for), counted in."""
     took = func.avg(func.extract("epoch", Finding.last_seen - Finding.first_detected) / 86400)
     v, n = (await ctx.db.execute(select(took, func.count()).select_from(Finding).join(Vulnerability, Vulnerability.id == Finding.vuln_id)
                                  .where(*w, Finding.last_seen >= a, Finding.last_seen < b))).one()
-    return (round(float(v), 1) if v is not None else None), int(n or 0)
+    n = int(n or 0)
+    total = float(v or 0) * n
+    if roll is not None:
+        rn, rt = await fh.fix_time(ctx.db, roll, a, b)
+        n, total = n + rn, total + rt
+    return (round(total / n, 1) if n else None), n
+
+
+def _mttr_roll(ctx, p):
+    return fh.roll_for(scope=ctx.scope, severity=p.get("severity", "any"))
 
 
 async def _mttr_value(ctx, p):
     days, w, end = int(p["days"]), _mttr_where(ctx, p), fleet.now()
-    cur, _ = await _mttr_between(ctx, w, end - timedelta(days=days), end)
-    was, _ = await _mttr_between(ctx, w, end - timedelta(days=2 * days), end - timedelta(days=days))
+    roll = _mttr_roll(ctx, p)
+    cur, _ = await _mttr_between(ctx, w, end - timedelta(days=days), end, roll)
+    was, _ = await _mttr_between(ctx, w, end - timedelta(days=2 * days), end - timedelta(days=days), roll)
     return {"value": cur, "unit": " days", "delta": fleet.delta(cur, was), "href": "/vulns/dashboard",
             "note": f"Mean time to remediate, fixes in the last {days} days"}
 
@@ -158,11 +174,11 @@ async def _mttr_quarter(ctx, p):
     label = f"{q.upper()} {now.year} ({QUARTERS[q][1]})"
     if a > now:
         return {"value": None, "unit": " days", "note": f"{label}: hasn't started yet"}
-    w = _mttr_where(ctx, p)
-    cur, n = await _mttr_between(ctx, w, a, min(b, now))
+    w, roll = _mttr_where(ctx, p), _mttr_roll(ctx, p)
+    cur, n = await _mttr_between(ctx, w, a, min(b, now), roll)
     prev = {"q1": "q4", "q2": "q1", "q3": "q2", "q4": "q3"}[q]
     pa, pb = quarter_bounds(now.year - (1 if q == "q1" else 0), prev)
-    was, _ = await _mttr_between(ctx, w, pa, pb)
+    was, _ = await _mttr_between(ctx, w, pa, pb, roll)
     so_far = " so far" if b > now else ""
     return {"value": cur, "unit": " days", "delta": fleet.delta(cur, was), "href": "/vulns/dashboard",
             "note": f"{label}{so_far}: {n:,} finding{'' if n == 1 else 's'} fixed" if n else f"{label}{so_far}: nothing fixed"}

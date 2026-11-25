@@ -8,7 +8,7 @@ from sqlalchemy import and_, func, or_, select
 from api.dashboards import fleet
 from api.dashboards.catalog import Metric, Param, metric
 from api.dashboards.m_risk import QUARTERS, _mttr_between, quarter_bounds
-from api.dashboards.m_vulns import FILTERS, KEV, SEVERITY, _w
+from api.dashboards.m_vulns import FILTERS, KEV, SEVERITY, _roll, _w
 from api.models.vuln import Finding, FindingStatus, Vulnerability
 
 QUARTER = Param("quarter", "Quarter of this year", ("current", "q1", "q2", "q3", "q4"),
@@ -23,8 +23,9 @@ NOTE = {"open": "open at quarter end", "new": "found", "fixed": "fixed", "mttr":
 REAL = (FindingStatus.open, FindingStatus.in_progress, FindingStatus.remediated, FindingStatus.risk_accepted)
 
 
-async def _count(ctx, w, m: str, a: datetime, b: datetime) -> int:
-    """Open at b (found before b and not fixed by then), found in [a, b), or fixed in [a, b)."""
+async def _count(ctx, w, m: str, a: datetime, b: datetime, roll=None) -> int:
+    """Open at b (found before b and not fixed by then), found in [a, b), or fixed in [a, b). Rolled-up removed
+    findings count in: each was found on one day and fixed on a later one."""
     fixed = Finding.status == FindingStatus.remediated
     cond = {
         "open": and_(Finding.first_detected < b, or_(Finding.status.in_((FindingStatus.open, FindingStatus.in_progress)),
@@ -32,15 +33,20 @@ async def _count(ctx, w, m: str, a: datetime, b: datetime) -> int:
         "new": and_(Finding.first_detected >= a, Finding.first_detected < b, Finding.status.in_(REAL)),
         "fixed": and_(fixed, Finding.last_seen >= a, Finding.last_seen < b),
     }[m]
-    return (await ctx.db.execute(select(func.count()).select_from(Finding).join(Vulnerability, Vulnerability.id == Finding.vuln_id)
-                                 .where(*w, cond))).scalar_one()
+    n = (await ctx.db.execute(select(func.count()).select_from(Finding).join(Vulnerability, Vulnerability.id == Finding.vuln_id)
+                              .where(*w, cond))).scalar_one()
+    if roll is not None:
+        from api.core import finding_history as fh
+        n += (await fh.count(ctx.db, roll, "new", None, b) - await fh.count(ctx.db, roll, "fixed", None, b) if m == "open"
+              else await fh.count(ctx.db, roll, m, a, b))
+    return n
 
 
-async def _value(ctx, w, m: str, a: datetime, b: datetime):
+async def _value(ctx, w, m: str, a: datetime, b: datetime, roll=None):
     if m == "mttr":
-        v, _ = await _mttr_between(ctx, w + [Finding.status == FindingStatus.remediated, Finding.first_detected.is_not(None)], a, b)
+        v, _ = await _mttr_between(ctx, w + [Finding.status == FindingStatus.remediated, Finding.first_detected.is_not(None)], a, b, roll)
         return v
-    return await _count(ctx, w, m, a, b)
+    return await _count(ctx, w, m, a, b, roll)
 
 
 async def _quarter(ctx, p):
@@ -52,11 +58,11 @@ async def _quarter(ctx, p):
     unit = " days" if m == "mttr" else None
     if a > now:
         return {"value": None, "unit": unit, "note": f"{label}: hasn't started yet"}
-    w = _w(ctx, p)
-    cur = await _value(ctx, w, m, a, min(b, now))
+    w, roll = _w(ctx, p), _roll(ctx, p)
+    cur = await _value(ctx, w, m, a, min(b, now), roll)
     prev = {"q1": "q4", "q2": "q1", "q3": "q2", "q4": "q3"}[q]
     pa, pb = quarter_bounds(now.year - (1 if q == "q1" else 0), prev)
-    was = await _value(ctx, w, m, pa, pb)
+    was = await _value(ctx, w, m, pa, pb, roll)
     so_far = " so far" if b > now else ""
     from api.models.integration import SyncJob
     began = (await ctx.db.execute(select(func.min(SyncJob.started_at)))).scalar_one()

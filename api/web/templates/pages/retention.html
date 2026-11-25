@@ -8,7 +8,7 @@
 <div class="page-header">
   <div>
     <h1 class="page-header__title">Data retention</h1>
-    <p class="page-header__sub">When a host counts as gone and its findings are removed, not kept as history</p>
+    <p class="page-header__sub">When a host counts as gone, and how long remediated findings are kept</p>
   </div>
 </div>
 {% include "partials/admin_tabs.html" %}
@@ -25,6 +25,15 @@
       network probe's list first, and only one that stays silent to it for that many days without a single answer (no ping,
       nothing on the common ports) loses its findings; any answer restarts the count. With 30 and 7 that's 37 days at least. A host with no internal address can't be checked, so it keeps them. The asset record stays.</p>
     <p class="text-sm" id="ret-now" style="margin:0"></p>
+    <div class="panel__title" style="margin-top:8px">Remediated findings</div>
+    <label class="text-sm">Keep a remediated finding for this many days after it was last seen
+      <input type="number" id="ret-fixed" class="input" min="30" max="365" style="width:110px;margin-left:8px"></label>
+    <p class="text-sm text-muted" style="margin:0">After that it is counted into a daily summary (found and fixed per day, by source, kind
+      of work, severity and KEV, with its days to fix) and then removed, every day at 04:15 UTC. The vulnerability trend,
+      fix counts and mean time to remediate keep their whole history from the summary, and each device keeps a year of
+      its trend from its daily counts. A view narrowed to a device type, a tag scope or a repository covers only the
+      days kept here. Risk score history older than a year keeps one entry per week.</p>
+    <p class="text-sm" id="ret-fixed-now" style="margin:0"></p>
     <div><button type="submit" class="btn btn--primary">Save</button> <span id="ret-msg" class="text-sm" role="status"></span></div>
   </form>
 </div>

@@ -355,7 +355,7 @@ async def test_mttr_by_calendar_quarter(db, admin_user, monkeypatch):
     assert (a.month, b.year, b.month) == (10, 2027, 1)
     asked = []
 
-    async def between(ctx, w, start, end):
+    async def between(ctx, w, start, end, roll=None):
         asked.append((start.date().isoformat(), end.date().isoformat()))
         return (12.5, 40) if len(asked) % 2 else (25.0, 80)
     monkeypatch.setattr(m_risk, "_mttr_between", between)

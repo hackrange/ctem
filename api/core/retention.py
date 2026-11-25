@@ -1,4 +1,5 @@
-"""Admin > Data retention: when a host counts as gone and its findings are removed (api/core/stale_hosts.py).
+"""Admin > Data retention: when a host counts as gone and its findings are removed (api/core/stale_hosts.py), and how
+long a remediated finding is kept before it is rolled up and removed (api/core/finding_history.py).
 Stored in app settings; STALE_HOST_DAYS seeds the default number of days."""
 from __future__ import annotations
 
@@ -7,12 +8,12 @@ import json
 from sqlalchemy import select
 
 KEY = "data_retention"
-LIMITS = {"stale_host_days": (7, 365), "probe_within_days": (1, 30)}
+LIMITS = {"stale_host_days": (7, 365), "probe_within_days": (1, 30), "remediated_days": (30, 365)}
 
 
 def defaults() -> dict:
     from api.core.config import get_settings
-    return {"enabled": True, "stale_host_days": get_settings().stale_host_days, "probe_within_days": 7}
+    return {"enabled": True, "stale_host_days": get_settings().stale_host_days, "probe_within_days": 7, "remediated_days": 90}
 
 
 def validate(raw: dict) -> dict:
