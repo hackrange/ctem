@@ -128,9 +128,9 @@ function affectedDefault() {
 affectedDefault();
 if (initial.has('affected_only')) $('filter-affected').checked = initial.get('affected_only') === 'true';
 // From a dashboard row: filters with no control of their own, shown as removable chips
-const CARD = { past_sla: [/^(1|true)$/, () => 'Past SLA'] };
+const CARD = { past_sla: [/^(1|true)$/, () => 'Past SLA'], grade: [/^[ABCDF]$/, () => `Risk grade ${card.grade}`] };
 const card = {};
-Object.entries(CARD).forEach(([k, [re]]) => { const v = initial.get(k); if (v && re.test(v)) card[k] = 'true'; });
+Object.entries(CARD).forEach(([k, [re]]) => { const v = initial.get(k); if (v && re.test(v)) card[k] = k === 'grade' ? v : 'true'; });
 function showCard() {
   const box = $('vl-card'), keys = Object.keys(card);
   box.hidden = !keys.length;

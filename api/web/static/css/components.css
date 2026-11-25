@@ -351,6 +351,8 @@
 .vd-kpi--critical { border-left-color: var(--severity-critical); }
 .vd-kpi--high { border-left-color: var(--severity-high); }
 .vd-kpi--low { border-left-color: var(--severity-low); }
+.vd-kpi--medium { border-left-color: var(--severity-medium); }
+.vd-kpi--ok { border-left-color: var(--severity-info); }
 .vd-kpi__label { font-size: 12px; color: var(--fg-muted); text-transform: uppercase; letter-spacing: .04em; }
 .vd-kpi__value { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .vd-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }

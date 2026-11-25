@@ -7,6 +7,11 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.14.1] - 2026-11-25
+
+### Added
+- **Risk grade view on the vulnerability dashboard.** A fourth option on the Count switch, beside Findings, Unique and Fixes: the cards become open findings at each risk grade, F to A, from the risk-based model. Each card opens the vulnerability list filtered to that grade (a removable "Risk grade" chip there), within what the viewer may see.
+
 ## [1.14.0] - 2026-11-25
 
 ### Added

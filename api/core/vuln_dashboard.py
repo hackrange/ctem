@@ -171,6 +171,10 @@ async def _units(db, w) -> dict:
                                      func.count().filter(sub.c.kev == 1), func.count().filter(sub.c.exp == 1))
                               .select_from(sub))).one()
         out[unit] = {"open": r[0], **{s: r[i + 1] for i, s in enumerate(SEVERITIES)}, "kev": r[5], "exploitable": r[6]}
+    # Open findings by their risk grade (F worst), for the Count switch's Risk grade view
+    g = (await db.execute(select(Finding.risk_grade, func.count()).select_from(Finding)
+                          .where(Finding.status.in_(OPEN), *w).group_by(Finding.risk_grade))).all()
+    out["grades"] = {k: 0 for k in "FDCBA"} | {k: n for k, n in g if k and k in "FDCBA"}
     # Findings no source has named a fix for yet: shown so the Fixes count is never mistaken for everything
     out["fixes"]["unassigned_findings"] = (await db.execute(
         select(func.count()).select_from(Finding).join(Vulnerability, Vulnerability.id == Finding.vuln_id)

@@ -57,7 +57,7 @@
     const tile = (label, value, href, cls = '', hint = '', bubble = 0) => `<a class="vd-kpi ${cls}" href="${esc(href)}"${hint ? ` title="${esc(hint)}"` : ''}>
         <span class="vd-kpi__label">${esc(label)}${bubble ? ` <span class="count-bubble" aria-label="${esc(bubble)} waiting for approval">${esc(bubble > 99 ? '99+' : bubble)}</span>` : ''}</span><span class="vd-kpi__value">${esc(n(value))}</span></a>`;
     // The first five count in the chosen unit: findings, unique vulnerabilities, or fixes
-    const u = unit !== 'findings' && data.units ? data.units[unit] : k;
+    const u = unit !== 'findings' && data.units && data.units[unit] ? data.units[unit] : k;
     const vl = extra => `/vulns?type=${kind}${extra ? `&${extra}` : ''}`;
     const dl = (() => {
       const p = new URLSearchParams({ asset: { infra: 'hosts', code: 'repositories', web: 'sites', cloud: 'cloud' }[kind] });
@@ -68,7 +68,10 @@
       return `/devices?${p}`;
     })();
     const fx = s => `/vulns/fixes?kind=${kind}${s ? `&severity=${s}` : ''}`;
-    const head = unit === 'fixes' ? [
+    const GRADE = { F: ['vd-kpi--critical', 'Act now: likely, reachable and costly'], D: ['vd-kpi--high', 'High risk'],
+                    C: ['vd-kpi--medium', 'Moderate risk'], B: ['vd-kpi--low', 'Low risk'], A: ['vd-kpi--ok', 'Unlikely or out of reach'] };
+    const head = unit === 'grades' ? 'FDCBA'.split('').map(g => tile(`Grade ${g}`, u[g] || 0, vl(`grade=${g}`), GRADE[g][0],
+      `${GRADE[g][1]}. Open findings scored ${g} by the risk model.`)) : unit === 'fixes' ? [
       tile('Fixes to apply', u.open, fx(''), '', `Each patch, upgrade or rollup once. ${n(u.unassigned_findings)} findings have no fix named by their source.`),
       tile('Fix critical', u.critical, fx('critical'), 'vd-kpi--critical', 'Fixes that resolve at least one critical finding'),
       tile('Fix high', u.high, fx(''), 'vd-kpi--high', 'Fixes whose worst finding is high'),
@@ -283,7 +286,7 @@
   }
 
   // Count by findings, unique vulnerabilities, or fixes (remembered, and kept in the link)
-  const UNITS = ['findings', 'vulns', 'fixes'];
+  const UNITS = ['findings', 'vulns', 'fixes', 'grades'];
   let unit = UNITS.includes(init.get('count')) ? init.get('count') : (() => {
     try { const u = localStorage.getItem('ctem.vulnUnit'); return UNITS.includes(u) ? u : 'findings'; } catch (e) { return 'findings'; }
   })();
