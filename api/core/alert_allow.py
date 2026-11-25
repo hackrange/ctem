@@ -1,6 +1,6 @@
 """Accepted alerts (the allow list): once cyber or admin accept a detection, matching alerts stop raising hunt and
 hourly-check findings, Threat Curated Rule hits and Splunk feed alerts, and show as Accepted in Cyber Threats. Each
-entry is the detection's name plus whatever narrows it (host, process, file, hash), with a reason and an end date
+entry is the detection's name plus whatever narrows it (host, process, parent process, file, hash), with a reason and an end date
 (a year at most), and every change is audited. Alerts stay stored and visible: accepting never deletes anything."""
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ async def active(db: AsyncSession) -> list[AlertAllow]:
 
 
 def _needs_detail(r: AlertAllow) -> bool:
-    return bool(r.process or r.file or r.sha256)
+    return bool(r.process or r.parent or r.file or r.sha256)
 
 
 def matches(r: AlertAllow, alert: dict, summary: dict | None = None) -> bool:
@@ -36,6 +36,8 @@ def matches(r: AlertAllow, alert: dict, summary: dict | None = None) -> bool:
         return False
     s = summary or {}
     if r.process and _base(s.get("process")) != _base(r.process):
+        return False
+    if r.parent and _base(s.get("parent")) != _base(r.parent):
         return False
     if r.file and r.file.lower() not in str(s.get("file") or "").lower():
         return False
@@ -78,8 +80,16 @@ async def accepted_keys(db: AsyncSession, rows: list[tuple[str, dict]]) -> set[s
     return set(await accepted(db, alerts))
 
 
+def covers_row(rules: list[AlertAllow], row: dict) -> AlertAllow | None:
+    """For a hunt finding's evidence row (alert, source, host, process, parent, file, sha256): the entry accepting it."""
+    alert = {"title": row.get("alert"), "source": row.get("source"), "hostname": row.get("host")}
+    summary = {k: row.get(k) for k in ("process", "parent", "file", "sha256")}
+    return next((r for r in rules if matches(r, alert, summary)), None)
+
+
 def view(r: AlertAllow) -> dict:
-    return {"id": str(r.id), "source": r.source, "title": r.title, "hostname": r.hostname, "process": r.process, "file": r.file,
+    return {"id": str(r.id), "source": r.source, "title": r.title, "hostname": r.hostname, "process": r.process,
+            "parent": r.parent, "file": r.file,
             "sha256": r.sha256, "reason": r.reason, "expires_at": r.expires_at.isoformat() if r.expires_at else None,
             "enabled": r.enabled, "created_by": r.created_by, "hits": r.hits,
             "last_hit_at": r.last_hit_at.isoformat() if r.last_hit_at else None,

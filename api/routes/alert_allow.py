@@ -26,6 +26,7 @@ class AllowBody(BaseModel):
     source: Annotated[str, StringConstraints(pattern=r"^[a-z0-9_]{2,32}$")] | None = None
     hostname: Annotated[str, StringConstraints(strip_whitespace=True, max_length=253, pattern=r"^[A-Za-z0-9._-]+$")] | None = None
     process: Annotated[str, StringConstraints(strip_whitespace=True, max_length=260, pattern=r"^[^\x00-\x1f<>]+$")] | None = None
+    parent: Annotated[str, StringConstraints(strip_whitespace=True, max_length=260, pattern=r"^[^\x00-\x1f<>]+$")] | None = None
     file: Annotated[str, StringConstraints(strip_whitespace=True, max_length=400, pattern=r"^[^\x00-\x1f<>]+$")] | None = None
     sha256: Annotated[str, StringConstraints(pattern=r"^[0-9a-fA-F]{64}$")] | None = None
     reason: Annotated[str, StringConstraints(strip_whitespace=True, min_length=10, max_length=1000, pattern=r"^[^\x00-\x08\x0b-\x1f<>]+$")]
@@ -44,6 +45,11 @@ def _until(d: date) -> datetime:
     if d <= today or d > today + timedelta(days=MAX_DAYS):
         raise HTTPException(422, detail=f"The end date must be after today and within {MAX_DAYS} days.")
     return datetime(d.year, d.month, d.day, 23, 59, 59, tzinfo=timezone.utc)
+
+
+def describe(r: AlertAllow) -> str:
+    return ", ".join(f"{k} {v}" for k, v in (("host", r.hostname), ("process", r.process), ("parent", r.parent),
+                                              ("file", r.file), ("hash", r.sha256)) if v)
 
 
 async def _audit(me: User, action: str, r: AlertAllow, detail: str, db: AsyncSession) -> None:
@@ -71,18 +77,18 @@ async def suggest(_: User = Depends(require_cyber_or_admin), db: AsyncSession = 
     a = found[0]
     s = summarize(await _detail(db, id.partition("#")[0])) if a.get("has_detail") else {}
     return {"title": a.get("title"), "source": a.get("source"), "hostname": a.get("hostname"), "process": s.get("process"),
-            "file": s.get("file"), "sha256": s.get("sha256")}
+            "parent": s.get("parent"), "file": s.get("file"), "sha256": s.get("sha256")}
 
 
 @router.post("", status_code=201)
 async def add_allow(body: AllowBody, me: User = Depends(require_cyber_or_admin), db: AsyncSession = Depends(get_session)):
     from api.core.alert_allow import view
-    r = AlertAllow(title=body.title, source=body.source, hostname=body.hostname, process=body.process, file=body.file,
+    r = AlertAllow(title=body.title, source=body.source, hostname=body.hostname, process=body.process, parent=body.parent, file=body.file,
                    sha256=body.sha256.lower() if body.sha256 else None, reason=body.reason, expires_at=_until(body.expires_on),
                    enabled=True, created_by=me.username)
     db.add(r)
     await db.flush()
-    scope = ", ".join(f"{k} {v}" for k, v in (("host", r.hostname), ("process", r.process), ("file", r.file), ("hash", r.sha256)) if v)
+    scope = describe(r)
     await _audit(me, "alert_allow.create", r, f"Accepted alert '{r.title}'{f' ({scope})' if scope else ''} until "
                  f"{body.expires_on}: {r.reason}", db)
     return view(r)

@@ -8,6 +8,8 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 ## [Unreleased]
 
 ### Added
+- **Suppress similar from a hunt finding.** Each finding on the Hunt page (the watch included) has Suppress similar: it lists the signatures among its alerts (the detection, the process and the process that started it, with how many alerts, hosts and file versions) and accepts the ones you tick, everywhere or only on the finding's hosts, and optionally only for those exact files by hash. Alerts with that signature stop raising hunt, watch, hourly-check and SIEM findings and show as Accepted; each entry needs a reason and an end date within a year, and is audited. A watch finding whose every alert is now accepted leaves the watch at once.
+- Accepted alerts can be narrowed to the parent process too (only when started by Code.exe, say), from an alert's page as well.
 - **Remediated findings are removed after a retention window, without losing history.** A remediated finding last seen more than 90 days ago (Admin > Data retention, 30 to 365) is counted into a daily summary (found and fixed per day, by source, kind of work, severity and KEV, with its days to fix) and then removed, daily at 04:15 UTC. The vulnerability trend, fix counts, quarterly numbers and mean time to remediate read the summary for those days, so they come out the same as before. A view narrowed to a device type, a tag scope or a repository covers only the window.
 - **Each device's trend line keeps a year.** Every device's open, critical and high counts are saved on each day they change (the first run fills in the past year from its findings), and the trend line reads them for days older than the window.
 

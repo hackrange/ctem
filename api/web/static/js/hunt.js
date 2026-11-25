@@ -174,6 +174,7 @@ function issueActions(idx) {
     <a class="btn btn--primary btn--sm" href="${API}/hunt/report/${encodeURIComponent(currentSource)}/${idx}/pdf" download>Generate report (PDF)</a>
     <a class="btn btn--ghost btn--sm" target="_blank" rel="noopener" href="${API}/hunt/report/${encodeURIComponent(currentSource)}/${idx}">Open as a page</a>
     ${t.api ? ticket('api', 'Create ServiceNow ticket') : ''}${t.email ? ticket('email', 'Email ServiceNow') : ''}
+    <button type="button" class="btn btn--ghost btn--sm" data-suppress="${ref({ source: currentSource, issue: idx })}">Suppress similar&hellip;</button>
     <span class="text-sm text-muted" data-ticket-msg></span></div>`;
 }
 

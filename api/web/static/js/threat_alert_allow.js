@@ -1,5 +1,5 @@
 // Cyber Threats > alert: accept it (the allow list), so it raises no more hunt, hourly-check or SIEM findings. The
-// entry is this detection, narrowed by whatever the person keeps ticked (host, process, file, hash), with a reason and an
+// entry is this detection, narrowed by whatever the person keeps ticked (host, process, parent process, file, hash), with a reason and an
 // end date. Rules in api/core/alert_allow.py; everything goes through esc().
 (() => {
   const $ = id => document.getElementById(id);
@@ -12,7 +12,7 @@
   const inDays = n => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);
 
   function shown(e) {
-    const scope = [['host', e.hostname], ['process', e.process], ['file', e.file], ['hash', e.sha256]].filter(x => x[1]);
+    const scope = [['host', e.hostname], ['process', e.process], ['parent process', e.parent], ['file', e.file], ['hash', e.sha256]].filter(x => x[1]);
     $('al-allow').innerHTML = `<p style="margin:0 0 6px"><span class="chip chip--low">Accepted</span>
         by ${esc(e.created_by)} until ${esc(new Date(e.expires_at).toLocaleDateString())}: ${esc(e.reason)}</p>
       <p class="text-sm text-muted" style="margin:0 0 8px">Matches the detection${scope.length ? ` when ${scope.map(([k, v]) => `${esc(k)} is ${esc(v)}`).join(', ')}` : ' anywhere'}.
@@ -31,7 +31,7 @@
         <input type="checkbox" data-k="${esc(k)}" data-v="${esc(v)}"${on ? ' checked' : ''}> <span>Only when the ${esc(label)} is <span class="text-mono">${esc(v)}</span></span></label>` : '');
     $('al-allow').innerHTML = `<p class="text-sm text-muted" style="margin:0 0 8px">Accept <b>${esc(s.title)}</b> as expected here, so it raises
         no more hunt, hourly-check or SIEM findings. The alert stays in CTEM and in ${esc(s.source || 'the tool')}. Keep it narrow:</p>
-      <div style="display:grid;gap:6px;margin-bottom:10px">${opt('hostname', 'host', s.hostname, true)}${opt('process', 'process', s.process, true)}
+      <div style="display:grid;gap:6px;margin-bottom:10px">${opt('hostname', 'host', s.hostname, true)}${opt('process', 'process', s.process, true)}${opt('parent', 'parent process', s.parent, true)}
         ${opt('file', 'file', s.file, !!s.file)}${opt('sha256', 'process hash', s.sha256, false)}</div>
       <label class="text-sm">Why it's acceptable (at least 10 characters)
         <textarea id="al-allow-reason" class="form-input" rows="2" maxlength="1000" style="margin-top:4px" placeholder="For example: the backup agent reads LSASS by design (change CHG0012345)"></textarea></label>
