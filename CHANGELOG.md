@@ -3,9 +3,11 @@
 All notable changes to open-ctem are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
-open-ctem is a Python rewrite of an earlier PHP version begun about 18 months before this repository; that history isn't in this repository (see [docs/project-overview.md](docs/project-overview.md)). Versions here start with the Python release, and each version is tagged (`v1.1.0` ... `v1.9.2`) at the commit that finished it. The on-prem shipper has its own version numbers.
+open-ctem is a Python rewrite of an earlier PHP version begun about 18 months before this repository; that history isn't in this repository (see [docs/project-overview.md](docs/project-overview.md)). Versions here start with the Python release, and each version is tagged (`v1.1.0` ... `v1.10.0`) at the commit that finished it. The on-prem shipper has its own version numbers.
 
 ## [Unreleased]
+
+## [1.10.0] - 2026-11-25
 
 ### Added
 - **Identity: see the person, and which apps hold their at-risk passwords.** Grip identities are matched to the directory person with the same keyed email hash (no address is stored again), so the ITDR, posture and scores lists show real names and addresses. Every row opens: an identity opens its own page (who they are with a link to their directory record, their scores, leaked, reused and weak passwords by app, MFA coverage, risky extensions, ITDR alerts and posture findings); a posture finding or an app opens in full in a panel. Grip's per-app password counts are matched to each app's users during the sync (only apps that have any are read); where an app has fewer such accounts than people flagged in it, each is marked "possibly" rather than certain.

@@ -24,6 +24,7 @@ What open-ctem covers, how it scores risk, and how it has been reviewed and hard
 | 1.9.0 | 2026-11-24 | Zscaler read-only posture and coverage, Grip extensions and credential risk, alert allow list, process and file in hunt findings, alert PDF, database upkeep |
 | 1.9.1 | 2026-11-24 | Zscaler silent agents counted per machine |
 | 1.9.2 | 2026-11-24 | Identity ITDR threats list loads again; summary cards open their tabs |
+| 1.10.0 | 2026-11-25 | Identity people, password apps and notices; clickable attack paths; maps fill the screen and show the clicked path; FairTPRM alone for shadow checks |
 
 The on-prem shipper has its own version numbers (1.0 to 1.7.x), separate from the application's.
 
