@@ -194,6 +194,9 @@ async def create_integration(
     if body.config.get("base_url"):
         _validate_base_url(body.config["base_url"])
     _check_vendor_config(body.vendor, body.config)
+    if body.vendor == Vendor.splunk and not body.config.get("ssl_mode"):
+        from api.integrations.splunk import new_ssl_mode
+        body.config["ssl_mode"] = new_ssl_mode(body.config)   # new ones verify; unset stays legacy (unverified)
     cfg = IntegrationConfig(
         vendor=body.vendor,
         name=body.name,

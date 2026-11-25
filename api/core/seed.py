@@ -93,7 +93,22 @@ _ROLE_PERMS: dict[str, list[tuple[str, str]]] = {
 async def run_seed(db: AsyncSession, settings) -> None:
     await _seed_roles_and_perms(db)
     await _seed_admin_user(db, settings)
+    await _hold_unreviewed_learned_rules(db)
     await db.commit()
+
+
+async def _hold_unreviewed_learned_rules(db: AsyncSession) -> None:
+    """Once, on upgrade: rules learned from a hunt before 1.11.2 went live unreviewed. Switch them off until an admin
+    reviews them, as new learned rules now are. Rules people wrote, built-in and reviewed rules are untouched."""
+    from sqlalchemy import update
+    from api.models.settings import AppSetting
+    from api.models.threat_rule import ThreatRule
+    key = "migrate.learned_rules_held"
+    if (await db.execute(select(AppSetting).where(AppSetting.key == key))).scalar_one_or_none() is not None:
+        return
+    await db.execute(update(ThreatRule).where(ThreatRule.status == "learned", ThreatRule.created_by == "ai",
+                                              ThreatRule.enabled == True).values(enabled=False))  # noqa: E712
+    db.add(AppSetting(key=key, value="1"))
 
 
 async def _seed_roles_and_perms(db: AsyncSession) -> None:

@@ -48,9 +48,9 @@ def test_the_trust_list_takes_addresses_and_refuses_catch_alls(tmp_path):
     assert out.splitlines() == ["set_real_ip_from 10.0.0.3;"] and "catch-all" in err and "ignoring" in err
     out, err = _run(tmp_path, None)
     assert out == "" and "trusts no forwarded address" in err
-    # an existing load-balanced install that hasn't set the list yet keeps working as before, and is warned
+    # an existing load-balanced install that hasn't set the list yet trusts only its bind network, and is warned
     out, err = _run(tmp_path, None, bind="10.0.0.9")
-    assert out.splitlines() == ["set_real_ip_from 0.0.0.0/0;"] and "WARNING" in err
+    assert out.splitlines() == ["set_real_ip_from 10.0.0.0/24;"] and "WARNING" in err
     out, _ = _run(tmp_path, "10.0.0.1", bind="10.0.0.9")
     assert out.splitlines() == ["set_real_ip_from 10.0.0.1;"]
 

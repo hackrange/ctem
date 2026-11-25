@@ -56,6 +56,9 @@ async def test_learned_once_then_matched_for_free(db):
     rule = (await db.execute(select(ThreatRule).where(ThreatRule.name == "Domain trust discovery", ThreatRule.status == "learned"))).scalars().first()
     assert rule.match["title_any"] == [word] and rule.created_by == "ai"     # the host word was dropped
     assert await curated.learn(db, [dict(ai_issue)], "again") == 0           # same pattern: not learned twice
+    assert rule.enabled is False                                             # drafts wait for an admin
+    rule.enabled = True                                                      # the admin turns it on
+    await db.commit()
 
     issues, lookups, explained = await curated.run(db, None, "7d", first_lookup=4)
     mine = [i for i in issues if i["from_rule"] == str(rule.id)]

@@ -112,6 +112,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     def __init__(self, app: ASGIApp, redis_url: str) -> None:
         super().__init__(app)
         self._redis = aioredis.from_url(redis_url, decode_responses=True)
+        self._local: dict[str, tuple[int, float]] = {}   # ip -> (count, window start), only while Redis is down
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         if request.method not in ("GET", "HEAD", "OPTIONS") and request.url.path in self._AUTH_PATHS:
@@ -128,9 +129,27 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             except HTTPException:
                 raise
             except Exception:
-                # Redis down: fail open rather than lock everyone out
-                logging.getLogger("open-ctem.security").warning("rate limit skipped (Redis down?)")
+                # Redis down: count in this process instead, so the limit still holds (per worker) and nobody is locked out
+                logging.getLogger("open-ctem.security").warning("rate limit counted in-process (Redis down?)")
+                if self._local_hit(ip, settings.ip_auth_window_seconds) > settings.ip_auth_max_attempts:
+                    from fastapi.responses import JSONResponse
+                    return JSONResponse({"detail": "Too many requests"}, status_code=429)
         return await call_next(request)
+
+    _LOCAL_MAX = 10_000   # addresses tracked in-process while Redis is unavailable (oldest dropped first)
+
+    def _local_hit(self, ip: str, window: int) -> int:
+        """Fixed-window counter kept in memory, bounded, used only while Redis can't be reached."""
+        local = self._local
+        now = time.monotonic()
+        count, start = local.get(ip, (0, now))
+        if now - start >= window:
+            count, start = 0, now
+        local.pop(ip, None)
+        while len(local) >= self._LOCAL_MAX:
+            del local[next(iter(local))]
+        local[ip] = (count + 1, start)
+        return count + 1
 
 
 def _client_ip(request: Request) -> str:

@@ -103,7 +103,7 @@ const VENDOR_FIELDS = {
   splunk: [
     {key:'base_url',   label:'REST API URL',    type:'text',     placeholder:'https://splunk.acme.example.com:8089', required:true},
     {key:'ssl_mode',   label:'SSL Mode',        type:'select',   required:false,
-      options:['https_no_verify','https','http'],
+      options:['https','https_no_verify','http'],
       optionLabels:{'https':'HTTPS (verify cert)','https_no_verify':'HTTPS (skip verify -- self-signed)','http':'HTTP (no SSL)'}},
     {key:'username',   label:'Username',        type:'text',     placeholder:'admin', required:true},
     {key:'password',   label:'Password',        type:'password', placeholder:'', required:true},
@@ -273,6 +273,8 @@ function editIntegration(id) {
       el.value = v ?? '';
     }
   }
+  const sslSel = document.getElementById('cfg-ssl_mode');   // a Splunk saved before SSL mode existed keeps its real mode
+  if (i.vendor === 'splunk' && sslSel && !cfg.ssl_mode) sslSel.value = String(cfg.base_url || '').startsWith('http://') ? 'http' : 'https_no_verify';
   aiFieldsShown(i.vendor);
   document.getElementById('int-modal').style.display = 'flex';
 }

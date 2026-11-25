@@ -221,14 +221,14 @@ async def run(db, splunk, time_range: str, first_lookup: int) -> tuple[list[dict
     return issues, lookups, explained
 
 
-async def learn(db, issues: list[dict], question: str) -> int:
-    """Each high-fidelity AI finding that came with a generic rule becomes one (or freshens the one it matches)."""
+async def learn(db, issues: list[dict], question: str, lookups: list[dict] | None = None) -> int:
+    """Each high-fidelity AI finding that came with a generic rule becomes a disabled, learned rule for review."""
     from api.hunt.watch import worth_showing
     from api.models.threat_rule import ThreatRule
     names, n = None, 0
     for i in issues:
         draft = i.pop("rule_draft", None)
-        if not isinstance(draft, dict) or i.get("from_rule") or not worth_showing(i):
+        if not isinstance(draft, dict) or i.get("from_rule") or not worth_showing(i, lookups):
             continue
         kind = str(draft.get("kind") or "alert")
         names = names if names is not None else await known_names(db)
@@ -250,7 +250,8 @@ async def learn(db, issues: list[dict], question: str) -> int:
                           description=(str(draft.get("why") or i.get("why_it_matters") or ""))[:600] or None,
                           what_to_do=[str(x)[:300] for x in (i.get("what_to_do") or [])][:8],
                           attack=[{"id": a["id"], "name": a.get("name", "")} for a in i.get("attack") or []][:6],
-                          status="learned", learned_from=question[:500], created_by="ai"))
+                          status="learned", learned_from=question[:500], created_by="ai",
+                          enabled=False))   # off until an admin reviews and turns it on (Admin > Threat Curated Rules)
         n += 1
     if n:
         await db.commit()

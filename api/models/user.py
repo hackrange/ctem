@@ -72,6 +72,8 @@ class User(Base, UUIDPrimaryKey, TimestampMixin):
     locked_reason: Mapped[str | None] = mapped_column(String(256))
     # OIDC subject identifier
     oidc_sub: Mapped[str | None] = mapped_column(String(256), index=True)
+    # The IdP that subject belongs to: a subject is only unique within its issuer (empty on accounts from before this)
+    oidc_issuer: Mapped[str | None] = mapped_column(String(512))
 
     # AD / LDAP enrichment -- written by LDAP connector, used in user risk scoring
     ad_groups: Mapped[list | None] = mapped_column(EncryptedJSON)         # group names, encrypted at rest

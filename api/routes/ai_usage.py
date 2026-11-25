@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import calendar
-import re
 from datetime import datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
 
@@ -18,7 +17,6 @@ from api.models.settings import AIUsage, AppSetting, AuditLog
 from api.models.user import User
 
 router = APIRouter(prefix="/api/v1/admin/ai-usage", tags=["admin"])
-_TOKENS_RE = re.compile(r"^\d{1,12}$")
 
 
 def _money(d: Decimal | None) -> float | None:
@@ -139,10 +137,11 @@ async def save_settings(
             au.parse_price(values[k])
     except ValueError as e:
         raise HTTPException(400, detail=str(e)) from None
-    tok = values["monthly_token_limit"].strip().replace(",", "")
-    if tok and not _TOKENS_RE.match(tok):
-        raise HTTPException(400, detail="Token limit must be a whole number")
-    values["monthly_token_limit"] = tok
+    try:
+        au.parse_token_limit(values["monthly_token_limit"])   # the same parser the limit is enforced with
+    except ValueError as e:
+        raise HTTPException(400, detail=str(e)) from None
+    values["monthly_token_limit"] = values["monthly_token_limit"].strip().replace(",", "")
 
     existing = {r.key: r for r in (await db.execute(
         select(AppSetting).where(AppSetting.key.in_([f"ai.{k}" for k in values])))).scalars()}

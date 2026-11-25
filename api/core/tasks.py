@@ -414,15 +414,15 @@ async def _run_one(spl: str, time_range: str) -> dict:
 
 
 def _build_ai_prompt(alerts: list[dict], device_id: str | None) -> str:
+    from api.core.untrusted import NOTE, fence   # alert text is attacker-influenced: fenced as data
     summary = json.dumps(alerts, indent=2)[:8000]  # hard cap on input
     return (
         "You are a threat analyst reviewing security alerts. "
         "Analyze the following alerts and identify: "
         "1. Likely attack techniques (MITRE ATT&CK), "
-        "2. Whether these suggest an active compromise, "
-        "3. Recommended immediate actions. "
-        "Be concise. Flag critical findings first.\n\n"
-        f"Alerts:\n{summary}"
+        "2. Whether these suggest an active compromise, 3. Recommended immediate actions. "
+        f"Be concise. Flag critical findings first. {NOTE}\n\n"
+        f"Alerts:\n{fence(summary)}"
     )
 
 

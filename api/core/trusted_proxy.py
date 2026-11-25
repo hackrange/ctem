@@ -4,9 +4,11 @@ directly is seen as itself, so it can't pick the address API token allow-lists, 
 look at.
 
 The proxy is named, not numbered (TRUSTED_PROXY_HOST, "nginx" in the image), and resolved again when a request comes
-from an address it doesn't know, so a recreated nginx container is followed. If the name can't be resolved at all
-the headers are trusted as before (logged), so a deployment that names its proxy differently never sees every person
-arrive from one address and get throttled together. Unset, no forwarded header is read (tests, a bare app)."""
+from an address it doesn't know, so a recreated nginx container is followed. When a lookup fails after the name has
+resolved once (the proxy stopped, a DNS hiccup), the last addresses it had are kept, so no other peer is believed in
+the meantime. Only if the name has never resolved since start are the headers trusted as before (logged), so a
+deployment that names its proxy differently never sees every person arrive from one address and get throttled
+together. Unset, no forwarded header is read (tests, a bare app)."""
 from __future__ import annotations
 
 import asyncio
@@ -37,7 +39,7 @@ class TrustedProxyMiddleware:
     async def _resolve(self) -> set[str] | None:
         try:
             infos = await asyncio.get_running_loop().getaddrinfo(self.host, None, type=socket.SOCK_STREAM)
-            return {i[4][0] for i in infos}
+            return {i[4][0] for i in infos} or None
         except OSError:
             return None
 
@@ -50,10 +52,15 @@ class TrustedProxyMiddleware:
             if got is None:
                 if now - self._warned > 300:
                     self._warned = now
-                    log.warning("reverse proxy %r not resolvable; trusting forwarded headers from any peer", self.host)
-                self._ips = set()
-                return True
-            self._ips = got
+                    if self._ips:
+                        log.warning("reverse proxy %r not resolvable; keeping its last known addresses", self.host)
+                    else:
+                        log.warning("reverse proxy %r not resolvable; trusting forwarded headers from any peer",
+                                    self.host)
+                if not self._ips:
+                    return True
+            else:
+                self._ips = got
         return peer in self._ips if self._ips else True
 
     async def __call__(self, scope, receive, send):

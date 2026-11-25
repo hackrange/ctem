@@ -97,10 +97,16 @@ class Ctx:
     decider: bool
     filtered: bool = False            # a widget filter narrowed the devices (snapshot trends can't follow it)
     export: bool = False              # a CSV download: a list widget returns every row, not just the ones shown
+    access: str = ""                  # device_scope.access_key: changes when this person's tags or assignments do
 
     @property
     def viewer_key(self) -> str:
-        return "all" if self.scope is None else f"u{self.user.id}"
+        return "all" if self.scope is None else f"u{self.user.id}" + (f".{self.access}" if self.access else "")
+
+    @property
+    def rights_key(self) -> str:
+        """What else changes a widget's answer for this viewer: the data they may see, and a full CSV export."""
+        return f"g{int(self.grc)}t{int(self.threats)}d{int(self.decider)}" + ("x" if self.export else "")
 
 
 @dataclass(frozen=True)
@@ -144,15 +150,17 @@ def allowed(m: Metric, ctx: Ctx) -> bool:
 
 async def context(db: AsyncSession, user, everything: bool = False) -> Ctx:
     """everything: a dashboard an admin or cyber set to show all the data (only for its published widgets)."""
-    from api.auth.device_scope import device_scope
+    from api.auth.device_scope import access_key, device_scope
     from api.auth.rbac import _load_user_permissions
     from api.core import tag_roles
     await tag_roles.ensure(db)   # filters and the AI read this install's tag mapping
     perms = await _load_user_permissions(user, db)
     roles = set(user.role_names)
-    return Ctx(db=db, user=user, scope=None if everything else await device_scope(user, db),
+    scope = None if everything else await device_scope(user, db)
+    return Ctx(db=db, user=user, scope=scope,
                grc=any(p.startswith("grc:read:") for p in perms) or "admin" in roles,
-               threats=bool({"admin", "cyber"} & roles), decider=bool({"admin", "cyber"} & roles))
+               threats=bool({"admin", "cyber"} & roles), decider=bool({"admin", "cyber"} & roles),
+               access="" if scope is None else await access_key(user, db))
 
 
 def clean_widget(w) -> dict | None:
@@ -239,7 +247,7 @@ async def evaluate(ctx: Ctx, widget: dict, base: dict | None = None) -> dict:
         viewer += ":f" + hashlib.sha256(json.dumps([conds, match, dconds, dmatch], sort_keys=True).encode()).hexdigest()[:16]
     shape = m.shape_for(widget.get("viz"))
     run = m.as_number if shape != m.shape else m.run
-    key = "dashw:v1:" + m.id + (":n" if shape != m.shape else "") + ":" + json.dumps(params, sort_keys=True) + ":" + viewer
+    key = "dashw:v1:" + m.id + (":n" if shape != m.shape else "") + ":" + json.dumps(params, sort_keys=True) + ":" + viewer + ":" + ctx.rights_key
     import redis.asyncio as aioredis
 
     from api.core.config import get_settings

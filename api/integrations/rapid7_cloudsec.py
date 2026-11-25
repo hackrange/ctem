@@ -43,7 +43,7 @@ class InsightCloudSecConnector(BaseConnector):
         async with safe_client(timeout=120.0) as client:
             insights = await self._insights(client)
             clouds, listed_all, accounts = await self._clouds(client)
-            saver = await store.Saver.load(db, started)
+            saver = await store.Saver.load(db, started, getattr(self, "integration_id", None))
             saver.accounts = accounts
             done: set[str] = set()   # accounts read to the last page, safe to close what they no longer list
             failed = 0
@@ -70,7 +70,8 @@ class InsightCloudSecConnector(BaseConnector):
         if cap and saver.count >= cap:
             self.warnings.append(f"stopped at the {cap} finding cap, so nothing was closed")
         else:
-            closed = await saver.close_missing(done, set(clouds) if listed_all else None)
+            shared = await store.others_enabled(db, getattr(self, "integration_id", None))
+            closed = await saver.close_missing(done, set(clouds) if listed_all else None, shared)
             log.info("CloudSec sync: %d findings, %d closed, %d accounts", saver.count, closed, len(done))
         return saver.count
 

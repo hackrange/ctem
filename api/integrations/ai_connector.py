@@ -194,6 +194,7 @@ class AIConnector(BaseConnector):
     def _base(self) -> str:
         url = self.config.get("base_url", "").rstrip("/")
         if url:
+            _require_https(url, self.config.get("allow_http") in (True, "true", "1", 1))   # "false" stays off
             return url
         vendor = self.vendor.value
         if vendor == "openai":
@@ -234,6 +235,26 @@ class AIConnector(BaseConnector):
             if auth_style == "x-api-key":
                 return {"x-api-key": key, "Content-Type": "application/json", **extra}
             return {"Authorization": f"Bearer {key}", "Content-Type": "application/json", **extra}
+
+
+def _require_https(url: str, allow_http: bool = False) -> None:
+    """The API key and every prompt ride on this URL, so plain http is refused unless the host is local
+    (loopback or an SSRF_BYPASS_HOSTS test container) or the config sets allow_http explicitly."""
+    import ipaddress
+    from urllib.parse import urlparse
+
+    from api.core.ssrf import _BYPASS_HOSTS
+    parsed = urlparse(url)
+    if parsed.scheme == "https" or allow_http:
+        return
+    host = (parsed.hostname or "").lower()
+    try:
+        local = ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        local = host == "localhost"
+    if parsed.scheme == "http" and (local or host in _BYPASS_HOSTS):
+        return
+    raise ValueError("The AI base URL must use https, so the API key and prompts are not sent in clear text")
 
 
 def _default_model(vendor: str) -> str:

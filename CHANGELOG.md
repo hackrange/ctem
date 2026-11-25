@@ -3,9 +3,38 @@
 All notable changes to open-ctem are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
-open-ctem is a Python rewrite of an earlier PHP version begun about 18 months before this repository; that history isn't in this repository (see [docs/project-overview.md](docs/project-overview.md)). Versions here start with the Python release, and each version is tagged (`v1.1.0` ... `v1.11.1`) at the commit that finished it. The on-prem shipper has its own version numbers.
+open-ctem is a Python rewrite of an earlier PHP version begun about 18 months before this repository; that history isn't in this repository (see [docs/project-overview.md](docs/project-overview.md)). Versions here start with the Python release, and each version is tagged (`v1.1.0` ... `v1.11.2`) at the commit that finished it. The on-prem shipper has its own version numbers.
 
 ## [Unreleased]
+
+## [1.11.2] - 2026-11-25
+
+### Security
+Fixes from a third-party penetration test.
+- **Sign-in:** a multi-factor setup code is tied to the account it was shown to and cleared at every password step. Before, someone who knew a password could carry a code from another account into the sign-in, get past the authenticator and replace it.
+- **Hunt searches:** the read-only search guard now reads quotes the way Splunk does. A single-quoted pipe could hide a blocked command.
+- **Sessions:**
+  - The bearer path takes API tokens only, so a sign-in token copied out of a cookie no longer works after sign-out.
+  - Sign-out, the per-address sign-in limit and the per-account password lockout keep working when Redis is down, counted in memory.
+  - The lockout ignores spaces and case in the name.
+- **SSO:** accounts are matched on subject and issuer. Existing accounts are bound to the first issuer they sign in through.
+- **Client addresses:**
+  - A failed lookup of the reverse proxy keeps its last known addresses.
+  - The load-balancer listener refuses near catch-all trust ranges. With `LB_TRUSTED_IPS` unset it now trusts only `LB_BIND_IP`'s own network, and nothing when it listens on every address, so set `LB_TRUSTED_IPS` to your load balancers' addresses.
+- **Outbound requests:** unspecified, multicast and reserved addresses, and IPv4 hidden inside IPv6 forms, are blocked. AI endpoints must use HTTPS unless they are local or `allow_http` is set.
+- **AI analysis:**
+  - Alert and log data in AI prompts is fenced as data.
+  - A Threat Watch issue needs separate searches that really returned rows.
+  - Rules learned from a hunt wait for an admin to review them and switch them on. Unreviewed learned rules from earlier versions are switched off once on upgrade.
+  - Saved monthly token caps over six digits are enforced, and a cap that can't be read blocks AI use instead of lifting the limit.
+- **Restores from the web page:**
+  - They keep only open-ctem's own settings, plus this server's network, proxy, debug and maintenance settings.
+  - They keep this server's TLS certificate.
+- **Host agent and uploads:** the maintenance agent no longer follows symlinks when it sets up its folders. Backup uploads recheck free space while they are written.
+- **Identity person page:** every directory value is escaped.
+- **Dashboards:** the widget cache is keyed by each viewer's rights and scope. The domain scorecard's stale-account row needs the Cyber Threats permission.
+- **Findings record the integration that reported them,** so a CrowdStrike profile's full Spotlight pass, or one InsightCloudSec tenant's sync, only changes or closes its own findings.
+- **Splunk:** new integrations verify the certificate by default. Integrations saved without a TLS choice keep working and show a warning.
 
 ## [1.11.1] - 2026-11-25
 

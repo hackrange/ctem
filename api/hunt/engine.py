@@ -181,7 +181,8 @@ async def investigate(db: AsyncSession, question: str, time_range: str = "7d",
     # Curated rules first: what they explain is already an issue, for free, and the AI isn't paid to see it again
     from api.hunt import curated
     progress("Running the Threat Curated Rules")
-    rule_issues, rule_lookups, explained = await curated.run(db, splunk, time_range, first_lookup=len(results) + 1)
+    rule_first = len(results) + 1
+    rule_issues, rule_lookups, explained = await curated.run(db, splunk, time_range, first_lookup=rule_first)
     if explained:
         for r in results:
             if r.get("table") == "alerts" and r.get("rows"):
@@ -220,11 +221,17 @@ async def investigate(db: AsyncSession, question: str, time_range: str = "7d",
         notes.append("The AI write-up failed, so only the raw results are shown.")
         answer = {"summary": "", "issues": []}
     answer = {**answer, "issues": [dict(i) for i in answer["issues"]]}   # a cached answer stays as it was
-    learned = await curated.learn(db, answer["issues"], question)
+    learned = await curated.learn(db, answer["issues"], question, results)
     if learned:
-        notes.append(f"Saved {learned} new Threat Curated Rule{'s' if learned != 1 else ''}, so this is caught for free next time.")
+        notes.append(f"Drafted {learned} new Threat Curated Rule{'s' if learned != 1 else ''}; an admin can review and turn "
+                     f"{'them' if learned != 1 else 'it'} on so this is caught for free next time.")
     for i in answer["issues"]:
         i.pop("rule_draft", None)
+    shift = len(results) + 1 - rule_first   # follow-up lookups landed before the rule evidence
+    for i in rule_issues if shift else []:
+        i["lookups"] = [n + shift for n in i["lookups"]]
+        for step in i["timeline"]:
+            step["lookup"] = step["lookup"] + shift if step.get("lookup") else step.get("lookup")
     results += rule_lookups
     answer["issues"] = rule_issues + answer["issues"]
 

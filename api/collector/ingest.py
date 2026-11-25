@@ -158,11 +158,12 @@ async def _crowdstrike_finished(db: AsyncSession, cfg: IntegrationConfig, run_id
     row = (await db.execute(select(AppSetting).where(AppSetting.key == f"spotlight_full_run.{cfg.id}"))).scalar_one_or_none()
     if row is not None and row.value == run_id:
         from api.integrations.crowdstrike_spotlight import close_unseen
-        await close_unseen(db, started)
+        await close_unseen(db, started, str(cfg.id))
         await db.delete(row)
 
 
-async def apply_batch(db: AsyncSession, batch: LdapBatch | Rapid7Batch | CrowdStrikeBatch | SplunkBatch) -> int:
+async def apply_batch(db: AsyncSession, batch: LdapBatch | Rapid7Batch | CrowdStrikeBatch | SplunkBatch,
+                      integration_id: str | None = None) -> int:
     if getattr(batch, "kind", None) == "netprobe":
         from api.core import netprobe
         return await netprobe.apply(db, [p.model_dump() for p in batch.probes])
@@ -191,7 +192,7 @@ async def apply_batch(db: AsyncSession, batch: LdapBatch | Rapid7Batch | CrowdSt
         if batch.spotlight:
             from api.integrations.crowdstrike_spotlight import upsert as spotlight
             n += await spotlight(db, [c.model_dump(exclude_none=True) for c in batch.spotlight_cves],
-                                 [v.model_dump(exclude_none=True) for v in batch.spotlight])
+                                 [v.model_dump(exclude_none=True) for v in batch.spotlight], integration_id)
         if batch.software:
             from api.core.software_ingest import upsert as software
             n += await software(db, [x.model_dump(exclude_none=True) for x in batch.software], "crowdstrike_discover")

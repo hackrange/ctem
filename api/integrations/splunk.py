@@ -12,6 +12,19 @@ from api.models.integration import Vendor
 log = logging.getLogger("open-ctem.splunk")
 
 
+def legacy_ssl_mode(config: dict) -> str:
+    """What an integration with no ssl_mode gets: kept for ones saved before the setting existed. New ones
+    are given "https" (verify) when created (api/routes/integrations.py)."""
+    if str(config.get("base_url", "")).startswith("http://") or config.get("no_ssl"):
+        return "http"
+    return "https_no_verify"
+
+
+def new_ssl_mode(config: dict) -> str:
+    """The SSL mode a new integration that didn't pick one starts with: verify the certificate."""
+    return "http" if legacy_ssl_mode(config) == "http" else "https"
+
+
 @register(Vendor.splunk)
 class SplunkConnector(BaseConnector):
 
@@ -29,6 +42,10 @@ class SplunkConnector(BaseConnector):
             return False
 
     async def sync(self, db: AsyncSession) -> int:
+        self.warnings: list[str] = []
+        if self.legacy_no_verify:
+            self.warnings.append("the Splunk certificate is not checked (SSL mode was never set); pick "
+                                 "HTTPS (verify cert) once Splunk has a trusted certificate")
         alerts = await self._fetch_notable_events()
         await self._cache_threats(alerts, db)
         # Map what lives where first: the catalog is built from that map
@@ -187,11 +204,13 @@ class SplunkConnector(BaseConnector):
         mode = self.config.get("ssl_mode", "")
         if mode in ("https", "https_no_verify", "http"):
             return mode
-        # Legacy: derive from base_url scheme
-        url = self.config.get("base_url", "")
-        if url.startswith("http://") or self.config.get("no_ssl"):
-            return "http"
-        return "https_no_verify"  # safe default for self-managed Splunk
+        return legacy_ssl_mode(self.config)
+
+    @property
+    def legacy_no_verify(self) -> bool:
+        """An integration saved before SSL mode existed: it keeps working unverified, and its card says so."""
+        return self.config.get("ssl_mode", "") not in ("https", "https_no_verify", "http") \
+            and self._ssl_mode == "https_no_verify"
 
     @property
     def _verify(self) -> bool:

@@ -110,7 +110,7 @@ async def test_the_ai_read_sees_names_and_mitre_only_and_is_saved(db, client_cyb
     r = (await client_cyber.post("/api/v1/threat/alerts/explain", json={"id": key})).json()
     assert r["read"]["verdict"] == "likely_malicious" and len(r["read"]["why"]) == 3 and "extra" not in r["read"]
     sent = prompts[0]
-    assert "procdump.exe" in sent and "Credential" in sent
+    assert "procdump.exe" in sent and "Credential" in sent and sent.count("<<<DATA>>>") == 1   # fenced as data
     for secret in ("-ma lsass", "jdoe", "192.0.2.10", "203.0.113.7", "files.acme-bad.example", "a" * 64, "HarddiskVolume3"):
         assert secret not in sent
     again = (await client_cyber.post("/api/v1/threat/alerts/explain", json={"id": key})).json()

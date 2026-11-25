@@ -116,7 +116,7 @@ async def _rows(ctx, area: str) -> list[tuple]:
             out.append((f"AD computers with no logon in {days} days", "Directory (AD/LDAP)",
                         await _devices(ctx, *stale_computers(days), since=Device.ad_last_logon), "high" if days == 90 else "medium",
                         f"/devices?ad_stale_days={days}"))
-        if ctx.scope is None:   # directory accounts aren't assets, so they're for fleet-wide viewers
+        if ctx.threats and ctx.scope is None:   # directory accounts: fleet-wide viewers who may see people (as stale_users)
             from api.dashboards.m_directory import stale_users
             from api.models.user import User
             age = days_since(ctx.db, User.ad_last_logon)

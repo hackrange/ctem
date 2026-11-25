@@ -14,7 +14,7 @@ from api.integrations import rapid7_common as r7
 from api.scoring import cloud_score
 from api.models.cloud import CloudAsset
 from api.models.device import Device, DeviceType
-from api.models.integration import IntegrationConfig
+from api.models.integration import IntegrationConfig, Vendor
 from api.models.vuln import Finding, FindingStatus, Vulnerability
 
 SRC = "rapid7_cloudsec"
@@ -90,11 +90,21 @@ async def still_enabled(db: AsyncSession, integration_id: str | None) -> bool:
                                   .where(IntegrationConfig.id == integration_id))).scalar_one_or_none())
 
 
+async def others_enabled(db: AsyncSession, integration_id: str | None) -> bool:
+    """Another enabled InsightCloudSec integration shares the findings table (their tool account numbers overlap)."""
+    if not integration_id:
+        return False
+    return (await db.execute(select(IntegrationConfig.id).where(
+        IntegrationConfig.vendor == Vendor.rapid7_cloudsec, IntegrationConfig.is_enabled == True,  # noqa: E712
+        IntegrationConfig.id != integration_id).limit(1))).first() is not None
+
+
 class Saver:
     """Keeps id maps in memory so a few hundred thousand findings don't cost a query each."""
 
-    def __init__(self, db: AsyncSession, now: datetime) -> None:
-        self.db, self.now = db, now
+    def __init__(self, db: AsyncSession, now: datetime, integration_id: str | None = None) -> None:
+        self.db, self.now, self.integration_id = db, now, (str(integration_id) if integration_id else None)
+        self.owner: dict[str, str | None] = {}   # finding -> the integration that reported it
         self.vulns: dict[str, str] = {}
         self.devices: dict[str, str] = {}
         self.findings: dict[str, tuple[str, FindingStatus]] = {}
@@ -107,17 +117,19 @@ class Saver:
         self.count = 0
 
     @classmethod
-    async def load(cls, db: AsyncSession, now: datetime) -> "Saver":
-        s = cls(db, now)
+    async def load(cls, db: AsyncSession, now: datetime, integration_id: str | None = None) -> "Saver":
+        s = cls(db, now, integration_id)
         s.vulns = dict((await db.execute(select(Vulnerability.source_vuln_id, Vulnerability.id)
                                          .where(Vulnerability.source == SRC))).all())
         s.devices = dict((await db.execute(select(Device.source_id, Device.id)
                                            .where(Device.source == SRC))).all())
         s.instances = dict((await db.execute(select(CloudAsset.resource_id, CloudAsset.device_id)
                                              .where(CloudAsset.device_id.is_not(None)))).all())
-        for sid, fid, st, det, fk in (await db.execute(select(Finding.source_id, Finding.id, Finding.status, Finding.details,
-                                                             Finding.fix_key).where(Finding.source == SRC))).all():
+        for sid, fid, st, det, fk, owner in (await db.execute(select(
+                Finding.source_id, Finding.id, Finding.status, Finding.details, Finding.fix_key, Finding.integration_id)
+                .where(Finding.source == SRC))).all():
             s.findings[sid] = (fid, st)
+            s.owner[sid] = owner
             s.context[sid] = (det, fk)
         return s
 
@@ -169,7 +181,8 @@ class Saver:
             if known is None:
                 fid = str(uuid.uuid4())
                 self.db.add(Finding(id=fid, device_id=self._device(rid, row), vuln_id=vid, source=SRC,
-                                    source_id=fsid, status=FindingStatus.open, details=det, fix_key=fk,
+                                    source_id=fsid, integration_id=self.integration_id, status=FindingStatus.open,
+                                    details=det, fix_key=fk,
                                     first_detected=r7.parse_dt(row.get("identified_at")), last_seen=self.now))
                 self.findings[fsid] = (fid, FindingStatus.open)
             else:
@@ -187,6 +200,10 @@ class Saver:
             await self.db.execute(stmt)
         for i in range(0, len(touch), 1000):
             await self.db.execute(update(Finding).where(Finding.id.in_(touch[i:i + 1000])).values(last_seen=self.now))
+        if self.integration_id:   # claim untagged rows (from before findings were tagged); never another tenant's
+            for i in range(0, len(touch), 1000):
+                await self.db.execute(update(Finding).where(Finding.id.in_(touch[i:i + 1000]), Finding.integration_id.is_(None))
+                                      .values(integration_id=self.integration_id))
         if context:
             t = Finding.__table__
             await self.db.execute(update(t).where(t.c.id == bindparam("b_id"))
@@ -201,14 +218,29 @@ class Saver:
         await fixes.save(self.db, {k: v for k, v in self.fixes.items() if v})
         await self.db.commit()
 
-    async def close_missing(self, done: set[str], listed: set[str] | None) -> int:
-        """Close open findings the tenant stopped listing: in a fully read account, or one it no longer has."""
+    def _ours(self, fsid: str, acct: str) -> bool:
+        """The stored finding names the same provider account this tenant reads under that tool account number."""
+        stored = (self.context.get(fsid, (None, None))[0] or {}).get("account_id")
+        mine = (self.accounts.get(acct) or {}).get("account_id")
+        return bool(stored and mine and stored == mine)
+
+    async def close_missing(self, done: set[str], listed: set[str] | None, shared: bool = False) -> int:
+        """Close open findings the tenant stopped listing: in a fully read account, or one it no longer has.
+        shared: another tenant's findings live in the same table under overlapping account numbers, so only
+        findings proven to be this tenant's (same provider account) close, and a missing account closes nothing."""
         gone = []
         for fsid, (fid, status) in self.findings.items():
             if fsid in self.seen or status not in _OPEN:
                 continue
+            owner = self.owner.get(fsid)
+            if owner and self.integration_id and owner != self.integration_id:
+                continue   # another integration reported it: only its own pass may close it
+            mine = owner is not None and owner == self.integration_id   # tagged as this integration's own
             acct = account_of(fsid)
-            if acct in done or (listed is not None and acct is not None and acct not in listed):
+            if acct in done:
+                if not shared or mine or self._ours(fsid, acct):
+                    gone.append(fid)
+            elif (not shared or mine) and listed is not None and acct is not None and acct not in listed:
                 gone.append(fid)
         for i in range(0, len(gone), 1000):
             await self.db.execute(update(Finding).where(Finding.id.in_(gone[i:i + 1000]))

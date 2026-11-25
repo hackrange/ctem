@@ -86,6 +86,10 @@ async def get_current_user(
     # Check if it looks like a long-lived API token (hex, 64 chars)
     if len(token_str) == 64 and all(c in "0123456789abcdef" for c in token_str.lower()):
         return await _authenticate_api_token(token_str, request, db)
+    if not from_session:
+        # A JWT is only ever issued into a browser session, whose sign-out and password checks run below. Replayed
+        # as a bearer token (lifted from a copied cookie) it would skip them, so the bearer path takes API tokens only.
+        raise HTTPException(401, detail="Invalid API token")
 
     claims = _decode(token_str)
     if claims.get("type") != "access":

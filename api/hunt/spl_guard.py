@@ -21,26 +21,34 @@ _WILD_INDEX = re.compile(r"\bindex\s*=\s*[\"']?[^\s\"')]*\*|\bindex\s+in\s*\([^)
 
 
 def _split_pipes(spl: str) -> list[str]:
-    """Split on | outside quotes, refusing the syntax that hides extra commands."""
-    parts, buf, quote, escaped = [], [], None, False
-    for ch in spl:
-        if escaped:
-            buf.append(ch); escaped = False; continue
-        if ch == "\\":
-            buf.append(ch); escaped = True; continue
-        if quote:
+    """Split on | outside quotes, refusing the syntax that hides extra commands.
+
+    Splunk only treats double quotes as phrase delimiters when it splits the
+    pipeline; single quotes (field names in eval/where) and backslashes outside
+    a quoted phrase do not hide a pipe, so they are ordinary characters here.
+    An escaped quote outside a phrase is refused: whether it opens one is ambiguous.
+    """
+    parts, buf, in_quote, escaped = [], [], False, False
+    for n, ch in enumerate(spl):
+        if in_quote:
             buf.append(ch)
-            if ch == quote:
-                quote = None
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_quote = False
             continue
-        if ch in "\"'":
-            quote = ch; buf.append(ch); continue
+        if ch == "\\" and spl[n + 1:n + 2] == '"':
+            raise ValueError("escaped quotes outside a quoted phrase are not allowed")
+        if ch == '"':
+            in_quote = True; buf.append(ch); continue
         if ch in "[]`":
             raise ValueError("subsearches and macros are not allowed")
         if ch == "|":
             parts.append("".join(buf)); buf = []; continue
         buf.append(ch)
-    if quote:
+    if in_quote:
         raise ValueError("unbalanced quotes")
     parts.append("".join(buf))
     return [p.strip() for p in parts]

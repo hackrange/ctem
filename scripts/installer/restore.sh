@@ -36,6 +36,40 @@ _check_version() {
   fi
 }
 
+# Settings a web restore takes from this server, never the backup: who may set client IPs, where the app listens,
+# what the maintenance page may do, whether it runs in debug mode, and how this host reaches the internet and its disk
+UI_HOST_KEYS=(TRUSTED_PROXY_HOST LB_BIND_IP LB_TRUSTED_IPS ALLOWED_HOSTS DEBUG APP_ENV SSRF_BYPASS_HOSTS
+  MAINTENANCE_DIR MAINTENANCE_UI_RESTORE MAINTENANCE_UPLOAD_MAX_GB CTEM_UTIL_DISK_PATH
+  HTTP_PROXY HTTPS_PROXY NO_PROXY http_proxy https_proxy no_proxy)
+
+# Every key open-ctem itself reads: the .env template plus the app's settings
+_known_env_keys() {
+  { grep -oE '^#?[[:space:]]*[A-Z][A-Z0-9_]*=' "${INSTALL_DIR}/.env.example" | tr -d '#= '
+    grep -oE '^    [a-z][a-z0-9_]*:' "${INSTALL_DIR}/api/core/config.py" | tr -d ' :' | tr '[:lower:]' '[:upper:]'
+    echo HUNT_RETENTION_DAYS; } | sort -u
+}
+
+# A backup handed to the web page may come from anyone: it keeps only open-ctem's own keys (no LD_PRELOAD,
+# PYTHONPATH or proxy settings for the containers) and this server's values for UI_HOST_KEYS
+_ui_env_filter() {
+  local out="$1" here="${2:-$ENV_FILE}" k
+  [[ -s "${INSTALL_DIR}/.env.example" && -s "${INSTALL_DIR}/api/core/config.py" ]] || die "Cannot tell which settings are open-ctem's own."
+  KEYS="$(_known_env_keys)" HOST="${UI_HOST_KEYS[*]}" awk '
+    BEGIN { n = split(ENVIRON["KEYS"], a, "\n"); for (i = 1; i <= n; i++) ok[a[i]] = 1
+            n = split(ENVIRON["HOST"], a, " "); for (i = 1; i <= n; i++) delete ok[a[i]] }
+    match($0, /^[A-Z][A-Z0-9_]*=/) && (substr($0, 1, RLENGTH - 1) in ok) { print; next }
+    /^[[:space:]]*(#.*)?$/ { next }
+    { dropped++ }
+    END { if (dropped) printf "%d\n", dropped > "/dev/stderr" }' "$out" > "$out.new" 2> "$out.dropped"
+  [[ -s "$out.dropped" ]] && warn "Dropped $(cat "$out.dropped") setting(s) from the backup's .env that open-ctem does not use."
+  rm -f "$out.dropped"
+  chmod 600 "$out.new" && mv "$out.new" "$out"
+  for k in "${UI_HOST_KEYS[@]}"; do
+    grep -qE "^${k}=" "$here" 2>/dev/null && env_set "$k" "$(env_get "$k" "$here")" "$out"
+  done
+  return 0
+}
+
 # The backup's .env, with this server's own database and Redis passwords (new ones on a bare server)
 _build_env() {
   local src="$RESTORE_TMP/env/dotenv" out="$1" mode="$2" k db_user db_name db_pw redis_pw lb
@@ -49,6 +83,7 @@ _build_env() {
     sed -i -E '/^[[:space:]]*(export[[:space:]]+)?(COMPOSE_|DOCKER_)/d' "$out"
     warn "Dropped COMPOSE_* and DOCKER_* settings from the backup's .env."
   fi
+  [[ "${CTEM_RESTORE_FROM_UI:-}" != 1 ]] || _ui_env_filter "$out"
   if [[ "$mode" == fresh ]]; then
     db_user=$(env_get DB_USER "$src"); db_name=$(env_get DB_NAME "$src"); db_pw=$(genpass); redis_pw=$(genpass)
   else
@@ -71,18 +106,19 @@ _build_env() {
 
 _put_host_files() {
   local d="$RESTORE_TMP/host"
+  # From the web page, the server keeps its own: an override decides what containers may touch on the host,
+  # and a TLS key from the backup would let whoever made it pose as this server
+  if [[ "${CTEM_RESTORE_FROM_UI:-}" == 1 ]]; then
+    [[ ! -f "$d/docker-compose.override.yml" && ! -f "$d/nginx.conf" && ! -f "$d/certs/server.key" ]] \
+      || hint "Kept this server's TLS certificate, docker-compose.override.yml and nginx.conf (restores from the web page never replace them)."
+    make_self_signed_cert
+    return 0
+  fi
   if [[ -f "$d/certs/server.crt" && -f "$d/certs/server.key" ]]; then
     install -d -m 755 "${INSTALL_DIR}/docker/certs"
     install -m 644 "$d/certs/server.crt" "${INSTALL_DIR}/docker/certs/server.crt"
     install -m 600 "$d/certs/server.key" "${INSTALL_DIR}/docker/certs/server.key"
     ok "TLS certificate restored."
-  fi
-  # From the web page, the server keeps its own: an override decides what containers may touch on the host
-  if [[ "${CTEM_RESTORE_FROM_UI:-}" == 1 ]]; then
-    [[ ! -f "$d/docker-compose.override.yml" && ! -f "$d/nginx.conf" ]] \
-      || hint "Kept this server's docker-compose.override.yml and nginx.conf (restores from the web page never replace them)."
-    make_self_signed_cert
-    return 0
   fi
   if [[ -f "$d/docker-compose.override.yml" ]]; then
     install -m 644 "$d/docker-compose.override.yml" "${INSTALL_DIR}/docker/docker-compose.override.yml"

@@ -61,6 +61,8 @@ class Finding(Base, UUIDPrimaryKey, TimestampMixin):
     vuln_id: Mapped[str] = mapped_column(ForeignKey("vulnerabilities.id", ondelete="CASCADE"), nullable=False, index=True)
     source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_id: Mapped[str | None] = mapped_column(String(256))
+    # The integration that reported it, so a reconciliation pass only ever closes its own findings (null: before 1.11.2)
+    integration_id: Mapped[str | None] = mapped_column(String(36), index=True)
     domain: Mapped[str] = mapped_column(String(8), nullable=False, default="infra", server_default=text("'infra'"), index=True)
     # Where and how, by type (code: repository, branch, file, line, rule, package and fixed version; web: URL,
     # parameter, CWE, evidence), plus the fix and a link back to the tool. Encrypted: it can hold paths and names.

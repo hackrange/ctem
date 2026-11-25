@@ -174,11 +174,27 @@ async def month_to_date(db: AsyncSession, settings: dict | None = None) -> dict:
     return {"cost": total_cost, "tokens": tokens, "calls": calls, "unpriced_calls": unpriced}
 
 
-def _limit(settings: dict, key: str) -> Decimal | None:
-    try:
-        return parse_price(settings.get(key))  # blank = no limit; 0 = AI off
-    except ValueError:
+_TOKENS_RE = re.compile(r"^\d{1,12}$")
+
+
+def parse_token_limit(raw) -> Decimal | None:
+    """'' or None -> None (no limit). A whole number of tokens, commas allowed; else ValueError."""
+    text = str(raw or "").strip().replace(",", "")
+    if not text:
         return None
+    if not _TOKENS_RE.match(text):
+        raise ValueError("Token limit must be a whole number")
+    return Decimal(text)
+
+
+def _limit(settings: dict, key: str) -> Decimal | None:
+    parse = parse_token_limit if key == "monthly_token_limit" else parse_price
+    try:
+        return parse(settings.get(key))  # blank = no limit; 0 = AI off
+    except ValueError:
+        # A saved cap that no longer parses must not quietly lift the limit: fail closed
+        log.warning("AI %s setting is not a valid number; treating it as 0 until an admin fixes it", key)
+        return Decimal(0)
 
 
 async def check_budget(db: AsyncSession) -> None:

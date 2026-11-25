@@ -53,7 +53,7 @@ async def _catalog(db: AsyncSession, cves: list[dict]) -> dict[str, str]:
     return {k: str(v.id) for k, v in have.items()}
 
 
-async def upsert(db: AsyncSession, cves: list[dict], vulns: list[dict]) -> int:
+async def upsert(db: AsyncSession, cves: list[dict], vulns: list[dict], integration_id: str | None = None) -> int:
     from api.core.device_match import add_source, find_device
     from api.models.device import Device
     from api.models.vuln import Finding, FindingStatus, Vulnerability
@@ -77,10 +77,14 @@ async def upsert(db: AsyncSession, cves: list[dict], vulns: list[dict]) -> int:
         add_source(dev, SOURCE)
         sid = f"{v['aid']}:{v['cve_id']}"[:256]
         f = found.get(sid) or (await db.execute(select(Finding).where(Finding.source == SOURCE, Finding.source_id == sid))).scalar_one_or_none()
+        if f is not None and integration_id and f.integration_id and f.integration_id != integration_id:
+            continue   # another integration's finding: only its own runs may change or close it
         if f is None:
             f = Finding(device_id=str(dev.id), vuln_id=vid, source=SOURCE, source_id=sid, domain="infra")
             db.add(f)
         found[sid] = f
+        if integration_id:
+            f.integration_id = integration_id
         st = (v.get("status") or "").lower()
         f.status = FindingStatus.open if st in _OPEN else FindingStatus.remediated
         f.first_detected = _dt(v.get("created")) or f.first_detected or now
@@ -100,10 +104,13 @@ async def upsert(db: AsyncSession, cves: list[dict], vulns: list[dict]) -> int:
     return n
 
 
-async def close_unseen(db: AsyncSession, started) -> int:
-    """After a full pass: open Spotlight findings Falcon no longer lists were fixed (or the host is gone)."""
+async def close_unseen(db: AsyncSession, started, integration_id: str) -> int:
+    """After a full pass: open Spotlight findings Falcon no longer lists were fixed (or the host is gone). Only this
+    integration's findings (and unclaimed ones from before findings were tagged): another tenant's pass closes nothing."""
+    from sqlalchemy import or_
     from api.models.vuln import Finding, FindingStatus
     r = await db.execute(update(Finding).where(Finding.source == SOURCE, Finding.status == FindingStatus.open,
-                                               Finding.last_seen < started)
+                                               Finding.last_seen < started,
+                                               or_(Finding.integration_id == str(integration_id), Finding.integration_id.is_(None)))
                          .values(status=FindingStatus.remediated).execution_options(synchronize_session=False))
     return r.rowcount or 0

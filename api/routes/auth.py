@@ -161,6 +161,8 @@ async def browser_login(
         return await _render_login(request, db, error=_LOGIN_FAILED)
     await _pw_clear(username)
 
+    # a new password step starts over: an enrollment secret from an earlier attempt never carries to this account
+    request.session.pop("totp_enroll", None)
     if user.totp_enabled or settings.mfa_required:
         request.session["pending_user_id"] = str(user.id)
         request.session["pending_at"] = int(time.time())
@@ -168,7 +170,7 @@ async def browser_login(
             return await _render_login(request, db, totp_step=True)
         # MFA is mandatory and this account has none yet: enroll right here
         secret = local.generate_totp_secret()
-        request.session["totp_enroll"] = encrypt(secret)
+        request.session["totp_enroll"] = {"uid": str(user.id), "secret": encrypt(secret)}   # bound to this account
         return await _render_login(request, db, totp_step=True, enroll=_enroll_view(secret, user.username))
 
     return await _create_session(request, user, db)
@@ -192,7 +194,12 @@ async def browser_totp(
     if user is None or not user.is_active or user.is_locked:
         return await _render_login(request, db, error=_LOGIN_FAILED)
 
-    enrolling = request.session.get("totp_enroll")
+    enroll = request.session.get("totp_enroll")
+    enrolling = enroll.get("secret") if isinstance(enroll, dict) and enroll.get("uid") == str(user.id) else None
+    if enroll is not None and (enrolling is None or user.totp_enabled):
+        # issued for another account, in an old shape, or this account already has an authenticator: never enroll
+        request.session.clear()
+        return await _render_login(request, db, error=_LOGIN_FAILED)
     if enrolling:
         import pyotp
         secret = decrypt(enrolling)
@@ -218,9 +225,9 @@ def _enroll_view(secret: str, username: str) -> dict:
 
 
 @router.get("/auth/logout")
-async def logout(request: Request):
+async def logout(request: Request, db: AsyncSession = Depends(get_session)):
     from api.auth import sessions
-    await sessions.end(request)   # ended on the server too, not just in this browser
+    await sessions.end(request, db)   # ended on the server too, not just in this browser
     return RedirectResponse("/login", status_code=302)
 
 
@@ -247,29 +254,63 @@ async def _create_session(request: Request, user: User, db: AsyncSession):
     return RedirectResponse(nxt or "/", status_code=302)
 
 
+# When Redis can't be reached the lockout still holds, counted in this process (bounded, so a spray of names can't
+# grow it without limit). Each worker counts on its own, which is looser than Redis but never "no limit at all".
+_LOCAL_FAILS: dict[str, tuple[int, float]] = {}
+_LOCAL_MAX = 10_000
+
+
+def _lock_name(username: str) -> str:
+    """The key the lockout counts under: the account the name signs in to (find_login ignores case and spaces),
+    so " admin" and "ADMIN " can't each get their own ten tries."""
+    return username.strip().lower()
+
+
+def _local_fail(name: str) -> None:
+    now = time.time()
+    count, since = _LOCAL_FAILS.pop(name, (0, now))   # re-added below, so the dict runs oldest-touched first
+    if now - since > _PW_LOCK_SECONDS:
+        count, since = 0, now
+    if len(_LOCAL_FAILS) >= _LOCAL_MAX:   # full: drop an entry that isn't locked, so a spray can't flush a lock
+        _LOCAL_FAILS.pop(next((k for k in _LOCAL_FAILS if not _local_locked(k)), next(iter(_LOCAL_FAILS))))
+    _LOCAL_FAILS[name] = (count + 1, since)
+
+
+def _local_locked(name: str) -> bool:
+    count, since = _LOCAL_FAILS.get(name, (0, 0.0))
+    return count >= _PW_FAIL_LIMIT and time.time() - since <= _PW_LOCK_SECONDS
+
+
 async def _pw_locked(username: str) -> bool:
+    name = _lock_name(username)
+    if _local_locked(name):
+        return True
     try:
-        return bool(await local._redis().exists(f"pw_lock:{username.lower()}"))
+        return bool(await local._redis().exists(f"pw_lock:{name}"))
     except Exception:
-        log.warning("login lockout check skipped (Redis down?)")
-        return False  # the per-IP rate limit still applies
+        log.warning("login lockout read from this process only (Redis down?)")
+        return False
 
 
 async def _pw_fail(username: str) -> None:
+    name = _lock_name(username)
     try:
         r = local._redis()
-        key = f"pw_fail:{username.lower()}"
+        key = f"pw_fail:{name}"
         count = await r.incr(key)
         await r.expire(key, _PW_LOCK_SECONDS)
         if count >= _PW_FAIL_LIMIT:
-            await r.set(f"pw_lock:{username.lower()}", "1", ex=_PW_LOCK_SECONDS)
+            await r.set(f"pw_lock:{name}", "1", ex=_PW_LOCK_SECONDS)
     except Exception:
-        log.warning("could not record failed login (Redis down?)")
+        log.warning("failed login counted in this process only (Redis down?)")
+        _local_fail(name)
 
 
 async def _pw_clear(username: str) -> None:
+    name = _lock_name(username)
+    _LOCAL_FAILS.pop(name, None)
     try:
-        await local._redis().delete(f"pw_fail:{username.lower()}")
+        await local._redis().delete(f"pw_fail:{name}")
     except Exception:
         log.warning("could not clear failed-login counter (Redis down?)")
 
@@ -406,15 +447,22 @@ async def change_password(
 
 
 async def _upsert_oidc_user(info: dict, db: AsyncSession, cfg) -> User | None:
-    """Find the SSO account by its stable subject. Never attaches to an existing local or directory account."""
-    sub = info["sub"]
-    user = (await db.execute(select(User).where(User.oidc_sub == sub))).scalar_one_or_none()
+    """Find the SSO account by its stable subject within the configured issuer. Never attaches to an existing local
+    or directory account, nor to one another IdP created (subjects are only unique per issuer). An account from
+    before issuers were kept is bound to the first issuer it signs in through."""
+    from sqlalchemy import or_
+    sub, issuer = info["sub"], (cfg.issuer or "").rstrip("/")
+    found = (await db.execute(select(User).where(
+        User.oidc_sub == sub, or_(User.oidc_issuer == issuer, User.oidc_issuer.is_(None))))).scalars().all()
+    user = next((u for u in found if u.oidc_issuer == issuer), None) or (found[0] if found else None)
+    if user is not None and user.oidc_issuer is None:
+        user.oidc_issuer = issuer
     if user is None:
         base = re.sub(r"[^A-Za-z0-9._@+-]", "", info.get("username") or "")[:100] or f"sso-{sub[:12]}"
         name = base
         while (await db.execute(select(User.id).where(same_name(name)))).first():
             name = f"{base}~{secrets.token_hex(3)}"  # someone else has that name; don't take over their account
-        user = User(username=name, oidc_sub=sub, is_local=False, is_active=True, is_locked=False)
+        user = User(username=name, oidc_sub=sub, oidc_issuer=issuer, is_local=False, is_active=True, is_locked=False)
         db.add(user)
         await db.flush()
         db.add(UserRole(user_id=user.id, role_name=cfg.default_role))

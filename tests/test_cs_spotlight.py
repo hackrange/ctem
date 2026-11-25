@@ -94,7 +94,7 @@ async def test_ingest_spotlight_findings_fixes_and_full_pass_close(db):
     assert f.status == FindingStatus.open and f.device_id == d.id and f.details["apps"] == ["Acme Viewer 3.2"]
     assert vul.is_kev and vul.threat_actors == ["ACME SPIDER"] and vul.attack_vector == "network" and vul.cvss_base == 8.8
     assert (await db.execute(select(Fix).where(Fix.key == f.fix_key))).scalar_one().title == "Update Acme Viewer to 3.3"
-    assert await close_unseen(db, datetime.now(timezone.utc) + timedelta(minutes=1)) >= 1
+    assert await close_unseen(db, datetime.now(timezone.utc) + timedelta(minutes=1), str(uuid.uuid4())) >= 1   # untagged: any pass
     await db.commit()
     await db.refresh(f)
     assert f.status == FindingStatus.remediated

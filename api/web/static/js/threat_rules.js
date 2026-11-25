@@ -23,7 +23,7 @@
     const learned = rules.filter(r => r.status === 'learned').length;
     $('tr-body').innerHTML = !rules.length
       ? '<p class="text-sm text-muted" style="padding:14px">No rules yet. They appear as the AI finds high-fidelity issues on the dashboard check and the Hunt page, or add one.</p>'
-      : `${learned ? `<p class="text-sm" style="padding:10px 14px 0"><b>${esc(learned)}</b> learned rule${learned === 1 ? '' : 's'} waiting for review (already active).</p>` : ''}
+      : `${learned ? `<p class="text-sm" style="padding:10px 14px 0"><b>${esc(learned)}</b> learned rule${learned === 1 ? '' : 's'} waiting for review (off until you review and turn them on).</p>` : ''}
         <table class="data-table"><thead><tr><th>Rule</th><th>Matches</th><th>Severity</th><th>Status</th><th>Hits</th><th>Last hit</th><th>On</th><th></th></tr></thead><tbody>
         ${rules.map((r, i) => `<tr><td class="text-sm"><b>${esc(r.name)}</b>${r.description ? `<div class="text-muted" style="font-size:.75rem">${esc(r.description)}</div>` : ''}
             ${r.learned_from ? `<div class="text-muted" style="font-size:.7rem">${r.status === 'builtin' ? 'Built-in pack' : `Learned from: ${esc(r.learned_from.slice(0, 120))}`}</div>` : ''}</td>
@@ -32,7 +32,7 @@
           <td><span class="chip ${(STATUS[r.status] || ['', ''])[1]}" style="font-size:.7rem">${esc((STATUS[r.status] || [r.status])[0])}</span></td>
           <td class="text-sm">${esc(r.hits)}</td><td class="text-sm text-muted">${r.last_hit_at ? esc(new Date(r.last_hit_at).toLocaleString()) : 'never'}</td>
           <td><input type="checkbox" data-on="${i}" ${r.enabled ? 'checked' : ''} aria-label="Enabled"></td>
-          <td style="white-space:nowrap">${r.status === 'learned' ? `<button type="button" class="btn btn--ghost btn--sm" data-review="${i}">Mark reviewed</button>` : ''}
+          <td style="white-space:nowrap">${r.status === 'learned' ? `<button type="button" class="btn btn--ghost btn--sm" data-review="${i}">Review and turn on</button>` : ''}
             <button type="button" class="btn btn--ghost btn--sm" data-test="${i}">Test</button>
             <button type="button" class="btn btn--ghost btn--sm" data-edit="${i}">Edit</button>
             <button type="button" class="btn btn--ghost btn--sm" data-del="${i}">Delete</button>
@@ -61,7 +61,7 @@
     if (!r) return;
     const out = $('tr-body').querySelector(`[data-out="${i}"]`);
     try {
-      if ('review' in b.dataset) { await call(`/${r.id}`, 'PUT', { reviewed: true }); return load(); }
+      if ('review' in b.dataset) { await call(`/${r.id}`, 'PUT', { reviewed: true, enabled: true }); return load(); }
       if ('edit' in b.dataset) return open(r);
       if ('del' in b.dataset) { if (!confirm(`Delete the rule "${r.name}"?`)) return; await call(`/${r.id}`, 'DELETE'); return load(); }
       if ('test' in b.dataset) {

@@ -53,11 +53,20 @@ class Layout:
 # ── small file helpers (every path here is inside a root-owned directory) ─────
 
 def _dir(path: str, mode: int) -> None:
-    os.makedirs(path, exist_ok=True)
-    if os.path.islink(path):
-        raise SystemExit(f"{path} is a symlink; refusing to use it")
-    os.chown(path, 0, 0)
-    os.chmod(path, mode)
+    # The app can swap a spool folder for a link at any moment, so ownership is set on what was opened, never by name
+    try:
+        os.mkdir(path, mode)
+    except FileExistsError:
+        pass
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except OSError:
+        raise SystemExit(f"{path} is a symlink or not a folder; refusing to use it") from None
+    try:
+        os.fchown(fd, 0, 0)
+        os.fchmod(fd, mode)
+    finally:
+        os.close(fd)
 
 
 def _write(path: str, data: bytes, mode: int = 0o640) -> None:

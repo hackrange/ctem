@@ -15,8 +15,10 @@
   $('ip-name').textContent = p ? p.name : (d.user_display || 'Unknown identity');
   document.title = `${p ? p.name : 'Identity'} -- open-ctem`;
   $('ip-sub').innerHTML = p
-    ? [p.email, p.title, p.username, p.disabled ? '<span class="chip chip--critical">Disabled in the directory</span>' : '',
-       p.last_logon ? `Last logon ${esc(when(p.last_logon))}` : ''].filter(Boolean).map(x => x.startsWith('<span') ? x : esc(x)).join(' &middot; ')
+    // directory values are always escaped; the one chip is our own markup, added after escaping
+    ? [...[p.email, p.title, p.username].filter(Boolean).map(esc),
+       ...(p.disabled ? ['<span class="chip chip--critical">Disabled in the directory</span>'] : []),
+       ...(p.last_logon ? [`Last logon ${esc(when(p.last_logon))}`] : [])].join(' &middot; ')
     : `Grip identity ${esc(d.user_display || '')}, not matched to anyone in the directory`;
   if (p) $('ip-actions').innerHTML = `<a class="btn btn--ghost btn--sm" href="/users?person=${encodeURIComponent(p.id)}">Directory record &rsaquo;</a>`;
 

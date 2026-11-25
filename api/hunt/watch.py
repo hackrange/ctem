@@ -22,9 +22,30 @@ ALWAYS = [{"source": "ctem", "table": "alerts", "filters": {}, "limit": 100, "ti
            "why": "The newest alerts from the EDR and other tools, so the check always weighs what they raised"}]
 
 
-def worth_showing(issue: dict) -> bool:
-    """Only probable, corroborated problems reach the dashboard. Low never does."""
-    sources = len({t.get("source", "").lower() for t in issue.get("timeline", []) if t.get("source")})
+def _has_rows(lookups: list[dict], n) -> bool:
+    try:
+        n = int(n)
+    except (TypeError, ValueError):
+        return False
+    return 1 <= n <= len(lookups) and not lookups[n - 1].get("error") and bool(lookups[n - 1].get("count"))
+
+
+def worth_showing(issue: dict, lookups: list[dict] | None = None) -> bool:
+    """Only probable, corroborated problems reach the dashboard. Low never does.
+
+    With the lookups at hand, only timeline steps that cite a lookup that really
+    returned rows count, so a write-up steered by text in the data can't promote
+    an issue nothing in the evidence backs.
+    """
+    steps = issue.get("timeline", [])
+    if lookups is not None:
+        steps = [t for t in steps if _has_rows(lookups, t.get("lookup"))]
+        if not steps:
+            return False
+        # corroboration is separate searches that each returned rows, never source names the write-up typed itself
+        sources = len({int(t["lookup"]) for t in steps})
+    else:
+        sources = len({t.get("source", "").lower() for t in steps if t.get("source")})
     sev, conf = issue["severity"], issue["confidence"]
     if sev == "critical":
         return conf != "low"
@@ -50,16 +71,17 @@ async def run_watch(db: AsyncSession) -> dict:
     from api.hunt.engine import investigate
     result = await investigate(db, WATCH_QUESTION, WATCH_RANGE, always=ALWAYS)
     now = datetime.now(timezone.utc).isoformat()
+    evidence = result.get("lookups") or []
     seen = {i["key"]: i.get("first_noticed") for i in ((await load_watch(db)) or {}).get("result", {}).get("issues", [])}
     if result.get("mode") != "ai":   # without the AI only the curated rules speak, and they're high fidelity already
-        keep = [i for i in result.get("issues", []) if i.get("from_rule") and worth_showing(i)][:MAX_SHOWN]
+        keep = [i for i in result.get("issues", []) if i.get("from_rule") and worth_showing(i, evidence)][:MAX_SHOWN]
         for i in keep:
             i["key"] = _key(i)
             i["first_noticed"] = seen.get(i["key"]) or now
         result.update(issues=keep, summary="")
         note = "" if keep else "AI is off, so only the Threat Curated Rules were checked, and none matched."
     else:
-        keep = [i for i in result["issues"] if worth_showing(i)][:MAX_SHOWN]
+        keep = [i for i in result["issues"] if worth_showing(i, evidence)][:MAX_SHOWN]
         for i in keep:
             i["key"] = _key(i)
             i["first_noticed"] = seen.get(i["key"]) or now

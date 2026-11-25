@@ -41,14 +41,36 @@ class SSRFUnresolvable(ValueError):
     """Destination doesn't resolve (yet)."""
 
 
+_NAT64 = ipaddress.ip_network("64:ff9b::/96")
+
+
+def _tunneled_v4(ip: ipaddress.IPv6Address) -> list[ipaddress.IPv4Address]:
+    """The IPv4 address a translation or tunnel address really reaches (NAT64, 6to4, Teredo)."""
+    if ip in _NAT64:
+        return [ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)]
+    if ip.sixtofour is not None:
+        return [ip.sixtofour]
+    return list(ip.teredo or ())
+
+
+def _bad(ip) -> bool:
+    return (ip.is_unspecified or ip.is_loopback or ip.is_private or ip.is_link_local or ip.is_multicast
+            or ip.is_reserved or any(ip in net for net in _BLOCKED_NETS if net.version == ip.version))
+
+
 def _is_blocked(addr: str) -> bool:
     try:
-        ip = ipaddress.ip_address(addr)
-        if ip.version == 6 and ip.ipv4_mapped:
-            ip = ip.ipv4_mapped
-        return any(ip in net for net in _BLOCKED_NETS)
+        ip = ipaddress.ip_address(addr.split("%", 1)[0])   # drop an IPv6 zone id before parsing
     except ValueError:
         return True
+    if ip.version == 6 and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    if ip.version == 6:
+        # Judge a NAT64/6to4/Teredo address by the IPv4 host behind it, so IPv6-only sites still reach public APIs
+        inner = _tunneled_v4(ip)
+        if inner:
+            return any(_bad(v) for v in inner)
+    return _bad(ip)
 
 
 def _resolve_and_validate(host: str) -> str | None:

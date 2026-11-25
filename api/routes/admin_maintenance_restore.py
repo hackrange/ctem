@@ -26,6 +26,7 @@ from api.routes.admin_maintenance import admin_browser, audit, queue, ready_agen
 router = APIRouter(prefix="/api/v1/admin/maintenance", tags=["admin"])
 _one_at_a_time = asyncio.Semaphore(1)   # each password guess costs ~128 MB of scrypt
 _SPARE = 2 * 1024 ** 3
+_RECHECK = 64 * 1024 ** 2   # re-measure free space this often: a missing Content-Length or a parallel upload can't fill the disk
 _MANIFEST_MAX = 256 * 1024
 _SHOWN = ("created_utc", "host", "git_commit", "app_version", "timescaledb", "db_name")
 
@@ -90,13 +91,17 @@ async def upload_backup(request: Request, admin: User = Depends(admin_browser), 
     name = f"upload-{stamp}-{secrets.token_hex(4)}.ctembak"
     tmp = os.path.join(agent_link.spool("tmp"), f"{name}.part")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o640)
-    total, head = 0, b""
+    total, head, checked = 0, b"", -_RECHECK
     try:
         with os.fdopen(fd, "wb") as f:
             async for chunk in request.stream():
                 total += len(chunk)
                 if total > limit:
                     raise HTTPException(413, detail="That file is bigger than the upload limit.")
+                if total - checked >= _RECHECK:
+                    checked = total
+                    if shutil.disk_usage(agent_link.spool("tmp")).free < _SPARE:
+                        raise HTTPException(507, detail="Not enough free disk space on the server for that upload.")
                 if len(head) < len(backup_archive.MAGIC):
                     head += chunk[:len(backup_archive.MAGIC) - len(head)]
                     if len(head) == len(backup_archive.MAGIC) and head != backup_archive.MAGIC:
