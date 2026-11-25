@@ -60,6 +60,7 @@ async def init_db() -> None:
     import api.models.alert_feed    # noqa: F401
     import api.models.alert_action  # noqa: F401
     import api.models.alert_allow   # noqa: F401
+    import api.models.posture_exception   # noqa: F401
     import api.models.zscaler       # noqa: F401
     import api.models.hunt_data     # noqa: F401
     import api.models.cloud         # noqa: F401

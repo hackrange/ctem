@@ -124,7 +124,11 @@ async def device_posture(device_id: uuid.UUID, u: User = Depends(require_permiss
     d = await _device(device_id, u, db)
     if not d.edr_posture:
         return {"available": False, "edr": d.edr_vendor}
-    return {"available": True, "edr": d.edr_vendor, **posture_view(d.edr_posture)}
+    from api.core.posture_exceptions import apply, for_device
+    tags = {str(t.tag_id): t.tag.name for t in (d.tags or []) if getattr(t, "tag", None)}
+    view = apply(posture_view(d.edr_posture), await for_device(db, d), tags)
+    return {"available": True, "edr": d.edr_vendor, **view, "device_type": d.device_type.value if d.device_type else None,
+            "tags": [{"id": k, "name": v} for k, v in sorted(tags.items(), key=lambda x: x[1].lower())]}
 
 
 @router.get("/{device_id}/pentest")

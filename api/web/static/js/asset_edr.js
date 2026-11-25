@@ -78,9 +78,10 @@ window.AssetEdr = (() => {
           <td class="text-sm text-muted">${esc(a.description || '')}</td></tr>`)).join('')}</tbody></table></div>` : ''}`;
   }
 
-  function posture(panel, d) {
+  function posture(panel, d, id) {
     const score = v => (v == null ? '--' : `<b>${esc(v)}</b>/100`);
-    const res = s => (s.passed === true ? '<span class="chip chip--low">Meets</span>' : s.passed === false
+    const res = s => (s.excepted ? `<span class="chip chip--info" title="${esc(s.excepted.scope)}: ${esc(s.excepted.reason)}">Excepted</span>`
+      : s.passed === true ? '<span class="chip chip--low">Meets</span>' : s.passed === false
       ? '<span class="chip chip--critical">Doesn\'t meet</span>' : `<span class="chip chip--info">${esc(s.meets || 'Unknown')}</span>`);
     const enc = d.disk_encryption_reported
       ? (d.disk_encryption === true ? 'Disk encryption checks pass' : d.disk_encryption === false ? 'A disk encryption check fails' : 'Disk encryption checked, result unclear')
@@ -90,11 +91,16 @@ window.AssetEdr = (() => {
       <div style="display:flex;gap:18px;flex-wrap:wrap;padding:10px 14px" class="text-sm">
         <span>Overall ${score(d.overall)}</span><span>Operating system ${score(d.os)}</span><span>Sensor settings ${score(d.sensor_config)}</span>
         <span class="chip ${d.disk_encryption === true ? 'chip--low' : d.disk_encryption === false ? 'chip--critical' : 'chip--info'}">${esc(enc)}</span></div>
-      <div style="overflow:auto"><table class="data-table"><thead><tr><th>Check</th><th>Area</th><th>What it looks for</th><th>Result</th></tr></thead><tbody>
+      <div style="overflow:auto"><table class="data-table"><thead><tr><th>Check</th><th>Area</th><th>What it looks for</th><th>Result</th><th>Exception</th></tr></thead><tbody>
       ${d.signals.map(s => `<tr><td class="text-sm"><b>${esc(s.name)}</b>${s.encryption ? ' <span class="chip chip--medium" style="font-size:.65rem">encryption</span>' : ''}</td>
           <td class="text-sm text-muted">${esc(s.group || (s.kind === 'os' ? 'Operating system' : 'Sensor'))}</td>
-          <td class="text-sm text-muted">${esc(s.criteria || '')}</td><td>${res(s)}</td></tr>`).join('')
-        || '<tr><td colspan="4" class="text-muted text-sm" style="text-align:center;padding:14px">No checks reported.</td></tr>'}</tbody></table></div>`;
+          <td class="text-sm text-muted">${esc(s.criteria || '')}</td><td>${res(s)}</td>
+          <td class="text-sm">${window.PostureExcept ? PostureExcept.cell(s) : ''}</td></tr>`).join('')
+        || '<tr><td colspan="5" class="text-muted text-sm" style="text-align:center;padding:14px">No checks reported.</td></tr>'}</tbody></table></div>`;
+    if (window.PostureExcept) PostureExcept.wire(panel, d, id, async () => {
+      const r = await fetch(`/api/v1/devices/${encodeURIComponent(id)}/posture`, { headers: { Accept: 'application/json' } });
+      if (r.ok) posture(panel, await r.json(), id);
+    });
   }
 
   function pentest(panel, d) {
@@ -141,7 +147,7 @@ window.AssetEdr = (() => {
     if (!d.available) return;
     const panel = addTab(kind, label);
     if (!panel) return;
-    draw(panel, d);
+    draw(panel, d, id);
     if (location.hash === `#${kind}`) AssetSoftware.show(kind);
   }
 

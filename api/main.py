@@ -85,6 +85,7 @@ def create_app() -> FastAPI:
     from api.routes.admin_export import router as admin_export_router
     from api.routes.identity import router as identity_router
     from api.routes.identity_people import router as identity_people_router
+    from api.routes.posture_exceptions import router as posture_exceptions_router
     from api.routes.attack_paths import router as attack_paths_router
     from api.routes.grc_exceptions import router as grc_exceptions_router
     from api.routes.vuln_exceptions import proof_router as finding_proof_router
@@ -148,6 +149,7 @@ def create_app() -> FastAPI:
     app.include_router(tickets_router)
     app.include_router(identity_router)
     app.include_router(identity_people_router)
+    app.include_router(posture_exceptions_router)
     app.include_router(attack_paths_router)
     app.include_router(grc_exceptions_router)
     app.include_router(tags_router)
