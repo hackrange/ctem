@@ -94,6 +94,7 @@ class User(Base, UUIDPrimaryKey, TimestampMixin):
     first_name: Mapped[str | None] = mapped_column(EncryptedString)
     upn: Mapped[str | None] = mapped_column(EncryptedString)                 # userPrincipalName, jdoe@ad.acme.example
     upn_hash: Mapped[str | None] = mapped_column(String(64), index=True)    # HMAC of the lowercased UPN, for search
+    upn_local_hash: Mapped[str | None] = mapped_column(String(64), index=True)   # ...and of its first half (jane.doe)
     last_name: Mapped[str | None] = mapped_column(EncryptedString)
     title: Mapped[str | None] = mapped_column(EncryptedString)
     phone: Mapped[str | None] = mapped_column(EncryptedString)   # +15550100199 when it parses, else as entered

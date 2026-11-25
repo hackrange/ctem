@@ -115,6 +115,8 @@ async def _merge_one(db: AsyncSession, keep, dup) -> None:
     for model in (RiskScore, RiskScoreHistory):
         await db.execute(delete(model).where(model.entity_type == "device", model.entity_id == dup.id))
     db.expunge(dup)
+    from api.scoring.dirty import mark_devices
+    await mark_devices(db, [keep.id])
     await db.execute(delete(Device).where(Device.id == dup.id))
 
 

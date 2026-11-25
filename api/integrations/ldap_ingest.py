@@ -62,7 +62,8 @@ async def upsert_directory(users: list[dict], computers: list[dict], db: AsyncSe
         if u.get("pwd_never_expires"):
             user.ad_pwd_expires = None
         if _UPN.match(u.get("upn") or ""):
-            user.upn, user.upn_hash = u["upn"], search_hash(u["upn"].lower())
+            from api.core.user_match import set_upn
+            set_upn(user, u["upn"])
         for field in ("first_name", "last_name", "title", "office", "city", "state", "postal_code", "department"):
             if u.get(field):
                 setattr(user, field, u[field])

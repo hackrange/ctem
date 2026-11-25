@@ -45,7 +45,8 @@ async def list_users(
             .order_by(User.created_at.desc()))
     if q:
         from api.core.encryption import search_hash
-        stmt = stmt.where(or_(User.username.ilike(f"%{q}%"), User.upn_hash == search_hash(q.strip().lower())))
+        stmt = stmt.where(or_(User.username.ilike(f"%{q}%"), User.upn_hash == search_hash(q.strip().lower()),
+                              User.upn_local_hash == search_hash(q.strip().lower())))
     if cursor:
         stmt = stmt.where(User.id < str(cursor))
     total_result = await db.execute(select(func.count(User.id)).where(ctem_account()))

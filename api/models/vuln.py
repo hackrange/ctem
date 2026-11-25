@@ -31,6 +31,7 @@ class Vulnerability(Base, UUIDPrimaryKey, TimestampMixin):
     cvss_vector: Mapped[str | None] = mapped_column(String(256))
     epss_score: Mapped[float | None] = mapped_column(Float)                     # 0.0-1.0
     epss_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    score_inputs_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)   # api/scoring/dirty.py
     is_kev: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     kev_added_date: Mapped[date | None] = mapped_column(Date)
     attack_vector: Mapped[str | None] = mapped_column(String(32))               # network, adjacent, local, physical
@@ -211,3 +212,9 @@ def _first_found(mapper, connection, target):  # noqa: ARG001 -- SQLAlchemy list
     if target.first_detected is None:
         from datetime import timezone
         target.first_detected = datetime.now(timezone.utc)
+
+
+# Score-input changes mark devices for the next rescore (api/scoring/dirty.py); installed with the models
+from api.scoring import dirty as _dirty  # noqa: E402
+
+_dirty.install()

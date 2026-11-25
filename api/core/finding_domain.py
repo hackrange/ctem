@@ -61,6 +61,8 @@ async def fill(db) -> int:
         n += r.rowcount or 0
     for d in ("code", "web", "cloud"):   # through the vuln_id index: only the non-infrastructure vulnerabilities
         ids = select(Vulnerability.id).where(Vulnerability.domain == d)
+        from api.scoring.dirty import mark_finding_devices
+        await mark_finding_devices(db, Finding.vuln_id.in_(ids), Finding.domain != d)   # the domain picks the model
         r = await db.execute(update(Finding).where(Finding.vuln_id.in_(ids), Finding.domain != d).values(domain=d)
                              .execution_options(synchronize_session=False))
         n += r.rowcount or 0

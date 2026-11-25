@@ -17,6 +17,7 @@ from api.core.device_match import SOURCE_CODES, source_list
 from api.core.encryption import search_hash
 from api.models.device import Device, DeviceAssignment, DeviceTag, DeviceType, RiskGrade, HIDDEN_BY_DEFAULT, NON_HOST_TYPES
 from api.models.user import User
+from api.core.user_match import sign_in_names
 
 Owner = aliased(User)
 
@@ -197,7 +198,10 @@ def build_query(scope, q: str | None, grade: str | None, device_type: DeviceType
         q = q.strip()[:200]
         like = _like(q)
         hashes = {search_hash(q), search_hash(q.lower()), *(search_hash(n) for n in sign_in_names(q))}
-        named = select(User.id).where(or_(User.username.ilike(like, escape="\\"), User.upn_hash == search_hash(q.lower())))
+        # A person by their UPN, whole or its first half (jane.doe), or the directory username
+        whole = search_hash(q.lower())
+        person = or_(User.username.ilike(like, escape="\\"), User.upn_hash == whole, User.upn_local_hash == whole)
+        named = select(User.id).where(person)
         assigned_to = select(DeviceAssignment.device_id).where(DeviceAssignment.user_id.in_(named))
         from api.models.tag import Tag
         # A tag's name or its value: "specops" finds app:SPECOPS, "pat@" finds app_owner:pat@acme.example
@@ -211,22 +215,13 @@ def build_query(scope, q: str | None, grade: str | None, device_type: DeviceType
             Device.public_ip_hash.in_(hashes),   # the public address it reaches the internet from (EDR)
             Device.last_login_user_hash.in_(hashes),
             Owner.username.ilike(like, escape="\\"),
-            Owner.upn_hash == search_hash(q.lower()),
+            Owner.upn_hash == whole,
+            Owner.upn_local_hash == whole,
             Device.id.in_(assigned_to),
+            # anyone the identity provider saw signed in on it, by UPN or its first half
+            or_(*(Device.idp_login_keys.like(f"%,{h},%") for h in (whole, search_hash(q.lower().split("@", 1)[0])))),
         ))
     return stmt
-
-
-def sign_in_names(q: str) -> list[str]:
-    """dhollin also finds machines where they signed in as sulocal_dhollin."""
-    from api.core.config import get_settings
-    from api.core.user_match import bare
-
-    b = bare(q)
-    if not b:
-        return []
-    prefixes = [p.strip().lower() for p in get_settings().account_alias_prefixes.split(",") if p.strip()]
-    return [b, *(p + b for p in prefixes)]
 
 
 def sorted_query(stmt, sort: str | None, order: str | None):

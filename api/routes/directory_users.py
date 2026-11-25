@@ -62,7 +62,8 @@ async def list_directory_users(
 
     where = [directory_person()]
     if q:
-        where.append(or_(User.username.ilike(f"%{q}%"), User.upn_hash == search_hash(q.strip().lower()),
+        key = search_hash(q.strip().lower())   # a UPN whole, or its first half (jane.doe)
+        where.append(or_(User.username.ilike(f"%{q}%"), User.upn_hash == key, User.upn_local_hash == key,
                          User.id.in_(await _by_name_or_phone(db, q))))
     now = datetime.now(timezone.utc)
     if expiry == "expiring":

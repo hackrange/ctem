@@ -153,7 +153,9 @@ async def close_the_rest(db, seen: set, iid: str | None) -> int:
     mine = await scope(db, iid)
     ids = [f.id for f in (await db.execute(select(Finding).where(Finding.source == SOURCE, mine))).scalars()
            if f.source_id not in seen]
+    from api.scoring.dirty import mark_finding_devices
     for i in range(0, len(ids), 500):
+        await mark_finding_devices(db, Finding.id.in_(ids[i:i + 500]))
         await db.execute(delete(Finding).where(Finding.id.in_(ids[i:i + 500])))
     await db.commit()
     return len(ids)

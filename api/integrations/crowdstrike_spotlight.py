@@ -109,8 +109,10 @@ async def close_unseen(db: AsyncSession, started, integration_id: str) -> int:
     integration's findings (and unclaimed ones from before findings were tagged): another tenant's pass closes nothing."""
     from sqlalchemy import or_
     from api.models.vuln import Finding, FindingStatus
-    r = await db.execute(update(Finding).where(Finding.source == SOURCE, Finding.status == FindingStatus.open,
-                                               Finding.last_seen < started,
-                                               or_(Finding.integration_id == str(integration_id), Finding.integration_id.is_(None)))
+    from api.scoring.dirty import mark_finding_devices
+    which = (Finding.source == SOURCE, Finding.status == FindingStatus.open, Finding.last_seen < started,
+             or_(Finding.integration_id == str(integration_id), Finding.integration_id.is_(None)))
+    await mark_finding_devices(db, *which)
+    r = await db.execute(update(Finding).where(*which)
                          .values(status=FindingStatus.remediated).execution_options(synchronize_session=False))
     return r.rowcount or 0

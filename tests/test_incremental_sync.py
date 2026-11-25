@@ -114,7 +114,7 @@ async def test_rescore_only_changed_devices(db):
     db.add_all([old, new])
     await db.commit()
     past = datetime(2020, 1, 1)
-    await db.execute(update(Device).where(Device.id == old.id).values(created_at=past, updated_at=past))
+    await db.execute(update(Device).where(Device.id == old.id).values(created_at=past, updated_at=past, score_inputs_at=past))
     await db.commit()
 
     since = datetime.now(timezone.utc) - timedelta(minutes=5)

@@ -54,6 +54,8 @@ async def prune(db, days: int | None = None) -> dict:
     removed = 0
     for i in range(0, len(ids), 500):
         part = ids[i:i + 500]
+        from api.scoring.dirty import mark_devices
+        await mark_devices(db, part)   # their findings go: score again
         removed += (await db.execute(delete(Finding).where(Finding.device_id.in_(part)))).rowcount or 0
         await db.execute(update(Device).where(Device.id.in_(part)).values(open_findings=0, kev_findings=0, pruned_at=now))
     ghosts = (await db.execute(select(Device.id).where(Device.sources == ",netprobe,", _quiet(Device.alive_at, cut), confirmed))).scalars().all()

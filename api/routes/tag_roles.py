@@ -156,6 +156,8 @@ async def update_role(key: str, body: RoleIn, actor: User = Depends(require_admi
     r.name, r.show_filter, r.title_case, r.rules = body.name.strip(), body.show_filter, body.title_case, rules
     r.version, r.updated_by = (r.version or 1) + 1, actor.username
     _audit(db, actor, "tag_role.update", r, f"{r.name}: {before} -> {[x['value'] for x in rules]}")
+    from api.scoring.dirty import mark_app_assets
+    await mark_app_assets(db)   # repositories' and sites' scores read the mapping
     await db.commit()
     tr.forget()
     return {"ok": True, "role": _out(r)}
@@ -178,6 +180,8 @@ async def create_role(body: NewRole, actor: User = Depends(require_admin), db: A
                 position=max((x.position for x in roles), default=0) + 1, rules=rules, updated_by=actor.username)
     db.add(r)
     _audit(db, actor, "tag_role.create", r, f"{r.name}: {[x['value'] for x in rules]}")
+    from api.scoring.dirty import mark_app_assets
+    await mark_app_assets(db)   # repositories' and sites' scores read the mapping
     await db.commit()
     tr.forget()
     return {"ok": True, "role": _out(r)}
@@ -194,6 +198,8 @@ async def delete_role(key: str, actor: User = Depends(require_admin), db: AsyncS
         return _refuse("Built-in roles can't be deleted; clear their rules instead.")
     _audit(db, actor, "tag_role.delete", r, r.name)
     await db.delete(r)
+    from api.scoring.dirty import mark_app_assets
+    await mark_app_assets(db)   # repositories' and sites' scores read the mapping
     await db.commit()
     tr.forget()
     return {"ok": True}

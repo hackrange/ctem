@@ -85,6 +85,8 @@ async def apply(db: AsyncSession, exc: VulnException) -> list[str]:
                          .execution_options(synchronize_session=False))
     exc.findings_covered = (await db.execute(
         select(func.count()).select_from(Finding).where(Finding.exception_id == exc.id))).scalar_one()
+    from api.scoring.dirty import mark_devices
+    await mark_devices(db, ids)
     return [str(i) for i in ids]
 
 
@@ -95,6 +97,8 @@ async def release(db: AsyncSession, exc: VulnException) -> list[str]:
     await db.execute(update(Finding).where(mine, Finding.status.in_((FindingStatus.risk_accepted, FindingStatus.false_positive)))
                      .values(status=FindingStatus.open, exception_id=None).execution_options(synchronize_session=False))
     await db.execute(update(Finding).where(mine).values(exception_id=None).execution_options(synchronize_session=False))
+    from api.scoring.dirty import mark_devices
+    await mark_devices(db, ids)
     return [str(i) for i in ids]
 
 

@@ -86,7 +86,9 @@ async def _check_pending_syncs():
 
 @celery_app.task(name="api.core.tasks.recalculate_all_risk_scores")
 def recalculate_all_risk_scores():
-    asyncio.run(_recalculate_all())
+    """The daily full pass (days offline move with time alone; the backstop for anything a change mark missed),
+    through the same one-at-a-time gate as the post-sync runs."""
+    post_sync_pipeline.run(None)
 
 
 @celery_app.task(name="api.core.tasks.warm_vuln_dashboard", time_limit=600, soft_time_limit=540)
@@ -168,9 +170,16 @@ async def _enrich():
 
 @celery_app.task(name="api.core.tasks.post_sync_pipeline")
 def post_sync_pipeline(since: str | None = None):
+    """One at a time (api/core/pipeline_gate.py): a run asked for while another is going joins the next round."""
+    from api.core import pipeline_gate as gate
+    gate.run_gated(since, _pipeline, lambda delay=0: post_sync_pipeline.apply_async((gate.TAKE_UP,), countdown=delay))
+
+
+def _pipeline(since: str | None) -> None:
     # Enrichment first so the scores see fresh KEV/EPSS data
     asyncio.run(_enrich())
-    asyncio.run(_recalculate_changed(since) if since else _recalculate_all())
+    from api.core.pipeline_gate import recalculate_changed
+    asyncio.run(recalculate_changed(since) if since else _recalculate_all())
     # Then the dashboards, which cache filtered views for up to 30 minutes, show what the sync brought in
     from api.core.vuln_dashboard import forget_cached
     asyncio.run(forget_cached())
@@ -214,15 +223,6 @@ async def _push_exceptions(exception_ids):
             await push(db, exception_ids)
         except Exception:  # noqa: BLE001 -- retried after the next sync
             log.exception("exception write-back failed")
-
-
-async def _recalculate_changed(since: str):
-    from datetime import datetime
-
-    from api.core.db import get_session
-    from api.scoring.engine import recalculate_changed
-    async for db in get_session():
-        await recalculate_changed(db, datetime.fromisoformat(since))
 
 
 @celery_app.task(name="api.core.tasks.analyze_threat_alerts")

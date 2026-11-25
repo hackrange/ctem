@@ -5,6 +5,18 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
+def upn_keys(upn: str) -> tuple[str, str]:
+    """(hash of the whole UPN, hash of its first half): jane.doe@acme.example finds them typed either way."""
+    from api.core.encryption import search_hash
+    u = upn.strip().lower()
+    return search_hash(u), search_hash(u.split("@", 1)[0])
+
+
+def set_upn(user, upn: str) -> None:
+    user.upn = upn
+    user.upn_hash, user.upn_local_hash = upn_keys(upn)
+
+
 def bare(name: str | None) -> str:
     """ACME\\jdoe and jdoe@ad.acme.example both become jdoe."""
     name = (name or "").strip()
@@ -71,3 +83,14 @@ def _unique_first_names(rows) -> dict[str, str]:
         if name:
             seen[name] = None if name in seen else r.id
     return {n: i for n, i in seen.items() if i}
+
+
+def sign_in_names(q: str) -> list[str]:
+    """dhollin also finds machines where they signed in as sulocal_dhollin."""
+    from api.core.config import get_settings
+
+    b = bare(q)
+    if not b:
+        return []
+    prefixes = [p.strip().lower() for p in get_settings().account_alias_prefixes.split(",") if p.strip()]
+    return [b, *(p + b for p in prefixes)]

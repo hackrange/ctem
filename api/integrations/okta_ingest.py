@@ -109,6 +109,9 @@ def merge_user(user, v: dict) -> None:
     from api.core.config import get_settings
     from api.core.phone import normalize
     p, region = v["profile"], get_settings().phone_default_region
+    if user.upn and not user.upn_local_hash:   # older rows: the key for searching by the UPN's first half
+        from api.core.user_match import upn_keys
+        user.upn_local_hash = upn_keys(user.upn)[1]
     old = dict(user.idp or {})
     user.idp = {**old, "source": "okta", "status": v["status"], "last_login": _iso(v["last_login"]),
                 "password_changed": _iso(v["password_changed"])}
@@ -219,6 +222,9 @@ async def _apply(conn, db: AsyncSession, recs: list[dict], people: People) -> in
         mine = prev.get("owner_from_idp") or dev.owner_user_id is None
         if owner and mine and not (dev.last_login_user or dev.recent_logins):
             dev.owner_user_id = owner
+        from api.core.user_match import upn_keys
+        keys = sorted({k for login in r["logins"] for k in upn_keys(login)})
+        dev.idp_login_keys = ("," + ",".join(keys) + ",") if keys else None
         dev.idp_device = {k: v for k, v in r.items() if k != "owner_okta"} | {
             "source": "okta", "owner_from_idp": bool(owner and mine and dev.owner_user_id == owner)}
         if not dev.os:
@@ -245,7 +251,8 @@ async def _ensure_owners(db: AsyncSession, people: People) -> None:
             continue   # someone else's name; don't guess
         user = User(username=name, is_local=False, is_active=True)
         if "@" in v["login"]:
-            user.upn, user.upn_hash = v["login"], search_hash(v["login"].lower())
+            from api.core.user_match import set_upn
+            set_upn(user, v["login"])
         email = _clean(p.get("email"), 256)
         if email and "@" in email:
             user.email, user.email_hash = email, search_hash(email)

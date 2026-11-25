@@ -7,6 +7,20 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.13.3] - 2026-11-25
+
+### Added
+- **Find hosts by UPN.** Devices search matches a person's UPN whole or its first half (`jane.doe`, where the directory username is `jdoe`), for the detected user, the assigned user, and anyone the identity provider saw signed in on that computer (shared or handed-over machines). Directory and Admin user search take the first half too. UPNs are encrypted at rest, so these are exact matches, never partial. Existing people get the first-half key on the next identity provider or directory sync.
+
+### Changed
+- **Scoring after a sync is much faster.** It took 35 to 45 minutes and rescored about half the fleet every time; on this server that's 26,000 devices and 3.9 million open findings.
+  - **Only what changed is rescored.** A device is rescored when something its score reads actually changes: its EDR, policies, exposure, criticality or containment, a finding's status, reachability, exposure or ports, or its vulnerability's CVSS, EPSS, KEV listing or threat actors. A sync seeing a host again no longer counts. Bulk writes mark what they change, a test fails on one that doesn't, and the daily full rescore remains the backstop.
+  - **One pipeline at a time.** Each sync used to start its own, so several ran over the same devices at once. A sync that ends while one runs joins its next round.
+  - **EPSS is asked for once a day.** Every run asked FIRST's public API about all 156,000 CVEs (about 1,560 requests); now only CVEs not refreshed today, or never scored. KEV and EPSS values are written only where they changed, and findings are rescored when a KEV listing changes or an EPSS score moves by half a point or more (smaller daily drift waits for the daily full rescore).
+  - A run that fails puts its window back and tries again after five minutes; long runs keep their place in line.
+  - The memory-corruption check on a flaw's description runs once per vulnerability, not once per host.
+  - Scores are unchanged: a test changes inputs every way scoring reads them and checks the selective rescore lands exactly where a full one does.
+
 ## [1.13.2] - 2026-11-25
 
 ### Security

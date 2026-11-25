@@ -49,6 +49,7 @@ async def sync_tags(db: AsyncSession, device_id: str, wanted: set[str], managed:
     rows = (await db.execute(select(Tag.name, Tag.id).join(DeviceTag, DeviceTag.tag_id == Tag.id)
                              .where(DeviceTag.device_id == device_id))).all()
     have = {name: tid for name, tid in rows}
+    changed = False
     for name in wanted - have.keys():
         tid = cache.get(name)
         if tid is None:
@@ -60,6 +61,11 @@ async def sync_tags(db: AsyncSession, device_id: str, wanted: set[str], managed:
                 tid = tag.id
             cache[name] = tid
         await db.execute(insert(DeviceTag).values(device_id=device_id, tag_id=tid))
+        changed = True
     stale = [tid for name, tid in have.items() if name.startswith(managed) and name not in wanted]
     if stale:
         await db.execute(delete(DeviceTag).where(DeviceTag.device_id == device_id, DeviceTag.tag_id.in_(stale)))
+        changed = True
+    if changed:   # a repository's or site's tags feed its score (sensitive data it holds, environment)
+        from api.scoring.dirty import mark_devices
+        await mark_devices(db, [device_id])

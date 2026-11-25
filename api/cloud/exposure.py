@@ -171,6 +171,8 @@ async def store(db: AsyncSession, integration_id: str, instances: list[Instance]
             if dev is not None and g.internet_exposed:
                 dev.is_internet_exposed = False
     if gone:
+        from api.scoring.dirty import mark_devices
+        await mark_devices(db, [g.device_id for g in gone])   # its cloud firewall no longer counts
         await db.execute(delete(CloudAsset).where(CloudAsset.id.in_([g.id for g in gone])))
     await db.commit()
     log.info("cloud %s: %d instances, %d gone", integration_id, count, len(gone))

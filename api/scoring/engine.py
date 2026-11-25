@@ -64,15 +64,42 @@ def _edr_context(edr: dict, f) -> dict:
     from api.scoring import edr_controls as ec
     if not edr:
         return {}
-    v = f.vuln
-    text = f"{v.title or ''} {v.description or ''}"[:4000] if v else ""
     fw = ec.firewall(edr["firewall"], f.ports) if f.exposure == "listening" else None
     return {"edr_prevention": edr["prevention"], "usb_blocked": edr["usb_blocked"],
-            "memory_flaw": bool(ec.MEMORY_FLAW.search(text)), "host_firewall": fw}
+            "memory_flaw": _memory_flaw(f.vuln), "host_firewall": fw}
+
+
+_FLAW: dict = {}
+
+
+def _memory_flaw(v) -> bool:
+    """Is the flaw memory corruption (what exploit mitigations target)? Once per vulnerability, not once per host:
+    a CVE on 3,000 hosts used to be read 3,000 times."""
+    from api.scoring import edr_controls as ec
+    if v is None:
+        return False
+    key = (v.id, hash(v.title), hash(v.description))   # an edited description is checked again
+    hit = _FLAW.get(key)
+    if hit is None:
+        if len(_FLAW) > 200_000:
+            _FLAW.clear()
+        hit = _FLAW[key] = bool(ec.MEMORY_FLAW.search(f"{v.title or ''} {v.description or ''}"[:4000]))
+    return hit
 
 
 async def recalculate_device(device: Device, db: AsyncSession) -> RiskScore:
-    """Recalculate and persist the risk score for a single device (a repository or a site by their own model)."""
+    """Recalculate and persist the risk score for a single device (a repository or a site by their own model).
+    Its own writes (scores, each finding's reason) are not input changes: they mark nothing for rescoring."""
+    from api.scoring.dirty import QUIET
+    info = db.sync_session.info
+    was, info[QUIET] = info.get(QUIET), True
+    try:
+        return await _recalculate_device(device, db)
+    finally:
+        info[QUIET] = was
+
+
+async def _recalculate_device(device: Device, db: AsyncSession) -> RiskScore:
     findings_result = await db.execute(
         select(Finding)
         .options(selectinload(Finding.vuln))
@@ -301,13 +328,17 @@ async def recalculate_all(db: AsyncSession) -> None:
 
 
 async def recalculate_changed(db: AsyncSession, since: datetime) -> int:
-    """Rescore only devices created, updated, or with findings touched since `since` (a sync's start)."""
-    from sqlalchemy import or_, union
+    """Rescore only devices where something the score reads changed since `since` (a sync's start): its own inputs
+    or its findings' (api/scoring/dirty.py marks them), or a vulnerability it has (a new KEV listing, EPSS)."""
+    from sqlalchemy import union
 
-    naive = since.astimezone(timezone.utc).replace(tzinfo=None)  # TimestampMixin columns are naive UTC
+    from api.models.vuln import Vulnerability
+    since = since if since.tzinfo else since.replace(tzinfo=timezone.utc)
+    changed_vulns = select(Vulnerability.id).where(Vulnerability.score_inputs_at >= since)
     ids_q = union(
-        select(Finding.device_id).where(or_(Finding.created_at >= naive, Finding.updated_at >= naive)),
-        select(Device.id).where(or_(Device.created_at >= naive, Device.updated_at >= naive)),
+        select(Device.id).where(Device.score_inputs_at >= since),
+        select(Finding.device_id).where(Finding.vuln_id.in_(changed_vulns),
+                                        Finding.status.in_([FindingStatus.open, FindingStatus.in_progress])),
     )
     from api.integrations.pentest_merge import reconcile
     merged = await reconcile(db)   # one finding per CVE per host when the pentest and a scanner both have it

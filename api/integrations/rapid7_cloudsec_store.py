@@ -114,6 +114,7 @@ class Saver:
         self.instances: dict[str, str] = {}   # provider instance id -> the device AWS or OCI made for it
         self.seen: set[str] = set()
         self.refreshed: set[str] = set()
+        self.refreshed_ids: set[str] = set()   # their vulnerability ids, to mark for rescoring
         self.count = 0
 
     @classmethod
@@ -144,6 +145,7 @@ class Saver:
             self.vulns[key] = vid
         elif key not in self.refreshed:   # names and severities change upstream; refresh once a run
             self.refreshed.add(key)
+            self.refreshed_ids.add(vid)
             return vid, update(Vulnerability).where(Vulnerability.id == vid).values(**vals)
         self.refreshed.add(key)
         return vid, None
@@ -199,8 +201,11 @@ class Saver:
                     self.findings[fsid] = (fid, FindingStatus.open)
             self.count += 1
         await self.db.flush()
+        from api.scoring.dirty import mark_finding_devices, mark_vulns
         for stmt in refresh:
             await self.db.execute(stmt)
+        if refresh:   # a check's severity or text changed upstream: its findings score again
+            await mark_vulns(self.db, list(self.refreshed_ids))
         for i in range(0, len(touch), 1000):
             await self.db.execute(update(Finding).where(Finding.id.in_(touch[i:i + 1000])).values(last_seen=self.now))
         if self.integration_id:   # claim untagged rows (from before findings were tagged); never another tenant's
@@ -208,10 +213,12 @@ class Saver:
                 await self.db.execute(update(Finding).where(Finding.id.in_(touch[i:i + 1000]), Finding.integration_id.is_(None))
                                       .values(integration_id=self.integration_id))
         if context:
+            await mark_finding_devices(self.db, Finding.id.in_([c["b_id"] for c in context]))
             t = Finding.__table__
             await self.db.execute(update(t).where(t.c.id == bindparam("b_id"))
                                   .values(details=bindparam("b_details"), fix_key=bindparam("b_fix")), context)
         for i in range(0, len(reopen), 1000):
+            await mark_finding_devices(self.db, Finding.id.in_(reopen[i:i + 1000]))
             await self.db.execute(update(Finding).where(Finding.id.in_(reopen[i:i + 1000]))
                                   .values(status=FindingStatus.open))
         await self.db.commit()
@@ -245,7 +252,9 @@ class Saver:
                     gone.append(fid)
             elif (not shared or mine) and listed is not None and acct is not None and acct not in listed:
                 gone.append(fid)
+        from api.scoring.dirty import mark_finding_devices
         for i in range(0, len(gone), 1000):
+            await mark_finding_devices(self.db, Finding.id.in_(gone[i:i + 1000]))
             await self.db.execute(update(Finding).where(Finding.id.in_(gone[i:i + 1000]))
                                   .values(status=FindingStatus.remediated))
         await self.db.commit()

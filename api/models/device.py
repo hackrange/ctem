@@ -101,6 +101,8 @@ class Device(Base, UUIDPrimaryKey, TimestampMixin):
     edr_usb_policy: Mapped[str | None] = mapped_column(String(64))
     edr_posture: Mapped[dict | None] = mapped_column(JSON)   # the EDR's posture checks (Falcon Zero Trust Assessment)
     pentest: Mapped[dict | None] = mapped_column(JSON)       # the newest autonomous pentest's view of it (NodeZero)
+    score_inputs_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)   # api/scoring/dirty.py
+    idp_login_keys: Mapped[str | None] = mapped_column(Text)   # ",hash,hash,": who the identity provider saw sign in, for search
     idp_device: Mapped[dict | None] = mapped_column(EncryptedJSON)   # the identity provider's device record (Okta): users, posture
 
     # Network exposure
