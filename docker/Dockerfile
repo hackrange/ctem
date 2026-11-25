@@ -22,8 +22,9 @@ RUN pip install --no-cache-dir --upgrade "pip>=25.3" && pip install --no-cache-d
 # App source
 COPY api/ ./api/
 
-# Non-root user -- running as root is a bad look for a security product
-RUN useradd -r -u 1000 -g root ctem && chown -R ctem:root /app
+# Non-root user. The code stays owned by root and read-only to it, so nothing running in the app can rewrite it; it
+# writes only to the spool (group root, so -g root) and temp space
+RUN useradd -r -u 1000 -g root ctem
 USER ctem
 
 EXPOSE 8000

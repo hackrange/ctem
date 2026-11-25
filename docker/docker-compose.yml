@@ -99,6 +99,10 @@ services:
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - ./certs:/etc/nginx/certs:ro
+      - ./nginx-lb-trusted.sh:/docker-entrypoint.d/15-lb-trusted.sh:ro
+    environment:
+      LB_TRUSTED_IPS: ${LB_TRUSTED_IPS:-}
+      LB_BIND_IP: ${LB_BIND_IP:-}
     depends_on: [app]
     networks: [ctem]
     restart: unless-stopped
