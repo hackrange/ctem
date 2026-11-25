@@ -79,3 +79,36 @@ async def remove_exception(title_id: uuid.UUID, device_id: uuid.UUID, u: User = 
                     resource_type="software", resource_id=str(t.id), detail=f"{t.title} on {d.hostname}"[:300]))
     await db.commit()
     return {"ok": True}
+
+
+class BulkExceptionBody(ExceptionBody):
+    ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
+
+
+@router.put("/device/{device_id}/exceptions")
+async def set_exceptions(u: User = Depends(require_permission("devices", "read")), *, device_id: uuid.UUID,
+                         body: BulkExceptionBody, db: AsyncSession = Depends(get_session)):
+    """The same exception for several titles on one asset (its Software tab: select, then Approve only here).
+    Only titles actually installed on that asset are touched; each is audited."""
+    from api.models.software import SoftwareInstall
+    from api.routes.devices import _visible_device
+    if not {"admin", "cyber"} & set(u.role_names):
+        raise HTTPException(404)
+    d = await _visible_device(device_id, u, db)   # 404 for absent and not yours alike
+    ids = list(dict.fromkeys(str(i) for i in body.ids))
+    titles = (await db.execute(select(SoftwareTitle).where(SoftwareTitle.id.in_(ids), SoftwareTitle.id.in_(
+        select(SoftwareInstall.title_id).where(SoftwareInstall.device_id == d.id))))).scalars().all()
+    have = {e.title_id: e for e in (await db.execute(select(SoftwareException).where(
+        SoftwareException.device_id == d.id, SoftwareException.title_id.in_([t.id for t in titles] or ["-"])))).scalars()}
+    until = datetime.combine(body.expires_on, time(23, 59, 59), tzinfo=timezone.utc) if body.expires_on else None
+    reason = body.reason.strip()
+    for t in titles:
+        e = have.get(t.id) or SoftwareException(title_id=t.id, device_id=d.id, decision=body.decision, reason=reason,
+                                                decided_by=u.username)
+        e.decision, e.reason, e.decided_by, e.expires_at = body.decision, reason, u.username, until
+        db.add(e)
+        db.add(AuditLog(actor_user_id=str(u.id), actor_username=u.username, action="software.exception",
+                        resource_type="software", resource_id=str(t.id),
+                        detail=f"{t.title} on {d.hostname}: {body.decision} (bulk){' until ' + body.expires_on.isoformat() if body.expires_on else ''}"[:300]))
+    await db.commit()
+    return {"ok": True, "updated": len(titles), "not_found": len(ids) - len(titles)}

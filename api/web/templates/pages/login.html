@@ -169,6 +169,7 @@
     }
     .btn-signin:hover  { opacity: 0.9; }
     .btn-signin:active { transform: scale(0.99); }
+    .btn-signin:disabled { opacity: 0.55; cursor: progress; transform: none; }
 
     /* ── divider ── */
     .login-divider {
@@ -299,5 +300,6 @@
 
   <p class="login-footer">open-ctem &middot; Secure by design</p>
 </div>
+<script src="{{ static('js/login_submit.js') }}"></script>
 </body>
 </html>

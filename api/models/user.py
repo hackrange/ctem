@@ -100,6 +100,9 @@ class User(Base, UUIDPrimaryKey, TimestampMixin):
     postal_code: Mapped[str | None] = mapped_column(EncryptedString)
     department: Mapped[str | None] = mapped_column(EncryptedString)
     is_service_account: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # From the identity provider (Okta): the phone the person verifies MFA with, and their account and MFA state
+    mfa_phone: Mapped[str | None] = mapped_column(EncryptedString)
+    idp: Mapped[dict | None] = mapped_column(EncryptedJSON)
 
     # Tag-based page access -- admins assign tags like ["identity","grc"] to let
     # restricted roles access specific dashboards without a full analyst role

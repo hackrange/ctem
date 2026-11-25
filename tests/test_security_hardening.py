@@ -250,7 +250,13 @@ async def test_sign_in_allows_no_inline_script_json_loads_nothing_and_health_has
     page = await client.get("/login")
     csp = page.headers["content-security-policy"]
     assert "script-src 'self';" in csp and "unsafe-inline" not in csp.split("script-src", 1)[1].split(";", 1)[0]
-    assert "<script" not in page.text and " onclick=" not in page.text   # the page really has no script to break
+    # no inline script to break: only same-origin files (the button that greys out), and no event handler attributes
+    import re
+    tags = re.findall(r"<script\b[^>]*>(.*?)</script>", page.text, re.S)
+    srcs = re.findall(r"<script\b[^>]*\bsrc=\"([^\"]+)\"", page.text)
+    assert len(tags) == len(srcs) and all(not body.strip() for body in tags)
+    assert all(u.startswith("/static/") for u in srcs), srcs
+    assert not re.search(r"\son[a-z]+\s*=", page.text, re.I)
     h = await client.get("/healthz")
     assert h.json() == {"status": "ok"}
     assert h.headers["content-security-policy"].startswith("default-src 'none'") and "frame-ancestors 'none'" in h.headers["content-security-policy"]

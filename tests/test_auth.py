@@ -10,24 +10,26 @@ async def test_login_page_returns_200(client):
     assert resp.status_code in (200, 302)  # 302 if oidc_only mode
 
 
+# A missing or wrong token is refused before the credentials are looked at; the form comes back (200: the load
+# balancer swaps 4xx bodies for its own page) asking to sign in again
 @pytest.mark.asyncio
-async def test_login_without_csrf_returns_403(client):
+async def test_login_without_csrf_is_refused(client):
     resp = await client.post("/auth/login", data={
         "username": "anyone",
         "password": "whatever",
         # no _csrf field
     })
-    assert resp.status_code == 403
+    assert resp.status_code == 200 and "form expired" in resp.text and "Sign-in failed" not in resp.text
 
 
 @pytest.mark.asyncio
-async def test_login_with_wrong_csrf_returns_403(client):
+async def test_login_with_wrong_csrf_is_refused(client):
     resp = await client.post("/auth/login", data={
         "username": "anyone",
         "password": "whatever",
         "_csrf": "clearly:invalid",
     })
-    assert resp.status_code == 403
+    assert resp.status_code == 200 and "form expired" in resp.text and "Sign-in failed" not in resp.text
 
 
 @pytest.mark.asyncio

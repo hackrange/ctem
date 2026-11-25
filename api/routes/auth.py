@@ -7,6 +7,7 @@ import secrets
 import time
 from datetime import datetime, timezone
 from typing import Annotated
+from urllib.parse import parse_qs, urlsplit
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -66,13 +67,20 @@ async def _render_login(request: Request, db: AsyncSession, *, error: str | None
         "logo_url": branding.get("login_logo_url") or branding.get("logo_url"),   # its own logo, else the menu's
         "org_name": branding.get("org_name"),
         "favicon_v": _icon_version(branding.get("favicon_url")),
-    }, status_code=status, headers={"Content-Security-Policy": CSP_STRICT_SCRIPT})   # the page has no script at all
+    }, status_code=status, headers={"Content-Security-Policy": CSP_STRICT_SCRIPT})   # one same-origin file, no inline script
 
 
-def _check_csrf(request: Request, token: str | None) -> None:
+def _csrf_ok(request: Request, token: str | None) -> bool:
     from api.core.security import verify_csrf_token
-    if not token or not verify_csrf_token(token, request.session.get("session_id", "")):
-        raise HTTPException(403, detail="CSRF validation failed")
+    return bool(token) and verify_csrf_token(token, request.session.get("session_id", ""))
+
+
+async def _stale_form(request: Request, db: AsyncSession):
+    """Nothing in a stale sign-in form runs; a signed-in person (a double submit) goes on, anyone else signs in again."""
+    if request.session.get("user_id") and request.session.get("access_token"):
+        q = parse_qs(urlsplit(request.headers.get("referer") or "").query)   # safe_next keeps it on this site
+        return RedirectResponse(safe_next((q.get("next") or [None])[0]) or "/", status_code=303)
+    return await _render_login(request, db, error="That sign-in form expired. Please sign in again.")
 
 
 def _remember_next(request: Request) -> None:
@@ -144,7 +152,8 @@ async def browser_login(
     csrf: Annotated[str | None, Form(alias="_csrf")] = None,
     db: AsyncSession = Depends(get_session),
 ):
-    _check_csrf(request, csrf)
+    if not _csrf_ok(request, csrf):
+        return await _stale_form(request, db)
     settings = get_settings()
     if (await sso_config.effective(db))[0] == "oidc_only":
         raise HTTPException(400, detail="Local auth is disabled")
@@ -184,7 +193,8 @@ async def browser_totp(
     csrf: Annotated[str | None, Form(alias="_csrf")] = None,
     db: AsyncSession = Depends(get_session),
 ):
-    _check_csrf(request, csrf)
+    if not _csrf_ok(request, csrf):
+        return await _stale_form(request, db)
     uid = request.session.get("pending_user_id")
     started = int(request.session.get("pending_at", 0))
     if not uid or time.time() - started > _PENDING_TTL:

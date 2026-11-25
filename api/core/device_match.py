@@ -103,7 +103,7 @@ SOURCE_CODES = {"ldap": "AD", "rapid7_insightvm": "R7", "crowdstrike": "CS", "qu
                 "msdefender": "MDE", "sentinelone": "S1", "cortex_xdr": "XDR", "tanium": "TAN",
                 "guardicore": "GC", "rapid7_appsec": "R7-APP", "rapid7_cloudsec": "R7-CLOUD",
                 "aws": "AWS", "azure": "AZ", "oci": "OCI",
-                "github_code_review": "GCR"}
+                "github_code_review": "GCR", "okta": "OKTA"}
 
 
 def source_list(dev) -> list[str]:

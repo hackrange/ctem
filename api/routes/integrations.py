@@ -52,6 +52,19 @@ def _check_vendor_config(vendor: Vendor, config: dict) -> None:
         except ValueError as exc:
             raise HTTPException(400, str(exc).capitalize()) from exc
         return
+    if vendor == Vendor.okta:
+        from api.integrations.okta import org_host
+        try:
+            org_host(config)
+            if not str(config.get("base_url") or "").lower().startswith("https://"):
+                raise ValueError("the Okta domain must start with https://")
+            if config.get("factor_budget") not in (None, "") and not 0 <= int(config["factor_budget"]) <= 20000:
+                raise ValueError("MFA lookups per sync must be from 0 to 20000")
+            if config.get("device_interval_days") not in (None, "") and not 0 <= int(config["device_interval_days"]) <= 90:
+                raise ValueError("The device pull interval must be from 0 to 90 days")
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)[:200]) from exc
+        return
     if vendor == Vendor.github_code_review:
         from api.integrations.gcr_client import GcrError, base_url
         from api.integrations.github_code_review import tag_map
@@ -73,7 +86,8 @@ def _check_vendor_config(vendor: Vendor, config: dict) -> None:
         raise HTTPException(400, str(exc)) from exc
 
 router = APIRouter(prefix="/api/v1/integrations", tags=["integrations"])
-_VENDOR_LABELS = {"email": "Email (SMTP or Microsoft 365)", "github_code_review": "GitHub Code Review (SAST and DAST)", "aws": "AWS (cloud exposure)", "azure": "Azure (cloud exposure)", "oci": "Oracle Cloud OCI (cloud exposure)"}
+_VENDOR_LABELS = {"email": "Email (SMTP or Microsoft 365)", "github_code_review": "GitHub Code Review (SAST and DAST)", "aws": "AWS (cloud exposure)", "azure": "Azure (cloud exposure)", "oci": "Oracle Cloud OCI (cloud exposure)",
+                  "okta": "Okta (identity provider, read only)"}
 
 
 @router.get("")

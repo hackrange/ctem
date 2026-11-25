@@ -15,6 +15,7 @@ from api.integrations import (  # noqa: F401
     horizon3,
     ldap,
     msdefender,
+    okta,
     paloalto_ngfw,
     qualys,
     rapid7_appsec,

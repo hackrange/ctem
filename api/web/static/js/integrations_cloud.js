@@ -1,4 +1,4 @@
-// Integrations page: the cloud exposure connectors (AWS, Azure, OCI) and Zscaler (OneAPI, read only). Loaded before the page script, which
+// Integrations page: the cloud exposure connectors (AWS, Azure, OCI), Zscaler (OneAPI) and Okta, all read only. Loaded before the page script, which
 // spreads CLOUD_VENDOR_FIELDS into VENDOR_FIELDS. All read-only; secrets are stored encrypted and never shown again.
 const CLOUD_VENDOR_FIELDS = {
   aws: [
@@ -20,6 +20,13 @@ const CLOUD_VENDOR_FIELDS = {
     {key:'vanity_domain', label:'ZIdentity vanity domain (the "acme" in acme.zslogin.net)', type:'text', placeholder:'acme', required:true},
     {key:'client_id',     label:'OneAPI client ID', type:'text', placeholder:'', required:true},
     {key:'client_secret', label:'OneAPI client secret (give the client view-only roles in each product)', type:'password', placeholder:'', required:true},
+  ],
+  okta: [
+    {key:'base_url',       label:'Okta domain', type:'text', placeholder:'https://acme.okta.com', required:true},
+    {key:'api_token',      label:'API token (create it as a Read-Only Administrator)', type:'password', placeholder:'', required:true},
+    {key:'factor_budget',  label:'MFA lookups per sync (default 3000; people on computers go first)', type:'text', placeholder:'3000', required:false},
+    {key:'device_interval_days', label:'Device pull every N days (default 7; it is slow, about 1 minute per 750 computers; 0 = every sync)', type:'text', placeholder:'7', required:false},
+    {key:'create_devices', label:'Add Okta-registered computers CTEM has never seen (active in the last 90 days)', type:'checkbox', required:false},
   ],
   oci: [
     {key:'tenancy_ocid',   label:'Tenancy OCID', type:'text', placeholder:'ocid1.tenancy.oc1..', required:true},

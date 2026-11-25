@@ -3,7 +3,7 @@
 **Continuous Threat Exposure Management** -- open source, risk-based, built to outclass every commercial CTEM product.
 
 > Author: Tim Rice &lt;tim.j.rice@hackrange.com&gt;  
-> Version: 1.11.4  
+> Version: 1.12.0  
 > License: MIT
 
 ## Install
@@ -99,6 +99,7 @@ Every source is matched to the same device row by host name, however it spells i
 | Fortinet | Firewall | Policy data |
 | Zscaler (OneAPI, read only) | Network / SSE | Client Connector coverage gaps (no agent or a silent one on workstations CTEM sees), ZIA policy weaknesses (risky URL categories allowed, broad SSL bypass, any-to-any firewall rules, DLP off or monitor only), admin sign-in and super admins, ZDX reporting; one token POST then allow-listed GETs only |
 | Grip Security | SaaS | Shadow IT, SaaS risk |
+| Okta (read only) | Identity provider | Who signs in on each Windows and macOS computer (Okta Verify), so a workstation with no EDR still gets its user; the phone each person's SMS or voice MFA factor reaches, their factors and account state; computer posture (disk encryption, TPM, managed, serial); posture findings (no or phishable-only MFA, unencrypted computers, computers with no EDR, computers only Okta knows, one name claimed by two serial numbers); System Log threats (ThreatInsight, denied pushes, lockouts, suspicious-activity reports, breached credentials, admin role grants, MFA resets). GETs on an allow-list of paths on the org's own host only. The device pull runs on its own interval (weekly by default) |
 | ServiceNow | ITSM + CMDB | Ticket creation, CMDB export |
 | Snyk | AppSec | Code and container findings |
 | GitHub Advanced Security | AppSec | SAST/secret scan findings |
@@ -117,6 +118,10 @@ Every source is matched to the same device row by host name, however it spells i
 **Splunk alert feed**: CTEM raises a small set of high-fidelity alerts (KEV on internet-facing assets, high/critical EDR alerts, unauthorized software, control checks that start failing, threat intel matches, remote response sessions), each once with a stable `key`, as `sourcetype=ctem:alert`. Deliver them directly to a reachable HEC (the Splunk integration's "HEC URL for CTEM alerts") or through the shipper's Splunk source (local HEC and/or a Universal Forwarder file), or both.
 
 **Threat hunting telemetry**: with Falcon Data Replicator on the shipper's CrowdStrike source, Threat Hunt > Telemetry stacks every distinct process, DNS lookup, connection and logon per day by host count (rare first), matched against Falcon Intel indicators, alongside the real-time Falcon event stream. Raw data stays in your S3; CTEM keeps 30 days of stacks.
+
+**Okta.** Give the API token to a Read-Only Administrator. People are matched by their full UPN only (a bare-name match counts only for a directory user with no UPN), and a directory user two Okta accounts claim is left alone. Okta names a computer by its own hostname, which its user can change, so only workstations are matched, and a name two live computers with different serial numbers both claim is left unapplied and raised as a finding. An asset's **Identity** tab (admins and cyber) shows the people on it with their MFA phone, directory phones and factors, and the computer as Okta Verify saw it. CTEM leaves half of each Okta rate-limit bucket for the org.
+
+**Approving software on an asset** (admins and cyber): on its Software tab, select titles (or all of them) and choose **Approve only here** (an exception on this asset, with a reason and optional end date) or **Approve everywhere** (the titles' own status).
 
 **Truncate** (admins, on each integration card) removes the data that integration's source reported, so the next sync starts clean: its findings, software installs, cached alerts, tag links and sync history, and the assets no other source reports (assets other sources also report are kept, minus this source's data). Software review decisions, tags and their access rules, and vulnerabilities with an exception are kept. Data is tagged by source, not by integration, so two integrations of the same vendor (say, InsightVM cloud and an InsightVM console) share it, and the warning names the other one. It runs in the background behind a warning that lists what goes, needs the integration's name typed to confirm, pauses that source's syncs and shipper uploads while it runs, rescores afterwards, and is audited. Cards also show the last sync's warnings, such as a shipper skipping software it can't read.
 

@@ -375,3 +375,41 @@ async def test_bracketed_ids_merge_and_the_strictest_decision_stays(db):
     merged = (await db.execute(select(SoftwareTitle).where(SoftwareTitle.key == f"beyondtrust|beyondtrust jump{n}"))).scalar_one()
     assert merged.status == "unauthorized"                                       # the stricter one wins
     assert len((await db.execute(select(SoftwareInstall).where(SoftwareInstall.title_id == merged.id))).scalars().all()) == 2
+
+
+@pytest.mark.asyncio
+async def test_bulk_approve_only_here_touches_this_asset_and_its_own_titles(db, client_admin, client_it_user):
+    from sqlalchemy import select
+
+    from api.models.device import Device, DeviceType
+    from api.models.software import SoftwareException
+    n = uuid.uuid4().hex[:6]
+    a, b = await _ingest(db, n)
+    titles = (await client_admin.get(f"/api/v1/software/device/{a.id}", params={"include_system": True})).json()["software"]
+    ids = [s["id"] for s in titles]
+    url = f"/api/v1/software/device/{a.id}/exceptions"
+    body = {"ids": ids, "decision": "allowed", "reason": "Standard engineering tools"}
+    assert (await client_it_user.put(url, json=body)).status_code == 404            # not a decider
+    assert (await client_admin.put(f"/api/v1/software/device/{uuid.uuid4()}/exceptions", json=body)).status_code == 404
+    assert (await client_admin.put(url, json={**body, "reason": "x"})).status_code == 422
+    assert (await client_admin.put(url, json={**body, "ids": []})).status_code == 422
+    assert (await client_admin.put(url, json={**body, "ids": [str(uuid.uuid4())] * 501})).status_code == 422
+    # a title that isn't on this asset is skipped, not given an exception
+    other = Device(hostname=f"lonely-{n}", device_type=DeviceType.workstation)
+    db.add(other)
+    await db.commit()
+    r = (await client_admin.put(f"/api/v1/software/device/{other.id}/exceptions", json=body)).json()
+    assert r["updated"] == 0 and r["not_found"] == len(ids)
+    r = (await client_admin.put(url, json=body)).json()
+    assert r["updated"] == len(ids)
+    here = (await client_admin.get(f"/api/v1/software/device/{a.id}", params={"include_system": True})).json()["software"]
+    assert {s["status_here"] for s in here} == {"approved"}
+    there = (await client_admin.get(f"/api/v1/software/device/{b.id}")).json()["software"]
+    assert {s["status_here"] for s in there} == {"unreviewed"}
+    excs = (await db.execute(select(SoftwareException).where(SoftwareException.device_id.in_([b.id, other.id])))).scalars().all()
+    assert not excs
+    # approve everywhere: the titles' own status
+    r = (await client_admin.put("/api/v1/software/bulk-status", json={"ids": ids, "status": "approved"})).json()
+    assert r["updated"] == len(ids)
+    there = (await client_admin.get(f"/api/v1/software/device/{b.id}")).json()["software"]
+    assert {s["status_here"] for s in there} == {"approved"}

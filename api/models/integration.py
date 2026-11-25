@@ -53,6 +53,7 @@ class Vendor(str, enum.Enum):
     aws = "aws"                 # cloud exposure (api/cloud/)
     azure = "azure"
     oci = "oci"
+    okta = "okta"               # identity provider: devices to people, MFA phones, sign-in threats (api/integrations/okta.py)
 
 
 class IntegrationConfig(Base, UUIDPrimaryKey, TimestampMixin):

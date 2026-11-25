@@ -7,6 +7,22 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-11-25
+
+### Added
+- **Okta integration (identity provider, read only).** GETs on an allow-list of four paths on the org's own host; anything else, another host, plain http, a redirect or a next-page link pointing elsewhere is refused before the token is sent. Half of each Okta rate-limit bucket is left for the org.
+  - **People:** matched to directory users by UPN. Okta fills gaps (title, department, phones) and adds account state and last sign-in. Each person's MFA factors are read weekly, people on computers first, within a per-sync budget. The phone their SMS (else voice) factor reaches is kept as the most reliable contact. Local accounts are never touched.
+  - **Computers:** Windows and macOS computers registered with Okta Verify are matched to devices by name, with Okta as a new source (OKTA). Where no EDR reports sign-ins, the person enrolled on it becomes the detected user. Posture (disk encryption, TPM, managed, screen lock, serial) is kept. Optionally adds computers CTEM has never seen (active in the last 90 days). The device pull is slow (Okta pages devices with users 20 at a time), so it runs on its own interval, weekly by default.
+  - **Signals:** posture findings for people with no real second factor or phishable factors only, unencrypted computers, computers with no EDR, computers only Okta knows, and one computer name claimed by two serial numbers. System Log security events become identity threats on the Identity page: ThreatInsight, denied pushes, lockouts, suspicious-activity reports, breached credentials, admin role grants, impersonation and MFA resets.
+- **Identity tab** on an asset (admins and cyber): the people on the computer with their MFA phone, directory phones, email, factors and last sign-in, and the computer as Okta Verify saw it.
+- **Bulk software approval** on an asset's Software tab (admins and cyber): select titles or all of them, then **Approve only here** (an exception on this asset with a reason and optional end date; only titles installed there) or **Approve everywhere**. New `PUT /api/v1/software/device/{id}/exceptions`; each change is audited.
+
+### Fixed
+- **Sign-in:** a double-submitted sign-in form (a double click, or Enter and a click) left people on the load balancer's 403 page although the first submit had signed them in. A form whose token no longer matches is still refused and nothing in it is processed, but a signed-in person now goes on to where they were headed (on this site only), and anyone else sees the sign-in form again. The **Sign in** and **Verify** buttons also grey out once clicked (a small same-origin script; the page still allows no inline script), so the form is sent once.
+
+### Security
+- Okta data can't take over people or computers: a look-alike login (tim@partner.example) never lands on a directory user with a different UPN, a person two Okta accounts claim is left alone, a laptop renamed to another computer's name is caught by its serial number, servers are never matched, and a username differing only by case doesn't become a second account. Non-email sign-in names are masked in identity threats.
+
 ## [1.11.4] - 2026-11-25
 
 ### Security

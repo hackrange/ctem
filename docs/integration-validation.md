@@ -20,6 +20,7 @@ fields may not match the real API (the Horizon3 connector, for one, called endpo
 | AWS, Oracle OCI | Real accounts |
 | Anthropic | Real API |
 | Zscaler (OneAPI) | Real tenant, 2026-11-24: token POST plus GETs on an allow-list; Client Connector (15,244 devices), ZDX devices, ZIA URL, SSL, firewall and DLP rules and admins |
+| Okta | Real tenant, 2026-11-25: GET only on the allow-list; users, devices (11,729 active Windows and macOS computers; Okta pages devices with users 20 at a time), MFA factors, System Log security events; rate-limit headers honored with half of each bucket left for the org |
 | Grip Security | Real tenant, 2026-11-24: every read endpoint, a full sync (227 ITDR threats, 606 posture findings, 3,266 SaaS apps, 68 AI agents, 14,665 identities) with GET only; paths match open-fairtprm's working client |
 
 ## In progress
