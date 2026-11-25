@@ -3,9 +3,11 @@
 All notable changes to open-ctem are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
-open-ctem is a Python rewrite of an earlier PHP version begun about 18 months before this repository; that history isn't in this repository (see [docs/project-overview.md](docs/project-overview.md)). Versions here start with the Python release, and each version is tagged (`v1.1.0` ... `v1.10.0`) at the commit that finished it. The on-prem shipper has its own version numbers.
+open-ctem is a Python rewrite of an earlier PHP version begun about 18 months before this repository; that history isn't in this repository (see [docs/project-overview.md](docs/project-overview.md)). Versions here start with the Python release, and each version is tagged (`v1.1.0` ... `v1.10.1`) at the commit that finished it. The on-prem shipper has its own version numbers.
 
 ## [Unreleased]
+
+## [1.10.1] - 2026-11-25
 
 ### Added
 - **Posture exceptions on a device's Posture tab.** A failing EDR posture check (a Zero Trust Assessment check such as LT Terminal Fault Mitigation) has an Except button: accept it on this device, on every device with one of its tags (an app tag, say), on every device of its type (all workstations) or everywhere, with a reason and an end date within a year. While in force the check shows as Excepted with who, why and until when, and leaves the failing count; the narrowest exception is the one shown. Cyber or Admin only; every change is audited; turning one off, removing it or reaching its end date makes the check fail again.
