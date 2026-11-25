@@ -7,6 +7,11 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.12.1] - 2026-11-25
+
+### Fixed
+- **Okta:** Okta's API answers an occasional HTTP 500 on a page that works when asked again; the first sync stopped there after 20 minutes. Okta's 5xx answers are now retried up to three times with a growing wait. A device pull that still fails no longer fails the whole sync: people, MFA and threats are read anyway, the card shows a warning, and the device pull runs again on the next sync. One person's MFA factors failing to read no longer stops the others.
+
 ## [1.12.0] - 2026-11-25
 
 ### Added

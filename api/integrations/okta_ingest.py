@@ -289,17 +289,27 @@ async def factors(conn, client, db: AsyncSession, people: People) -> int:
     sem, done = asyncio.Semaphore(4), 0
 
     async def one(user):
+        from api.integrations.okta import OktaError
         async with sem:
-            body, _ = await conn.fetch(f"/api/v1/users/{uids[user.id]}/factors", client)
+            try:
+                body, _ = await conn.fetch(f"/api/v1/users/{uids[user.id]}/factors", client)
+            except OktaError:
+                return user, None   # this person waits for the next sync; the rest carry on
         return user, factor_summary(body if isinstance(body, list) else [])
 
+    failed = 0
     for i in range(0, len(due), 100):
         for user, s in await asyncio.gather(*(one(u) for u in due[i:i + 100])):
+            if s is None:
+                failed += 1
+                continue
             user.mfa_phone = s["mfa_phone"]
             user.idp = {**(user.idp or {}), "factors": s["factors"], "mfa_phone_kind": s["mfa_phone_kind"],
                         "factors_at": datetime.now(timezone.utc).isoformat()}
             done += 1
         await db.commit()
+    if failed:
+        conn.warnings.append(f"MFA factors couldn't be read for {failed} people this run; they're retried next sync")
     if len(due) == budget and budget:
         conn.warnings.append(f"read MFA factors for {budget} people this run; the rest follow on later syncs")
     return done

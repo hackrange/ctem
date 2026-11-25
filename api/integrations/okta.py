@@ -39,6 +39,8 @@ ALLOWED = (
 )
 RESERVE = 0.5          # leave at least half of each rate-limit bucket for the org's own admins and apps
 _MAX_WAIT = 65.0       # Okta buckets reset every minute
+_RETRY = (500, 502, 503, 504)
+_BACKOFF = (3.0, 10.0, 30.0)
 
 
 class OktaError(RuntimeError):
@@ -112,6 +114,9 @@ class OktaConnector(BaseConnector):
             if resp.status_code == 429 and attempt < 3:
                 await self._pace_429(resp)
                 continue
+            if resp.status_code in _RETRY and attempt < 3:   # Okta's 500s come and go on the same page
+                await asyncio.sleep(_BACKOFF[attempt])
+                continue
             break
         if resp.status_code in (401, 403):
             raise OktaError(f"Okta refused the API token (HTTP {resp.status_code}); check it and the admin role it belongs to")
@@ -184,10 +189,17 @@ class OktaConnector(BaseConnector):
         async with self.client() as client:
             people = await okta_ingest.users(self, client, db)
             n = len(people.by_okta)
+            pulled = False
             if await self.devices_due(db):
-                n += await okta_ingest.devices(self, client, db, people)
-                await self._devices_done(db)
-            else:
+                try:
+                    n += await okta_ingest.devices(self, client, db, people)
+                    await self._devices_done(db)
+                    pulled = True
+                except OktaError as e:   # the rest of the sync still runs; the pull retries next sync
+                    await db.rollback()
+                    self.warnings.append(f"device pull stopped ({e}); it runs again next sync")
+                    log.warning("Okta device pull failed: %s", e)
+            if not pulled:
                 await okta_ingest.device_owners(db, people)   # who's on a computer, from the last device pull
             n += await okta_ingest.factors(self, client, db, people)
             n += await okta_signals.posture(self, db, people)

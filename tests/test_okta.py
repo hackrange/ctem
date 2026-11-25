@@ -304,3 +304,39 @@ async def test_okta_data_cannot_hijack_people_or_computers(db, monkeypatch):
     await db.refresh(clash)
     assert not clash.is_resolved
     assert _mask("jdoe") == "**oe" and _mask("jdoe@acme.example") == "**oe@acme.example"
+
+
+@pytest.mark.asyncio
+async def test_okta_500s_are_retried_and_a_failed_device_pull_does_not_sink_the_sync(db, monkeypatch):
+    import httpx
+
+    import api.integrations.okta as okta
+    from api.integrations.base import load_sync_state
+    from api.integrations.okta import OktaConnector
+    real_sleep = okta.asyncio.sleep
+
+    async def no_wait(*_):
+        await real_sleep(0)
+    monkeypatch.setattr(okta.asyncio, "sleep", no_wait)
+    hits = {"n": 0}
+
+    def flaky(req: httpx.Request):
+        hits["n"] += 1
+        return httpx.Response(500 if hits["n"] <= 2 else 200, json=[{"ok": 1}])
+
+    conn = OktaConnector({"base_url": f"https://{ORG}", "api_token": "example-not-a-real-token"})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(flaky)) as c:
+        body, _ = await conn.fetch("/api/v1/users?limit=1", c)
+    assert body == [{"ok": 1}] and hits["n"] == 3
+
+    def devices_down(req: httpx.Request):
+        if req.url.path == "/api/v1/devices":
+            return httpx.Response(500, json={"errorCode": "E0000009"})
+        return httpx.Response(200, json=[])
+
+    monkeypatch.setattr(OktaConnector, "client", lambda self: httpx.AsyncClient(transport=httpx.MockTransport(devices_down)))
+    conn = OktaConnector({"base_url": f"https://{ORG}", "api_token": "example-not-a-real-token"})
+    conn.integration_id = str(uuid.uuid4())
+    await conn.sync(db)   # doesn't raise
+    assert any("device pull stopped" in w for w in conn.warnings)
+    assert "devices_at" not in await load_sync_state(db, conn.integration_id)   # so the next sync tries again
