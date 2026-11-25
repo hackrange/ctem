@@ -249,8 +249,8 @@ async def _ai_analyze(alert_ids: list[str], device_id: str | None) -> dict:
     from api.models.settings import AppSetting
     from sqlalchemy import select
 
+    from api.core.threat_explain import alert_facts
     from api.hunt.ai import get_ai
-
     alert_data = []
     ai = None
     async for db in get_session():
@@ -265,9 +265,8 @@ async def _ai_analyze(alert_ids: list[str], device_id: str | None) -> dict:
             if row and row.value:
                 try:
                     a = json.loads(row.value)
-                    if isinstance(a, dict):
-                        a.pop("detail_enc", None)   # command lines and users don't go to the AI provider
-                    alert_data.append(a)
+                    if isinstance(a, dict):   # an allow-list: the raw event, users and command lines never go
+                        alert_data.append(alert_facts(a))
                 except ValueError:
                     log.warning("skipping unreadable alert %s", aid)
 

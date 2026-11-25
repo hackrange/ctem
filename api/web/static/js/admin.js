@@ -36,8 +36,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ── Data loaders ──────────────────────────────────────────────────────────────
 
-async function fetchJson(url, opts) {
+async function fetchJson(url, opts, retried) {
   const res = await fetch(url, { headers: { Accept: 'application/json' }, ...opts });
+  if (res.status === 403 && res.headers.get('X-Step-Up') === 'required' && !retried && window.AdminStepUp) {
+    await AdminStepUp.ask((res.headers.get('X-Step-Up-Needs') || 'password').split(','));
+    return fetchJson(url, opts, true);   // once confirmed, the same request again
+  }
   if (!res.ok) {
     const e = await res.json().catch(() => ({}));
     throw new Error(e.detail || res.statusText);

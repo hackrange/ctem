@@ -214,7 +214,7 @@ async def investigate(db: AsyncSession, question: str, time_range: str = "7d",
     else:
         progress("Writing up what happened")
         raw = await hunt_ai.write_up(ai, question, evidence, label)
-        answer = hunt_ai.clean_write_up(raw, len(results)) if raw else None
+        answer = hunt_ai.clean_write_up(raw, len(results), results) if raw else None
         if answer:
             memory.store_answer(key, answer)
     if not answer:

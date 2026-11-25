@@ -15,7 +15,7 @@ from __future__ import annotations
 import fnmatch
 import logging
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.integrations import gcr_fields
@@ -314,7 +314,11 @@ class GitHubCodeReviewConnector(BaseConnector):
 
         # vulnerabilities and findings
         vulns = {v.source_vuln_id: v for v in (await db.execute(select(Vulnerability).where(Vulnerability.source == SRC))).scalars()}
-        have = {(f.device_id, f.vuln_id): f for f in (await db.execute(select(Finding).where(Finding.source == SRC))).scalars()}
+        iid = str(self.integration_id) if self.integration_id else None
+        mine_q = select(Finding).where(Finding.source == SRC)
+        if iid:   # this integration's findings and untagged older ones; never another GCR integration's
+            mine_q = mine_q.where(or_(Finding.integration_id == iid, Finding.integration_id.is_(None)))
+        have = {(f.device_id, f.vuln_id): f for f in (await db.execute(mine_q)).scalars()}
         seen: set = set()
         # Each repo keeps its own grade ("pkg:GHSA-x@info"); a regraded finding moves rows instead of closing
         key_of = {v.id: k for k, v in vulns.items()}
@@ -351,6 +355,8 @@ class GitHubCodeReviewConnector(BaseConnector):
                 f = Finding(device_id=dev.id, vuln_id=v.id, source=SRC, source_id=str(gid)[:256])
                 db.add(f)
                 have[(dev.id, v.id)] = f
+            if iid:
+                f.integration_id = iid   # claims an untagged row; others' rows were never loaded
             f.domain = "web" if dev.device_type == DeviceType.website else "code"
             if details and ((dev.id, v.id) not in seen or status == FindingStatus.open):
                 sent = (f.details or {}).get("tool_exception")   # what CTEM told GCR about this finding stays

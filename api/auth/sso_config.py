@@ -97,6 +97,29 @@ async def effective(db: AsyncSession) -> tuple[str, OidcConfig | None]:
     return mode, cfg
 
 
+async def bind_unbound_subjects(db: AsyncSession) -> int:
+    """At start: SSO accounts from before issuers were kept (oidc_issuer empty) get the issuer this server is set up
+    with, the one that issued their subjects. Sign-in then matches subject and issuer only, so pointing SSO at another
+    IdP later can never attach its people to these accounts by a colliding subject. Disabled-but-stored settings still
+    name the issuer; with no SSO set up at all the accounts are left alone."""
+    from sqlalchemy import update
+    from api.models.user import User
+    cfg = _env_config()
+    if cfg is None:
+        raw = await load_raw(db)
+        try:
+            cfg = _from_raw(raw) if raw.get("provider") else None
+        except (KeyError, ValueError):
+            cfg = None
+    issuer = (cfg.issuer or "").rstrip("/") if cfg else ""
+    if not issuer:
+        return 0
+    res = await db.execute(update(User).where(User.oidc_sub.isnot(None), User.oidc_issuer.is_(None))
+                           .values(oidc_issuer=issuer))
+    await db.commit()
+    return res.rowcount or 0
+
+
 async def no_access_message(db: AsyncSession) -> str:
     raw = await load_raw(db)
     return raw.get("no_access_message") or DEFAULT_MESSAGE

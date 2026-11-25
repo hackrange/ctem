@@ -106,7 +106,7 @@ async def get_current_user(
 
     if from_session:
         from api.auth import sessions
-        await sessions.check(request, user)   # signed out elsewhere, or older than the latest password
+        await sessions.check(request, user, db)   # signed out elsewhere, or older than the latest password
         _slide(request, claims, user)
         if request.session.get("acting_as") is not None:   # Admin > Users > View as (api/auth/impersonation.py)
             from api.auth import impersonation

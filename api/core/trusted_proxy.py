@@ -6,9 +6,10 @@ look at.
 The proxy is named, not numbered (TRUSTED_PROXY_HOST, "nginx" in the image), and resolved again when a request comes
 from an address it doesn't know, so a recreated nginx container is followed. When a lookup fails after the name has
 resolved once (the proxy stopped, a DNS hiccup), the last addresses it had are kept, so no other peer is believed in
-the meantime. Only if the name has never resolved since start are the headers trusted as before (logged), so a
-deployment that names its proxy differently never sees every person arrive from one address and get throttled
-together. Unset, no forwarded header is read (tests, a bare app)."""
+the meantime. Until the name has resolved once, no peer is believed (logged) and the lookup is retried every
+second: people arrive as the proxy's own address for that moment (only sign-in submissions are throttled by
+address), never as whatever a header claims. A deployment whose proxy has another name sets TRUSTED_PROXY_HOST.
+Unset, no forwarded header is read (tests, a bare app)."""
 from __future__ import annotations
 
 import asyncio
@@ -20,6 +21,7 @@ import time
 log = logging.getLogger("open-ctem.proxy")
 REFRESH = 30.0     # seconds a resolved address set is reused
 RETRY = 5.0        # an unknown peer triggers a fresh lookup at most this often
+UNRESOLVED_RETRY = 1.0   # until the name has resolved once
 
 
 def _header(scope, name: bytes) -> str | None:
@@ -45,7 +47,8 @@ class TrustedProxyMiddleware:
 
     async def _trusted(self, peer: str) -> bool:
         now = time.monotonic()
-        stale = now - self._at > REFRESH or (peer not in self._ips and now - self._at > RETRY)
+        wait = RETRY if self._ips else UNRESOLVED_RETRY
+        stale = self._at == 0.0 or now - self._at > REFRESH or (peer not in self._ips and now - self._at > wait)
         if stale:
             got = await self._resolve()
             self._at = now
@@ -55,13 +58,11 @@ class TrustedProxyMiddleware:
                     if self._ips:
                         log.warning("reverse proxy %r not resolvable; keeping its last known addresses", self.host)
                     else:
-                        log.warning("reverse proxy %r not resolvable; trusting forwarded headers from any peer",
+                        log.warning("reverse proxy %r not resolvable yet; forwarded headers ignored until it is",
                                     self.host)
-                if not self._ips:
-                    return True
             else:
                 self._ips = got
-        return peer in self._ips if self._ips else True
+        return peer in self._ips
 
     async def __call__(self, scope, receive, send):
         if self.host and scope["type"] in ("http", "websocket"):

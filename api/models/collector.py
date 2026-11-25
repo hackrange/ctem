@@ -30,7 +30,7 @@ class CollectorSecret(Base, UUIDPrimaryKey, TimestampMixin):
     kind: Mapped[str] = mapped_column(String(32), nullable=False)
     field: Mapped[str] = mapped_column(String(32), nullable=False)
     # Already end-to-end encrypted; wrapped again with the server key so a DB dump shows nothing useful
-    envelope: Mapped[str] = mapped_column(EncryptedString, nullable=False)
+    envelope: Mapped[str] = mapped_column(EncryptedString("collector_secrets.envelope"), nullable=False)
     key_fp: Mapped[str] = mapped_column(String(64), nullable=False)
     updated_by: Mapped[str | None] = mapped_column(String(64))
 

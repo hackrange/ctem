@@ -209,6 +209,13 @@ async def _run_seed() -> None:
     settings = get_settings()
     async with _session_factory() as db:
         await run_seed(db, settings)
+    try:
+        from api.auth.sso_config import bind_unbound_subjects
+        async with _session_factory() as db:
+            if n := await bind_unbound_subjects(db):
+                log.info("SSO: %d account(s) from before issuers were kept bound to the configured issuer", n)
+    except Exception:  # noqa: BLE001 -- start anyway; those accounts just can't sign in through SSO until bound
+        log.exception("SSO: binding accounts to the configured issuer failed")
 
 
 # ── Session helpers ───────────────────────────────────────────────────────────

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import re
 import secrets
 import time
 
@@ -64,6 +65,10 @@ def totp_qr_png(secret: str, username: str) -> bytes:
 async def verify_totp(username: str, code: str, secret_encrypted: str) -> None:
     """Verify TOTP code. Raises HTTPException on failure, lockout, or replay."""
     settings = get_settings()
+    # ASCII digits only: the code check normalizes full-width and other Unicode digits to the same code, so each
+    # spelling would get its own single-use key and one code could be replayed in many forms
+    if not re.fullmatch(r"[0-9]{6}", code or ""):
+        raise HTTPException(401, detail="Invalid TOTP code")
     r = _redis()
 
     lock_key = _TOTP_LOCK_KEY.format(username=username)
@@ -72,20 +77,22 @@ async def verify_totp(username: str, code: str, secret_encrypted: str) -> None:
         raise HTTPException(429, detail=f"Account locked. Try again in {ttl} seconds.")
 
     fail_key = _TOTP_FAIL_KEY.format(username=username)
-    fail_count = int(await r.get(fail_key) or 0)
 
     # Replay check -- codes are single-use within their window
     used_key = _TOTP_USED_KEY.format(username=username, code=code)
     if await r.exists(used_key):
         raise HTTPException(401, detail="Code already used")
 
+    # Count the attempt before checking it, with INCR's own answer: parallel guesses each get their own number, so a
+    # burst can't all read the same old count and slip past the lock (a success clears the count below)
+    new_count = int(await r.incr(fail_key))
+    await r.expire(fail_key, 3600)
+    if new_count > settings.totp_lockout_threshold_3:
+        raise HTTPException(429, detail="Account locked due to repeated failures. Contact admin.")
+
     secret = decrypt(secret_encrypted)
     totp = pyotp.TOTP(secret)
     if not totp.verify(code, valid_window=1):
-        # Increment failure counter with appropriate lockout
-        new_count = fail_count + 1
-        await r.incr(fail_key)
-        await r.expire(fail_key, 3600)
 
         if new_count >= settings.totp_lockout_threshold_3:
             # Hard lock -- requires admin to clear
@@ -101,9 +108,10 @@ async def verify_totp(username: str, code: str, secret_encrypted: str) -> None:
 
         raise HTTPException(401, detail="Invalid TOTP code")
 
-    # Success -- clear failure counter, mark code as used
+    # Success -- claim the code atomically (SET NX), so two requests racing with one code can't both pass
+    if not await r.set(used_key, "1", ex=90, nx=True):  # 90s covers the ±30s valid_window
+        raise HTTPException(401, detail="Code already used")
     await r.delete(fail_key)
-    await r.set(used_key, "1", ex=90)  # 90s covers the ±30s valid_window
 
 
 async def _flag_hard_lockout(username: str) -> None:

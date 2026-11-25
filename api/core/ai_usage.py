@@ -197,8 +197,17 @@ def _limit(settings: dict, key: str) -> Decimal | None:
         return Decimal(0)
 
 
-async def check_budget(db: AsyncSession) -> None:
-    """Raise AIBudgetExceeded when either monthly limit is reached."""
+UNPRICED_MSG = ("A monthly AI cost limit is set, but the AI model in use has no price, so its cost can't be "
+                "counted and AI is paused. An admin can enter the model's prices, or set a monthly token limit, "
+                "under Admin > AI Usage.")
+
+
+async def check_budget(db: AsyncSession, provider: str | None = None, model: str | None = None) -> None:
+    """Raise AIBudgetExceeded when either monthly limit is reached.
+
+    A cost-only cap can't bound calls it can't price, so it fails closed for an unpriced model
+    (the one about to be called, or any used this month) instead of letting them run free.
+    """
     settings = await load_settings(db)
     cost_cap, token_cap = _limit(settings, "monthly_cost_limit"), _limit(settings, "monthly_token_limit")
     if cost_cap is None and token_cap is None:
@@ -206,6 +215,9 @@ async def check_budget(db: AsyncSession) -> None:
     mtd = await month_to_date(db, settings)
     if cost_cap is not None and mtd["cost"] >= cost_cap:
         raise AIBudgetExceeded("This month's AI cost limit has been reached. An admin can raise it under Admin > AI Usage.")
+    if cost_cap is not None and token_cap is None and (
+            mtd["unpriced_calls"] or (provider and rates_for(provider, model, settings) is None)):
+        raise AIBudgetExceeded(UNPRICED_MSG)
     if token_cap is not None and mtd["tokens"] >= token_cap:
         raise AIBudgetExceeded("This month's AI token limit has been reached. An admin can raise it under Admin > AI Usage.")
 
@@ -215,14 +227,14 @@ def _factory():
     return dbm._session_factory
 
 
-async def guard() -> None:
+async def guard(provider: str | None = None, model: str | None = None) -> None:
     """Budget check in its own session; a broken meter must not block AI (only a reached limit does)."""
     factory = _factory()
     if factory is None:
         return
     try:
         async with factory() as db:
-            await check_budget(db)
+            await check_budget(db, provider, model)
     except AIBudgetExceeded:
         raise
     except Exception:

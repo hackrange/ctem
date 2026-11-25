@@ -1,4 +1,5 @@
-"""Step-up: prove it's still you before a backup leaves the server or a restore replaces it.
+"""Step-up: prove it's still you before a backup leaves the server or a restore replaces it, and before an admin
+grants the admin role, sets another account's password or replaces or removes its authenticator.
 
 Local accounts re-enter their password (and TOTP code when enrolled). SSO-only accounts without TOTP must have
 signed in within the last 10 minutes. A pass lasts 10 minutes and lives in the signed session cookie, bound to the
@@ -47,7 +48,8 @@ def active_until(request: Request, user: User) -> int | None:
 def require(request: Request, user: User) -> None:
     browser_only(request)
     if active_until(request, user) is None:
-        raise HTTPException(403, detail="Confirm it's you first.", headers={"X-Step-Up": "required"})
+        raise HTTPException(403, detail="Confirm it's you first.",
+                            headers={"X-Step-Up": "required", "X-Step-Up-Needs": ",".join(needs(user)) or "sso"})
 
 
 async def _failures(key: str, add: bool = False) -> int:
@@ -89,7 +91,7 @@ async def verify(request: Request, user: User, password: object, code: object) -
             raise HTTPException(401, detail="That password is not right.")
     if "code" in fields:
         c = code.strip() if isinstance(code, str) else ""
-        if not re.fullmatch(r"\d{6}", c):
+        if not re.fullmatch(r"[0-9]{6}", c):   # \d would also take Unicode digits
             await _failures(key, add=True)
             raise HTTPException(401, detail="Enter the 6-digit code from your authenticator app.")
         await verify_totp(user.username, c, user.totp_secret)   # its own lockout and replay guard

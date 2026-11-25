@@ -178,8 +178,37 @@ def _attack(items) -> list[dict]:
     return out
 
 
-def clean_write_up(raw: dict, n_lookups: int) -> dict:
-    """Force the AI's answer into the exact shape the page renders, nothing more."""
+# A remediation step never carries a link: text in the data can't steer an analyst to a site
+_LINK = re.compile(r"(?i)\b(?:[a-z][a-z0-9+.-]{1,15}://\S*|(?:javascript|vbscript|data|file|mailto):\S+|www\.\S+"
+                   r"|[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z][a-z0-9-]*/\S*)")
+
+
+def _no_links(text: str) -> str:
+    return _LINK.sub("[link removed]", text)
+
+
+def _row_text(lookup: dict) -> str:
+    """Every value the lookup really returned (rows only, never the AI-written search), lowercased."""
+    if lookup.get("error"):
+        return ""
+    return "\n".join(str(v) for row in lookup.get("rows") or [] if isinstance(row, dict)
+                     for v in row.values() if v not in ("", None)).lower()
+
+
+def _seen(inv: list[str], cited: list[int], results: list[dict]) -> list[str]:
+    """Keep only the hosts, users and IPs that appear in the rows of a lookup the issue cites."""
+    text = "\n".join(_row_text(results[n - 1]) for n in cited)
+    # a whole name, not a fragment of one: "dc" does not count because "adcs01" or "dc=corp" was in a row, while
+    # "ws01" still matches the host ws01.corp.example, and "jdoe" CORP\jdoe or jdoe@corp.example
+    return [x for x in inv if x and re.search(rf"(?<![\w.@-]){re.escape(x.lower())}(?![\w=-])", text)]
+
+
+def clean_write_up(raw: dict, n_lookups: int, results: list[dict] | None = None) -> dict:
+    """Force the AI's answer into the exact shape the page renders, nothing more.
+
+    With the lookups at hand, a host, user or IP is named as involved only when a cited
+    lookup returned it, so text in the data can't make the write-up name a made-up victim.
+    """
     def ref(v):
         try:
             v = int(v)
@@ -194,19 +223,25 @@ def clean_write_up(raw: dict, n_lookups: int) -> dict:
         inv = i.get("involved") if isinstance(i.get("involved"), dict) else {}
         sev = _s(i.get("severity"), 10).lower()
         conf = _s(i.get("confidence"), 10).lower()
+        timeline = [{"time": _s(t.get("time"), 25), "source": _s(t.get("source"), 40),
+                     "what": _s(t.get("what"), 300), "lookup": ref(t.get("lookup"))}
+                    for t in (i.get("timeline") or [])[:25] if isinstance(t, dict)]
+        cited = sorted({r for r in map(ref, i.get("lookups") or []) if r})
+        involved = {k: [_s(x, 80) for x in (inv.get(k) or [])[:15]] for k in ("hosts", "users", "ips")}
+        if results is not None:
+            backed = sorted(set(cited) | {t["lookup"] for t in timeline if t["lookup"]})
+            involved = {k: _seen(v, [n for n in backed if n <= len(results)], results) for k, v in involved.items()}
         issues.append({
             "title": _s(i.get("title"), 160),
             "severity": sev if sev in SEVERITIES else "medium",
             "confidence": conf if conf in ("high", "medium", "low") else "medium",
             "what_happened": _s(i.get("what_happened"), 1500),
             "why_it_matters": _s(i.get("why_it_matters"), 600),
-            "timeline": [{"time": _s(t.get("time"), 25), "source": _s(t.get("source"), 40),
-                          "what": _s(t.get("what"), 300), "lookup": ref(t.get("lookup"))}
-                         for t in (i.get("timeline") or [])[:25] if isinstance(t, dict)],
-            "involved": {k: [_s(x, 80) for x in (inv.get(k) or [])[:15]] for k in ("hosts", "users", "ips")},
-            "what_to_do": [_s(x, 300) for x in (i.get("what_to_do") or [])[:8]],
+            "timeline": timeline,
+            "involved": involved,
+            "what_to_do": [_no_links(_s(x, 300)) for x in (i.get("what_to_do") or [])[:8]],
             "attack": _attack(i.get("attack")),
-            "lookups": sorted({r for r in map(ref, i.get("lookups") or []) if r}),
+            "lookups": cited,
             # A generic rule the AI proposed for this finding; vetted and kept only by api/hunt/curated.learn
             "rule_draft": i.get("rule") if isinstance(i.get("rule"), dict) else None,
         })

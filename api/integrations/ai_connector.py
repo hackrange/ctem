@@ -127,7 +127,7 @@ class AIConnector(BaseConnector):
         vendor = self.vendor.value
         limiter = _limiter_for(vendor, self.config)
         used_model = model or self.config.get("model") or _default_model(vendor)
-        await ai_usage.guard()  # raises AIBudgetExceeded when this month's limit is used up
+        await ai_usage.guard(vendor, used_model)  # raises AIBudgetExceeded when this month's limit is used up
 
         for attempt in range(retries):
             await limiter.acquire()

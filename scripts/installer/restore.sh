@@ -36,6 +36,14 @@ _check_version() {
   fi
 }
 
+# pg_restore runs the dump as the database superuser, and a dump made by hand can run programs in the db container.
+# One handed to the web page may come from anyone, so it may hold only what open-ctem's own dumps do (dump_check.py)
+_check_dump() {
+  [[ "${CTEM_RESTORE_FROM_UI:-}" == 1 ]] || return 0
+  CTEM_BACKUP_PASSWORD="$RESTORE_PW" python3 -I "${INSTALL_DIR}/api/maintenance/dump_check.py" --in "$1" --name db/openctem.dump \
+    || die "This backup's database holds statements open-ctem's own backups never do, so it was not restored and nothing was changed. If you trust it, restore it on the server with install.sh --restore."
+}
+
 # Settings a web restore takes from this server, never the backup: who may set client IPs, where the app listens,
 # what the maintenance page may do, whether it runs in debug mode, and how this host reaches the internet and its disk
 UI_HOST_KEYS=(TRUSTED_PROXY_HOST LB_BIND_IP LB_TRUSTED_IPS ALLOWED_HOSTS DEBUG APP_ENV SSRF_BYPASS_HOSTS
@@ -184,6 +192,7 @@ do_restore() {
   [[ "$(_manifest format)" == open-ctem-backup ]] || die "This is not an open-ctem backup."
   ok "Backup from $(_manifest host), taken $(_manifest created_utc)."
   _check_version
+  _check_dump "$file"
 
   if [[ "$mode" == inplace ]]; then
     warn "This replaces EVERYTHING on this server (data, users, settings, keys) with the backup."

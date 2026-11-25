@@ -97,17 +97,47 @@ class _SSRFTransport(httpx.AsyncHTTPTransport):
         host = request.url.host
         ip = _resolve_and_validate(host)
         if ip is not None:
-            # Pin: connect to the vetted IP, keep Host and TLS SNI on the name
-            request.headers["Host"] = request.url.netloc.decode("ascii")
-            request.extensions = {**request.extensions, "sni_hostname": host}
-            request.url = request.url.copy_with(host=ip)
+            # Pin: connect to the vetted IP, keep Host and TLS SNI on the name. A copy is sent, so the client's own
+            # request keeps the name and redirects are judged (and resolved) against it, not against the IP
+            headers = httpx.Headers(request.headers)
+            headers["Host"] = request.url.netloc.decode("ascii")
+            request = httpx.Request(request.method, request.url.copy_with(host=ip), headers=headers,
+                                    stream=request.stream, extensions={**request.extensions, "sni_hostname": host})
         return await super().handle_async_request(request)
+
+
+# Headers a redirect to another origin keeps; everything else (Authorization, X-Api-Key, access-token, any vendor
+# credential header) stays with the origin the caller addressed
+_CROSS_ORIGIN_SAFE = frozenset({"host", "accept", "accept-encoding", "accept-language", "user-agent",
+                                "content-type", "content-length", "transfer-encoding"})
+
+
+def _origin(url: httpx.URL) -> tuple[str, str, int | None]:
+    return url.scheme, url.host, url.port or {"http": 80, "https": 443}.get(url.scheme)
+
+
+class _SafeRedirectClient(httpx.AsyncClient):
+    """Redirects never downgrade https to http, and never carry credentials to another origin."""
+
+    def _redirect_headers(self, request: httpx.Request, url: httpx.URL, method: str) -> httpx.Headers:
+        if request.url.scheme == "https" and url.scheme != "https":
+            raise SSRFBlocked("redirect from https to http refused")
+        headers = super()._redirect_headers(request, url, method)
+        upgrade = (request.url.scheme == "http" and url.scheme == "https" and request.url.host == url.host
+                   and request.url.port in (None, 80) and url.port in (None, 443))   # same host, now over TLS
+        if _origin(url) != _origin(request.url) and not upgrade:
+            if method == request.method and method not in ("GET", "HEAD"):
+                # a 307/308 resends the body (a token request's client_secret, say) to the new host: refused
+                raise SSRFBlocked("redirect that resends a request body to another site refused")
+            for name in [k for k in headers.keys() if k.lower() not in _CROSS_ORIGIN_SAFE]:
+                del headers[name]
+        return headers
 
 
 def safe_client(**kwargs: Any) -> httpx.AsyncClient:
     """Return an httpx client that refuses SSRF targets."""
     verify = kwargs.pop("verify", True)
-    return httpx.AsyncClient(
+    return _SafeRedirectClient(
         transport=_SSRFTransport(verify=verify),
         follow_redirects=True,
         max_redirects=_MAX_REDIRECTS,

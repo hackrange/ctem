@@ -3,9 +3,53 @@
 All notable changes to open-ctem are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
-open-ctem is a Python rewrite of an earlier PHP version begun about 18 months before this repository; that history isn't in this repository (see [docs/project-overview.md](docs/project-overview.md)). Versions here start with the Python release, and each version is tagged (`v1.1.0` ... `v1.11.2`) at the commit that finished it. The on-prem shipper has its own version numbers.
+open-ctem is a Python rewrite of an earlier PHP version begun about 18 months before this repository; that history isn't in this repository (see [docs/project-overview.md](docs/project-overview.md)). Versions here start with the Python release, and each version is tagged (`v1.1.0` ... `v1.11.3`) at the commit that finished it. The on-prem shipper has its own version numbers.
 
 ## [Unreleased]
+
+## [1.11.3] - 2026-11-25
+
+### Security
+Fixes from a second third-party penetration test. Shipper 1.8.2.
+- **Web restores check the database dump first.** A crafted backup could run commands on the database server while it was restored. A restore started from the web page now reads the dump's table of contents and refuses anything open-ctem's own backups never contain:
+  - functions, triggers or extensions other than timescaledb and pgstattuple;
+  - any statement besides creating tables, types and indexes, or loading rows;
+  - non-ASCII text outside quoted names;
+  - a dump that doesn't set standard strings and UTF-8;
+  - a backup that holds the dump twice.
+
+  Restores from the command line are unchanged. Backup key settings in an uploaded archive are capped, so a crafted header can't make the server use gigabytes of memory.
+- **Maintenance agent:** the spool folder can no longer be renamed by the app, and the agent opens every spool entry relative to the folder it checked, so a swapped-in link can't make it delete files elsewhere.
+- **Shipper 1.8.2** accepts only real integration ids from the server, and never writes outside its spool.
+- **Encryption:**
+  - A value that looks encrypted but fails its check is refused instead of being used as plain text.
+  - This release reads a new envelope that ties each value to its kind and, for secrets, to its column. It still writes the current envelope, so it can run beside and roll back to 1.11.2; the next release switches writes over.
+- **Sign-in:**
+  - A multi-factor code is claimed atomically, so it can't be used twice at once.
+  - Parallel guesses count against the lockout one by one.
+  - A pending second step expires when the password is reset.
+- **Sessions:** a sign-out is also recorded in the database and checked when Redis can't be read.
+- **Admin actions:** creating an admin, granting admin, setting another account's password, and setting up or removing another account's authenticator now ask the admin to confirm their password and code first.
+- **SSO:** accounts are bound to the configured issuer at start, and sign-in matches subject and issuer exactly.
+- **Network:**
+  - Client addresses from the reverse proxy are trusted only once its name has resolved.
+  - Redirects never downgrade https to http, never carry API keys or tokens to another site, and never resend a request body to another site.
+- **AI:**
+  - A monthly cost limit pauses AI for a model with no price instead of letting its cost go uncounted.
+  - Threat analysis sends only alert names, severities and MITRE data, never the raw event.
+  - Hunt write-ups name only hosts and users found in the rows they cite, and remediation steps carry no links.
+  - Entity profiles and dashboard explanations fence their data.
+  - Analysis results are shown only to the person who asked for them.
+- **Integrations:**
+  - GitHub Code Review and InsightCloudSec only change or close their own integration's findings.
+  - SentinelOne matches its own agent id first and never overwrites another EDR's.
+  - Splunk integrations saved without a TLS choice now verify the certificate.
+  - New LDAP integrations use StartTLS with a verified certificate, and existing plaintext ones show a warning.
+- **Access:**
+  - Cloud provider tags grant access only when an admin's rule names them.
+  - A fix's details are shown only to someone who can see a finding it fixes.
+  - Dashboard widgets cached per person include their current device access.
+  - Attack chains are bounded, so a large estate can't stall the server.
 
 ## [1.11.2] - 2026-11-25
 

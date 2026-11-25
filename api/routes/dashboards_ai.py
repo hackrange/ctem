@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.core.db import get_session
+from api.core.untrusted import NOTE, fence
 from api.dashboards import catalog as cat
 from api.models.user import User
 from api.routes.dashboards import _get, _member, _widgets
@@ -290,9 +291,11 @@ async def ai_explain(dash_id: uuid.UUID, u: User = Depends(_member), db: AsyncSe
             facts.append({"widget": w["title"], **_numbers(w["metric"], data)})
     if not facts:
         return {"available": True, "error": "There's nothing on this dashboard to explain yet."}
-    prompt = ('Dashboard "' + d.name + '" shows (numbers only):\n' + json.dumps(facts, default=str)[:12000] +
+    # The name and titles are the owner's words, shown to everyone it's shared with: data, never instructions
+    prompt = ('A dashboard and what it shows (numbers only):\n' +
+              fence(json.dumps({"dashboard": d.name, "widgets": facts}, default=str)[:12000]) +
               '\n\nReturn {"summary": "<3 to 6 short plain-English sentences for a busy manager: the overall picture, '
-              'what changed, and what stands out or needs attention. No markdown.>"}')
+              'what changed, and what stands out or needs attention. No markdown.>"} ' + NOTE)
     ok, out = await _ask(db, u, prompt, 700)
     if ok is None:
         return _NO_AI

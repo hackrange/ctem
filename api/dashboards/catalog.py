@@ -104,6 +104,11 @@ class Ctx:
         return "all" if self.scope is None else f"u{self.user.id}" + (f".{self.access}" if self.access else "")
 
     @property
+    def person_key(self) -> str:
+        """For answers that depend on the person even with fleet-wide access: still changes with their access."""
+        return f"u{self.user.id}" + (f".{self.access}" if self.access else "")
+
+    @property
     def rights_key(self) -> str:
         """What else changes a widget's answer for this viewer: the data they may see, and a full CSV export."""
         return f"g{int(self.grc)}t{int(self.threats)}d{int(self.decider)}" + ("x" if self.export else "")
@@ -225,7 +230,7 @@ async def evaluate(ctx: Ctx, widget: dict, base: dict | None = None) -> dict:
     if not allowed(m, ctx):
         return {"error": "You don't have access to this data."}
     params = {p.key: p.clean((widget.get("params") or {}).get(p.key)) for p in m.params}
-    viewer = f"u{ctx.user.id}" if m.per_user else ctx.viewer_key
+    viewer = ctx.person_key if m.per_user else ctx.viewer_key
     from api.dashboards import filters as flt
     conds = flt.clean(widget.get("filters")) if m.filterable else []
     match = "any" if widget.get("filter_match") == "any" else "all"
@@ -242,7 +247,7 @@ async def evaluate(ctx: Ctx, widget: dict, base: dict | None = None) -> dict:
         parts = [await flt.where(ctx.db, c, mt, ctx.user) for c, mt in ((dconds, dmatch), (conds, match)) if c]
         cond = parts[0] if len(parts) == 1 else and_(*parts)
         if flt.personal(conds + dconds):
-            viewer = f"u{ctx.user.id}"
+            viewer = ctx.person_key
         ctx = dataclasses.replace(ctx, scope=cond if ctx.scope is None else and_(ctx.scope, cond), filtered=True)
         viewer += ":f" + hashlib.sha256(json.dumps([conds, match, dconds, dmatch], sort_keys=True).encode()).hexdigest()[:16]
     shape = m.shape_for(widget.get("viz"))

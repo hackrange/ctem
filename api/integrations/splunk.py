@@ -13,11 +13,11 @@ log = logging.getLogger("open-ctem.splunk")
 
 
 def legacy_ssl_mode(config: dict) -> str:
-    """What an integration with no ssl_mode gets: kept for ones saved before the setting existed. New ones
-    are given "https" (verify) when created (api/routes/integrations.py)."""
+    """What an integration with no ssl_mode gets: http for an http:// URL, otherwise verified HTTPS. A
+    self-signed Splunk fails with a clear error until "HTTPS (skip verify)" is picked explicitly."""
     if str(config.get("base_url", "")).startswith("http://") or config.get("no_ssl"):
         return "http"
-    return "https_no_verify"
+    return "https"
 
 
 def new_ssl_mode(config: dict) -> str:
@@ -43,10 +43,14 @@ class SplunkConnector(BaseConnector):
 
     async def sync(self, db: AsyncSession) -> int:
         self.warnings: list[str] = []
-        if self.legacy_no_verify:
-            self.warnings.append("the Splunk certificate is not checked (SSL mode was never set); pick "
-                                 "HTTPS (verify cert) once Splunk has a trusted certificate")
-        alerts = await self._fetch_notable_events()
+        try:
+            alerts = await self._fetch_notable_events()
+        except Exception as e:
+            if self._verify and "CERTIFICATE_VERIFY_FAILED" in str(e):
+                raise RuntimeError("Splunk's TLS certificate could not be verified; give Splunk a trusted "
+                                   "certificate, or pick SSL mode \"HTTPS (skip verify)\" on this integration "
+                                   "to accept a self-signed one") from None
+            raise
         await self._cache_threats(alerts, db)
         # Map what lives where first: the catalog is built from that map
         from api.hunt.schema import refresh_schema
@@ -198,19 +202,12 @@ class SplunkConnector(BaseConnector):
           'https'          -- HTTPS + verify cert (default for new configs)
           'https_no_verify' -- HTTPS + skip cert check (self-signed certs)
           'http'           -- plain HTTP, no TLS
-        Legacy: if unset, infer from base_url scheme (https -> https_no_verify for compat,
-        since most self-managed Splunk instances use self-signed certs).
+        Unset: http for an http:// base_url, otherwise https (verify).
         """
         mode = self.config.get("ssl_mode", "")
         if mode in ("https", "https_no_verify", "http"):
             return mode
         return legacy_ssl_mode(self.config)
-
-    @property
-    def legacy_no_verify(self) -> bool:
-        """An integration saved before SSL mode existed: it keeps working unverified, and its card says so."""
-        return self.config.get("ssl_mode", "") not in ("https", "https_no_verify", "http") \
-            and self._ssl_mode == "https_no_verify"
 
     @property
     def _verify(self) -> bool:

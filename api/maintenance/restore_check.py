@@ -4,23 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from base64 import b64decode
 
 from sqlalchemy import Text, select, type_coerce
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from api.core.config import get_settings
-from api.core.encryption import EncryptedJSON, EncryptedString, decrypt
+from api.core.encryption import EncryptedJSON, EncryptedString, looks_sealed
 
 _SAMPLE = 20
-
-
-def _looks_sealed(value: str) -> bool:
-    # nonce + GCM tag alone is 28 bytes; legacy plaintext rows rarely decode to that
-    try:
-        return len(b64decode(value, validate=True)) >= 28
-    except ValueError:
-        return False
 
 
 def _columns():
@@ -45,10 +36,10 @@ async def run() -> tuple[int, int]:
                 raw_col = type_coerce(col, Text())
                 sql = select(raw_col).where(col.isnot(None)).limit(_SAMPLE)
                 for (raw,) in (await conn.execute(sql)).all():
-                    if not isinstance(raw, str) or not _looks_sealed(raw):
+                    if not isinstance(raw, str) or not looks_sealed(raw):
                         continue
                     try:
-                        decrypt(raw)
+                        col.type.open(raw)   # as the column reads it (v2 values are bound to it)
                         opened += 1
                     except Exception:  # noqa: BLE001
                         failed += 1

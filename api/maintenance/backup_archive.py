@@ -22,6 +22,7 @@ FORMAT = "open-ctem-backup"
 VERSION = 1
 CHUNK = 1 << 20
 KDF = {"name": "scrypt", "n": 1 << 17, "r": 8, "p": 1}  # about 128 MB of memory per guess
+MAX_KDF_MEMORY = 256 << 20
 MIN_PASSWORD = 16
 PW_ENV = "CTEM_BACKUP_PASSWORD"
 MAX_HEADER = 4096
@@ -48,9 +49,12 @@ def password_problem(pw: str) -> str | None:
 def _key(pw: str, salt: bytes, kdf: dict) -> bytes:
     # The header is untrusted until the first chunk opens, so keep a hostile one from asking for 64 GB of RAM
     n, r, p = kdf.get("n"), kdf.get("r"), kdf.get("p")
-    if kdf.get("name") != "scrypt" or not all(isinstance(v, int) for v in (n, r, p)):
+    if kdf.get("name") != "scrypt" or not all(type(v) is int for v in (n, r, p)):
         raise BackupError("unsupported key settings in the backup header")
     if not (1 << 14 <= n <= 1 << 20 and n & (n - 1) == 0 and 1 <= r <= 16 and 1 <= p <= 4):
+        raise BackupError("unsupported key settings in the backup header")
+    # Each bound alone still allows 2 GiB (n 2^20 with r 16), so cap memory and work together: twice our own settings
+    if 128 * r * (n + p) > MAX_KDF_MEMORY or n * r * p > 2 * KDF["n"] * KDF["r"] * KDF["p"]:
         raise BackupError("unsupported key settings in the backup header")
     return Scrypt(salt=salt, length=32, n=n, r=r, p=p).derive(pw.encode("utf-8"))
 

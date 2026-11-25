@@ -57,7 +57,7 @@ class User(Base, UUIDPrimaryKey, TimestampMixin):
     email_hash: Mapped[str | None] = mapped_column(String(64), index=True)  # HMAC for search
     display_name: Mapped[str | None] = mapped_column(EncryptedString)
     password_hash: Mapped[str | None] = mapped_column(Text)                 # Argon2id; null for OIDC-only users
-    totp_secret: Mapped[str | None] = mapped_column(EncryptedString)
+    totp_secret: Mapped[str | None] = mapped_column(EncryptedString("users.totp_secret"))
     totp_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     recovery_codes: Mapped[list | None] = mapped_column(EncryptedJSON)      # list of Argon2id-hashed recovery codes
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
@@ -147,3 +147,12 @@ class ApiToken(Base, UUIDPrimaryKey, TimestampMixin):
     rate_limit_per_minute: Mapped[int | None] = mapped_column(nullable=True)
 
     user: Mapped[User] = relationship()
+
+
+class EndedSession(Base):
+    """A signed-out browser session, kept until it would have expired anyway. Redis answers first; this is read only
+    when Redis can't be, so a signed-out cookie stays dead through a Redis outage (api/auth/sessions.py)."""
+    __tablename__ = "ended_sessions"
+
+    sid_hash: Mapped[str] = mapped_column(String(64), primary_key=True)   # SHA-256 of the session id
+    until: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)   # UTC

@@ -4,13 +4,38 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from ldap3 import ALL, SUBTREE, Connection, Server, Tls
+from ldap3 import ALL, AUTO_BIND_TLS_BEFORE_BIND, SUBTREE, Connection, Server, Tls
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.integrations.base import BaseConnector, register
 from api.models.integration import Vendor
 
 log = logging.getLogger("open-ctem.ldap")
+
+
+def _on(v) -> bool:
+    return str(v).lower() in ("true", "1", "yes", "on")
+
+
+def tls_mode(config: dict) -> tuple[bool, bool]:
+    """(LDAPS, StartTLS). The UI sends use_tls, some configs use use_ssl. New integrations are saved with
+    start_tls on unless LDAPS was picked (api/routes/integrations.py); older ones without it stay as saved."""
+    use_ssl = _on(config.get("use_ssl", config.get("use_tls", False)))
+    return use_ssl, not use_ssl and _on(config.get("start_tls"))
+
+
+def new_tls_settings(config: dict) -> dict:
+    """What a new LDAP integration is saved with: LDAPS if picked, otherwise StartTLS, both verified."""
+    return {} if tls_mode(config)[0] or "start_tls" in config else {"start_tls": True}
+
+
+def tls_warnings(config: dict) -> list[str]:
+    use_ssl, start_tls = tls_mode(config)
+    if not use_ssl and not start_tls:
+        return ["the bind password and directory data are sent without TLS; turn on LDAPS for this integration"]
+    if _on(config.get("tls_skip_verify")):
+        return ["the directory's TLS certificate is not checked (lab setting); turn off the skip once it has a trusted one"]
+    return []
 
 
 @register(Vendor.ldap)
@@ -26,6 +51,7 @@ class LDAPConnector(BaseConnector):
             return False
 
     async def sync(self, db: AsyncSession) -> int:
+        self.warnings: list[str] = tls_warnings(self.config)
         conn = self._connect()
         try:
             users = self._fetch_users(conn)
@@ -37,23 +63,19 @@ class LDAPConnector(BaseConnector):
 
     def _connect(self) -> Connection:
         host = self.config["host"]
-        # UI sends use_tls, some configs use use_ssl -- accept both
-        use_ssl = self.config.get("use_ssl", self.config.get("use_tls", False))
-        port = int(self.config.get("port", 636 if use_ssl else 389))
+        use_ssl, start_tls = tls_mode(self.config)
+        port = int(self.config.get("port") or (636 if use_ssl else 389))
         import ssl
-        # Verify LDAPS certs unless an admin explicitly opts out for a lab box
-        skip = str(self.config.get("tls_skip_verify", "")).lower() in ("true", "1", "yes", "on")
-        tls = Tls(validate=ssl.CERT_NONE if skip else ssl.CERT_REQUIRED) if use_ssl else None
+        # Verify the certificate unless an admin explicitly opts out for a lab box
+        skip = _on(self.config.get("tls_skip_verify"))
+        tls = Tls(validate=ssl.CERT_NONE if skip else ssl.CERT_REQUIRED) if use_ssl or start_tls else None
         server = Server(host, port=port, use_ssl=use_ssl, tls=tls, get_info=ALL)
         # UI sends bind_pass, some configs use bind_password
         password = self.config.get("bind_password") or self.config.get("bind_pass", "")
-        conn = Connection(
-            server,
-            user=self.config["bind_dn"],
-            password=password,
-            auto_bind=True,
-        )
-        return conn
+        if not start_tls:
+            return Connection(server, user=self.config["bind_dn"], password=password, auto_bind=True)
+        # StartTLS before the bind, so the password never crosses the wire in the clear
+        return Connection(server, user=self.config["bind_dn"], password=password, auto_bind=AUTO_BIND_TLS_BEFORE_BIND)
 
     @property
     def _ldap_type(self) -> str:

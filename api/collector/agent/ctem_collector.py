@@ -45,8 +45,14 @@ def _state(update=None, kind=None):
 
 # ── staging: every batch hits disk before it leaves, and is deleted once CTEM has it ──
 def _spool_dir(iid):
-    path = os.path.join(core.STATE_DIR, "spool", iid)
+    # The id comes from CTEM: only its UUID form, and the folder must land right under the spool root
+    if not isinstance(iid, str) or not core.ID_RE.fullmatch(iid):
+        raise ValueError("CTEM sent a malformed integration id")
+    root = os.path.join(core.STATE_DIR, "spool")
+    path = os.path.join(root, iid)
     os.makedirs(path, mode=0o700, exist_ok=True)
+    if os.path.realpath(path) != os.path.join(os.path.realpath(root), iid):
+        raise ValueError("the spool folder for this source is not a plain folder")
     return path
 
 

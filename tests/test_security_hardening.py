@@ -234,8 +234,8 @@ async def test_forwarded_headers_count_only_from_the_proxy():
     assert seen == {"client": ("10.100.142.8", 5555), "scheme": "http"}
     await TrustedProxyMiddleware(app, "")(scope("127.0.0.1"), None, None)   # no proxy configured: headers ignored
     assert seen["client"] == ("127.0.0.1", 5555)
-    await TrustedProxyMiddleware(app, "no-such-proxy.invalid")(scope("10.1.1.1"), None, None)   # unresolvable: as before
-    assert seen["client"] == ("203.0.113.9", 0)
+    await TrustedProxyMiddleware(app, "no-such-proxy.invalid")(scope("10.1.1.1"), None, None)   # never resolved: no peer
+    assert seen["client"] == ("10.1.1.1", 5555)
 
 
 async def test_only_the_api_docs_page_may_load_its_pinned_cdn_files(client_admin):

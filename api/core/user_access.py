@@ -5,7 +5,8 @@ A rule is a tag role (from Admin > Tag mapping) and the values that grant it, fo
 (exec_owner:..., owner:E-O:...), and tags that appear later match without editing the user. Values compare without
 case and surrounding spaces, and may hold wildcards (* any run of characters, ? one character): "*@acme.example".
 Any rule, any value grants (OR). "tag" rules name a tag (or a pattern such as "app:*"). "all" = "*" grants every
-asset, tagged or not, for complete visibility (a CISO, an audit team); what the person can do still comes from roles."""
+asset, tagged or not, for complete visibility (a CISO, an audit team); what the person can do still comes from roles.
+Cloud provider tags (aws:..., azure:..., oci:...) grant only through a "tag" rule that names them."""
 from __future__ import annotations
 
 import fnmatch
@@ -20,6 +21,7 @@ _cache: dict[str, tuple[float, tuple[bool, set[str]]]] = {}
 
 
 ALL = "all"   # the rule key for every asset
+CLOUD_TAGS = ("aws:", "azure:", "oci:")   # the tags cloud sync writes (api/cloud/exposure.py tag_names)
 
 
 def norm(v) -> str:
@@ -59,7 +61,9 @@ async def matching_tags(db: AsyncSession, wanted: list[dict]) -> list[tuple[str,
         if exact and _hit(norm(name), exact):
             out.append((str(tid), name))
             continue
-        m = tag_roles.match(name, roles) if by_role else None
+        # Cloud tags are written by whoever can tag an instance, and land on whatever device the instance matched
+        # (a private IP can collide with an on-prem server): they grant only when a rule names them, never by role
+        m = tag_roles.match(name, roles) if by_role and not name.lower().startswith(CLOUD_TAGS) else None
         if m and m[0] in by_role and _hit(norm(m[1]), by_role[m[0]]):
             out.append((str(tid), name))
     return out

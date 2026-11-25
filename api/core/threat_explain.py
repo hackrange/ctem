@@ -49,6 +49,22 @@ def facts(alert: dict, detail: dict, steps: list[dict]) -> dict:
     }
 
 
+_ALERT_FIELDS = ("title", "severity", "status", "source", "detected_at", "tactic", "tactic_id", "technique",
+                 "technique_id", "alert_count")
+
+
+def alert_facts(alert: dict) -> dict:
+    """What the AI threat analysis may see of a cached alert: the same names-and-MITRE boundary as the
+    alert read. An allow-list, so a connector's raw event, users, hosts and command lines never go."""
+    out = {k: alert[k] for k in _ALERT_FIELDS if isinstance(alert.get(k), (str, int, float)) and alert.get(k) != ""}
+    if isinstance(alert.get("description"), str) and alert["description"]:
+        out["description"] = alert["description"][:600]
+    ttps = alert.get("mitre_ttps")
+    if isinstance(ttps, list):
+        out["mitre_ttps"] = [t[:20] for t in ttps if isinstance(t, str)][:20]
+    return out
+
+
 def _key(alert: dict) -> str:
     return f"threat_ai_read_{hashlib.sha256(alert['id'].encode()).hexdigest()[:40]}"
 

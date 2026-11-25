@@ -178,6 +178,9 @@ class Saver:
             if fk and fk not in self.fixes:
                 self.fixes[fk] = fix_for(key, insight)[1]
             known = self.findings.get(fsid)
+            owner = self.owner.get(fsid)
+            if known is not None and self.integration_id and owner and owner != self.integration_id:
+                continue   # another integration's row under the same id: never refresh or reopen it from here
             if known is None:
                 fid = str(uuid.uuid4())
                 self.db.add(Finding(id=fid, device_id=self._device(rid, row), vuln_id=vid, source=SRC,

@@ -17,6 +17,7 @@ import subprocess  # nosec B404 - fixed argv lists, never a shell
 import sys
 import time
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
@@ -34,6 +35,8 @@ UPLOAD_TTL = 24 * 3600
 KEEP_JOBS = 200
 ACTIONS = ("backup", "delete", "restore", "schedule")
 _PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+_DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+SPOOL_DIRS = ("inbox", "uploads", "tmp")
 
 
 class Layout:
@@ -52,14 +55,14 @@ class Layout:
 
 # ── small file helpers (every path here is inside a root-owned directory) ─────
 
-def _dir(path: str, mode: int) -> None:
-    # The app can swap a spool folder for a link at any moment, so ownership is set on what was opened, never by name
+def _dir(path: str, mode: int, dir_fd: int | None = None) -> None:
+    # Ownership is set on what was opened, never by name, so a link put in the folder's place is refused
     try:
-        os.mkdir(path, mode)
+        os.mkdir(path, mode, dir_fd=dir_fd)
     except FileExistsError:
         pass
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        fd = os.open(path, _DIR_FLAGS, dir_fd=dir_fd)
     except OSError:
         raise SystemExit(f"{path} is a symlink or not a folder; refusing to use it") from None
     try:
@@ -87,11 +90,35 @@ def _load(path: str) -> dict:
         return {}
 
 
-def _unlink(path: str) -> None:
+def _unlink(path: str, dir_fd: int | None = None) -> None:
     try:
-        os.unlink(path)
-    except FileNotFoundError:
+        os.unlink(path, dir_fd=dir_fd)
+    except (FileNotFoundError, IsADirectoryError):
         pass
+
+
+@contextmanager
+def _spool(lay: Layout, name: str):
+    """A spool folder as an open fd, reached through the spool without following links and checked to be the
+    root-owned folder setup made. Everything in it is then listed, read, moved and removed relative to that fd."""
+    top = os.open(lay.spool, _DIR_FLAGS)
+    try:
+        st = os.fstat(top)
+        if st.st_uid != 0 or st.st_mode & 0o022:
+            raise ValueError(f"{lay.spool} is not the root-owned folder setup made; refusing to use it")
+        try:
+            fd = os.open(name, _DIR_FLAGS, dir_fd=top)
+        except OSError:
+            raise ValueError(f"spool/{name} is a symlink or not a folder; refusing to use it") from None
+    finally:
+        os.close(top)
+    try:
+        st = os.fstat(fd)
+        if (st.st_uid, st.st_gid, stat.S_IMODE(st.st_mode)) != (0, 0, 0o770):
+            raise ValueError(f"spool/{name} is not the folder setup made; refusing to use it")
+        yield fd
+    finally:
+        os.close(fd)
 
 
 def read_env(path: str) -> dict:
@@ -114,11 +141,16 @@ def ui_restore_on(env: dict) -> bool:
 # ── setup and status ──────────────────────────────────────────────────────────
 
 def setup(lay: Layout) -> None:
-    for path, mode in ((lay.run, 0o755), (lay.state, 0o750), (lay.jobs, 0o750), (lay.backups, 0o750)):
+    # The app runs as uid 1000 in group root; it gets in through the group, so a host user 1000 gets nothing.
+    # It may write in the spool's folders but never in the spool itself, so it can't put a link in their place.
+    for path, mode in ((lay.run, 0o755), (lay.state, 0o750), (lay.jobs, 0o750), (lay.backups, 0o750), (lay.spool, 0o750)):
         _dir(path, mode)
-    # The app runs as uid 1000 in group root; it gets in through the group, so a host user 1000 gets nothing
-    for path in (lay.spool, lay.inbox, lay.uploads, lay.tmp):
-        _dir(path, 0o770)
+    top = os.open(lay.spool, _DIR_FLAGS)
+    try:
+        for name in SPOOL_DIRS:
+            _dir(name, 0o770, dir_fd=top)
+    finally:
+        os.close(top)
     if not os.path.isfile(lay.key):
         raw, _ = agent_seal.new_keypair()
         _write(lay.key, raw, 0o600)
@@ -152,18 +184,18 @@ def heartbeat(lay: Layout, busy: str | None = None) -> None:
 
 # ── requests ──────────────────────────────────────────────────────────────────
 
-def _read_request(path: str) -> tuple[dict | None, str | None]:
+def _read_request(name: str, dir_fd: int) -> tuple[dict | None, str | None]:
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, dir_fd=dir_fd)
     except OSError:
-        _unlink(path)
+        _unlink(name, dir_fd)
         return None, "unreadable request"
     try:
         st = os.fstat(fd)
         raw = os.read(fd, MAX_REQUEST + 1) if stat.S_ISREG(st.st_mode) and st.st_size <= MAX_REQUEST else b""
     finally:
         os.close(fd)
-        _unlink(path)
+        _unlink(name, dir_fd)
     try:
         data = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, ValueError):
@@ -173,14 +205,14 @@ def _read_request(path: str) -> tuple[dict | None, str | None]:
 
 def take_requests(lay: Layout) -> list[tuple[str, dict | None, str | None]]:
     out = []
-    for name in sorted(os.listdir(lay.inbox)):
-        path = os.path.join(lay.inbox, name)
-        m = REQ_RE.match(name)
-        if not m:
-            _unlink(path)  # only finished requests are renamed in here, so anything else is junk
-            continue
-        data, err = _read_request(path)
-        out.append((m.group(1), data, err))
+    with _spool(lay, "inbox") as fd:
+        for name in sorted(os.listdir(fd)):
+            m = REQ_RE.match(name)
+            if not m:
+                _unlink(name, fd)  # only finished requests are renamed in here, so anything else is junk
+                continue
+            data, err = _read_request(name, fd)
+            out.append((m.group(1), data, err))
     return out
 
 
@@ -289,15 +321,16 @@ def backup_path(lay: Layout, name: str) -> str:
 
 def adopt_upload(lay: Layout, name: str) -> str:
     """Move an uploaded file into the root-owned backups folder before anything reads it."""
-    src, dest = os.path.join(lay.uploads, _file(name)), os.path.join(lay.backups, name)
+    dest = os.path.join(lay.backups, _file(name))
     if os.path.lexists(dest):
         raise ValueError("a backup with that name already exists")
-    try:
-        if not stat.S_ISREG(os.lstat(src).st_mode):
-            raise ValueError("the upload is not a regular file")
-    except FileNotFoundError:
-        raise ValueError("the upload is gone; upload it again") from None
-    os.rename(src, dest)
+    with _spool(lay, "uploads") as fd:
+        try:
+            if not stat.S_ISREG(os.stat(name, dir_fd=fd, follow_symlinks=False).st_mode):
+                raise ValueError("the upload is not a regular file")
+        except FileNotFoundError:
+            raise ValueError("the upload is gone; upload it again") from None
+        os.rename(name, dest, src_dir_fd=fd)
     if not stat.S_ISREG(os.lstat(dest).st_mode):  # swapped between the check and the move
         _unlink(dest)
         raise ValueError("the upload is not a regular file")
@@ -410,12 +443,15 @@ def prune_scheduled(lay: Layout, keep: int) -> None:
 
 def housekeeping(lay: Layout) -> None:
     now = time.time()
-    for folder, ttl in ((lay.uploads, UPLOAD_TTL), (lay.tmp, 6 * 3600)):
-        for name in os.listdir(folder):
-            p = os.path.join(folder, name)
-            st = os.lstat(p)
-            if not stat.S_ISDIR(st.st_mode) and now - st.st_mtime > ttl:
-                _unlink(p)
+    for folder, ttl in (("uploads", UPLOAD_TTL), ("tmp", 6 * 3600)):
+        with _spool(lay, folder) as fd:
+            for name in os.listdir(fd):
+                try:
+                    st = os.stat(name, dir_fd=fd, follow_symlinks=False)
+                except FileNotFoundError:
+                    continue
+                if not stat.S_ISDIR(st.st_mode) and now - st.st_mtime > ttl:
+                    _unlink(name, fd)
     jobs = sorted((n for n in os.listdir(lay.jobs) if n.endswith(".json") and ID_RE.match(n[:-5])),
                   key=lambda n: os.lstat(os.path.join(lay.jobs, n)).st_mtime, reverse=True)
     for name in jobs[KEEP_JOBS:]:

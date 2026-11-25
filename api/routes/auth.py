@@ -166,6 +166,7 @@ async def browser_login(
     if user.totp_enabled or settings.mfa_required:
         request.session["pending_user_id"] = str(user.id)
         request.session["pending_at"] = int(time.time())
+        request.session["pending_ms"] = time.time_ns() // 1_000_000   # compared with sessions_valid_after
         if user.totp_enabled and user.totp_secret:
             return await _render_login(request, db, totp_step=True)
         # MFA is mandatory and this account has none yet: enroll right here
@@ -193,6 +194,12 @@ async def browser_totp(
     user = (await db.execute(select(User).where(User.id == uid))).scalar_one_or_none()
     if user is None or not user.is_active or user.is_locked:
         return await _render_login(request, db, error=_LOGIN_FAILED)
+    begun = request.session.get("pending_ms")
+    if _predates_cutoff(user, begun if isinstance(begun, int) else started * 1000):
+        # the password was changed or reset (or the account signed out everywhere) after this step began
+        for k in ("pending_user_id", "pending_at", "pending_ms", "totp_enroll"):
+            request.session.pop(k, None)
+        return await _render_login(request, db, error="Sign-in expired. Please start again.")
 
     enroll = request.session.get("totp_enroll")
     enrolling = enroll.get("secret") if isinstance(enroll, dict) and enroll.get("uid") == str(user.id) else None
@@ -217,6 +224,14 @@ async def browser_totp(
     except HTTPException as e:
         return await _render_login(request, db, error=str(e.detail), totp_step=True)
     return await _create_session(request, user, db)
+
+
+def _predates_cutoff(user: User, begun_ms: int) -> bool:
+    after = user.sessions_valid_after
+    if after is None:
+        return False
+    after = after if after.tzinfo else after.replace(tzinfo=timezone.utc)
+    return begun_ms < round(after.timestamp() * 1000)
 
 
 def _enroll_view(secret: str, username: str) -> dict:
@@ -448,15 +463,12 @@ async def change_password(
 
 async def _upsert_oidc_user(info: dict, db: AsyncSession, cfg) -> User | None:
     """Find the SSO account by its stable subject within the configured issuer. Never attaches to an existing local
-    or directory account, nor to one another IdP created (subjects are only unique per issuer). An account from
-    before issuers were kept is bound to the first issuer it signs in through."""
-    from sqlalchemy import or_
+    or directory account, nor to one another IdP created (subjects are only unique per issuer). Accounts from before
+    issuers were kept are bound to the configured issuer once, at start (sso_config.bind_unbound_subjects), never
+    to whichever issuer a sign-in comes through."""
     sub, issuer = info["sub"], (cfg.issuer or "").rstrip("/")
-    found = (await db.execute(select(User).where(
-        User.oidc_sub == sub, or_(User.oidc_issuer == issuer, User.oidc_issuer.is_(None))))).scalars().all()
-    user = next((u for u in found if u.oidc_issuer == issuer), None) or (found[0] if found else None)
-    if user is not None and user.oidc_issuer is None:
-        user.oidc_issuer = issuer
+    user = (await db.execute(select(User).where(User.oidc_sub == sub, User.oidc_issuer == issuer)
+                             .limit(1))).scalar_one_or_none()
     if user is None:
         base = re.sub(r"[^A-Za-z0-9._@+-]", "", info.get("username") or "")[:100] or f"sso-{sub[:12]}"
         name = base

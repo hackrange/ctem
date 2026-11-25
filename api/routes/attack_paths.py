@@ -7,6 +7,8 @@ Built from open findings + reachability data from NodeZero / Horizon3.
 """
 from __future__ import annotations
 
+import heapq
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,7 +31,7 @@ async def list_attack_chains(
     db: AsyncSession = Depends(get_session),
     min_hops: int = Query(2, ge=1, le=10),
     kev_only: bool = False,
-    limit: int = Query(25, le=100),
+    limit: int = Query(25, ge=1, le=100),
 ):
     """
     Return probable exploit chains: devices with reachable KEV/high-CVSS findings
@@ -58,12 +60,10 @@ async def list_attack_chains(
         if f.device_id:
             by_device.setdefault(str(f.device_id), []).append(f)
 
-    chains = _build_chains(by_device, findings)
-    chains.sort(key=lambda c: c["chain_score"], reverse=True)
-
+    chains, total = _build_chains(by_device, findings, limit)
     return {
-        "chains": chains[:limit],
-        "total": len(chains),
+        "chains": chains,
+        "total": total,
         "reachable_devices": len(by_device),
     }
 
@@ -164,11 +164,16 @@ def _top(findings: list) -> list[dict]:
              "kev": bool(f.vuln and f.vuln.is_kev)} for f in worst[:TOP]]
 
 
-def _build_chains(by_device: dict, all_findings: list) -> list[dict]:
+BIG_SUBNET = 64   # past this many hosts in one /24, only its strongest hosts can make the top chains
+
+
+def _build_chains(by_device: dict, all_findings: list, limit: int | None = None) -> tuple[list[dict], int]:
     """
     Naive chain detector: devices sharing the same /24 subnet that both have
     reachable high-severity findings form a 2-hop chain.
     Real graph traversal lives in the NodeZero integration.
+    Returns the `limit` strongest chains (all when None), strongest first, and how many chains there are.
+    Each host is summarized once; pairs are scored as plain tuples and only the chains returned are built.
     """
     # Build subnet -> device map
     subnet_map: dict[str, list[str]] = {}
@@ -179,54 +184,45 @@ def _build_chains(by_device: dict, all_findings: list) -> list[dict]:
             device_ips[str(f.device_id)] = ip
             if ip:
                 subnet = ".".join(ip.split(".")[:3])
-                subnet_map.setdefault(subnet, [])
-                if str(f.device_id) not in subnet_map[subnet]:
-                    subnet_map[subnet].append(str(f.device_id))
+                subnet_map.setdefault(subnet, {})[str(f.device_id)] = None
 
-    chains = []
-    seen = set()
-    for subnet, dev_ids in subnet_map.items():
-        if len(dev_ids) < 2:
-            continue
-        for i, src_id in enumerate(dev_ids):
-            for dst_id in dev_ids[i + 1:]:
-                pair = tuple(sorted([src_id, dst_id]))
-                if pair in seen:
-                    continue
-                seen.add(pair)
+    side: dict[str, dict] = {}
+    total = 0
 
-                src_findings = by_device.get(src_id, [])
-                dst_findings = by_device.get(dst_id, [])
-                if not src_findings or not dst_findings:
-                    continue
+    def summary(dev_id: str) -> dict:
+        if dev_id not in side:
+            fs = by_device[dev_id]
+            dev = fs[0].device
+            side[dev_id] = {"device_id": dev_id, "hostname": dev.hostname if dev else None,
+                            "ip": device_ips.get(dev_id),
+                            "max_cvss": max(((f.vuln.cvss_base or 0) for f in fs if f.vuln), default=0),
+                            "finding_count": len(fs), "_fs": fs}
+        return side[dev_id]
 
-                src_max = max((f.vuln.cvss_base or 0) for f in src_findings if f.vuln)
-                dst_max = max((f.vuln.cvss_base or 0) for f in dst_findings if f.vuln)
-                chain_score = round((src_max + dst_max) / 2, 1)
+    def pairs():
+        nonlocal total
+        for subnet, ids in subnet_map.items():
+            dev_ids = [d for d in ids if by_device.get(d)]
+            total += len(dev_ids) * (len(dev_ids) - 1) // 2
+            if limit is not None and len(dev_ids) > BIG_SUBNET:   # a pair with a weaker host can't outrank these
+                ranked = sorted(dev_ids, key=lambda d: summary(d)["max_cvss"], reverse=True)
+                keep = set(ranked[:limit + 1])
+                dev_ids = [d for d in dev_ids if d in keep]
+            for i, src_id in enumerate(dev_ids):
+                a = summary(src_id)["max_cvss"]
+                for dst_id in dev_ids[i + 1:]:
+                    yield round((a + summary(dst_id)["max_cvss"]) / 2, 1), src_id, dst_id, subnet
 
-                src_dev = src_findings[0].device
-                dst_dev = dst_findings[0].device
+    scored = list(pairs()) if limit is None else heapq.nlargest(limit, pairs(), key=lambda p: p[0])
+    if limit is None:
+        scored.sort(key=lambda p: p[0], reverse=True)
 
-                chains.append({
-                    "chain_id": f"{src_id[:8]}-{dst_id[:8]}",
-                    "chain_score": chain_score,
-                    "hops": 2,
-                    "source": {
-                        "device_id": src_id,
-                        "hostname": src_dev.hostname if src_dev else None,
-                        "ip": device_ips.get(src_id),
-                        "max_cvss": src_max,
-                        "finding_count": len(src_findings),
-                        "top": _top(src_findings),
-                    },
-                    "destination": {
-                        "device_id": dst_id,
-                        "hostname": dst_dev.hostname if dst_dev else None,
-                        "ip": device_ips.get(dst_id),
-                        "max_cvss": dst_max,
-                        "finding_count": len(dst_findings),
-                        "top": _top(dst_findings),
-                    },
-                    "subnet": subnet + ".0/24",
-                })
-    return chains
+    def host(dev_id: str) -> dict:
+        h = summary(dev_id)
+        if "top" not in h:
+            h["top"] = _top(h.pop("_fs"))
+        return {k: v for k, v in h.items() if k != "_fs"}
+
+    return [{"chain_id": f"{src_id[:8]}-{dst_id[:8]}", "chain_score": score, "hops": 2,
+             "source": host(src_id), "destination": host(dst_id), "subnet": subnet + ".0/24"}
+            for score, src_id, dst_id, subnet in scored], total

@@ -4,15 +4,17 @@
     copy of the cookie stops working too
   - a new password (changed by its owner or reset by an admin) ends every other session of that account: each
     session carries when it signed in, and one from before users.sessions_valid_after no longer counts
-Without Redis, sign-out still clears the browser's cookie, the ended id is kept in this process too, and the
-account's sessions_valid_after moves to now, so a copy of the cookie stops working in every process (the account's
-other sessions end with it: signing in again is the cost, never a replayable session). A new password still ends
-the other sessions."""
+Every sign-out is also written to the database (ended_sessions), read only when Redis can't be, so a signed-out
+cookie stays dead through a Redis outage that starts later. Without Redis at sign-out, the browser's cookie is still
+cleared, the ended id is kept in this process too, and the account's sessions_valid_after moves to now, so a copy of
+the cookie stops working in every process even once Redis is back (the account's other sessions end with it: signing
+in again is the cost, never a replayable session). A new password still ends the other sessions."""
 from __future__ import annotations
 
+import hashlib
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, Request
 
@@ -72,6 +74,48 @@ async def _end_all_in_db(request: Request, db) -> None:
         log.warning("signed-out session not recorded in the database either", exc_info=True)
 
 
+def _sid_hash(sid: str) -> str:
+    return hashlib.sha256(sid.encode()).hexdigest()
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+async def _record_in_db(sid: str, ttl: int, db) -> None:
+    """Durable copy of the sign-out, for when Redis can't be read later. Expired ones are cleared as we go."""
+    from sqlalchemy import delete
+    from api.models.user import EndedSession
+    if db is None:
+        return
+    try:
+        now = _utcnow()
+        await db.execute(delete(EndedSession).where(EndedSession.until < now))
+        await db.merge(EndedSession(sid_hash=_sid_hash(sid), until=now + timedelta(seconds=ttl)))
+        await db.commit()
+    except Exception:  # noqa: BLE001 -- Redis (or the fallback below) still records it
+        log.warning("signed-out session not recorded in the database", exc_info=True)
+        try:
+            await db.rollback()
+        except Exception:  # noqa: BLE001
+            log.debug("rollback after the failed sign-out record also failed", exc_info=True)
+
+
+async def _ended_in_db(sid: str, db) -> bool:
+    """Redis is unreadable: was this session signed out? Unknown (no database handle, or the query failed) counts
+    as signed in, as before; a request that got this far has just read its account from the database."""
+    from sqlalchemy import select
+    from api.models.user import EndedSession
+    if db is None:
+        return False
+    try:
+        row = (await db.execute(select(EndedSession.until).where(EndedSession.sid_hash == _sid_hash(sid)))).first()
+    except Exception:  # noqa: BLE001
+        log.warning("signed-out sessions not checked (Redis and database)", exc_info=True)
+        return False
+    return row is not None and row[0] > _utcnow()
+
+
 async def end(request: Request, db=None) -> None:
     """Sign-out: this session can't be used again, from this browser or any copy of its cookie."""
     from api.auth.local import _redis
@@ -80,6 +124,7 @@ async def end(request: Request, db=None) -> None:
     if isinstance(sid, str) and sid:
         ttl = max(get_settings().session_max_hours, 1) * 3600
         _remember(sid, ttl)
+        await _record_in_db(sid, ttl, db)
         try:
             await _redis().set(_key(sid), "1", ex=ttl)
         except Exception:  # noqa: BLE001 -- the cookie is still cleared below
@@ -88,7 +133,7 @@ async def end(request: Request, db=None) -> None:
     request.session.clear()
 
 
-async def check(request: Request, user) -> None:
+async def check(request: Request, user, db=None) -> None:
     """For a browser session: refuse one that was signed out or predates the account's latest password."""
     epoch = request.session.get(EPOCH)
     if not isinstance(epoch, int) and isinstance(request.session.get("signed_in_at"), int):
@@ -107,9 +152,9 @@ async def check(request: Request, user) -> None:
         from api.auth.local import _redis
         try:
             ended = await _redis().exists(_key(sid))
-        except Exception:  # noqa: BLE001 -- signing in must not depend on Redis; this process's own list still counts
-            log.warning("signed-out sessions not checked (Redis)")
-            return
+        except Exception:  # noqa: BLE001 -- signing in must not depend on Redis; the database copy answers instead
+            log.warning("signed-out sessions checked in the database (Redis unreadable)")
+            ended = await _ended_in_db(sid, db)
         if ended:
             request.session.clear()
             raise HTTPException(401, detail="Session ended; sign in again")

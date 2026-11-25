@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.core.device_match import find_device
 from api.core.encryption import search_hash
+from api.core.untrusted import fence
 from api.hunt import ctem_data, memory, window
 from api.hunt.fallback import entity_filter
 from api.hunt.results import splunk_table
@@ -175,7 +176,7 @@ async def _summary(ai, prof: dict) -> str:
         return cached.get("summary", "")
     out = await ask_json(ai, "In plain words a 5th grader can follow, sum up what this data says about this "
                              f"{prof['kind']} in 3-4 short sentences: who or what it is, anything unusual, and "
-                             'how worried to be. Return {"summary": "..."}\n\n' + text, max_tokens=2500)
+                             'how worried to be. Return {"summary": "..."}\n\nDATA:\n' + fence(text), max_tokens=2500)
     summary = str((out or {}).get("summary", ""))[:1200] if isinstance(out, dict) else ""
     if summary:
         memory.store_answer(key, {"summary": summary})

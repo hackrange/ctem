@@ -267,10 +267,26 @@ async def _ctem_device(db: AsyncSession, device_id: str | None) -> dict | None:
             "internet_exposed": bool(d.is_internet_exposed), "device_type": d.device_type.value if d.device_type else None}
 
 
+_OWNER = "threat_analysis_owner:"
+
+
+def _remember_owner(task_id: str, user_id: str) -> None:
+    from api.routes.hunt import _OWNER_TTL, _redis
+    _redis().set(_OWNER + task_id, user_id, ex=_OWNER_TTL)
+
+
+def _owner_of(task_id: str) -> str | None:
+    from api.routes.hunt import _redis
+    try:
+        return _redis().get(_OWNER + task_id)
+    except Exception:  # noqa: BLE001 -- fail closed: nobody gets a result we can't attribute
+        return None
+
+
 @router.post("/analyze")
 async def ai_analyze_threat(
     body: ThreatAnalysisRequest,
-    _: User = Depends(require_cyber_or_admin),
+    current_user: User = Depends(require_cyber_or_admin),
     db: AsyncSession = Depends(get_session),
 ):
     """
@@ -280,15 +296,18 @@ async def ai_analyze_threat(
     """
     from api.core.tasks import analyze_threat_alerts
     task = analyze_threat_alerts.delay(body.alert_ids, body.device_id)
+    _remember_owner(task.id, str(current_user.id))   # only whoever asked may read the result
     return {"task_id": task.id, "status": "queued", "message": "AI analysis queued. Check back in ~30 seconds."}
 
 
 @router.get("/analysis/{task_id}")
 async def get_analysis_result(
     task_id: str,
-    _: User = Depends(require_cyber_or_admin),
+    current_user: User = Depends(require_cyber_or_admin),
 ):
-    """Poll for the result of an AI threat analysis task."""
+    """Poll for the result of an AI threat analysis task. Someone else's task, or an unknown one, is a 404."""
+    if _owner_of(task_id) != str(current_user.id):
+        raise HTTPException(404)
     from api.core.tasks import celery_app
     result = celery_app.AsyncResult(task_id)
     if result.state == "PENDING":

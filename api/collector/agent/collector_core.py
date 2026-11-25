@@ -10,12 +10,14 @@ import time
 import collector_common as cc
 import collector_crypto as crypto
 
-AGENT_VERSION = "1.8.1"
+AGENT_VERSION = "1.8.2"
 CONF_DIR = os.environ.get("OCTEM_CONF_DIR", "/etc/open-ctem-collector")
 STATE_DIR = os.environ.get("STATE_DIRECTORY", "/var/lib/open-ctem-collector")
 MODULES = {"ldap": "collector_ldap", "rapid7_console": "collector_rapid7",
            "crowdstrike": "collector_crowdstrike", "splunk": "collector_splunk", "netprobe": "collector_netprobe"}
 URL_RE = re.compile(r"^https://[A-Za-z0-9.-]+(:\d{1,5})?$")
+# CTEM's integration ids are UUIDs; one goes into local spool paths and request paths, so nothing else is taken
+ID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
 
 def mod(kind):
@@ -140,7 +142,15 @@ class Shipper:
         return self.cfg
 
     def modules(self):
-        return [m for m in (self.cfg or {}).get("modules", []) if m.get("enabled", True) and m["kind"] in MODULES]
+        out = []
+        for m in (self.cfg or {}).get("modules", []):
+            if not (isinstance(m, dict) and m.get("enabled", True) and isinstance(m.get("kind"), str) and m["kind"] in MODULES):
+                continue
+            if not isinstance(m.get("integration_id"), str) or not ID_RE.fullmatch(m["integration_id"]):
+                cc.say(f"{m['kind']}: CTEM sent a malformed integration id; skipping this source")
+                continue
+            out.append(m)
+        return out
 
     def approved(self, m):
         """Recompute the digest ourselves; never trust CTEM's word for what changed."""

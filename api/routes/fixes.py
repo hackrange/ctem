@@ -113,7 +113,8 @@ async def fix_detail(u: User = Depends(_viewer), db: AsyncSession = Depends(get_
         .group_by(Vulnerability.id, Vulnerability.cve_id, Vulnerability.title, Vulnerability.cvss_base,
                   Vulnerability.is_kev, Vulnerability.exploit_available)
         .order_by(Vulnerability.is_kev.desc(), Vulnerability.cvss_base.desc().nulls_last()).limit(500))).all()
-    fix = (await db.execute(select(Fix).where(Fix.key == key))).scalar_one_or_none()
+    # A scoped viewer sees a fix only through their own open findings that use it
+    fix = (await db.execute(select(Fix).where(Fix.key == key))).scalar_one_or_none() if vulns or scope is None else None
     if fix is None and not vulns:
         return {"ok": False, "error": "That fix isn't available to you."}   # the same for absent and not yours
     devices = (await db.execute(select(func.count(func.distinct(Finding.device_id))).where(

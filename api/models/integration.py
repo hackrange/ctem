@@ -65,7 +65,7 @@ class IntegrationConfig(Base, UUIDPrimaryKey, TimestampMixin):
     vendor: Mapped[Vendor] = mapped_column(Enum(Vendor), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     is_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    config: Mapped[dict | None] = mapped_column(EncryptedJSON)                  # all credentials + settings
+    config: Mapped[dict | None] = mapped_column(EncryptedJSON("integration_configs.config"))   # all credentials + settings
     last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_sync_status: Mapped[SyncStatus | None] = mapped_column(Enum(SyncStatus))
     last_sync_error: Mapped[str | None] = mapped_column(Text)

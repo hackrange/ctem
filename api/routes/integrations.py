@@ -196,7 +196,10 @@ async def create_integration(
     _check_vendor_config(body.vendor, body.config)
     if body.vendor == Vendor.splunk and not body.config.get("ssl_mode"):
         from api.integrations.splunk import new_ssl_mode
-        body.config["ssl_mode"] = new_ssl_mode(body.config)   # new ones verify; unset stays legacy (unverified)
+        body.config["ssl_mode"] = new_ssl_mode(body.config)   # new ones verify
+    if body.vendor == Vendor.ldap:
+        from api.integrations.ldap import new_tls_settings
+        body.config.update(new_tls_settings(body.config))   # new ones bind over LDAPS or StartTLS, never in the clear
     cfg = IntegrationConfig(
         vendor=body.vendor,
         name=body.name,

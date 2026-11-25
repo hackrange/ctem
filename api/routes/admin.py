@@ -15,7 +15,7 @@ from sqlalchemy.orm import selectinload
 
 from api.auth.middleware import get_current_user
 from api.auth.rbac import require_admin
-from api.auth import local as local_auth
+from api.auth import local as local_auth, step_up
 from api.auth import sessions as auth_sessions
 from api.core.db import get_session
 from api.core.accounts import ctem_account, same_name
@@ -74,22 +74,19 @@ async def list_users(
 
 @router.post("/users")
 async def create_user(
-    body: CreateUserRequest,
+    body: CreateUserRequest, request: Request,
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_session),
 ):
+    if "admin" in body.roles:   # a new admin account needs a fresh "confirm it's you" (api/auth/step_up.py)
+        step_up.require(request, admin)
     # a sign-in name is taken whatever its case; the directory row check keeps the DB constraint happy
     taken = (await db.execute(select(User.id).where(
         or_(and_(same_name(body.username), ctem_account()), User.username == body.username)).limit(1))).first()
     if taken:
         raise HTTPException(409, detail="Username already exists")
     await _require_roles_exist(body.roles, db)
-
-    user = User(
-        username=body.username,
-        is_local=True,
-        password_hash=local_auth.hash_password(body.password),
-    )
+    user = User(username=body.username, is_local=True, password_hash=local_auth.hash_password(body.password))
     if body.email:
         user.email = body.email
         user.email_hash = search_hash(body.email)
@@ -143,24 +140,22 @@ async def toggle_user_active(
 @router.patch("/users/{user_id}/roles")
 async def update_user_roles(
     user_id: uuid.UUID,
-    body: UpdateRolesRequest,
+    body: UpdateRolesRequest, request: Request,
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_session),
 ):
-    result = await db.execute(
-        select(User).options(selectinload(User.roles)).where(User.id == str(user_id))
-    )
+    result = await db.execute(select(User).options(selectinload(User.roles)).where(User.id == str(user_id)))
     user = result.scalar_one_or_none()
     if user is None:
         raise HTTPException(404)
     await _require_roles_exist(body.roles, db)
-
+    if "admin" in body.roles and "admin" not in user.role_names:
+        step_up.require(request, admin)
     # Remove old roles, assign new
     for ur in user.roles:
         await db.delete(ur)
     for role_name in body.roles:
         db.add(UserRole(user_id=user.id, role_name=role_name))
-
     await db.commit()
     await _audit(admin, "update_user_roles", "user", str(user_id), f"Roles set to {body.roles}", db)
     return {"updated": True}
@@ -175,12 +170,12 @@ async def update_user(
 ):
     """Update user fields: email and/or password. Username changes not allowed."""
     from api.core.encryption import encrypt, search_hash as _search_hash
-    result = await db.execute(
-        select(User).options(selectinload(User.roles)).where(User.id == str(user_id))
-    )
+    result = await db.execute(select(User).options(selectinload(User.roles)).where(User.id == str(user_id)))
     user = result.scalar_one_or_none()
     if user is None:
         raise HTTPException(404)
+    if body.password:
+        step_up.require(request, admin)
     if body.email is not None:
         user.email = body.email if body.email else None  # EncryptedString encrypts on write
         user.email_hash = _search_hash(body.email) if body.email else None
@@ -194,11 +189,12 @@ async def update_user(
 
 @router.post("/users/{user_id}/totp/setup")
 async def admin_setup_totp(
-    user_id: uuid.UUID,
+    user_id: uuid.UUID, request: Request,
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_session),
 ):
     """Generate a new TOTP secret for a user. Returns QR code URI and secret."""
+    step_up.require(request, admin)
     from api.auth.local import generate_totp_secret, totp_provisioning_uri
     from api.core.encryption import encrypt
     result = await db.execute(select(User).where(User.id == str(user_id)))
@@ -216,11 +212,12 @@ async def admin_setup_totp(
 
 @router.delete("/users/{user_id}/totp")
 async def admin_remove_totp(
-    user_id: uuid.UUID,
+    user_id: uuid.UUID, request: Request,
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_session),
 ):
     """Disable and clear TOTP for a user."""
+    step_up.require(request, admin)
     result = await db.execute(select(User).where(User.id == str(user_id)))
     user = result.scalar_one_or_none()
     if user is None:
