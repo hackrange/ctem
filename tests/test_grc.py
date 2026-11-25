@@ -155,3 +155,15 @@ async def test_supplier_gaps_nonexistent(client_cyber):
     import uuid
     r = await client_cyber.get(f"/api/v1/grc/suppliers/{uuid.uuid4()}/gaps")
     assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_grc_grants_are_all_scope_only(db):
+    """Supplier routes have no owner to check, so they rely on every grc grant being 'all' scope. A narrower grc scope
+    (own, tag) must come with a scope check in /suppliers and /suppliers/{id}/gaps first; this fails until then."""
+    from sqlalchemy import select
+    from api.core.seed import _PERMISSIONS
+    from api.models.user import Permission
+    assert {scope for res, _, scope in _PERMISSIONS if res == "grc"} == {"all"}
+    rows = (await db.execute(select(Permission.scope).where(Permission.resource == "grc"))).scalars().all()
+    assert rows and set(rows) == {"all"}

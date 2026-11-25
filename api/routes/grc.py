@@ -109,7 +109,11 @@ async def list_supplier_gaps(
     _: User = Depends(require_permission("grc", "read")),
     db: AsyncSession = Depends(get_session),
 ):
-    """Control gaps for a specific supplier -- object-level auth via source ownership."""
+    """Control gaps for one supplier, for anyone with grc:read.
+
+    Suppliers are organization-wide records synced from the GRC tool: no CTEM user owns one, and every grc grant is
+    seeded at 'all' scope (tests/test_grc.py pins that), so the same people can already list every supplier at
+    /suppliers. If a narrower grc scope is ever added, this route and /suppliers need a scope check first."""
     from api.models.risk import ThirdPartyControlGap, ThirdPartyRisk
     import uuid as _uuid
 
