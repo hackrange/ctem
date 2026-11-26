@@ -42,3 +42,14 @@ blank, the instance's own policy may block frames from other sites: allow the CT
   the ticket and analyst.
 - **The result** is posted to the ticket's page only at the embed's exact site, and ServiceNow's server can read it
   with its token: `GET /api/v1/idv/desk/sessions/{session}` (`verified: true/false`).
+
+## Other websites
+
+Any website with its own sign-in can show the same panel. Make an embed for its exact address (IDV page > Iframe
+Code), then choose **Other website** for the steps, a plain `<iframe>`, and server code in Node.js, Python or PHP.
+
+The website's **server** keeps the token (an environment variable, never in a page) and asks CTEM for a one-time
+panel link on each page view; the page shows that link in the iframe. A page with no server of its own can't keep
+the token secret, so it can't host the panel: anyone could read the token from the page source. The same limits
+apply as for ServiceNow: only that exact site may frame the panel, only its server's address ranges can start one,
+and only analysts on the listed networks can use it.

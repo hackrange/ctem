@@ -161,3 +161,23 @@ async def revoke_embed(embed_id: uuid.UUID, me: User = Depends(require_admin), d
                     resource_id=e.id, detail=f"{e.name} for {e.frame_origin}"[:300]))
     await db.commit()
     return _view(e, t, 0)
+
+
+@router.delete("/embeds/{embed_id}")
+async def delete_embed(embed_id: uuid.UUID, me: User = Depends(require_admin), db: AsyncSession = Depends(get_session)):
+    """Remove a revoked embed for good: the embed, its (already off) token and its old panel sessions. A live one
+    must be revoked first. The verifications it sent and the audit log stay, so what happened can still be traced."""
+    from sqlalchemy import delete
+    e = (await db.execute(select(DeskEmbed).where(DeskEmbed.id == str(embed_id)).with_for_update())).scalar_one_or_none()
+    if e is None:
+        raise HTTPException(404)
+    if e.revoked_at is None:
+        raise HTTPException(409, detail="Revoke this embed first; only a revoked embed can be deleted")
+    if e.token_id:
+        await db.execute(delete(ApiToken).where(ApiToken.id == e.token_id, ApiToken.is_active.is_(False)))
+    await db.execute(delete(DeskSession).where(DeskSession.embed_id == e.id))
+    db.add(AuditLog(actor_user_id=str(me.id), actor_username=me.username, action="idv.embed_delete", resource_type="desk_embed",
+                    resource_id=e.id, detail=f"{e.name} for {e.frame_origin} (revoked {e.revoked_at.date().isoformat()})"[:300]))
+    await db.delete(e)
+    await db.commit()
+    return {"deleted": True}

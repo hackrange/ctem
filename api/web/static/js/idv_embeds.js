@@ -98,8 +98,8 @@ CTEM address used in the code: ${base}`;
       <h3 class="text-sm" style="margin:16px 0 6px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted)">New embed</h3>
       <form id="emb-form" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
         <label class="text-sm">Name<input class="form-input" name="name" maxlength="80" placeholder="ServiceNow production" required style="width:100%"></label>
-        <label class="text-sm">Service desk site (exact)<input class="form-input" name="frame_origin" maxlength="256" placeholder="https://acme.service-now.com" required style="width:100%"></label>
-        <label class="text-sm">Service desk server addresses (its outbound IPs or CIDRs)
+        <label class="text-sm">Site that shows the panel (exact: ServiceNow or any website)<input class="form-input" name="frame_origin" maxlength="256" placeholder="https://acme.service-now.com or https://helpdesk.acme.example" required style="width:100%"></label>
+        <label class="text-sm">That site's server addresses (its outbound IPs or CIDRs)
           <textarea class="form-input" name="server_ips" rows="3" placeholder="203.0.113.0/24" required style="width:100%"></textarea></label>
         <label class="text-sm">Analysts' network ranges (office and VPN egress)
           <textarea class="form-input" name="client_ips" rows="3" placeholder="198.51.100.0/24" required style="width:100%"></textarea></label>
@@ -117,6 +117,12 @@ CTEM address used in the code: ${base}`;
       if (rv) {
         if (!confirm(`Revoke "${rv.dataset.name}"? Its token stops working and any open caller verification panels end now. This can't be undone; make a new embed to restore it.`)) return;
         try { await call(`${API}/${encodeURIComponent(rv.dataset.revoke)}/revoke`, { method: 'POST' }); await list(); } catch (err) { alert(err.message); }
+      }
+      const del = e.target.closest('[data-delete]');
+      if (del) {
+        if (!confirm(`Delete the revoked embed "${del.dataset.name}"? It is removed for good, with its token and old panel sessions. The verifications it sent and the audit log stay.`)) return;
+        try { await call(`${API}/${encodeURIComponent(del.dataset.delete)}`, { method: 'DELETE' }); await list(); } catch (err) { alert(err.message); }
+        return;
       }
       const cp = e.target.closest('[data-copy]');
       if (cp) {
@@ -145,18 +151,39 @@ CTEM address used in the code: ${base}`;
 
   function showCode(d) {
     const box = dlg.querySelector('#emb-code'), base = location.origin;
+    const area = (id, rows) => `<textarea id="${id}" class="form-input text-mono" rows="${rows}" readonly style="width:100%;font-size:12px"></textarea>`;
+    const head = (t, id) => `<div style="display:flex;justify-content:space-between;align-items:center;margin:10px 0 4px"><h3 class="text-sm" style="margin:0">${t}</h3>
+        <button type="button" class="btn btn--ghost btn--sm" data-copy="${id}">Copy</button></div>`;
     box.hidden = false;
     box.innerHTML = `<div style="padding:10px 12px;border:1px solid var(--severity-high);border-radius:6px">
       <p class="text-sm" style="margin:0 0 6px"><b>Token for "${esc(d.name)}"</b>: copy it now, CTEM won't show it again.</p>
       <div style="display:flex;gap:6px"><input id="emb-token" class="form-input text-mono" readonly style="flex:1"><button type="button" class="btn btn--ghost btn--sm" data-copy="emb-token">Copy token</button></div></div>
-      <h3 class="text-sm" style="margin:12px 0 4px">Steps for the ServiceNow admin</h3>
-      <textarea id="emb-steps" class="form-input text-mono" rows="14" readonly style="width:100%;font-size:12px"></textarea>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin:10px 0 4px"><h3 class="text-sm" style="margin:0">UI Macro code (paste as is)</h3>
-        <button type="button" class="btn btn--ghost btn--sm" data-copy="emb-macro">Copy code</button></div>
-      <textarea id="emb-macro" class="form-input text-mono" rows="16" readonly style="width:100%;font-size:12px"></textarea>`;
+      <div class="fx-seg" role="group" aria-label="Where the panel goes" style="margin:14px 0 4px;display:inline-flex">
+        <button type="button" data-where="sn" aria-pressed="true">ServiceNow</button><button type="button" data-where="web" aria-pressed="false">Other website</button></div>
+      <div data-pane="sn">
+        <h3 class="text-sm" style="margin:8px 0 4px">Steps for the ServiceNow admin</h3>${area('emb-steps', 14)}
+        ${head('UI Macro code (paste as is)', 'emb-macro')}${area('emb-macro', 16)}</div>
+      <div data-pane="web" hidden>
+        <p class="text-sm text-muted" style="margin:8px 0 4px">For any website with its own sign-in: its server keeps the token and asks CTEM for a one-time panel link on each
+          page view; the page shows it in a plain iframe. A page with no server can't keep the token secret, so it can't host the panel.</p>
+        ${area('emb-web-steps', 13)}
+        <div style="display:flex;justify-content:space-between;align-items:center;margin:10px 0 4px"><h3 class="text-sm" style="margin:0">Server code</h3>
+          <span style="display:flex;gap:6px"><select id="emb-lang" class="filter-select"><option value="node">Node.js</option><option value="python">Python</option><option value="php">PHP</option></select>
+          <button type="button" class="btn btn--ghost btn--sm" data-copy="emb-server">Copy</button></span></div>${area('emb-server', 18)}
+        ${head('The iframe (HTML)', 'emb-html')}${area('emb-html', 12)}</div>`;
     box.querySelector('#emb-token').value = d.token;
     box.querySelector('#emb-steps').value = steps(d, base);
     box.querySelector('#emb-macro').value = macro(base);
+    box.querySelector('#emb-web-steps').value = EmbedWeb.steps(d);
+    box.querySelector('#emb-html').value = EmbedWeb.html(base);
+    const lang = box.querySelector('#emb-lang');
+    const fill = () => { box.querySelector('#emb-server').value = EmbedWeb[lang.value](base); };
+    lang.addEventListener('change', fill);
+    fill();
+    box.querySelectorAll('[data-where]').forEach(b => b.addEventListener('click', () => {
+      box.querySelectorAll('[data-where]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+      box.querySelectorAll('[data-pane]').forEach(p => { p.hidden = p.dataset.pane !== b.dataset.where; });
+    }));
     box.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
@@ -170,7 +197,8 @@ CTEM address used in the code: ${base}`;
           <td class="text-mono">${esc(e.frame_origin)}</td><td class="text-mono">${esc(e.server_ips.join(', '))}</td><td class="text-mono">${esc(e.client_ips.join(', '))}</td>
           <td>${esc(e.sessions)}</td><td>${esc(day(e.last_used))}</td><td>${esc(day(e.expires_at))}</td>
           <td>${e.active ? `<button type="button" class="btn btn--danger btn--sm" data-revoke="${esc(e.id)}" data-name="${esc(e.name)}">Revoke</button>`
-            : `<span class="chip chip--info" style="font-size:.7rem">Revoked ${esc(day(e.revoked_at))}</span>`}</td></tr>`).join('')}</tbody></table>`
+            : `<span class="chip chip--info" style="font-size:.7rem">Revoked ${esc(day(e.revoked_at))}</span>
+            <button type="button" class="btn btn--ghost btn--sm" style="color:var(--severity-critical)" data-delete="${esc(e.id)}" data-name="${esc(e.name)}">Delete</button>`}</td></tr>`).join('')}</tbody></table>`
         : '<p class="text-sm text-muted">No embeds yet. Make one below.</p>';
     } catch (err) { box.textContent = err.message; }
   }

@@ -7,6 +7,12 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.22.0] - 2026-11-26
+
+### Added
+- IDV > Iframe Code: Delete for a revoked embed (a live one must be revoked first). It removes the embed, its already-disabled token and its old panel sessions; the verifications it sent and the audit log stay.
+- Caller verification on any website: IDV > Iframe Code now offers Other website beside ServiceNow, with the steps, a plain iframe (and an optional listener for the result, checked against CTEM's exact address) and server code in Node.js, Python or PHP. The website's server keeps the embed's token and asks CTEM for a one-time panel link per page view; the same site, server-range and analyst-network limits apply.
+
 ## [1.21.2] - 2026-11-26
 
 ### Changed

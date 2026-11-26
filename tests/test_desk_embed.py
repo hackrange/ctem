@@ -150,3 +150,18 @@ async def test_pending_holds_only_what_needs_a_decision(db, client_cyber):
     assert review.id in ids and waiting.id not in ids
     await db.execute(delete(IdvRequest).where(IdvRequest.id.in_([waiting.id, review.id])))
     await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_only_revoked_embeds_can_be_deleted(db, client_admin, client_cyber):
+    from api.models.idv import DeskEmbed
+    from api.models.user import ApiToken
+    emb = (await _embed(client_admin, name="Delete me")).json()
+    url = f"/api/v1/idv/desk/embeds/{emb['id']}"
+    assert (await client_admin.delete(url)).status_code == 409            # live: revoke first
+    assert (await client_admin.post(f"{url}/revoke")).status_code == 200
+    assert (await client_cyber.delete(url)).status_code == 403
+    assert (await client_admin.delete(url)).status_code == 200
+    assert await db.get(DeskEmbed, emb["id"]) is None
+    assert (await db.execute(select(ApiToken).where(ApiToken.name == "Caller verification: Delete me"))).scalars().first() is None
+    assert (await client_admin.delete(url)).status_code == 404
