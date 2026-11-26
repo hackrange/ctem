@@ -408,3 +408,8 @@ a.dw-kpi:hover .dw-kpi__value { color: var(--accent); }
 /* <dialog class="modal"> (IDV review, Why this grade): the page dims behind it */
 dialog.modal { color: var(--fg); padding: 0; }
 dialog.modal::backdrop { background: rgba(0,0,0,0.65); backdrop-filter: blur(2px); }
+dialog.modal.modal--wide { width: 96vw; max-width: 1280px; }
+/* IDV review dialog: one signal per line, label then value */
+.idv-signals { display: grid; grid-template-columns: 180px 1fr; gap: 6px 16px; font-size: 13px; margin: 0; }
+.idv-signals dt { color: var(--text-muted); }
+.idv-signals dd { margin: 0; }

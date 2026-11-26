@@ -7,7 +7,8 @@
   const $ = id => document.getElementById(id);
   const API = '/api/v1/idv';
   const STATE = { pending: ['info', 'In progress'], review: ['high', 'Needs review'], approved: ['low', 'Verified'],
-                  rejected: ['critical', 'Rejected'], expired: ['info', 'Expired'], superseded: ['info', 'Failed, passed later'] };
+                  rejected: ['critical', 'Rejected'], expired: ['info', 'Expired'], superseded: ['info', 'Failed, passed later'],
+                  unproven: ['high', 'Passed, not ID-verified'] };
   const FLAG = { vpn: 'VPN', proxy: 'Proxy', tor: 'Tor', datacenter: 'Datacenter' };
   const CHECK_STATE = { passed: 'low', failed: 'critical', not_applicable: 'info' };
   const day = s => (s ? new Date(s).toLocaleString() : '--');
@@ -43,11 +44,12 @@
     history.replaceState(null, '', `?tab=${tab}`);
     table = DataTable.create({
       mount: $('idv-table'), endpoint: `${API}/requests`, listKey: 'requests',
-      emptyText: { pending: 'Nothing waiting', approved: 'No verified identities yet', rejected: 'Nothing rejected or expired' }[tab],
-      params: () => ({ tab, q: $('idv-search').value.trim() }),
+      emptyText: { pending: 'Nothing waiting', approved: 'No verified identities yet', rejected: 'Nothing rejected' }[tab],
+      // the last few days by default; a search looks at every date
+      params: () => { const q = $('idv-search').value.trim(), days = $('idv-days').value; return { tab, q, ...(days && !q ? { days } : {}) }; },
       columns: [
         { label: 'Person', render: r => `<span data-open="${esc(r.id)}" style="cursor:pointer">${person(r)}</span>` },
-        { label: '', render: r => `<button type="button" class="btn btn--sm ${r.state === 'review' ? 'btn--primary' : 'btn--ghost'}" data-open="${esc(r.id)}">${r.state === 'review' ? 'Review' : 'Details'}</button>` },
+        { label: '', render: r => `<button type="button" class="btn btn--sm ${['review', 'unproven'].includes(r.state) ? 'btn--primary' : 'btn--ghost'}" data-open="${esc(r.id)}">${['review', 'unproven'].includes(r.state) ? 'Review' : 'Details'}</button>` },
         { label: 'Status', render: r => chip(...(STATE[r.state] || ['info', r.state])) + (r.origin === 'service_desk' ? ` ${chip('info', 'Service desk')}` : '') },
         { label: 'Country', render: r => `<span class="text-sm">${esc([r.country, r.region].filter(Boolean).join(' · ') || '--')}</span>` },
         { label: 'ID', render: r => `<span class="text-sm">${esc(r.id_type || '--')}</span>` },
@@ -56,38 +58,105 @@
         { label: tab === 'approved' ? 'Verified' : 'Decided', render: r => `<span class="text-sm">${esc(day(r.reviewed_at || r.completed_at || r.decided_at))}</span>` },
         { label: 'Template', render: r => `<span class="text-sm text-muted">${esc(r.template || '--')}</span>` },
       ],
-      onLoad: d => { table._rows = d.requests || []; },
+      onLoad: d => {
+        table._rows = d.requests || [];
+        const o = $('idv-older');
+        o.hidden = !d.older;
+        o.innerHTML = d.older ? `${esc(d.older)} older not shown. <button type="button" class="dt-link" style="background:none;border:0;padding:0;cursor:pointer" data-all>Show all</button>` : '';
+      },
     });
   }
 
-  // ── the request in full ───────────────────────────────────────────────────
-  const grid = rows => `<table class="data-table" style="width:100%;font-size:13px;margin-bottom:10px"><tbody>${rows}</tbody></table>`;
-  const h = t => `<h3 class="text-sm" style="margin:14px 0 4px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted)">${esc(t)}</h3>`;
+  // ── the request in full: why it needs a person, the signals for this one check, what to validate ──
+  const h = t => `<h3 class="text-sm" style="margin:16px 0 6px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted)">${esc(t)}</h3>`;
+  const NAME_CHECKS = new Set(['id_inquiry_comparison', 'id_account_comparison']);
+  const fullName = p => [p.first, p.middle, p.last].filter(Boolean).join(' ');
+  const dirName = n => (n && n.directory ? [n.directory.first, n.directory.last].filter(Boolean).join(' ') || n.directory.display || '' : '');
+  const norm = v => String(v || '').toLowerCase().normalize('NFD').replace(/[^a-z ]/g, '').split(/\s+/).filter(Boolean);
+  const sameName = (a, b) => { const x = norm(a), y = norm(b); return x.length && y.length && y.every(w => x.includes(w)) ? true : (x.length && y.length ? false : null); };
+  const ids = d => ((d.explain || {}).presented || []).filter(p => /Government ID/.test(p.kind));
+  const idLabel = p => [p.id_type || 'ID', p.country ? `(${p.country})` : ''].filter(Boolean).join(' ');
+
+  // Plain sentences, with the real values: the name on the ID against the directory, the ID that looked like a copy
+  function why(d, n) {
+    const x = d.explain || {}, out = [], gov = ids(d);
+    const idOnId = n && (n.on_id || []).find(p => fullName(p));
+    const dir = dirName(n);
+    for (const f of x.failed || []) {
+      if (NAME_CHECKS.has(f.check)) {
+        out.push(idOnId && dir ? `The name on the ${idOnId.id_type || 'ID'} is <b>${esc(fullName(idOnId))}</b>, but the directory has <b>${esc(dir)}</b>.`
+          : `${esc(f.means)} ${n ? '' : '<span class="text-muted">(the names load below)</span>'}`);
+      } else if (f.check === 'id_electronic_replica_detection') {
+        const which = gov.filter(p => p.status === 'failed').map(idLabel);
+        out.push(`${which.length > 1 ? `All ${which.length} IDs presented (${esc(which.join(', '))}) looked` : `The ${esc(which[0] || 'ID')} looked`} like a photo of a screen or a printout, not the physical document.`);
+      } else {
+        out.push(`<b>${esc(f.on)}:</b> ${esc(f.means)}`);
+      }
+    }
+    if (idOnId && dir && sameName(fullName(idOnId), dir) === false && !(x.failed || []).some(f => NAME_CHECKS.has(f.check)))
+      out.push(`The name on the ${esc(idOnId.id_type || 'ID')} (<b>${esc(fullName(idOnId))}</b>) differs from the directory (<b>${esc(dir)}</b>).`);
+    if (d.state === 'unproven') out.push(d.created_via && d.created_via !== 'API' && d.origin !== 'service_desk'
+      ? 'Persona passed this check, but it was started from a hosted link, so anyone holding the link could have done it. It earns no badge until an approver confirms who it was.'
+      : `Persona passed this check, but ${esc(d.person ? d.person.name : 'the person')} has never passed a government ID check: it was a selfie re-check, which compares a face with an earlier selfie, not with an ID.`);
+    for (const note of x.notes || []) out.push(`<b>${esc(note)}</b>`);
+    if (!out.length) out.push(!x.read ? "What Persona checked hasn't been read yet; it comes with the next Persona sync."
+      : d.persona_status === 'needs_review' ? "Persona's template sent this for manual review; no single check failed."
+      : d.persona_status === 'failed' ? "Persona marked it failed without a check CTEM can read; open it in Persona." : 'Nothing failed.');
+    return out.map(t => `<li style="margin:3px 0">${t}</li>`).join('');
+  }
+
+  function history(d) {
+    const y = d.history || {};
+    const parts = [y.verified ? `Verified ${y.verified} time${y.verified === 1 ? '' : 's'} before${y.last_verified_at ? ` (last ${esc(day(y.last_verified_at))})` : ''}` : 'Never verified before'];
+    if (y.failed) parts.push(`${y.failed} failed attempt${y.failed === 1 ? '' : 's'}`);
+    parts.push(y.id_passed_before ? 'has passed a government ID check before' : '<b>has never passed a government ID check</b>');
+    return parts.join(' · ');
+  }
+
+  // The signals for this check, one per line
+  function signals(d, n) {
+    const x = d.explain || {}, gov = ids(d), row = (k, v) => (v ? `<dt>${esc(k)}</dt><dd>${v}</dd>` : '');
+    const key = Object.fromEntries((x.passed_key_checks || []).map(k => [k.check, k]));
+    const selfie = (x.presented || []).find(p => p.kind === 'Selfie');
+    const selfieTxt = selfie ? [chip(CHECK_STATE[selfie.status] || 'info', words(selfie.status)),
+      key.selfie_id_comparison ? (key.selfie_id_comparison.status === 'passed' ? 'face matches the ID' : `no ID to compare with (${esc(key.selfie_id_comparison.reasons.map(words).join(', ') || 'not applicable')})`) : '',
+      key.selfie_account_comparison && key.selfie_account_comparison.status === 'passed' ? 'matches their earlier selfie' : '',
+      key.selfie_liveness_detection && key.selfie_liveness_detection.status === 'passed' ? 'live person' : ''].filter(Boolean).join(' · ') : '';
+    const s = n && n.sessions && n.sessions[0];
+    const idCountry = (gov[gov.length - 1] || {}).country || d.country;
+    const away = c => (c && idCountry && c.length === 2 && c !== idCountry ? ` ${chip('high', `not ${idCountry}`)}` : '');
+    const idOnId = n && (n.on_id || []).find(p => fullName(p));
+    const dir = dirName(n), match = idOnId && dir ? sameName(fullName(idOnId), dir) : null;
+    return `<dl class="idv-signals">
+      ${row('ID presented', gov.map(p => `${esc(p.id_type || 'ID')} · ${esc(p.country || '?')}${p.capture ? ` · ${esc(words(p.capture))} capture` : ''} ${chip(CHECK_STATE[p.status] || 'info', words(p.status))}`).join('<br>') || '<span class="text-muted">No government ID in this check</span>')}
+      ${row('Selfie', selfieTxt)}
+      ${d.can && d.can.names ? row('Name on the ID', n ? (idOnId ? `<b>${esc(fullName(idOnId))}</b>${match === true ? ` ${chip('low', 'matches')}` : match === false ? ` ${chip('critical', "doesn't match")}` : ''}` : '<span class="text-muted">Not read from the ID</span>') : '<span class="text-muted">Reading from Persona...</span>') : ''}
+      ${row('Name in the directory', d.person_detail ? `<b>${esc([d.person_detail.first_name, d.person_detail.last_name].filter(Boolean).join(' ') || d.person.name)}</b>` : '<span class="text-muted">Not matched to a person</span>')}
+      ${row('Device', esc([d.device_type, d.os, d.browser].filter(Boolean).join(' · ')) || '<span class="text-muted">--</span>')}
+      ${s ? row('ISP / network', `${esc(s.isp || '--')}${s.organization && s.organization !== s.isp ? ` · ${esc(s.organization)}` : ''}${s.connection ? ` · ${esc(words(s.connection))}` : ''}`) : ''}
+      ${s ? row('Country by IP', `${esc([s.ip_country, s.ip_region].filter(Boolean).join(' · ') || '--')}`) : ''}
+      ${s && s.gps_country ? row('Country by GPS', `${esc(s.gps_country)}${away(s.gps_country)}`) : ''}
+      ${row('Network flags', (d.flags || []).map(f => chip('critical', FLAG[f] || f)).join(' ') || '<span class="text-muted">No VPN, proxy, Tor or datacenter</span>')}
+      ${d.threat_level ? row('Threat level', d.threat_level === 'low' ? esc(d.threat_level) : chip('high', d.threat_level)) : ''}
+      ${row('Started by', esc(d.origin === 'service_desk' ? 'The service desk' : d.created_via === 'API' ? "Okta's verification flow" : d.created_via ? 'A hosted link (never earns the badge)' : 'Unknown'))}
+      ${row('Requested', `${esc(day(d.created_at))} · ${esc(d.template || '')}`)}
+    </dl>`;
+  }
+
   function body(d) {
     const x = d.explain || {};
-    const via = d.origin === 'service_desk' ? 'the service desk' : d.created_via === 'API' ? "Okta's verification flow" : d.created_via ? 'a hosted link (never earns the badge)' : 'unknown';
-    let out = `<p class="text-sm" style="margin:0 0 6px">${chip(...(STATE[d.state] || ['info', d.state]))} ${esc(d.template || '')} · requested ${esc(day(d.created_at))} · started by ${esc(via)}</p>`;
-    if (d.person) out += `<p class="text-sm" style="margin:0"><a class="dt-link" href="/users?person=${encodeURIComponent(d.person.id)}">${esc(d.person.name)}</a>
+    let out = '';
+    if (d.person) out += `<p class="text-sm" style="margin:0 0 4px"><a class="dt-link" href="/users?person=${encodeURIComponent(d.person.id)}">${esc(d.person.name)}</a>
       ${IdvBadge.html(d.person.idv_verified_at, true)} <span class="text-muted text-mono">${esc(d.person.upn || '')}</span>
-      ${d.person_detail && d.person_detail.title ? `<span class="text-muted"> · ${esc(d.person_detail.title)}</span>` : ''}</p>`;
-    if (d.can && d.can.names) out += h('Name and network (read from Persona now, not kept; audited)') + '<div id="idv-live" class="text-sm">Reading from Persona...</div>';
-    if (!x.read) out += `<p class="text-sm text-muted">What Persona checked hasn't been read yet; it comes with the next Persona sync.</p>`;
-    if ((x.notes || []).length || (x.failed || []).length) {
-      out += h(d.state === 'review' ? 'Why this needs a decision' : 'What failed');
-      out += (x.notes || []).map(n => `<p class="text-sm" style="margin:2px 0;color:var(--severity-high)"><b>${esc(n)}</b></p>`).join('');
-      if ((x.failed || []).length) out += grid(`<tr><th>Failed check</th><th>What it means</th><th>What to validate before approving</th></tr>` +
-        x.failed.map(f => `<tr><td><b>${esc(words(f.check).replace(/^id |^selfie /, ''))}</b><div class="text-muted">${esc(f.on)}${f.reasons.length ? ' · ' + esc(f.reasons.map(words).join(', ')) : ''}</div></td>
-          <td>${esc(f.means)}</td><td>${esc(f.validate)}</td></tr>`).join(''));
-    }
-    if ((x.presented || []).length) out += h('What the person presented') + grid(`<tr><th>Verification</th><th>ID</th><th>Country</th><th>Captured</th><th>Result</th><th>When</th></tr>` +
-      x.presented.map(p => `<tr><td>${esc(p.kind)}</td><td>${esc(p.id_type || '--')}</td><td>${esc(p.country || '--')}</td><td>${esc(words(p.capture) || '--')}</td>
-        <td>${chip(CHECK_STATE[p.status] || 'info', words(p.status))}</td><td class="text-muted">${esc(day(p.at))}</td></tr>`).join(''));
-    if ((x.passed_key_checks || []).length) out += h('Key checks') + grid(x.passed_key_checks.map(k =>
-      `<tr><td>${esc(words(k.check))}</td><td class="text-muted">${esc(k.on)}</td><td>${chip(CHECK_STATE[k.status] || 'info', words(k.status))}${k.reasons.length ? ` <span class="text-muted">${esc(k.reasons.map(words).join(', '))}</span>` : ''}</td></tr>`).join(''));
-    out += h('Device and network') + `<p class="text-sm" style="margin:0">${device(d)}</p>`;
-    if ((d.attempts || []).length) out += h(`This person's other attempts (${d.attempts.length})`) + grid(d.attempts.map(a =>
-      `<tr><td>${chip(...(STATE[a.state] || ['info', a.state]))}</td><td>${esc(day(a.created_at))}</td><td>${esc([a.id_type, a.country].filter(Boolean).join(' · ') || '--')}</td>
-        <td class="text-muted">${esc(a.failed.map(f => words(f)).join(', '))}</td></tr>`).join(''));
+      ${d.person_detail && (d.person_detail.title || d.person_detail.department) ? `<span class="text-muted"> · ${esc([d.person_detail.title, d.person_detail.department].filter(Boolean).join(' · '))}</span>` : ''}</p>`;
+    out += `<p class="text-sm" style="margin:0">${chip(...(STATE[d.state] || ['info', d.state]))} ${history(d)}</p>`;
+    out += h(['review', 'unproven'].includes(d.state) ? 'Why this needs a manual review' : 'What happened') +
+      `<ul id="idv-why" class="text-sm" style="margin:0;padding-left:18px;color:var(--fg)">${why(d, null)}</ul>`;
+    out += h('Signals for this check') + `<div id="idv-signals">${signals(d, null)}</div>`;
+    const todo = [...new Set((x.failed || []).map(f => f.validate))];
+    if (d.state === 'unproven') todo.push('Verify the person and a government ID on a live video call, or expire it so they verify again with an ID.');
+    if (todo.length && ['review', 'unproven'].includes(d.state)) out += h('Validate before approving') +
+      `<ul class="text-sm" style="margin:0;padding-left:18px">${todo.map(t => `<li style="margin:3px 0">${esc(t)}</li>`).join('')}</ul>`;
     if (d.review_reason || d.review_note) out += h('Decision') + `<p class="text-sm">${esc(words(d.review_reason || ''))}${d.review_note ? ' · ' + esc(d.review_note) : ''} · ${esc(day(d.reviewed_at))}</p>`;
     return out;
   }
@@ -102,8 +171,11 @@
       <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px">${label}</div><p id="idv-${kind}-msg" class="text-sm" role="status" style="min-height:1.2em;margin:4px 0 0"></p>`;
     if (d.can.review) out += h('Decision') + form('review', select('idv-review-reason', d.reasons, [['Approve because', 'approve', 'approve'], ['Decline because', 'decline', 'decline']]),
       `<button type="button" class="btn btn--ghost btn--sm" data-decide="decline">Decline</button><button type="button" class="btn btn--primary btn--sm" data-decide="approve">Approve</button>`);
-    if (d.can.revoke) out += h('Revoke verification') + `<p class="text-sm text-muted" style="margin:0 0 6px">Removes the IDV badge and declines their approved checks in Persona. They need to pass a new verification for it to come back.</p>` +
-      form('revoke', select('idv-revoke-reason', d.reasons, [['Revoke because', 'revoke', 'revoke']]), `<button type="button" class="btn btn--danger btn--sm" data-revoke>Revoke</button>`);
+    if (d.can.revoke) out += h('Require a new verification') + `<p class="text-sm" style="margin:0 0 6px;color:var(--severity-high)"><b>Warning:</b> either one removes the
+      person's IDV badge, and they must go through identity verification again (onboard with a new government ID) to get it back.
+      <b>Expire</b> when it's simply no longer enough; <b>Revoke</b> when something is wrong with it (their approved checks are declined in Persona too).</p>` +
+      form('revoke', select('idv-revoke-reason', d.reasons, [['Expire because', 'expire', 'expire'], ['Revoke because', 'revoke', 'revoke']]),
+        `<button type="button" class="btn btn--ghost btn--sm" data-revoke="expire">Expire verification</button><button type="button" class="btn btn--danger btn--sm" data-revoke="revoke">Revoke</button>`);
     return out;
   }
 
@@ -119,29 +191,18 @@
     } catch (e) { $('idv-detail-body').textContent = e.message; }
   }
 
-  // The name on each ID next to the directory's, and the network each session came from
+  // The name on each ID and the network each session came from, read live: fills in the why and the signals
   async function live(id) {
-    const box = $('idv-live');
     try {
       const n = await getJson(`${API}/requests/${encodeURIComponent(id)}/live`);
       if (!cur || cur.id !== id) return;
       names = n;
-      const full = p => [p.first, p.middle, p.last].filter(Boolean).join(' ');
-      const dir = n.directory ? [n.directory.first, n.directory.last].filter(Boolean).join(' ') || n.directory.display : null;
-      const norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[^a-z ]/g, '').split(/\s+/).filter(Boolean);
-      const same = p => { const a = norm(full(p)), b = norm(dir); return a.length && b.length && b.every(w => a.includes(w)); };
-      box.innerHTML = grid(`<tr><th>Name</th><th></th><th>Country</th><th>Result</th></tr>
-        <tr><td>In the directory</td><td><b>${esc(dir || 'Not matched to a person')}</b></td><td></td><td></td></tr>` +
-        (n.on_id.length ? n.on_id.map(p => `<tr><td>On the ${esc(p.id_type || 'ID')}</td><td><b>${esc(full(p) || 'Not read from the ID')}</b>
-          ${dir && full(p) ? (same(p) ? ` ${chip('low', 'matches')}` : ` ${chip('critical', "doesn't match")}`) : ''}</td>
-          <td>${esc(p.country || '--')}</td><td>${chip(CHECK_STATE[p.status] || 'info', words(p.status))}</td></tr>`).join('')
-          : '<tr><td colspan="4" class="text-muted">No government ID was presented in this check</td></tr>')) +
-        (n.sessions.length ? grid(`<tr><th>Session</th><th>Device</th><th>ISP / network</th><th>Country by IP</th><th>By GPS</th></tr>` +
-          n.sessions.map(x => `<tr><td class="text-muted">${esc(day(x.at))}</td><td>${esc([x.device_type, x.os, x.browser].filter(Boolean).join(' · ') || '--')}</td>
-            <td>${esc(x.isp || '--')}${x.organization && x.organization !== x.isp ? `<div class="text-muted">${esc(x.organization)}</div>` : ''}${x.connection ? `<div class="text-muted">${esc(words(x.connection))}</div>` : ''}</td>
-            <td>${esc([x.ip_country, x.ip_region].filter(Boolean).join(' · ') || '--')}</td><td>${esc(x.gps_country || '--')}</td></tr>`).join('')) : '');
+      $('idv-why').innerHTML = why(cur, n);
+      $('idv-signals').innerHTML = signals(cur, n);
       prefill();
-    } catch (e) { box.textContent = e.message; }
+    } catch (e) {
+      if (cur && cur.id === id) $('idv-signals').insertAdjacentHTML('beforeend', `<p class="text-sm" style="color:var(--severity-high)">${esc(e.message)}</p>`);
+    }
   }
 
   // A name mismatch: say so in the note without copying the name off the ID (CTEM never keeps it; Persona has it)
@@ -176,13 +237,16 @@
       await send('review', `${API}/requests/${encodeURIComponent(cur.id)}/review`, { decision: kind, reason, note });
       return;
     }
-    if (e.target.closest('[data-revoke]')) {
-      const reason = ($('idv-revoke-reason').value || ':').split(':')[1];
+    const rv = e.target.closest('[data-revoke]');
+    if (rv) {
+      const mode = rv.dataset.revoke;
+      const [kind, reason] = ($('idv-revoke-reason').value || ':').split(':');
       const note = $('idv-revoke-note').value.trim();
-      if (!reason) { $('idv-revoke-msg').textContent = 'Pick a reason.'; return; }
+      if (kind !== mode) { $('idv-revoke-msg').textContent = `Pick a reason under "${mode === 'expire' ? 'Expire' : 'Revoke'} because".`; return; }
       if (note.length < 3) { $('idv-revoke-msg').textContent = 'Add a note.'; return; }
-      if (!confirm(`Revoke ${cur.person.name}'s identity verification? Their IDV badge goes until they verify again.`)) return;
-      await send('revoke', `${API}/people/${encodeURIComponent(cur.person.id)}/revoke`, { reason, note });
+      if (!confirm(`${mode === 'expire' ? 'Expire' : 'Revoke'} ${cur.person.name}'s identity verification?\n\nThis forces them to onboard again: `
+        + 'their IDV badge is removed and only a new identity verification with a government ID brings it back.')) return;
+      await send('revoke', `${API}/people/${encodeURIComponent(cur.person.id)}/revoke`, { mode, reason, note });
     }
   });
 
@@ -193,6 +257,8 @@
     tabs();
     start();
   });
+  $('idv-days').addEventListener('change', () => table && table.reload());
+  $('idv-older').addEventListener('click', e => { if (e.target.closest('[data-all]')) { $('idv-days').value = ''; table.reload(); } });
   let t;
   $('idv-search').addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => table && table.reload(), 300); });
   $('idv-table').addEventListener('click', e => {

@@ -14,16 +14,23 @@
 <div class="panel" style="padding:0">
   <div class="panel__header" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
     <div id="idv-tabs" role="tablist" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+    <div style="display:flex;gap:8px;align-items:center">
+    <select id="idv-days" class="filter-select" aria-label="How far back">
+      <option value="5" selected>Last 5 days</option><option value="30">Last 30 days</option>
+      <option value="90">Last 90 days</option><option value="">All time</option>
+    </select>
     <div class="search-bar-wrap">
       <svg class="search-icon" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
       <input id="idv-search" type="search" class="search-bar" placeholder="UPN, email or username" aria-label="Search identity verifications">
     </div>
+    </div>
   </div>
   <div id="idv-table"></div>
+  <p id="idv-older" class="text-sm text-muted" style="padding:8px 16px;margin:0" hidden></p>
 </div>
 
-<dialog id="idv-detail" class="modal" aria-labelledby="idv-detail-title">
-  <div style="padding:16px 20px;min-width:360px;width:min(920px,94vw);max-height:88vh;overflow:auto">
+<dialog id="idv-detail" class="modal modal--wide" aria-labelledby="idv-detail-title">
+  <div style="padding:16px 24px;max-height:90vh;overflow:auto">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
       <h2 id="idv-detail-title" class="panel__title" style="margin:0">Identity verification</h2>
       <button type="button" class="btn btn--ghost btn--sm" data-close aria-label="Close">&#10005;</button>

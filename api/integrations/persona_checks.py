@@ -175,6 +175,14 @@ DECLINE_REASONS = {
     "no_response": "Person didn't respond to follow-up",
     "other": "Other (explained in the note)",
 }
+# Expire: not a judgment on the check, only that it is no longer enough
+EXPIRE_REASONS = {
+    "reverify_required": "Periodic re-verification required",
+    "role_change": "Moving to a privileged or sensitive role",
+    "details_changed": "Legal name or identity details changed",
+    "long_ago": "Verified too long ago",
+    "other": "Other (explained in the note)",
+}
 REVOKE_REASONS = {
     "fraud_suspected": "Suspected fraud or account takeover",
     "approved_in_error": "Approved in error",

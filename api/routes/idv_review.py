@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth.rbac import require_permission
 from api.core.db import get_session
-from api.integrations.persona_checks import APPROVE_REASONS, DECLINE_REASONS, REVOKE_REASONS
+from api.integrations.persona_checks import APPROVE_REASONS, DECLINE_REASONS, EXPIRE_REASONS, REVOKE_REASONS
 from api.models.idv import IdvRequest
 from api.models.user import User
 from api.routes.idv import view
@@ -39,6 +39,7 @@ class Review(BaseModel):
 
 class Revoke(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    mode: str = Field("revoke", pattern="^(revoke|expire)$")   # expire: no longer enough, not a judgment on the check
     reason: str = Field(pattern="^[a-z_]{2,32}$")
     note: str = Field(min_length=3, max_length=500, pattern=r"^[^\x00-\x08\x0b\x0c\x0e-\x1f\x7f]*$")
 
@@ -72,7 +73,9 @@ async def review(request_id: uuid.UUID, body: Review, me: User = Depends(approve
     r = (await db.execute(select(IdvRequest).where(IdvRequest.id == str(request_id)).with_for_update())).scalar_one_or_none()
     if r is None:
         raise HTTPException(404)
-    if r.state != "review":
+    from api.routes.idv import unproven
+    person = await db.get(User, r.user_id) if r.user_id else None
+    if r.state != "review" and not unproven(r, person):
         raise HTTPException(409, detail="Only a request waiting for review can be approved or declined")
     conn = await _connector(db, r)
     try:
@@ -87,24 +90,29 @@ async def review(request_id: uuid.UUID, body: Review, me: User = Depends(approve
     await db.flush()
     await link_people(db)
     await db.commit()
-    person = await db.get(User, r.user_id) if r.user_id else None
+    if person is not None:
+        await db.refresh(person)
     return view(r, person)
 
 
 @router.post("/people/{user_id}/revoke")
 async def revoke(user_id: uuid.UUID, body: Revoke, me: User = Depends(approver), db: AsyncSession = Depends(get_session)):
-    """Take a person's verification away: the badge goes, and they need a new pass for it to come back."""
+    """Take a person's verification away: the badge goes, and they need a new pass for it to come back.
+    revoke: something is wrong with it, and their approved checks are declined in Persona too. expire: it is no
+    longer enough (periodic, role change); Persona's checks stay as they are."""
     from api.integrations.persona import PersonaError
     from api.integrations.persona_ingest import link_people
-    if body.reason not in REVOKE_REASONS:
+    reasons = EXPIRE_REASONS if body.mode == "expire" else REVOKE_REASONS
+    if body.reason not in reasons:
         raise HTTPException(400, detail="Pick a reason from the list")
     person = (await db.execute(select(User).where(User.id == str(user_id)).with_for_update())).scalar_one_or_none()
     if person is None or not (await db.execute(select(IdvRequest.id).where(IdvRequest.user_id == person.id).limit(1))).first():
         raise HTTPException(404)   # the same for nobody and for someone with no verification
     now = datetime.now(timezone.utc)
     person.idv_revoked_at = now
-    approved = (await db.execute(select(IdvRequest).where(IdvRequest.user_id == person.id, IdvRequest.state == "approved")
-                                 .order_by(IdvRequest.created_at.desc().nullslast()).limit(MAX_REVOKE))).scalars().all()
+    approved = [] if body.mode == "expire" else (await db.execute(
+        select(IdvRequest).where(IdvRequest.user_id == person.id, IdvRequest.state == "approved")
+        .order_by(IdvRequest.created_at.desc().nullslast()).limit(MAX_REVOKE))).scalars().all()
     declined, kept = 0, 0
     for r in approved:
         try:
@@ -117,7 +125,7 @@ async def revoke(user_id: uuid.UUID, body: Revoke, me: User = Depends(approver),
         r.state, r.persona_status = "rejected", (status or "declined")[:32]
         r.reviewed_by, r.reviewed_at, r.review_note, r.review_reason, r.decided_at = str(me.id), now, body.note, body.reason, now
         declined += 1
-    _audit(db, me, "idv.revoke", "user", str(person.id), f"{body.reason}")
+    _audit(db, me, f"idv.{body.mode}", "user", str(person.id), f"{body.reason}")
     await db.flush()
     await link_people(db)
     await db.commit()

@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth.middleware import get_current_user
@@ -34,12 +34,26 @@ async def require_idv_viewer(user: User = Depends(get_current_user), db: AsyncSe
     raise HTTPException(403, detail="Cyber, Admin or IDV Approver access required")
 
 
-TABS = {"pending": ("pending", "review"), "approved": ("approved",), "rejected": ("rejected", "expired", "superseded")}
+TABS = {"pending": ("pending", "review"), "approved": ("approved",), "rejected": ("rejected", "superseded")}   # expired (abandoned) checks aren't shown
+
+
+def unproven_sql():
+    """A check that passed in Persona but doesn't earn the badge, for someone with no badge: a selfie-only re-check
+    from someone who never passed a government ID, or one started from a hosted link. It waits in Pending for an
+    approver, because Persona says yes and CTEM can't confirm who it was."""
+    return and_(IdvRequest.state == "approved", IdvRequest.user_id.is_not(None), User.idv_verified_at.is_(None),
+                or_(User.idv_revoked_at.is_(None), IdvRequest.created_at > User.idv_revoked_at))
+
+
+def unproven(r: IdvRequest, person: User | None) -> bool:
+    if r.state != "approved" or person is None or person.idv_verified_at is not None:
+        return False
+    return person.idv_revoked_at is None or (r.created_at is not None and r.created_at > person.idv_revoked_at)
 
 
 def view(r: IdvRequest, person: User | None) -> dict:
     f = r.facts or {}
-    return {"id": r.id, "state": r.state, "persona_status": r.persona_status, "template": r.template, "origin": r.origin,
+    return {"id": r.id, "state": "unproven" if unproven(r, person) else r.state, "persona_status": r.persona_status, "template": r.template, "origin": r.origin,
             "created_at": _iso(r.created_at), "completed_at": _iso(r.completed_at), "decided_at": _iso(r.decided_at),
             "expires_at": _iso(r.expires_at), "reviewed_at": _iso(r.reviewed_at), "review_note": r.review_note,
             "review_reason": r.review_reason, "superseded": r.state == "superseded", "created_via": r.created_via,
@@ -58,15 +72,30 @@ def _iso(d: datetime | None) -> str | None:
 @router.get("/summary")
 async def summary(_: User = Depends(require_idv_viewer), db: AsyncSession = Depends(get_session)):
     rows = dict((await db.execute(select(IdvRequest.state, func.count()).group_by(IdvRequest.state))).all())
-    return {"review": rows.get("review", 0), **{t: sum(rows.get(s, 0) for s in states) for t, states in TABS.items()}}
+    odd = (await db.execute(select(func.count()).select_from(IdvRequest).join(User, User.id == IdvRequest.user_id)
+                            .where(unproven_sql()))).scalar_one()
+    return {"review": rows.get("review", 0) + odd, "unproven": odd,
+            **{t: sum(rows.get(s, 0) for s in states) for t, states in TABS.items()}}
 
 
 @router.get("/requests")
 async def list_requests(tab: str = Query("pending", pattern="^(pending|approved|rejected)$"),
                         q: str | None = Query(None, max_length=100, pattern=r"^[^\x00-\x1f\x7f]*$"), limit: int = Query(50, ge=1, le=200),
                         offset: int = Query(0, ge=0, le=100_000),
+                        days: int | None = Query(None, ge=1, le=3650, description="Only requests from the last N days"),
                         _: User = Depends(require_idv_viewer), db: AsyncSession = Depends(get_session)):
-    stmt = select(IdvRequest, User).outerjoin(User, User.id == IdvRequest.user_id).where(IdvRequest.state.in_(TABS[tab]))
+    tab_rows = IdvRequest.state.in_(TABS[tab])
+    if tab == "pending":
+        tab_rows = or_(tab_rows, unproven_sql())
+    elif tab == "approved":
+        tab_rows = and_(tab_rows, ~unproven_sql())
+    stmt = select(IdvRequest, User).outerjoin(User, User.id == IdvRequest.user_id).where(tab_rows)
+    older = 0
+    if days:
+        from datetime import timedelta
+        cut = datetime.now(timezone.utc) - timedelta(days=days)
+        older = (await db.execute(select(func.count()).select_from(stmt.where(IdvRequest.created_at < cut).subquery()))).scalar_one()
+        stmt = stmt.where(IdvRequest.created_at >= cut)
     if q and q.strip():
         from api.core.encryption import search_hash
         from api.core.user_match import upn_keys
@@ -75,33 +104,43 @@ async def list_requests(tab: str = Query("pending", pattern="^(pending|approved|
         stmt = stmt.where(or_(User.upn_hash.in_(keys), User.upn_local_hash.in_(keys), User.email_hash.in_(keys),
                               User.username == term[:128]))
     total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
-    order = (IdvRequest.state == "review").desc() if tab == "pending" else IdvRequest.state.asc()
+    order = (IdvRequest.state != "pending").desc() if tab == "pending" else IdvRequest.state.asc()
     rows = (await db.execute(stmt.order_by(order, IdvRequest.created_at.desc().nullslast(), IdvRequest.id)
                              .limit(limit).offset(offset))).all()
-    return {"requests": [view(r, u) for r, u in rows], "total": total, "limit": limit, "offset": offset}
+    return {"requests": [view(r, u) for r, u in rows], "total": total, "limit": limit, "offset": offset, "older": older}
 
 
 @router.get("/requests/{request_id}")
 async def one_request(request_id: uuid.UUID, me: User = Depends(require_idv_viewer), db: AsyncSession = Depends(get_session)):
     """One request in full, for the review dialog: what the person presented, which checks failed, what each means
-    and what to validate, the person's other attempts, and what this viewer may do."""
+    and what to validate, how often the person verified before, and what this viewer may do."""
     from api.auth.rbac import _load_user_permissions
-    from api.integrations.persona_checks import APPROVE_REASONS, DECLINE_REASONS, REVOKE_REASONS, explain
+    from api.integrations.persona_checks import APPROVE_REASONS, DECLINE_REASONS, EXPIRE_REASONS, REVOKE_REASONS, explain
     r = (await db.execute(select(IdvRequest).where(IdvRequest.id == str(request_id)))).scalar_one_or_none()
     if r is None:
         raise HTTPException(404)
     person = await db.get(User, r.user_id) if r.user_id else None
-    others = []
-    if r.okta_id:
-        others = (await db.execute(select(IdvRequest).where(IdvRequest.okta_id == r.okta_id, IdvRequest.id != r.id)
-                                   .order_by(IdvRequest.created_at.desc().nullslast()).limit(30))).scalars().all()
+    history = {"verified": 0, "failed": 0, "expired": 0, "in_progress": 0, "last_verified_at": None, "id_passed_before": False}
+    if r.okta_id:   # the person's other checks, as counts: this dialog is about the one being reviewed
+        from api.integrations.persona_checks import gov_id_passed
+        others = (await db.execute(select(IdvRequest.state, IdvRequest.completed_at, IdvRequest.decided_at, IdvRequest.facts)
+                                   .where(IdvRequest.okta_id == r.okta_id, IdvRequest.id != r.id).limit(1000))).all()
+        for state, done, decided, facts in others:
+            key = {"approved": "verified", "review": "failed", "rejected": "failed", "superseded": "failed",
+                   "expired": "expired"}.get(state, "in_progress")
+            history[key] += 1
+            at = done or decided
+            if state == "approved" and at and (history["last_verified_at"] is None or at > history["last_verified_at"]):
+                history["last_verified_at"] = at
+            if gov_id_passed(facts):
+                history["id_passed_before"] = True
+        history["last_verified_at"] = _iso(history["last_verified_at"])
     approver = any(p.startswith("idv:approve:") for p in await _load_user_permissions(me, db))
     return {**view(r, person), "explain": explain(r.facts),
             "person_detail": {"first_name": person.first_name, "last_name": person.last_name, "title": person.title,
                               "department": person.department} if person is not None else None,
-            "attempts": [{"id": o.id, "state": o.state, "created_at": _iso(o.created_at), "id_type": (o.facts or {}).get("id_type"),
-                          "country": (o.facts or {}).get("country"),
-                          "failed": [f["check"] for f in explain(o.facts)["failed"]][:6]} for o in others],
-            "can": {"review": approver and r.state == "review", "revoke": approver and person is not None and person.idv_verified_at is not None,
+            "history": history,
+            "can": {"review": approver and (r.state == "review" or unproven(r, person)), "revoke": approver and person is not None and person.idv_verified_at is not None,
                     "names": approver},
-            "reasons": {"approve": APPROVE_REASONS, "decline": DECLINE_REASONS, "revoke": REVOKE_REASONS} if approver else None}
+            "reasons": {"approve": APPROVE_REASONS, "decline": DECLINE_REASONS, "revoke": REVOKE_REASONS,
+                        "expire": EXPIRE_REASONS} if approver else None}

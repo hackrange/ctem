@@ -7,6 +7,17 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.16.1] - 2026-11-26
+
+### Fixed
+- IDV review dialog uses most of the screen width (up to 1280px); the shared dialog style had capped it at 520px.
+
+### Changed
+- IDV review dialog, rebuilt around the one check being reviewed: why it needs a manual review in plain sentences with the real values (for example the name on the driver's license against the name in the directory, or which IDs looked like a photo of a screen), one line of history (verified N times before, failed attempts, whether a government ID ever passed), the signals for this check one per line (ID presented, country, capture, selfie result, name on the ID, device, ISP and network, country by IP and GPS, VPN/proxy flags, threat level, how it was started), and what to validate. The name and network are read from Persona live for approvers, never stored, so no one needs to sign in to Persona to review.
+- IDV Pending also holds checks Persona passed that earn no badge for someone with no badge: a selfie-only re-check from someone who never passed a government ID, or one started from a hosted link ("Passed, not ID-verified"). They count on the IDV bubble, and an approver approves (for example after a video call) or declines them.
+- Expire verification (IDV approvers): requires a new identity verification when the old one is no longer enough (periodic, role change, name change), with a warning that the person must onboard again. Unlike Revoke, it leaves Persona's checks as they are.
+- IDV list shows the last 5 days by default (30, 90 days or all time to pick), with a count of older ones and Show all; a search looks at every date. Expired (abandoned) checks aren't shown.
+
 ## [1.16.0] - 2026-11-26
 
 ### Added
