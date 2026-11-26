@@ -303,3 +303,16 @@ async def test_expire_needs_a_new_verification_without_declining(db, client_idv_
     r = await client_idv_approver.post(f"/api/v1/idv/people/{u.id}/revoke", json={"mode": "expire", "reason": "role_change", "note": "New admin role"})
     assert r.status_code == 200 and r.json()["idv_verified_at"] is None and calls == []
     assert (await db.execute(select(AuditLog).where(AuditLog.action == "idv.expire", AuditLog.resource_id == u.id))).scalars().first()
+
+
+@pytest.mark.asyncio
+async def test_bubble_counts_only_the_last_five_days(db, client_cyber):
+    from api.models.idv import IdvRequest
+    t = uuid.uuid4().hex[:10]
+    now = datetime.now(timezone.utc)
+    before = (await client_cyber.get("/api/v1/idv/summary")).json()
+    db.add_all([IdvRequest(inquiry_id=f"inq_R{t}x", state="review", persona_status="failed", created_at=now - timedelta(days=1)),
+                IdvRequest(inquiry_id=f"inq_Q{t}x", state="review", persona_status="failed", created_at=now - timedelta(days=8))])
+    await db.commit()
+    after = (await client_cyber.get("/api/v1/idv/summary")).json()
+    assert after["review_recent"] - before["review_recent"] == 1 and after["review"] - before["review"] == 2

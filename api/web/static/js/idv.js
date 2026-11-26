@@ -27,10 +27,10 @@
   async function tabs() {
     let s = {};
     try { s = await getJson(`${API}/summary`); } catch (e) { /* tabs still work */ }
-    const list = [['pending', 'Pending', s.review], ['approved', 'Approved'], ['rejected', 'Rejected']];
+    const list = [['pending', 'Pending', s.review_recent], ['approved', 'Approved'], ['rejected', 'Rejected']];   // like the sidebar: the last 5 days
     $('idv-tabs').innerHTML = list.map(([v, l, n]) =>
       `<button type="button" role="tab" class="btn btn--sm ${v === tab ? 'btn--primary' : 'btn--ghost'}" data-tab="${v}" aria-selected="${v === tab}">${esc(l)}${
-        n ? ` <span class="count-bubble" title="${esc(n)} waiting for review">${esc(n > 99 ? '99+' : n)}</span>` : ''}</button>`).join('');
+        n ? ` <span class="count-bubble" title="${esc(n)} waiting for review from the last 5 days">${esc(n > 99 ? '99+' : n)}</span>` : ''}</button>`).join('');
   }
 
   const person = r => (r.person

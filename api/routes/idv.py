@@ -21,6 +21,7 @@ from api.models.user import User
 log = logging.getLogger("open-ctem.idv")
 router = APIRouter(prefix="/api/v1/idv", tags=["idv"])
 VIEWERS = {"admin", "cyber", "idv_approvers"}
+RECENT_DAYS = 5   # the list's default window and the sidebar bubble's
 
 
 async def require_idv_viewer(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_session)) -> User:
@@ -74,7 +75,11 @@ async def summary(_: User = Depends(require_idv_viewer), db: AsyncSession = Depe
     rows = dict((await db.execute(select(IdvRequest.state, func.count()).group_by(IdvRequest.state))).all())
     odd = (await db.execute(select(func.count()).select_from(IdvRequest).join(User, User.id == IdvRequest.user_id)
                             .where(unproven_sql()))).scalar_one()
-    return {"review": rows.get("review", 0) + odd, "unproven": odd,
+    from datetime import timedelta
+    cut = datetime.now(timezone.utc) - timedelta(days=RECENT_DAYS)   # the sidebar bubble: what is new, not the backlog
+    recent = (await db.execute(select(func.count()).select_from(IdvRequest).outerjoin(User, User.id == IdvRequest.user_id)
+                               .where(IdvRequest.created_at >= cut, or_(IdvRequest.state == "review", unproven_sql())))).scalar_one()
+    return {"review": rows.get("review", 0) + odd, "unproven": odd, "review_recent": recent, "recent_days": RECENT_DAYS,
             **{t: sum(rows.get(s, 0) for s in states) for t, states in TABS.items()}}
 
 

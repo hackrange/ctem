@@ -121,11 +121,11 @@
       (() => {
         const show = () => fetch('/api/v1/idv/summary', { headers: { Accept: 'application/json' } }).then(r => (r.ok ? r.json() : null))
           .then(s => {
-            const n = s ? Number(s.review) || 0 : 0;
+            const n = s ? Number(s.review_recent) || 0 : 0;   // the last 5 days only
             const b = document.getElementById('nav-idv-badge');
             b.textContent = n > 99 ? '99+' : String(n);
             b.hidden = !n;
-            b.title = n + (n === 1 ? ' identity verification' : ' identity verifications') + ' waiting for review';
+            b.title = n + (n === 1 ? ' identity verification' : ' identity verifications') + ' waiting for review from the last 5 days';
             b.setAttribute('aria-label', b.title);
           }).catch(() => {});
         show();

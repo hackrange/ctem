@@ -7,6 +7,11 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.16.3] - 2026-11-26
+
+### Changed
+- IDV bubble (sidebar and the Pending tab) counts only checks from the last 5 days waiting for review; older ones stay in the list under Show all.
+
 ## [1.16.2] - 2026-11-26
 
 ### Fixed
