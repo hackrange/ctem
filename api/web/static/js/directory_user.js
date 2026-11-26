@@ -22,6 +22,8 @@
     title.textContent = name;
     // nosemgrep: javascript.browser.security.insertadjacenthtml.insertAdjacentHTML -- IdvBadge escapes everything; its only input is a date
     if (u.idv_verified_at && window.IdvBadge) title.insertAdjacentHTML('beforeend', IdvBadge.html(u.idv_verified_at, false));
+    // nosemgrep: javascript.browser.security.insertadjacenthtml.insertAdjacentHTML -- IdvSend.button escapes the id and name
+    if (window.IdvSend) title.insertAdjacentHTML('beforeend', IdvSend.button(u.id, name));
     let left = dash;
     if (ad.pwd_never_expires) left = 'Never expires';
     else if (ad.pwd_days_left != null) left = ad.pwd_days_left < 0 ? `Expired ${esc(-ad.pwd_days_left)} days ago` : `${esc(ad.pwd_days_left)} days left`;

@@ -7,6 +7,15 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.17.0] - 2026-11-26
+
+### Added
+- Send re-verification link: a button by the person on Discovered Users and by a device's detected user (admin, cyber and IDV Validation, permission idv:request). CTEM starts a Persona check on the service desk's template (the person's identity provider id as its reference, their directory name prefilled so the name comparison runs) and sends its one-time link, good for 24 hours, by text through Twilio or by email.
+- It goes only to a contact the person's SSO/MFA provider verified: the phone of an active SMS MFA factor, or the address of an active email MFA factor. Never a directory phone, a voice-only factor or a number typed in, and the full number or address never reaches the browser. Okta fills these today; another provider (Ping, Duo, ...) works by filling the same fields.
+- A contact enrolled or changed in the last 7 days (or with no date) needs the sender to confirm it with the person another way first, since that is what an account takeover looks like. The dialog shows each contact's enrollment date.
+- Not for service accounts or accounts the provider doesn't hold as active. One link per person every 10 minutes, 30 an hour per sender. Every attempt is recorded and audited, failed ones too; the link itself is never stored, logged or shown.
+- Okta sync reads each person's email MFA factor and when each factor was enrolled or last changed (everyone's factors are read again once).
+
 ## [1.16.3] - 2026-11-26
 
 ### Changed

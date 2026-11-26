@@ -20,6 +20,7 @@ COMPUTERS = {"WINDOWS": "Windows", "MACOS": "macOS"}
 DEVICE_SEARCH = 'status eq "ACTIVE" and (profile.platform eq "WINDOWS" or profile.platform eq "MACOS")'
 LIVE_DEVICE = ("ACTIVE",)
 FACTOR_TTL = timedelta(days=7)      # MFA enrollments don't change often; re-read each person's weekly
+FACTORS_V = 2   # bumped when more is read from factors (2: the verified email factor), so everyone is read again once
 NEW_DEVICE_DAYS = 90                # only add a computer CTEM has never seen when Okta heard from it lately
 _CHUNK = 500
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$")
@@ -269,19 +270,27 @@ async def _ensure_owners(db: AsyncSession, people: People) -> None:
 
 
 def factor_summary(factors: list) -> dict:
-    """Which factors are enrolled, and the phone the SMS (else voice) factor reaches. Factor device names and
-    credential ids stay in Okta."""
+    """Which factors are enrolled, the phone the SMS (else voice) factor reaches, and the address an active email
+    factor reaches (Okta verified it when the person enrolled). Factor device names and credential ids stay in Okta."""
     live = [f for f in factors if isinstance(f, dict) and f.get("status") == "ACTIVE"]
     kinds = sorted({str(f.get("factorType"))[:40] for f in live if f.get("factorType")})
-    phone, kind = None, None
+    phone, kind, phone_at = None, None, None
     for want in ("sms", "call"):
         for f in live:
             if f.get("factorType") == want and _phone((f.get("profile") or {}).get("phoneNumber")):
                 phone, kind = _phone(f["profile"]["phoneNumber"]), want
+                phone_at = _iso(when(f.get("lastUpdated") or f.get("created")))
                 break
         if phone:
             break
-    return {"factors": kinds, "mfa_phone": phone, "mfa_phone_kind": kind}
+    email, email_at = None, None
+    for f in live:
+        e = _clean((f.get("profile") or {}).get("email"), 256) if f.get("factorType") == "email" else None
+        if e and re.fullmatch(r"[^@\s]{1,64}@[A-Za-z0-9.\-]{1,190}\.[A-Za-z]{2,24}", e):
+            email, email_at = e, _iso(when(f.get("lastUpdated") or f.get("created")))
+            break
+    return {"factors": kinds, "mfa_phone": phone, "mfa_phone_kind": kind, "mfa_email": email,
+            "mfa_phone_at": phone_at, "mfa_email_at": email_at}
 
 
 async def factors(conn, client, db: AsyncSession, people: People) -> int:
@@ -295,7 +304,8 @@ async def factors(conn, client, db: AsyncSession, people: People) -> int:
         for r in (await db.execute(select(User).where(User.id.in_(ids[i:i + _CHUNK])))).scalars():
             rows[r.id] = r
     stale = datetime.now(timezone.utc) - FACTOR_TTL
-    due = [u for u in rows.values() if (when((u.idp or {}).get("factors_at")) or datetime.min.replace(tzinfo=timezone.utc)) < stale]
+    due = [u for u in rows.values() if (u.idp or {}).get("factors_v") != FACTORS_V
+           or (when((u.idp or {}).get("factors_at")) or datetime.min.replace(tzinfo=timezone.utc)) < stale]
     due.sort(key=lambda u: (uids[u.id] not in people.on_devices, str((u.idp or {}).get("factors_at") or "")))
     due = due[:budget]
     sem, done = asyncio.Semaphore(4), 0
@@ -317,7 +327,8 @@ async def factors(conn, client, db: AsyncSession, people: People) -> int:
                 continue
             user.mfa_phone = s["mfa_phone"]
             user.idp = {**(user.idp or {}), "factors": s["factors"], "mfa_phone_kind": s["mfa_phone_kind"],
-                        "factors_at": datetime.now(timezone.utc).isoformat()}
+                        "mfa_email": s["mfa_email"], "mfa_phone_at": s["mfa_phone_at"], "mfa_email_at": s["mfa_email_at"],
+                        "factors_v": FACTORS_V, "factors_at": datetime.now(timezone.utc).isoformat()}
             done += 1
         await db.commit()
     if failed:

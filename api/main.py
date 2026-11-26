@@ -72,6 +72,7 @@ def create_app() -> FastAPI:
     from api.routes.risk_model import router as risk_model_router
     from api.routes.idv import router as idv_router
     from api.routes.idv_review import router as idv_review_router
+    from api.routes.idv_desk import router as idv_desk_router
     from api.routes.admin import router as admin_router
     from api.routes.user_access import router as user_access_router
     from api.routes.api_docs import router as api_docs_router
@@ -144,6 +145,7 @@ def create_app() -> FastAPI:
     app.include_router(risk_model_router)
     app.include_router(idv_router)
     app.include_router(idv_review_router)
+    app.include_router(idv_desk_router)
     app.include_router(user_access_router)   # before admin's /users/{id} routes
     app.include_router(admin_router)
     app.include_router(api_docs_router)

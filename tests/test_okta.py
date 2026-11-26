@@ -80,7 +80,8 @@ def test_factor_summary_keeps_the_phone_but_not_device_names():
           {"factorType": "sms", "status": "PENDING_ACTIVATION", "profile": {"phoneNumber": "+15550100000"}},
           {"factorType": "signed_nonce", "status": "ACTIVE", "profile": {"name": "desktop001", "credentialId": "jdoe@acme.example"}}]
     s = factor_summary(fs)
-    assert s == {"factors": ["call", "signed_nonce", "sms"], "mfa_phone": "+15550100199", "mfa_phone_kind": "sms"}
+    assert s == {"factors": ["call", "signed_nonce", "sms"], "mfa_phone": "+15550100199", "mfa_phone_kind": "sms", "mfa_email": None,
+                 "mfa_phone_at": None, "mfa_email_at": None}
     assert factor_summary(fs[:1])["mfa_phone_kind"] == "call"
     assert factor_summary([{"factorType": "sms", "status": "ACTIVE", "profile": {"phoneNumber": "<script>"}}])["mfa_phone"] is None
     assert "desktop001" not in str(s) and "jdoe" not in str(s)

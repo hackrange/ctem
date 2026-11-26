@@ -57,8 +57,12 @@ class TwilioConnector(BaseConnector):
         if not allowed(method, url, self.account):
             raise TwilioError(f"CTEM never calls {method} {urlsplit(url).path}")
         auth = (str(self.config.get("api_key_sid") or ""), str(self.config.get("api_key_secret") or ""))
-        async with self.client() as c:
-            r = await c.request(method, url, auth=auth, data=data, headers={"Accept": "application/json"})
+        import httpx
+        try:
+            async with self.client() as c:
+                r = await c.request(method, url, auth=auth, data=data, headers={"Accept": "application/json"})
+        except httpx.HTTPError as e:
+            raise TwilioError(f"Twilio didn't answer ({type(e).__name__})") from None
         try:
             body = r.json()
         except ValueError:

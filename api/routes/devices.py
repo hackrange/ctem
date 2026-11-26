@@ -220,6 +220,8 @@ async def get_device(
         # identity verification is personal: admins and cyber only, like the Identity tab
         "detected_user_idv_at": device.owner.idv_verified_at.isoformat()
         if device.owner is not None and device.owner.idv_verified_at and {"admin", "cyber"} & set(current_user.role_names) else None,
+        # for "Send re-verification link" next to it (same audience)
+        "detected_user_id": device.owner.id if device.owner is not None and {"admin", "cyber"} & set(current_user.role_names) else None,
         "score_why": await _score_why(db, device.id),
         "related_owners": await _related_owners(db, device.id, current_user),
     })

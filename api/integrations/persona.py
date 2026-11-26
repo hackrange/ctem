@@ -37,6 +37,7 @@ WRITES = (
     re.compile(rf"^/api/v1/inquiries/{INQ}/(approve|decline|generate-one-time-link)$"),
 )
 _RETRY = (500, 502, 503, 504)
+LINK_SECONDS = 24 * 3600   # how long a re-verification link the service desk sends stays good
 _BACKOFF = (2.0, 8.0, 20.0)
 # Only these attributes are asked for. "fields" holds the ID's country, state and type, next to personal data
 # that is dropped on arrival; there is no narrower way to ask for those three.
@@ -208,3 +209,32 @@ class PersonaConnector(BaseConnector):
                                  "ip_country": txt(a, "country-name", 60) or txt(a, "country-code", 2),
                                  "ip_region": txt(a, "region-name", 60), "gps_country": txt(a, "gps-country-code", 2)})
         return {"on_id": ids, "sessions": sorted(sessions, key=lambda x: x["at"] or "", reverse=True)[:5]}
+
+    async def start_inquiry(self, reference_id: str, fields: dict | None = None) -> tuple[str, str]:
+        """Start an inquiry on the service desk's template for a person (reference-id = their Okta id, so the result
+        finds them) and make its one-time link. Returns (inquiry id, link). The link is a bearer secret: it goes to
+        the person and is never stored or logged."""
+        tid = str(self.config.get("template_id") or "")
+        if not re.fullmatch(r"itmpl_[A-Za-z0-9]{8,40}", tid):
+            raise PersonaError("Set the inquiry template the service desk sends in the Persona integration")
+        attrs = {"inquiry-template-id": tid, "reference-id": reference_id}
+        if fields:
+            attrs["fields"] = {k: v for k, v in fields.items() if k in ("name-first", "name-last") and isinstance(v, str) and v}
+        async with self.client() as client:
+            body = await self.request("POST", "/api/v1/inquiries", client, body={"data": {"attributes": attrs}})
+            iid = inquiry_id(str((body.get("data") or {}).get("id") or ""))
+            try:
+                out = await self.request("POST", f"/api/v1/inquiries/{iid}/generate-one-time-link", client,
+                                         body={"meta": {"expires-in-seconds": LINK_SECONDS}})
+            except PersonaError as e:
+                e.inquiry = iid   # started, but no link: the caller records it
+                raise
+        meta = out.get("meta") or {}
+        link = str(meta.get("one-time-link-short") or meta.get("one-time-link") or "")
+        p = urlsplit(link)
+        host = (p.hostname or "").lower()
+        if p.scheme != "https" or not (host == "withpersona.com" or host.endswith(".withpersona.com")):
+            e = PersonaError("Persona didn't return a link CTEM can send")
+            e.inquiry = iid
+            raise e
+        return iid, link
