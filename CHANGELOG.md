@@ -7,6 +7,12 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.21.1] - 2026-11-26
+
+### Fixed
+- When Persona refuses to start a verification, the message now gives Persona's reason (for example "Inquiry template is not deployed to this environment").
+- People expired or revoked before 1.19.1 had no kind recorded and were treated as revoked (their next ID-and-selfie pass waited for an approver). The kind now comes from their latest audit entry, so an expire behaves as an expire.
+
 ## [1.21.0] - 2026-11-26
 
 ### Added

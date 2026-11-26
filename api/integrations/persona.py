@@ -64,6 +64,18 @@ def link_host_ok(host: str | None) -> bool:
     return h in ("withpersona.com", "perso.na") or h.endswith(".withpersona.com")
 
 
+def _reason(resp) -> str:
+    """Persona's own words for a refusal ("Inquiry template is not deployed to this environment"), short and with
+    anything that isn't plain text dropped. It describes the request, never a person."""
+    try:
+        errs = resp.json().get("errors") or []
+        text = " ".join(str(e.get("details") or e.get("title") or "") for e in errs[:2] if isinstance(e, dict))
+    except (ValueError, AttributeError):
+        return ""
+    text = re.sub(r"[^A-Za-z0-9 .,'()\-]", "", text)[:160].strip()
+    return f": {text}" if text else ""
+
+
 def inquiry_id(value: str) -> str:
     if not re.fullmatch(INQ, value or ""):
         raise PersonaError("not a Persona inquiry id")
@@ -126,7 +138,7 @@ class PersonaConnector(BaseConnector):
         if resp.status_code in (401, 403):
             raise PersonaError(f"Persona refused the API key (HTTP {resp.status_code})")
         if resp.status_code not in (200, 201):
-            raise PersonaError(f"Persona answered HTTP {resp.status_code} for {method} {urlsplit(url).path}")
+            raise PersonaError(f"Persona answered HTTP {resp.status_code} for {method} {urlsplit(url).path}{_reason(resp)}")
         try:
             out = resp.json()
         except ValueError:

@@ -15,7 +15,7 @@ T0 = datetime(2026, 3, 12, 14, 0, tzinfo=timezone.utc)
 def test_kinds():
     from api.core.ip_history import kind, net
     assert kind("10.4.2.17") == "private" and kind("192.168.1.5") == "private" and kind("172.16.0.9") == "private"
-    assert kind("8.8.8.8") == "public" and kind("2001:4860::8888") == "public"
+    assert kind("203.0.113.5") == "public" and kind("2001:db8::8888") == "public"
     assert kind("127.0.0.1") is None and kind("169.254.1.1") is None and kind("nope") is None
     assert net("10.4.2.17") == "10.4.2.0/24"
 
@@ -76,7 +76,7 @@ async def test_search_by_moment_range_asset_and_access(db, client_cyber, client_
     assert (await client_cyber.get(url, params={"ip": "10.251.9.44", "at": "2026-03-13T14:30:00Z"})).json()["total"] == 0
     assert (await client_cyber.get(url, params={"ip": "10.251.9.1", "scope": "net"})).json()["total"] >= 1   # its /24
     assert (await client_cyber.get(url, params={"device": d.id})).json()["total"] == 2                       # private and public
-    assert (await client_cyber.get(url, params={"ip": "999.1.1.1"})).status_code == 400
+    assert (await client_cyber.get(url, params={"ip": "1.2.3"})).status_code == 400
     assert (await client_cyber.get(url, params={"ip": "10.0.0.1", "at": "yesterday"})).status_code == 400
     assert (await client_cyber.get(url)).status_code == 400
     assert (await db.execute(select(AuditLog).where(AuditLog.action == "hunt.ip_history"))).scalars().first()

@@ -396,3 +396,23 @@ async def test_expire_or_revoke_can_send_the_link_in_the_same_step(db, client_id
                                            json={"mode": "expire", "reason": "reverify_required", "note": "x y z", "send": "fax"})).status_code == 422
     await db.execute(delete(IdvRequest).where(IdvRequest.okta_id == u.okta_id))
     await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_old_expires_get_their_kind_from_the_audit(db):
+    from api.core.seed import _idv_revoke_kinds
+    from api.models.settings import AuditLog
+    from api.models.user import User
+    t = uuid.uuid4().hex[:10]
+    a = User(username=f"oe{t}", is_local=False, is_active=True, idv_revoked_at=datetime.now(timezone.utc))
+    b = User(username=f"or{t}", is_local=False, is_active=True, idv_revoked_at=datetime.now(timezone.utc))
+    db.add_all([a, b])
+    await db.flush()
+    db.add_all([AuditLog(actor_username="admin", action="idv.expire", resource_type="user", resource_id=a.id, detail="reverify_required"),
+                AuditLog(actor_username="admin", action="idv.revoke", resource_type="user", resource_id=b.id, detail="fraud_suspected")])
+    await db.commit()
+    await _idv_revoke_kinds(db)
+    await db.commit()
+    await db.refresh(a)
+    await db.refresh(b)
+    assert a.idv_revoked_kind == "expire" and b.idv_revoked_kind == "revoke"

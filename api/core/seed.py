@@ -108,7 +108,19 @@ async def run_seed(db: AsyncSession, settings) -> None:
     await _seed_roles_and_perms(db)
     await _seed_admin_user(db, settings)
     await _hold_unreviewed_learned_rules(db)
+    await _idv_revoke_kinds(db)
     await db.commit()
+
+
+async def _idv_revoke_kinds(db: AsyncSession) -> None:
+    """People expired or revoked before 1.19.1 have no kind recorded: take it from their latest audit entry
+    (idv.expire or idv.revoke), so an expire isn't treated as a revoke. Runs until none are left."""
+    from api.models.settings import AuditLog
+    from api.models.user import User
+    for u in (await db.execute(select(User).where(User.idv_revoked_at.is_not(None), User.idv_revoked_kind.is_(None)))).scalars():
+        act = (await db.execute(select(AuditLog.action).where(AuditLog.resource_id == u.id, AuditLog.action.in_(("idv.expire", "idv.revoke")))
+                                .order_by(AuditLog.created_at.desc()).limit(1))).scalar_one_or_none()
+        u.idv_revoked_kind = "expire" if act == "idv.expire" else "revoke"
 
 
 async def _hold_unreviewed_learned_rules(db: AsyncSession) -> None:

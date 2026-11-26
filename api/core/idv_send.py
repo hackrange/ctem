@@ -105,13 +105,14 @@ async def send_link(db: AsyncSession, user_id: str, channel: str, confirm_recent
                     resource_id=str(u.id), detail=f"{channel} {what['kind']} requested{note}"[:300]))
     await db.commit()   # the locks go; the vendors are called with none held
     okta_id, names = u.okta_id, {"name-first": u.first_name, "name-last": u.last_name}
-    sent, iid, link = dict(row.channels[0]), None, None
+    sent, iid, link, why = dict(row.channels[0]), None, None, ""
     try:
         iid, link = await get_connector("persona", persona_cfg.config or {}).start_inquiry(okta_id, names, what["kind"])
     except PersonaError as e:
         log.warning("Persona inquiry for %s failed: %s", u.id, e)
         iid = getattr(e, "inquiry", None)
         sent["status"] = "persona_failed"
+        why = str(e).split(": ", 1)[1] if ": " in str(e) else ""   # Persona's reason, e.g. the template isn't deployed
     if link:
         text = ("Your security team asks you to verify your identity. Use this link within 24 hours: "
                 f"{link} . If you didn't expect this, contact the service desk.")
@@ -137,7 +138,7 @@ async def send_link(db: AsyncSession, user_id: str, channel: str, confirm_recent
                     resource_id=str(u.id), detail=f"{channel} {sent['status']}{note}"[:300]))
     await db.commit()
     if sent["status"] == "persona_failed":
-        raise HTTPException(502, detail="Persona didn't start the verification; nothing was sent")
+        raise HTTPException(502, detail="Persona didn't start the verification; nothing was sent" + (f". Persona said: {why}" if why else ""))
     if not delivered:
         raise HTTPException(502, detail="The verification started, but the message didn't go out; try the other channel")
     return row, {"sent": True, "channel": channel, "to": to["shown"], "expires_hours": 24, "kind": what["kind"]}
