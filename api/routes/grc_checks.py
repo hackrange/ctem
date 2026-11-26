@@ -134,7 +134,7 @@ async def _items(db: AsyncSession, check: Check) -> tuple[dict, list[dict], list
     except Exception:  # noqa: BLE001 -- the cache is optional
         log.debug("check items cache unavailable")
     body, outcome = await evaluate(db, check, {}, detail=True)
-    keep = {k: body[k] for k in ("result", "summary", "measured_at", "curated_rules") if k in body}
+    keep = {k: body[k] for k in ("result", "summary", "measured_at", "curated_rules", "details") if k in body}
     try:
         r = await evidence._redis()
         await r.set(key, json.dumps({"body": keep, "rows": outcome.rows, "columns": outcome.columns}, default=str),
@@ -147,6 +147,7 @@ async def _items(db: AsyncSession, check: Check) -> tuple[dict, list[dict], list
 
 @router.get("/checks/{check_type}/items")
 async def check_items(check_type: str, q: str | None = Query(None, max_length=200),
+                      asset: str | None = Query(None, pattern="^[a-z]{2,20}$", description="Only rows on this kind of asset"),
                       sort: str | None = Query(None, max_length=40), order: str = Query("asc", pattern="^(asc|desc)$"),
                       limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0, le=_REPORT_MAX),
                       user: User = Depends(require_permission("grc", "read")), db: AsyncSession = Depends(get_session)):
@@ -160,6 +161,8 @@ async def check_items(check_type: str, q: str | None = Query(None, max_length=20
     if q and q.strip():
         needle = q.strip().lower()
         rows = [r for r in rows if any(needle in str(r.get(c) or "").lower() for c in columns)]
+    if asset:   # the SLA check's breakdown: one kind of asset
+        rows = [r for r in rows if r.get("asset_kind") == asset]
     if sort and _ITEM_SORT.match(sort) and sort in columns:   # only the check's own columns
         rows = sorted(rows, key=lambda r: _sort_key(r.get(sort)), reverse=order == "desc")
     if offset == 0:
@@ -169,6 +172,6 @@ async def check_items(check_type: str, q: str | None = Query(None, max_length=20
         await db.commit()
     page = rows[offset:offset + limit]
     return {"check": check.catalog(), "result": body["result"], "summary": body["summary"],
-            "measured_at": body["measured_at"], "curated_rules": body.get("curated_rules", []),
+            "measured_at": body["measured_at"], "curated_rules": body.get("curated_rules", []), "details": body.get("details") or {},
             "columns": columns, "items": [{"device_id": r.get("device_id"), **{c: r.get(c) for c in columns}} for r in page],
             "total": len(rows), "all_items": len(all_rows), "truncated": len(all_rows) >= MAX_ITEMS}

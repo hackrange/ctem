@@ -3,11 +3,11 @@ from __future__ import annotations
 
 from datetime import datetime, time, timedelta, timezone
 
-from sqlalchemy import and_, func, or_, select, true
+from sqlalchemy import and_, case, func, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.grc.checks import EXPOSURE, PENTEST, SCANNERS, Check, Outcome, Threshold, aware, grade_low, now, register
-from api.models.device import Device
+from api.models.device import Device, DeviceType
 from api.core.device_scope_exempt import in_scope, in_scope_findings
 from api.models.risk import AttackPath, RiskException
 from api.models.vuln import Finding, FindingStatus, Vulnerability
@@ -65,6 +65,29 @@ def _sla_breach(t: dict):
     return cond
 
 
+# What kind of asset a finding is on, for the SLA check's breakdown (each links to the matching list)
+ASSET_KINDS = (("workstation", "Workstations"), ("server", "Servers"), ("network", "Network devices"), ("cloud", "Cloud"),
+               ("code", "Code"), ("web", "Web apps"), ("unknown", "Other"))
+_KIND = case((Device.device_type == DeviceType.workstation, "workstation"), (Device.device_type == DeviceType.server, "server"),
+             (Device.device_type == DeviceType.network_device, "network"),
+             (Device.device_type.in_((DeviceType.cloud_instance, DeviceType.cloud_resource)), "cloud"),
+             (Device.device_type == DeviceType.code_repository, "code"), (Device.device_type == DeviceType.website, "web"),
+             else_="unknown")
+
+
+async def _sla_breakdown(db: AsyncSession, t: dict) -> dict:
+    """Findings and assets past SLA by kind of asset, and findings past SLA by risk grade."""
+    j = select(_KIND, func.count(), func.count(func.distinct(Finding.device_id))).select_from(Finding).join(
+        Vulnerability, Finding.vuln_id == Vulnerability.id).join(Device, Finding.device_id == Device.id).where(_sla_breach(t)).group_by(_KIND)
+    got = {k: (n, d) for k, n, d in (await db.execute(j)).all()}
+    g = select(Finding.risk_grade, func.count()).select_from(Finding).join(Vulnerability, Finding.vuln_id == Vulnerability.id).where(
+        _sla_breach(t)).group_by(Finding.risk_grade)
+    grades = {str(k or "?"): n for k, n in (await db.execute(g)).all()}
+    return {"by_asset": [{"kind": k, "label": label, "findings": got.get(k, (0, 0))[0], "assets": got.get(k, (0, 0))[1]}
+                         for k, label in ASSET_KINDS],
+            "by_grade": [{"grade": x, "findings": grades.get(x, 0)} for x in ("F", "D", "C", "B", "A")]}
+
+
 async def _sla(db: AsyncSession, t: dict, detail: bool) -> Outcome:
     base = select(func.count()).select_from(Finding).join(Vulnerability, Finding.vuln_id == Vulnerability.id)
     breaches = (await db.execute(base.where(_sla_breach(t)))).scalar_one()
@@ -75,13 +98,16 @@ async def _sla(db: AsyncSession, t: dict, detail: bool) -> Outcome:
                   {"past_sla": breaches, "critical_past_sla": crit, "high_past_sla": breaches - crit,
                    "reachable_only": bool(t["reachable_only"])})
     if detail:
+        out.details.update(await _sla_breakdown(db, t))
         found = await db.execute(
-            select(Finding, Vulnerability, Device.hostname).join(Vulnerability, Finding.vuln_id == Vulnerability.id)
+            select(Finding, Vulnerability, Device.hostname, _KIND).join(Vulnerability, Finding.vuln_id == Vulnerability.id)
             .join(Device, Finding.device_id == Device.id).where(_sla_breach(t))
             .order_by(Finding.first_detected).limit(MAX_ROWS))
-        out.columns = ["hostname", "cve_id", "cvss", "first_detected", "reachable"]
-        out.rows = [{"device_id": str(f.device_id), "hostname": h, "cve_id": v.cve_id, "cvss": v.cvss_base, "first_detected": _iso(f.first_detected),
-                     "reachable": "unknown" if f.is_reachable is None else f.is_reachable} for f, v, h in found.all()]
+        labels = dict(ASSET_KINDS)
+        out.columns = ["hostname", "asset", "cve_id", "cvss", "risk_grade", "first_detected", "reachable"]
+        out.rows = [{"device_id": str(f.device_id), "hostname": h, "asset": labels.get(k, "Other"), "asset_kind": k, "cve_id": v.cve_id,
+                     "cvss": v.cvss_base, "risk_grade": f.risk_grade, "first_detected": _iso(f.first_detected),
+                     "reachable": "unknown" if f.is_reachable is None else f.is_reachable} for f, v, h, k in found.all()]
     return out
 
 

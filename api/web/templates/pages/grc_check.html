@@ -17,9 +17,19 @@
   <div class="panel__body text-sm" id="ck-result">Loading...</div>
 </div>
 
+<div class="panel" id="ck-drill" style="margin-bottom:20px" hidden>
+  <div class="panel__header" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+    <span class="panel__title">Drill down</span><span id="ck-links" style="display:flex;gap:8px;flex-wrap:wrap"></span>
+  </div>
+  <div class="panel__body">
+    <div id="ck-grades" class="text-sm" hidden style="margin-bottom:12px"></div>
+    <div id="ck-assets" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px"></div>
+  </div>
+</div>
+
 <div class="panel" style="padding:0">
   <div class="panel__header" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
-    <span class="panel__title">To remediate</span>
+    <span class="panel__title" id="ck-list-title">To remediate</span>
     <span style="display:flex;gap:8px;align-items:center">
       <input id="ck-search" type="search" class="search-bar" placeholder="Search" aria-label="Search items" maxlength="200">
       <a class="btn btn--ghost btn--sm" id="ck-csv" href="#">Signed CSV</a>

@@ -24,12 +24,12 @@ _SORTS = {"risk", "findings", "devices", "vulns", "kev", "pct"}
 CACHE_SECONDS = 900
 
 
-async def _ranked(db, kind: str, source: str | None, scope, viewer: str) -> list[dict]:
+async def _ranked(db, kind: str, source: str | None, scope, viewer: str, past_sla: bool = False) -> list[dict]:
     """Every fix with its open counts, for one tab, source and viewer (cached 15 minutes; the list is small)."""
     import redis.asyncio as aioredis
 
     from api.core.config import get_settings
-    ck = f"fixes:v1:{kind}:{source or '-'}:{viewer if scope is not None else 'all'}"   # viewer carries their access (see list_fixes)
+    ck = f"fixes:v1:{kind}:{source or '-'}:{'sla' if past_sla else '-'}:{viewer if scope is not None else 'all'}"   # viewer carries their access (see list_fixes)
     r = aioredis.from_url(get_settings().redis_url)
     try:
         try:
@@ -42,6 +42,9 @@ async def _ranked(db, kind: str, source: str | None, scope, viewer: str) -> list
         except Exception:  # noqa: BLE001 -- no Redis means no cache, not no list
             log.warning("fixes cache unavailable")
         w = vd._where(source, None, kind) + vd.scoped(scope)
+        if past_sla:   # only findings open longer than their severity's SLA: the fixes that clear the breaches
+            from api.dashboards.m_posture import _past_sla
+            w.append(_past_sla())
         crit = func.count().filter(Vulnerability.cvss_base >= 9.0)
         high = func.count().filter(Vulnerability.cvss_base >= 7.0, Vulnerability.cvss_base < 9.0)
         rows = (await db.execute(
@@ -78,6 +81,7 @@ async def list_fixes(u: User = Depends(_viewer), db: AsyncSession = Depends(get_
                      source: str | None = Query(None, max_length=64),
                      q: str | None = Query(None, max_length=120),
                      severity: str | None = Query(None, pattern="^(critical|high|kev|exploitable)$"),
+                     past_sla: bool = Query(False, description="Only findings past their SLA"),
                      sort: str = Query("risk", max_length=16),
                      limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0, le=100000)):
     if source and source not in vd.SOURCES:
@@ -85,7 +89,7 @@ async def list_fixes(u: User = Depends(_viewer), db: AsyncSession = Depends(get_
     scope = await device_scope(u, db)
     from api.auth.device_scope import access_key
     viewer = f"{u.id}.{await access_key(u, db)}" if scope is not None else str(u.id)   # lost access is never served from cache
-    rows = await _ranked(db, kind, source, scope, viewer)
+    rows = await _ranked(db, kind, source, scope, viewer, past_sla)
     fixable = sum(r["findings"] for r in rows)   # open findings with a known fix, before search and filters
     rows = [{**r, "pct": round(r["findings"] * 100.0 / fixable, 2) if fixable else 0.0} for r in rows]
     if q:

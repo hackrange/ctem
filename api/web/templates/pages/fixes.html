@@ -39,6 +39,7 @@ tr.is-picked td{background:var(--accent-dim)}
       <button type="button" data-sev="critical" aria-pressed="false">Critical</button>
       <button type="button" data-sev="exploitable" aria-pressed="false" title="Fixes that resolve a vulnerability with a public exploit">Exploit available</button>
     </div>
+    <span id="fx-sla" class="chip chip--medium" hidden>Past SLA only <button type="button" class="btn btn--ghost btn--sm" aria-label="Show all fixes" title="Remove">&#10005;</button></span>
     <input id="fx-q" type="search" class="search-bar" placeholder="Search fixes" aria-label="Search fixes" maxlength="120" style="max-width:220px">
     <a class="btn btn--ghost btn--sm" href="/vulns/dashboard">Vulnerability Dashboard</a>
   </div>

@@ -147,6 +147,11 @@ def card_filters(card: dict) -> list:
         from api.models.vuln import Finding, FindingStatus
         out.append(Device.id.in_(select(Finding.device_id).where(
             Finding.fix_key == card["fix"], Finding.status.in_((FindingStatus.open, FindingStatus.in_progress)))))
+    if card.get("past_sla"):   # an open finding older than its severity's SLA (Settings > SLA), as the findings list counts it
+        from api.dashboards.m_posture import _past_sla
+        from api.models.vuln import Finding, FindingStatus, Vulnerability
+        out.append(Device.id.in_(select(Finding.device_id).join(Vulnerability, Vulnerability.id == Finding.vuln_id).where(
+            Finding.status.in_((FindingStatus.open, FindingStatus.in_progress)), _past_sla())))
     return out
 
 

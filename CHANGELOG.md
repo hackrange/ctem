@@ -7,6 +7,12 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.19.0] - 2026-11-26
+
+### Added
+- GRC > Past SLA check: a Drill down panel. Devices, Findings and Fixes open those lists filtered to findings past SLA; Risk grade shows the past-SLA findings by grade (each opens the vulnerabilities at that grade); tiles by kind of asset (workstations, servers, network devices, cloud, code, web apps, other) show findings and assets past SLA, filter the list below on click, and open those assets. The list gains Asset and Risk grade columns.
+- Devices list: past_sla filter ("With findings past SLA" chip). Fixes: past_sla filter ("Past SLA only" chip), ranking only past-SLA findings.
+
 ## [1.18.4] - 2026-11-26
 
 ### Changed

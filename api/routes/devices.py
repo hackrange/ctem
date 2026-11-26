@@ -65,13 +65,14 @@ def _card(os_family: str | None = Query(None, pattern="^(windows|linux|macos|net
           subnet: str | None = Query(None, max_length=43, pattern=r"^[0-9A-Fa-f.:]+/\d{1,3}$"),
           without: str | None = Query(None, pattern="^(technical_owner|executive_owner|application)$"),
           unseen_days: int | None = Query(None, ge=1, le=3650), edr_quiet_days: int | None = Query(None, ge=1, le=3650),
-          with_findings: bool = Query(False), internet: bool = Query(False), kev: bool = Query(False)) -> dict:
+          with_findings: bool = Query(False), internet: bool = Query(False), kev: bool = Query(False),
+          past_sla: bool = Query(False)) -> dict:
     """Filters a dashboard card links with (see device_query.card_filters), including the Code tab's org and repo."""
     return {"os_family": os_family, "missing": missing, "active_days": active_days, "new_days": new_days, "compute": compute,
             "ad_tools_quiet_days": ad_tools_quiet_days, "asset": asset, "fix": fix, "repo_org": repo_org, "repo": repo,
             "loc_state": loc_state, "loc_city": loc_city, "loc_site": loc_site, "loc_office": loc_office, "subnet": subnet,
             "without": without, "unseen_days": unseen_days, "edr_quiet_days": edr_quiet_days, "with_findings": with_findings,
-            "internet": internet, "kev": kev}
+            "internet": internet, "kev": kev, "past_sla": past_sla}
 
 
 _STATUS_FILTER = Query(None, pattern="^(assigned|shipped|lost|stolen|returned|contained|edr_hidden|out_of_scope)$")

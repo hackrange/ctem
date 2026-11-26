@@ -8,6 +8,12 @@
   let kind = KINDS.includes(init.get('kind')) ? init.get('kind') : 'infra';
   let sev = ['kev', 'critical', 'exploitable'].includes(init.get('severity')) ? init.get('severity') : '';
   let sort = 'risk', offset = 0, picked = init.get('key') || '', pending = null;
+  let pastSla = /^(1|true)$/.test(init.get('past_sla') || '');   // from the SLA check: only findings past their SLA
+  const slaChip = $('fx-sla');
+  if (slaChip) {
+    slaChip.hidden = !pastSla;
+    slaChip.querySelector('button').addEventListener('click', () => { pastSla = false; slaChip.hidden = true; offset = 0; load(); });
+  }
   const LIMIT = 50;
   const pctText = v => (v >= 10 ? v.toFixed(0) : v >= 1 ? v.toFixed(1) : v > 0 ? v.toFixed(2) : '0');
   $('fx-q').value = init.get('q') || '';
@@ -18,6 +24,7 @@
   function remember() {
     const q = new URLSearchParams({ kind });
     if (sev) q.set('severity', sev);
+    if (pastSla) q.set('past_sla', '1');
     if ($('fx-q').value.trim()) q.set('q', $('fx-q').value.trim());
     if (picked) q.set('key', picked);
     history.replaceState(null, '', `?${q}`);
@@ -36,6 +43,7 @@
     const mine = pending = new AbortController();
     const q = new URLSearchParams({ kind, sort, limit: LIMIT, offset });
     if (sev) q.set('severity', sev);
+    if (pastSla) q.set('past_sla', '1');
     if ($('fx-q').value.trim()) q.set('q', $('fx-q').value.trim());
     $('fx-rows').style.opacity = '.5';
     try {
