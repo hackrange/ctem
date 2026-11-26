@@ -7,6 +7,11 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.16.2] - 2026-11-26
+
+### Fixed
+- IDV page showed nothing in 1.16.1: a function in the page script was named history, hiding the browser's own, so the list never loaded.
+
 ## [1.16.1] - 2026-11-26
 
 ### Fixed

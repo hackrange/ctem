@@ -105,7 +105,7 @@
     return out.map(t => `<li style="margin:3px 0">${t}</li>`).join('');
   }
 
-  function history(d) {
+  function pastChecks(d) {
     const y = d.history || {};
     const parts = [y.verified ? `Verified ${y.verified} time${y.verified === 1 ? '' : 's'} before${y.last_verified_at ? ` (last ${esc(day(y.last_verified_at))})` : ''}` : 'Never verified before'];
     if (y.failed) parts.push(`${y.failed} failed attempt${y.failed === 1 ? '' : 's'}`);
@@ -149,7 +149,7 @@
     if (d.person) out += `<p class="text-sm" style="margin:0 0 4px"><a class="dt-link" href="/users?person=${encodeURIComponent(d.person.id)}">${esc(d.person.name)}</a>
       ${IdvBadge.html(d.person.idv_verified_at, true)} <span class="text-muted text-mono">${esc(d.person.upn || '')}</span>
       ${d.person_detail && (d.person_detail.title || d.person_detail.department) ? `<span class="text-muted"> · ${esc([d.person_detail.title, d.person_detail.department].filter(Boolean).join(' · '))}</span>` : ''}</p>`;
-    out += `<p class="text-sm" style="margin:0">${chip(...(STATE[d.state] || ['info', d.state]))} ${history(d)}</p>`;
+    out += `<p class="text-sm" style="margin:0">${chip(...(STATE[d.state] || ['info', d.state]))} ${pastChecks(d)}</p>`;
     out += h(['review', 'unproven'].includes(d.state) ? 'Why this needs a manual review' : 'What happened') +
       `<ul id="idv-why" class="text-sm" style="margin:0;padding-left:18px;color:var(--fg)">${why(d, null)}</ul>`;
     out += h('Signals for this check') + `<div id="idv-signals">${signals(d, null)}</div>`;
