@@ -41,6 +41,8 @@ What open-ctem covers, how it scores risk, and how it has been reviewed and hard
 | 1.14.0 | 2026-11-25 | Risk-based scoring (likelihood, reachability, impact), tunable in Admin > Risk model |
 | 1.14.1 | 2026-11-25 | Vulnerability dashboard: Risk grade view (F to A) |
 | 1.15.0 | 2026-11-26 | Identity verification (Persona): IDV page, badges, cyber review; Twilio connector; IDV Validation role |
+| 1.15.1 | 2026-11-26 | Discovered Users cards count everyone and filter the list; IDV fixes |
+| 1.16.0 | 2026-11-26 | IDV Approvers role; review dialog with failed checks, what to validate, live name-on-ID and network; reasons; revoke; ID-backed badges |
 
 The on-prem shipper has its own version numbers (1.0 to 1.7.x), separate from the application's.
 

@@ -175,6 +175,19 @@ async def client_cyber(db: AsyncSession, cyber_user) -> AsyncGenerator[AsyncClie
 
 
 @pytest_asyncio.fixture
+async def idv_approver_user(db: AsyncSession):
+    return await _make_user(db, "idv_approvers")
+
+
+@pytest_asyncio.fixture
+async def client_idv_approver(db: AsyncSession, idv_approver_user) -> AsyncGenerator[AsyncClient, None]:
+    from api.main import create_app
+    app = create_app()
+    async with _authed_client(app, db, idv_approver_user) as ac:
+        yield ac
+
+
+@pytest_asyncio.fixture
 async def client_no_auth(db: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     from api.core.db import get_session
     from api.main import create_app

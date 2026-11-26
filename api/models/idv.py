@@ -46,4 +46,5 @@ class IdvRequest(UUIDPrimaryKey, Base):
     reviewed_by: Mapped[str | None] = mapped_column(String(36))
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     review_note: Mapped[str | None] = mapped_column(EncryptedString)
+    review_reason: Mapped[str | None] = mapped_column(String(32))   # a code from api/integrations/persona_checks.py
     synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

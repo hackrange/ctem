@@ -176,3 +176,35 @@ class PersonaConnector(BaseConnector):
             body = await self.request("POST", f"/api/v1/inquiries/{inquiry_id(inquiry)}/{'approve' if approve else 'decline'}",
                                       client, body={"meta": {"comment": comment[:500]}})
         return str(((body.get("data") or {}).get("attributes") or {}).get("status") or "")
+
+    async def live_details(self, inquiry: str) -> dict:
+        """What an approver needs and CTEM doesn't keep: the name printed on each government ID, and the network
+        each session came from (ISP, organization, connection type, country and region by IP, country by GPS).
+        Read live and returned, never stored or logged (api/routes/idv_review.py audits that it was looked at).
+        Never the IP address itself or GPS coordinates."""
+        from api.integrations.persona_checks import ID_CLASS
+        params = {"include": "verifications,sessions", "fields[inquiry]": "status",
+                  "fields[verification/government-id]": "status,id-class,country-code,name-first,name-middle,name-last",
+                  "fields[verification/government-id-nfc]": "status,id-class,country-code,name-first,name-middle,name-last",
+                  "fields[inquiry-session]": "created-at,device-type,os-name,browser-name,ip-isp,network-organization,"
+                                             "ip-connection-type,country-code,country-name,region-name,gps-country-code"}
+        async with self.client() as client:
+            body = await self.request("GET", f"/api/v1/inquiries/{inquiry_id(inquiry)}", client, params)
+        txt = lambda a, k, n=80: (str(a.get(k))[:n] if isinstance(a.get(k), str) and a.get(k).strip() else None)  # noqa: E731
+        ids, sessions = [], []
+        for v in body.get("included") or []:
+            if not isinstance(v, dict):
+                continue
+            a, kind = v.get("attributes") or {}, str(v.get("type") or "")
+            if kind.startswith("verification/government-id"):
+                cls = str(a.get("id-class") or "").lower()
+                ids.append({"id_type": ID_CLASS.get(cls, cls.upper() or None), "status": txt(a, "status", 20),
+                            "country": txt(a, "country-code", 2), "first": txt(a, "name-first"),
+                            "middle": txt(a, "name-middle"), "last": txt(a, "name-last")})
+            elif kind == "inquiry-session":
+                sessions.append({"at": txt(a, "created-at", 32), "device_type": txt(a, "device-type", 40),
+                                 "os": txt(a, "os-name", 40), "browser": txt(a, "browser-name", 40), "isp": txt(a, "ip-isp"),
+                                 "organization": txt(a, "network-organization"), "connection": txt(a, "ip-connection-type", 40),
+                                 "ip_country": txt(a, "country-name", 60) or txt(a, "country-code", 2),
+                                 "ip_region": txt(a, "region-name", 60), "gps_country": txt(a, "gps-country-code", 2)})
+        return {"on_id": ids, "sessions": sorted(sessions, key=lambda x: x["at"] or "", reverse=True)[:5]}

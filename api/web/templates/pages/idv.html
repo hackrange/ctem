@@ -7,7 +7,7 @@
 <div class="page-header">
   <div>
     <h1 class="page-header__title">Identity verification</h1>
-    <p class="page-header__sub">Persona checks of who people are, from Okta's verification flow and the service desk. Failed or flagged checks wait in Pending for a cyber decision.</p>
+    <p class="page-header__sub">Persona checks of who people are, from Okta's verification flow and the service desk. Failed or flagged checks wait in Pending for an IDV approver. Click a row for what was checked, why it failed and what to validate.</p>
   </div>
 </div>
 
@@ -22,19 +22,14 @@
   <div id="idv-table"></div>
 </div>
 
-<dialog id="idv-review" class="modal" aria-labelledby="idv-review-title">
-  <form method="dialog" style="padding:16px;min-width:340px;max-width:520px">
-    <h2 id="idv-review-title" class="panel__title" style="margin:0 0 6px">Review identity verification</h2>
-    <p id="idv-review-who" class="text-sm text-muted" style="margin:0 0 10px"></p>
-    <label class="text-sm" for="idv-review-note">Why (kept in the audit log and sent to Persona)</label>
-    <textarea id="idv-review-note" class="form-input" rows="3" maxlength="500" required style="width:100%;margin-top:4px"></textarea>
-    <p id="idv-review-msg" class="text-sm" role="status" style="min-height:1.2em"></p>
-    <div style="display:flex;gap:8px;justify-content:flex-end">
-      <button type="button" class="btn btn--ghost btn--sm" id="idv-review-cancel">Cancel</button>
-      <button type="button" class="btn btn--ghost btn--sm" id="idv-review-decline">Decline</button>
-      <button type="button" class="btn btn--primary btn--sm" id="idv-review-approve">Approve</button>
+<dialog id="idv-detail" class="modal" aria-labelledby="idv-detail-title">
+  <div style="padding:16px 20px;min-width:360px;width:min(920px,94vw);max-height:88vh;overflow:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+      <h2 id="idv-detail-title" class="panel__title" style="margin:0">Identity verification</h2>
+      <button type="button" class="btn btn--ghost btn--sm" data-close aria-label="Close">&#10005;</button>
     </div>
-  </form>
+    <div id="idv-detail-body" style="margin-top:8px"></div>
+  </div>
 </dialog>
 {% endblock %}
 

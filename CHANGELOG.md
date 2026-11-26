@@ -7,6 +7,21 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.16.0] - 2026-11-26
+
+### Added
+- IDV Approvers role (permission idv:approve): the only role that can approve, decline or revoke an identity verification. Admin and cyber still see the IDV page; an admin who should decide adds the role.
+- IDV review dialog: click any row (or Review, now right after the name). Shows why the check needs a decision (each failed Persona check, what it means and what to validate before approving), what the person presented (government ID type, country, capture method, selfie, result), the key checks, device and network, how it was started, and the person's other attempts.
+- For approvers, read live from Persona when the dialog opens and never stored: the name printed on each ID next to the directory name (match or no match), and each session's ISP, network, connection type, country by IP and by GPS. Each look is audited.
+- Decisions take a reason from a fixed list plus a note; the reason is shown on the request and sent to Persona.
+- Revoke: takes a person's verification away. The IDV badge goes, their approved checks are declined in Persona (when Persona actions are on), and only a new pass brings it back. Okta decides when it next asks them to verify.
+- IDV table: Country column.
+
+### Changed
+- The IDV badge needs a government ID the person passed. A selfie-only re-check (Okta's, which compares a new selfie with an earlier one) counts only for someone who passed an ID check that itself counts; checks from a hosted link never do.
+- A failed check leaves the review queue ("Failed, passed later") only when a later pass verified a government ID or an approver approved it, not after a selfie-only pass (1.15.1 accepted any pass).
+- Country and ID type come from the government ID verification when the inquiry's fields don't carry them (Okta's templates don't). CTEM now reads each check's verifications: kind, status, ID type, country, capture method and check names and results; never names, numbers, dates or photos.
+
 ## [1.15.1] - 2026-11-26
 
 ### Changed

@@ -23,6 +23,7 @@ _ROLES = [
     ("grc_integration", "GRC Integration", "Read-only GRC checks and evidence for FairTPRM's continuous monitors"),
     ("inventory", "Inventory",        "Sees every device; sets who it's assigned to and shipped, lost, stolen or returned"),
     ("idv_validation", "IDV Validation", "Service desk: sends a person an identity verification request and reads the result, nothing else"),
+    ("idv_approvers", "IDV Approvers", "Approves, declines and revokes identity verifications; the only role that can"),
 ]
 
 # (resource, action, scope)
@@ -43,6 +44,7 @@ _PERMISSIONS = [
     ("reports",  "write",  "all"),
     ("inventory", "write", "all"),
     ("idv", "request", "all"),   # start an identity verification for a person and read how it went
+    ("idv", "approve", "all"),   # approve, decline or revoke an identity verification (IDV Approvers only)
 ]
 
 # role -> list of (resource, action) it gets
@@ -85,6 +87,8 @@ _ROLE_PERMS: dict[str, list[tuple[str, str]]] = {
     "grc_integration": [("grc", "read")],
     # The service desk's token or people: identity verification requests only (api/routes/idv_desk.py)
     "idv_validation": [("idv", "request")],
+    # The only role that decides identity verifications; admin and cyber can see them, not decide
+    "idv_approvers": [("idv", "approve")],
     # Brand-new SSO people land here until an admin pins a real role
     "no_access": [],
     "service": [

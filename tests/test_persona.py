@@ -83,7 +83,8 @@ async def test_sync_reads_only_matches_people_and_sets_the_badge(db):
                                                     "selected_id_class": {"value": "pp"}}),
                 _inq(failed, "failed", okta, now)], "links": {"next": None}})
         return httpx.Response(200, json={"data": {"id": req.url.path.rsplit("/", 1)[-1]}, "included": [
-            {"type": "inquiry-session", "attributes": {"device-type": "desktop", "os-name": "Windows", "ip-address": "198.51.100.9"}}]})
+            {"type": "inquiry-session", "attributes": {"device-type": "desktop", "os-name": "Windows", "ip-address": "198.51.100.9"}},
+            {"type": "verification/government-id", "attributes": {"status": "passed", "id-class": "pp", "country-code": "US", "checks": []}}]})
 
     conn = PersonaConnector({"api_key": "persona_production_" + "x" * 36})
     conn.integration_id = str(uuid.uuid4())
@@ -107,7 +108,8 @@ async def test_sync_reads_only_matches_people_and_sets_the_badge(db):
 
 
 @pytest.mark.asyncio
-async def test_review_is_cyber_only_goes_to_persona_and_is_audited(db, client_cyber, client_it_user, monkeypatch):
+async def test_only_idv_approvers_decide_with_a_reason_and_it_is_audited(db, client_cyber, client_admin, client_it_user,
+                                                                          client_idv_approver, monkeypatch):
     from api.integrations.persona import PersonaConnector
     from api.models.idv import IdvRequest
     from api.models.integration import IntegrationConfig, Vendor
@@ -117,7 +119,9 @@ async def test_review_is_cyber_only_goes_to_persona_and_is_audited(db, client_cy
     db.add(cfg)
     await db.flush()
     t = uuid.uuid4().hex[:10]
-    r = IdvRequest(inquiry_id=f"inq_R{t}x", integration_id=str(cfg.id), state="review", persona_status="failed")
+    r = IdvRequest(inquiry_id=f"inq_R{t}x", integration_id=str(cfg.id), state="review", persona_status="failed",
+                   facts={"verifications": [{"kind": "government-id", "status": "failed", "id_type": "Passport", "country": "IN",
+                                             "checks": [["id_electronic_replica_detection", "failed", ["replica_detected"]]]}]})
     done = IdvRequest(inquiry_id=f"inq_S{t}x", integration_id=str(cfg.id), state="approved", persona_status="completed")
     db.add_all([r, done])
     await db.commit()
@@ -127,20 +131,154 @@ async def test_review_is_cyber_only_goes_to_persona_and_is_audited(db, client_cy
         calls.append((inquiry, approve, comment))
         return "approved" if approve else "declined"
     monkeypatch.setattr(PersonaConnector, "review", fake_review)
+    body = {"decision": "approve", "reason": "video_call", "note": "Saw the passport on a video call"}
     assert (await client_it_user.get("/api/v1/idv/requests")).status_code == 403
-    assert (await client_it_user.post(f"/api/v1/idv/requests/{r.id}/review", json={"decision": "approve", "note": "ok then"})).status_code == 403
-    listed = (await client_cyber.get("/api/v1/idv/requests", params={"tab": "pending", "limit": 200})).json()
-    assert any(x["id"] == r.id and x["state"] == "review" for x in listed["requests"])
-    assert (await client_cyber.get("/api/v1/idv/summary")).json()["review"] >= 1
-    bad = await client_cyber.post(f"/api/v1/idv/requests/{r.id}/review", json={"decision": "approve", "note": "x", "extra": 1})
-    assert bad.status_code == 422
-    assert (await client_cyber.post(f"/api/v1/idv/requests/{done.id}/review", json={"decision": "decline", "note": "no way"})).status_code == 409
-    assert (await client_cyber.post(f"/api/v1/idv/requests/{uuid.uuid4()}/review", json={"decision": "decline", "note": "no way"})).status_code == 404
-    ok = await client_cyber.post(f"/api/v1/idv/requests/{r.id}/review", json={"decision": "approve", "note": "Called them back, ID matches"})
-    assert ok.status_code == 200 and ok.json()["state"] == "approved"
-    assert calls == [(r.inquiry_id, True, calls[0][2])] and "Called them back" in calls[0][2]
+    for c in (client_it_user, client_cyber, client_admin):   # seeing isn't deciding
+        assert (await c.post(f"/api/v1/idv/requests/{r.id}/review", json=body)).status_code == 403
+    d = (await client_cyber.get(f"/api/v1/idv/requests/{r.id}")).json()
+    assert d["can"] == {"review": False, "revoke": False, "names": False} and d["reasons"] is None
+    assert d["explain"]["failed"][0]["check"] == "id_electronic_replica_detection" and d["explain"]["failed"][0]["validate"]
+    assert d["country"] is None or d["country"] == "IN"
+    a = (await client_idv_approver.get(f"/api/v1/idv/requests/{r.id}")).json()
+    assert a["can"]["review"] and a["reasons"]["approve"]["video_call"]
+    assert (await client_idv_approver.get("/api/v1/idv/summary")).json()["review"] >= 1
+    for bad in ({**body, "extra": 1}, {**body, "reason": "Video Call"}, {**body, "note": "x"}, {k: v for k, v in body.items() if k != "reason"}):
+        assert (await client_idv_approver.post(f"/api/v1/idv/requests/{r.id}/review", json=bad)).status_code == 422
+    assert (await client_idv_approver.post(f"/api/v1/idv/requests/{r.id}/review", json={**body, "reason": "name_mismatch"})).status_code == 400
+    assert (await client_idv_approver.post(f"/api/v1/idv/requests/{done.id}/review", json=body)).status_code == 409
+    assert (await client_idv_approver.post(f"/api/v1/idv/requests/{uuid.uuid4()}/review", json=body)).status_code == 404
+    ok = await client_idv_approver.post(f"/api/v1/idv/requests/{r.id}/review", json=body)
+    assert ok.status_code == 200 and ok.json()["state"] == "approved" and ok.json()["review_reason"] == "video_call"
+    assert calls == [(r.inquiry_id, True, calls[0][2])] and "video call" in calls[0][2]
     audit = (await db.execute(select(AuditLog).where(AuditLog.action == "idv.approve", AuditLog.resource_id == r.id))).scalars().all()
-    assert len(audit) == 1
+    assert len(audit) == 1 and audit[0].detail.startswith("video_call")
+
+
+@pytest.mark.asyncio
+async def test_revoke_takes_the_badge_until_a_new_pass(db, client_cyber, client_idv_approver, monkeypatch):
+    from api.integrations.persona import PersonaConnector
+    from api.integrations.persona_ingest import link_people
+    from api.models.idv import IdvRequest
+    from api.models.integration import IntegrationConfig, Vendor
+    from api.models.user import User
+    cfg = IntegrationConfig(vendor=Vendor.persona, name="Persona", config={"api_key": "persona_production_" + "z" * 36,
+                                                                        "allow_actions": True})
+    db.add(cfg)
+    t = uuid.uuid4().hex[:10]
+    okta = f"00u{t}ReV"
+    u = User(username=f"idvr-{t}", is_local=False, is_active=True, okta_id=okta)
+    db.add(u)
+    await db.flush()
+    gov = {"verifications": [{"kind": "government-id", "status": "passed", "checks": []}]}
+    now = datetime.now(timezone.utc)
+    ok = IdvRequest(inquiry_id=f"inq_V{t}x", integration_id=str(cfg.id), okta_id=okta, state="approved", persona_status="completed",
+                    created_via="API", facts=gov, created_at=now - timedelta(days=3), completed_at=now - timedelta(days=3))
+    db.add(ok)
+    await db.commit()
+    await link_people(db)
+    await db.commit()
+    await db.refresh(u)
+    assert u.idv_verified_at is not None
+    declined = []
+
+    async def fake_review(self, inquiry, approve, comment):
+        declined.append((inquiry, approve))
+        return "declined"
+    monkeypatch.setattr(PersonaConnector, "review", fake_review)
+    body = {"reason": "fraud_suspected", "note": "Account takeover reported"}
+    assert (await client_cyber.post(f"/api/v1/idv/people/{u.id}/revoke", json=body)).status_code == 403
+    assert (await client_idv_approver.post(f"/api/v1/idv/people/{uuid.uuid4()}/revoke", json=body)).status_code == 404
+    assert (await client_idv_approver.post(f"/api/v1/idv/people/{u.id}/revoke", json={**body, "reason": "video_call"})).status_code == 400
+    r = await client_idv_approver.post(f"/api/v1/idv/people/{u.id}/revoke", json=body)
+    assert r.status_code == 200 and r.json()["declined_in_persona"] == 1 and r.json()["idv_verified_at"] is None
+    assert declined == [(ok.inquiry_id, False)]
+    # Persona still saying approved (actions failed, or a sync) doesn't bring it back; a new pass does
+    await db.refresh(ok)
+    ok.state = "approved"
+    db.add(IdvRequest(inquiry_id=f"inq_N{t}x", integration_id=str(cfg.id), okta_id=okta, state="approved", persona_status="completed",
+                      created_via="API", facts=gov, created_at=datetime.now(timezone.utc) + timedelta(seconds=5),
+                      completed_at=datetime.now(timezone.utc) + timedelta(seconds=5)))
+    await db.commit()
+    await link_people(db)
+    await db.commit()
+    await db.refresh(u)
+    assert u.idv_verified_at is not None and u.idv_verified_at > u.idv_revoked_at
+
+
+@pytest.mark.asyncio
+async def test_a_selfie_only_pass_proves_nothing_alone(db):
+    """Okta's re-check compares a new selfie with an earlier one: it counts only for someone who passed an ID before,
+    and it never clears an earlier failed ID from the review queue."""
+    from api.integrations.persona_ingest import link_people
+    from api.models.idv import IdvRequest
+    from api.models.user import User
+    t = uuid.uuid4().hex[:10]
+    okta = f"00u{t}SlF"
+    u = User(username=f"idvf-{t}", is_local=False, is_active=True, okta_id=okta)
+    db.add(u)
+    now = datetime.now(timezone.utc)
+    failed = {"verifications": [{"kind": "government-id", "status": "failed",
+                                 "checks": [["id_electronic_replica_detection", "failed", ["replica_detected"]]]}]}
+    selfie = {"verifications": [{"kind": "selfie", "status": "passed", "checks": [["selfie_id_comparison", "not_applicable", ["no_government_id"]]]}]}
+    bad = IdvRequest(inquiry_id=f"inq_B{t}x", okta_id=okta, state="review", persona_status="failed", facts=failed, created_at=now - timedelta(days=2))
+    face = IdvRequest(inquiry_id=f"inq_F{t}x", okta_id=okta, state="approved", persona_status="completed", created_via="API",
+                      facts=selfie, created_at=now - timedelta(days=1), completed_at=now - timedelta(days=1))
+    db.add_all([bad, face])
+    await db.commit()
+    await link_people(db)
+    await db.commit()
+    await db.refresh(u)
+    assert u.idv_verified_at is None and bad.state == "review"
+    from api.integrations.persona_checks import explain
+    assert any("Only a selfie passed" in n for n in explain(selfie)["notes"])
+
+
+@pytest.mark.asyncio
+async def test_live_details_for_approvers_only_never_stored(db, client_cyber, client_idv_approver, monkeypatch):
+    from api.integrations.persona import PersonaConnector
+    from api.models.idv import IdvRequest
+    from api.models.integration import IntegrationConfig, Vendor
+    from api.models.settings import AuditLog
+    cfg = IntegrationConfig(vendor=Vendor.persona, name="Persona", config={"api_key": "persona_production_" + "w" * 36})
+    db.add(cfg)
+    await db.flush()
+    r = IdvRequest(inquiry_id=f"inq_L{uuid.uuid4().hex[:10]}x", integration_id=str(cfg.id), state="review", persona_status="failed")
+    db.add(r)
+    await db.commit()
+    seen = []
+
+    def handler(req: httpx.Request):
+        seen.append(dict(req.url.params))
+        return httpx.Response(200, json={"data": {"id": r.inquiry_id}, "included": [
+            {"type": "verification/government-id", "attributes": {"status": "failed", "id-class": "pp", "country-code": "IN",
+                                                                  "name-first": "Asha", "name-last": "Rao", "identification-number": "Z123"}},
+            {"type": "inquiry-session", "attributes": {"created-at": "2026-10-28T12:00:00Z", "device-type": "mobile", "ip-isp": "Example Telecom",
+                                                       "country-name": "India", "ip-address": "198.51.100.4", "latitude": 12.9}}]})
+    real = PersonaConnector.client
+    monkeypatch.setattr(PersonaConnector, "client", lambda self: httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    assert (await client_cyber.get(f"/api/v1/idv/requests/{r.id}/live")).status_code == 403
+    got = await client_idv_approver.get(f"/api/v1/idv/requests/{r.id}/live")
+    monkeypatch.setattr(PersonaConnector, "client", real)
+    assert got.status_code == 200 and got.headers["cache-control"] == "no-store"
+    d = got.json()
+    assert d["on_id"][0]["first"] == "Asha" and d["on_id"][0]["id_type"] == "Passport" and d["sessions"][0]["isp"] == "Example Telecom"
+    assert "Z123" not in got.text and "198.51.100.4" not in got.text and "12.9" not in got.text
+    assert "ip-address" not in seen[0]["fields[inquiry-session]"] and "identification-number" not in seen[0]["fields[verification/government-id]"]
+    await db.refresh(r)
+    assert "Asha" not in str(r.facts) and "Example Telecom" not in str(r.facts)
+    assert (await db.execute(select(AuditLog).where(AuditLog.action == "idv.view_live", AuditLog.resource_id == r.id))).scalars().first()
+
+
+def test_verification_outline_keeps_no_personal_data():
+    from api.integrations.persona_checks import verification_facts
+    vs = verification_facts([{"type": "verification/government-id", "attributes": {
+        "status": "failed", "id-class": "dl", "country-code": "IN", "capture-method": "auto", "name-first": "Asha",
+        "identification-number": "Z123", "birthdate": "1990-01-01", "front-photo-url": "https://x/y",
+        "checks": [{"name": "id_electronic_replica_detection", "status": "failed", "reasons": ["replica_detected"], "requirement": "required"},
+                   {"name": "id_barcode_detection", "status": "not_applicable", "reasons": ["unsupported_country"], "requirement": "required"},
+                   {"name": "<script>", "status": "failed"}]}}, {"type": "inquiry-session", "attributes": {}}])
+    assert vs == [{"kind": "government-id", "status": "failed", "id_class": "dl", "id_type": "Driver's license", "country": "IN",
+                   "capture": "auto", "checks": [["id_electronic_replica_detection", "failed", ["replica_detected"]]]}]
 
 
 def test_twilio_calls_are_allow_listed():
@@ -235,7 +373,8 @@ async def test_only_trusted_passes_earn_the_badge(db):
             return httpx.Response(200, json={"data": []})
         if req.url.path == "/api/v1/inquiries":
             return httpx.Response(200, json={"data": data})
-        return httpx.Response(200, json={"data": {}, "included": []})
+        return httpx.Response(200, json={"data": {}, "included": [
+            {"type": "verification/government-id", "attributes": {"status": "passed", "checks": []}}]})
 
     conn = PersonaConnector(cfg.config)
     conn.integration_id = str(cfg.id)
@@ -294,7 +433,8 @@ async def test_a_failure_passed_later_leaves_the_review_queue(db):
     old = IdvRequest(inquiry_id=f"inq_O{t}x", okta_id=okta, state="review", persona_status="failed", created_at=now - timedelta(days=2))
     late = IdvRequest(inquiry_id=f"inq_L{t}x", okta_id=okta, state="review", persona_status="failed", created_at=now - timedelta(minutes=5))
     ok = IdvRequest(inquiry_id=f"inq_P{t}x", okta_id=okta, state="approved", persona_status="completed", created_via="API",
-                    created_at=now - timedelta(days=1), completed_at=now - timedelta(days=1))
+                    created_at=now - timedelta(days=1), completed_at=now - timedelta(days=1),
+                    facts={"verifications": [{"kind": "government-id", "status": "passed", "checks": []}]})
     db.add_all([old, late, ok])
     await db.commit()
     await link_people(db)
@@ -306,3 +446,34 @@ async def test_a_failure_passed_later_leaves_the_review_queue(db):
     await link_people(db)
     await db.commit()
     assert old.state == "review"
+
+
+@pytest.mark.asyncio
+async def test_an_untrusted_id_pass_never_unlocks_a_selfie_badge(db):
+    """Someone with the person's Okta session passes a hosted-link check with their own ID: that row never counts,
+    and the next selfie-only re-check (now matching the impostor's face) mustn't count either. Nor a check whose
+    verifications haven't been read, once CTEM reads them."""
+    from api.integrations.persona_ingest import link_people
+    from api.models.idv import IdvRequest
+    from api.models.user import User
+    t = uuid.uuid4().hex[:10]
+    okta, okta2 = f"00u{t}HoS", f"00u{t}UnR"
+    victim = User(username=f"idvh-{t}", is_local=False, is_active=True, okta_id=okta)
+    fresh = User(username=f"idvu-{t}", is_local=False, is_active=True, okta_id=okta2)
+    db.add_all([victim, fresh])
+    later = datetime(2026, 12, 2, tzinfo=timezone.utc)
+    gov = {"verifications": [{"kind": "government-id", "status": "passed", "checks": []}]}
+    selfie = {"verifications": [{"kind": "selfie", "status": "passed", "checks": []}]}
+    db.add_all([
+        IdvRequest(inquiry_id=f"inq_H{t}x", okta_id=okta, state="approved", persona_status="completed", created_via="other",
+                   facts=gov, created_at=later, completed_at=later),
+        IdvRequest(inquiry_id=f"inq_S{t}x", okta_id=okta, state="approved", persona_status="completed", created_via="API",
+                   facts=selfie, created_at=later + timedelta(days=1), completed_at=later + timedelta(days=1)),
+        IdvRequest(inquiry_id=f"inq_U{t}x", okta_id=okta2, state="approved", persona_status="completed", created_via="API",
+                   facts={}, created_at=later, completed_at=later)])
+    await db.commit()
+    await link_people(db)
+    await db.commit()
+    await db.refresh(victim)
+    await db.refresh(fresh)
+    assert victim.idv_verified_at is None and fresh.idv_verified_at is None
