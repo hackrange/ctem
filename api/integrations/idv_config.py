@@ -44,5 +44,7 @@ def check(vendor: str, config: dict) -> None:
     k = config.get("api_key_sid")
     if k != _KEPT and not re.fullmatch(r"SK[0-9a-f]{32}", str(k or "")):
         raise ValueError("The API key SID looks like SK followed by 32 letters and digits")
+    if isinstance(config.get("from_number"), str):   # +1 (555) 010-0100 is stored as +15550100100
+        config["from_number"] = re.sub(r"[\s\-.()]", "", config["from_number"])
     if not _E164.match(str(config.get("from_number") or "")):
         raise ValueError("The sending number goes in international form, like +15550100100")

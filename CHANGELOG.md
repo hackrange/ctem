@@ -7,6 +7,14 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.17.2] - 2026-11-26
+
+### Added
+- Twilio: Send test text on the integration card (admins): a short fixed message with no link to the number given, up to five an hour, audited with the number masked; Twilio's own reason shows when it refuses.
+
+### Changed
+- Twilio phone numbers must be in international (E.164) form, + then the country code and number. Spaces, dashes, dots and brackets are tidied away (+1 (239) 347-9872 is saved as +12393479872); a number without its country code is flagged as you type and refused, never guessed.
+
 ## [1.17.1] - 2026-11-26
 
 ### Changed
