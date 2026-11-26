@@ -7,6 +7,11 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.18.2] - 2026-11-26
+
+### Fixed
+- In 1.18.1 every click on a page opened the Send re-verification link dialog (and it couldn't be closed): the page's marker for who may send shared the buttons' attribute name. It now has its own.
+
 ## [1.18.1] - 2026-11-26
 
 ### Added

@@ -15,7 +15,7 @@
   </style>
   {% block extra_head %}{% endblock %}
 </head>
-<body{% if user and ('idv_approvers' in user.role_names or 'idv_validation' in user.role_names) %} data-idv-send="1"{% endif %}>
+<body{% if user and ('idv_approvers' in user.role_names or 'idv_validation' in user.role_names) %} data-can-send-idv="1"{% endif %}>
 
 <!-- Topbar -->
 <header class="topbar">
