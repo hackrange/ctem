@@ -39,6 +39,7 @@ import api.models.integration # noqa: F401, E402
 import api.models.settings    # noqa: F401, E402
 import api.models.identity    # noqa: F401, E402
 import api.models.idv         # noqa: F401, E402
+import api.models.ip_history  # noqa: F401, E402
 import api.models.risk        # noqa: F401, E402
 import api.models.collector   # noqa: F401, E402
 import api.models.grc         # noqa: F401, E402
