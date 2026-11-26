@@ -38,11 +38,12 @@
 
 <!-- Summary tiles -->
 <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:24px" id="user-tiles">
-  <div class="stat-tile" id="tile-total">--<br><small>Total Users</small></div>
-  <div class="stat-tile crit" id="tile-high-risk">--<br><small>High Risk (F/D)</small></div>
-  <div class="stat-tile warn" id="tile-no-mfa">--<br><small>MFA Not Enabled</small></div>
-  <div class="stat-tile warn" id="tile-privileged">--<br><small>Privileged Accounts</small></div>
-  <div class="stat-tile" id="tile-service">--<br><small>Service Accounts</small></div>
+  <button type="button" class="stat-tile" data-card="" id="tile-total">--<br><small>Total Users</small></button>
+  <button type="button" class="stat-tile crit" data-card="high_risk" id="tile-high_risk">--<br><small>High Risk (F/D)</small></button>
+  <button type="button" class="stat-tile warn" data-card="no_mfa" id="tile-no_mfa">--<br><small>MFA Not Enabled</small></button>
+  <button type="button" class="stat-tile warn" data-card="privileged" id="tile-privileged">--<br><small>Privileged Accounts</small></button>
+  <button type="button" class="stat-tile" data-card="service" id="tile-service">--<br><small>Service Accounts</small></button>
+  <button type="button" class="stat-tile ok" data-card="idv" id="tile-idv">--<br><small>Identity Verified</small></button>
 </div>
 
 <div id="users-card" class="filter-bar" hidden style="margin-bottom:8px"></div>
@@ -91,7 +92,11 @@
 .ud-grid { display:grid;grid-template-columns:160px 1fr;gap:6px 14px;font-size:.86rem;margin-bottom:16px }
 .ud-grid dt { color:var(--text-muted) }
 .ud-h { font-size:.78rem;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted);margin:14px 0 8px;font-weight:700 }
-.stat-tile { background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:14px 16px;font-size:.88rem;font-weight:700;line-height:1.4 }
+.stat-tile { background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:14px 16px;font-size:.88rem;font-weight:700;line-height:1.4;
+  text-align:left;color:inherit;font-family:inherit;cursor:pointer }
+.stat-tile:hover, .stat-tile:focus-visible { background:var(--surface2) }
+.stat-tile[aria-pressed="true"] { outline:2px solid var(--accent,#4f8cff);outline-offset:-2px }
+.stat-tile.ok { border-left:3px solid var(--severity-low,#43a047) }
 .stat-tile small { font-size:.75rem;font-weight:500;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em }
 .stat-tile.crit { border-left:3px solid var(--severity-critical,#e53935) }
 .stat-tile.warn { border-left:3px solid var(--severity-high,#f57c00) }
@@ -148,15 +153,31 @@ function fmt(dt) {
 // From a dashboard row: AD accounts with no logon in N days, shown as a removable chip
 const card = {};
 { const v = new URLSearchParams(location.search).get('stale_days'); if (/^\d{1,4}$/.test(v || '')) card.stale_days = v; }
+const CARD_LABEL = { high_risk: 'HIGH RISK (F/D)', no_mfa: 'MFA NOT ENABLED', privileged: 'PRIVILEGED ACCOUNTS',
+                     service: 'SERVICE ACCOUNTS', idv: 'IDENTITY VERIFIED' };
+{ const v = new URLSearchParams(location.search).get('card'); if (CARD_LABEL[v]) card.card = v; }
 function showCard() {
   const box = document.getElementById('users-card');
-  box.hidden = !card.stale_days;
-  box.innerHTML = card.stale_days ? `<span class="filter-bar__label">Filter</span><span class="chip chip--medium">NO AD LOGON IN ${esc(card.stale_days)} DAYS
-    <button type="button" class="btn btn--ghost btn--sm" data-clear="stale_days" aria-label="Remove this filter" title="Remove">&#10005;</button></span>` : '';
+  const chips = [];
+  if (card.stale_days) chips.push(['stale_days', `NO AD LOGON IN ${card.stale_days} DAYS`]);
+  if (card.card) chips.push(['card', CARD_LABEL[card.card]]);
+  box.hidden = !chips.length;
+  box.innerHTML = chips.length ? '<span class="filter-bar__label">Filter</span>' + chips.map(([k, t]) => `<span class="chip chip--medium">${esc(t)}
+    <button type="button" class="btn btn--ghost btn--sm" data-clear="${esc(k)}" aria-label="Remove this filter" title="Remove">&#10005;</button></span>`).join(' ') : '';
+  document.querySelectorAll('#user-tiles [data-card]').forEach(t => t.setAttribute('aria-pressed', String((card.card || '') === t.dataset.card)));
+}
+function setCardInUrl() {
+  const u = new URL(location.href);
+  card.card ? u.searchParams.set('card', card.card) : u.searchParams.delete('card');
+  history.replaceState(null, '', u);
 }
 document.addEventListener('click', e => {
-  if (!e.target.closest('#users-card [data-clear]')) return;
-  delete card.stale_days;
+  const x = e.target.closest('#users-card [data-clear]');
+  const tile = e.target.closest('#user-tiles [data-card]');
+  if (x) delete card[x.dataset.clear];
+  else if (tile) { if (tile.dataset.card && card.card !== tile.dataset.card) card.card = tile.dataset.card; else delete card.card; }
+  else return;
+  setCardInUrl();
   showCard();
   loadUsers(0);
 });
@@ -170,6 +191,8 @@ async function loadUsers(offset = 0) {
   const [pwd, within] = document.getElementById('filter-pwd').value.split(':');
   if (pwd) url += `&pwd=${encodeURIComponent(pwd)}` + (within ? `&within=${encodeURIComponent(within)}` : '');
   if (card.stale_days) url += `&stale_days=${encodeURIComponent(card.stale_days)}`;
+  if (card.card) url += `&card=${encodeURIComponent(card.card)}`;
+  if (grade) url += `&grade=${encodeURIComponent(grade)}`;
 
   const tb = document.getElementById('users-tbody');
   tb.innerHTML = '<tr><td colspan="16" class="text-muted text-sm" style="text-align:center;padding:24px">Loading...</td></tr>';
@@ -178,12 +201,9 @@ async function loadUsers(offset = 0) {
     const d = await fetchJson(url);
     let users = d.users || [];
 
-    if (grade) users = users.filter(u => (u.risk_grade || '') === grade);
-
     if (!users.length) {
       tb.innerHTML = '<tr><td colspan="16" class="text-muted text-sm" style="text-align:center;padding:32px">No users found</td></tr>';
       document.getElementById('users-pagination').innerHTML = '';
-      updateTiles([]);
       return;
     }
 
@@ -211,8 +231,6 @@ async function loadUsers(offset = 0) {
         </tr>`;
     }).join('');
 
-    updateTiles(users);
-
     const pg = document.getElementById('users-pagination');
     const total = d.total || users.length;
     const hasPrev = offset > 0;
@@ -225,22 +243,19 @@ async function loadUsers(offset = 0) {
   }
 }
 
-function updateTiles(users) {
-  const total = users.length;
-  const highRisk = users.filter(u => u.risk_grade === 'F' || u.risk_grade === 'D').length;
-  const noMfa  = users.filter(u => !u.totp_enabled).length;
-  const privGroups = new Set(['domain admins','enterprise admins','schema admins','administrators']);
-  const privileged = users.filter(u => (u.ad_groups||[]).some(g => privGroups.has(groupName(g).toLowerCase()) || privGroups.has(g.toLowerCase()))).length;
-  const svcAcct    = users.filter(u => u.is_service_account).length;
-
-  document.getElementById('tile-total').innerHTML     = `${total}<br><small>Total Users</small>`;
-  document.getElementById('tile-high-risk').innerHTML = `${highRisk}<br><small>High Risk (F/D)</small>`;
-  document.getElementById('tile-no-mfa').innerHTML    = `${noMfa}<br><small>MFA Not Enabled</small>`;
-  document.getElementById('tile-privileged').innerHTML= `${privileged}<br><small>Privileged Accounts</small>`;
-  document.getElementById('tile-service').innerHTML   = `${svcAcct}<br><small>Service Accounts</small>`;
+// The cards count every discovered person (not just this page); each one filters the list to the people it counts
+async function loadTiles() {
+  try {
+    const d = await fetchJson(`${API}/directory/users/summary`);
+    for (const [k, id] of [['total', 'tile-total'], ['high_risk', 'tile-high_risk'], ['no_mfa', 'tile-no_mfa'],
+                           ['privileged', 'tile-privileged'], ['service', 'tile-service'], ['idv', 'tile-idv']]) {
+      const el = document.getElementById(id);
+      el.firstChild.textContent = Number(d[k] || 0).toLocaleString();
+    }
+  } catch (e) { /* the cards keep their placeholder */ }
 }
 
-document.addEventListener('DOMContentLoaded', () => { showCard(); loadUsers(0); });
+document.addEventListener('DOMContentLoaded', () => { showCard(); loadTiles(); loadUsers(0); });
 </script>
 <script src="{{ static('js/directory_user.js') }}"></script>
 {% endblock %}

@@ -271,3 +271,38 @@ async def test_device_page_shows_the_verification_date_to_cyber_only(db, client_
     r = await client_it_user.get(f"/api/v1/devices/{d.id}")
     assert r.status_code == 200 and r.json()["detected_user_idv_at"] is None
     assert "idv_verified_at" not in r.text
+
+
+def test_dashed_field_names_are_read():
+    """Persona sends field names with dashes (Key-Inflection: kebab); the approved facts are found either way."""
+    from api.integrations.persona_ingest import id_facts
+    f = id_facts({"fields": {"selected-country-code": {"value": "CA"}, "address-subdivision": {"value": "ON"},
+                             "selected-id-class": {"value": "pp"}, "name-first": {"value": "Jane"}}})
+    assert f == {"country": "CA", "region": "ON", "id_class": "pp", "id_type": "Passport"}
+
+
+@pytest.mark.asyncio
+async def test_a_failure_passed_later_leaves_the_review_queue(db):
+    from api.integrations.persona_ingest import link_people
+    from api.models.idv import IdvRequest
+    from api.models.user import User
+    t = uuid.uuid4().hex[:10]
+    okta = f"00u{t}SuP"
+    u = User(username=f"idvs-{t}", is_local=False, is_active=True, okta_id=okta)
+    db.add(u)
+    now = datetime.now(timezone.utc)
+    old = IdvRequest(inquiry_id=f"inq_O{t}x", okta_id=okta, state="review", persona_status="failed", created_at=now - timedelta(days=2))
+    late = IdvRequest(inquiry_id=f"inq_L{t}x", okta_id=okta, state="review", persona_status="failed", created_at=now - timedelta(minutes=5))
+    ok = IdvRequest(inquiry_id=f"inq_P{t}x", okta_id=okta, state="approved", persona_status="completed", created_via="API",
+                    created_at=now - timedelta(days=1), completed_at=now - timedelta(days=1))
+    db.add_all([old, late, ok])
+    await db.commit()
+    await link_people(db)
+    await db.commit()
+    assert old.state == "superseded"     # failed, then passed: nothing to decide
+    assert late.state == "review"        # failed after the pass: still a question for cyber
+    ok.state = "rejected"                # the pass goes away: the old failure is back in the queue
+    await db.commit()
+    await link_people(db)
+    await db.commit()
+    assert old.state == "review"

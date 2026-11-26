@@ -5,7 +5,8 @@
   const $ = id => document.getElementById(id);
   const API = '/api/v1/idv';
   const STATE = { pending: ['info', 'In progress'], review: ['high', 'Needs review'], approved: ['low', 'Verified'],
-                  rejected: ['critical', 'Rejected'], expired: ['info', 'Expired'] };
+                  rejected: ['critical', 'Rejected'], expired: ['info', 'Expired'],
+                  superseded: ['info', 'Failed, passed later'] };
   const FLAG = { vpn: 'VPN', proxy: 'Proxy', tor: 'Tor', datacenter: 'Datacenter' };
   const day = s => (s ? new Date(s).toLocaleString() : '--');
   const chip = (c, t) => `<span class="chip chip--${c}" style="font-size:.7rem">${esc(t)}</span>`;

@@ -46,6 +46,50 @@ async def _by_name_or_phone(db: AsyncSession, q: str) -> list[str]:
     return out
 
 
+# The summary cards, each also a filter on the list (?card=): the same rule counts and filters
+CARDS = ("high_risk", "no_mfa", "privileged", "service", "idv")
+PRIVILEGED = {"domain admins", "enterprise admins", "schema admins", "administrators"}
+
+
+def _group(g) -> str:
+    """An AD group as its own name, lower case: CN=Domain Admins,OU=...,DC=... is "domain admins"."""
+    g = str(g or "")
+    return (g[3:].split(",")[0] if g[:3].upper() == "CN=" else g).strip().lower()
+
+
+async def _encrypted_cards(db: AsyncSession) -> dict[str, set]:
+    """Cards whose facts are encrypted at rest (AD groups, Okta factors), so SQL can't test them: read those columns
+    for the directory's people and test here. No MFA means no Okta factor enrolled and no CTEM authenticator."""
+    rows = await db.execute(select(User.id, User.ad_groups, User.idp, User.totp_enabled).where(directory_person()))
+    out = {"privileged": set(), "no_mfa": set()}
+    for uid, groups, idp, totp in rows.all():
+        if any(_group(g) in PRIVILEGED for g in groups or []):
+            out["privileged"].add(uid)
+        if not totp and not (idp or {}).get("factors"):
+            out["no_mfa"].add(uid)
+    return out
+
+
+def _sql_card(card: str):
+    from api.models.risk import RiskScore
+    if card == "high_risk":
+        return User.id.in_(select(RiskScore.entity_id).where(RiskScore.entity_type == "user", RiskScore.grade.in_(("F", "D"))))
+    if card == "service":
+        return User.is_service_account.is_(True)
+    return User.idv_verified_at.is_not(None)   # idv
+
+
+@router.get("/users/summary")
+async def directory_summary(_: User = Depends(require_cyber_or_admin), db: AsyncSession = Depends(get_session)):
+    """The cards' counts over every discovered person, not one page of them."""
+    count = lambda *w: db.execute(select(func.count(User.id)).where(directory_person(), *w))  # noqa: E731
+    enc = await _encrypted_cards(db)
+    out = {"total": (await count()).scalar_one(), **{k: len(v) for k, v in enc.items()}}
+    for c in ("high_risk", "service", "idv"):
+        out[c] = (await count(_sql_card(c))).scalar_one()
+    return out
+
+
 @router.get("/users")
 async def list_directory_users(
     _: User = Depends(require_cyber_or_admin),
@@ -56,6 +100,8 @@ async def list_directory_users(
     expiry: Literal["expiring", "expired", "never"] | None = Query(None, alias="pwd", description="AD password: expiring soon, expired, never expires"),
     within: int = Query(14, ge=1, le=365, description="Days ahead for pwd=expiring"),
     stale_days: int | None = Query(None, ge=1, le=3650, description="Enabled AD accounts with no logon in this many days"),
+    card: Literal[CARDS] | None = Query(None, description="Only the people one summary card counts"),
+    grade: str | None = Query(None, pattern="^[ABCDF]$", description="Risk grade"),
 ):
     from api.core.encryption import search_hash
     from api.models.risk import RiskScore
@@ -75,6 +121,12 @@ async def list_directory_users(
     if stale_days:   # the same rule the dashboard's stale-account counts use
         from api.dashboards.m_directory import stale_users
         where += stale_users(stale_days)
+    if card in ("privileged", "no_mfa"):
+        where.append(User.id.in_(sorted((await _encrypted_cards(db))[card])))
+    elif card:
+        where.append(_sql_card(card))
+    if grade:
+        where.append(User.id.in_(select(RiskScore.entity_id).where(RiskScore.entity_type == "user", RiskScore.grade == grade)))
     order = (User.ad_pwd_expires, User.username) if expiry == "expiring" else (User.username,)
     total = (await db.execute(select(func.count(User.id)).where(*where))).scalar_one()
     users = (await db.execute(select(User).options(selectinload(User.roles)).where(*where).order_by(*order)

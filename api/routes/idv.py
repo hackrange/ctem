@@ -19,7 +19,7 @@ from api.models.user import User
 
 log = logging.getLogger("open-ctem.idv")
 router = APIRouter(prefix="/api/v1/idv", tags=["idv"])
-TABS = {"pending": ("pending", "review"), "approved": ("approved",), "rejected": ("rejected", "expired")}
+TABS = {"pending": ("pending", "review"), "approved": ("approved",), "rejected": ("rejected", "expired", "superseded")}
 
 
 def view(r: IdvRequest, person: User | None) -> dict:

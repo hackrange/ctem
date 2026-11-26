@@ -7,6 +7,15 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.15.1] - 2026-11-26
+
+### Changed
+- Discovered Users: the summary cards count every discovered person, not just the page on screen, and each card is a button that filters the list to the people it counts (removable chip, kept in the URL). New card: Identity Verified. MFA Not Enabled now means no Okta factor enrolled (and no CTEM authenticator). The grade filter now runs on the server, across all pages.
+
+### Fixed
+- IDV: a failed check the person has since passed (with a pass that earns the badge) leaves the review queue as "Failed, passed later" on the Rejected tab, and goes back if that pass goes.
+- IDV: country, state and ID type were never filled in, because Persona sends field names with dashes. Checks read before the fix are read again once, and device facts for checks beyond one sync's budget are read over the next syncs.
+
 ## [1.15.0] - 2026-11-26
 
 ### Added
