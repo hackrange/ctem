@@ -106,12 +106,14 @@
     }
     const p = picked.plan || { kind: 'id_selfie', why: '' };
     const plan = el('div', 'desk-plan');
-    plan.appendChild(el('b', null, `They will verify with: ${p.kind === 'selfie' ? 'a selfie' : 'a government ID and a selfie'}`));
+    plan.appendChild(el('b', null, p.persona_decides ? 'Persona decides what they verify with'
+      : `They will verify with: ${p.kind === 'selfie' ? 'a selfie' : 'a government ID and a selfie'}`));
     const idTxt = p.active_id ? ` On file: ${p.active_id.id_type || 'Government ID'}${p.active_id.country ? ` (${p.active_id.country})` : ''}${
       p.active_id.at ? `, verified ${new Date(p.active_id.at).toLocaleDateString()}` : ''}.` : '';
     plan.appendChild(el('span', 'desk-muted', ` ${p.why || ''}${idTxt}`));
+    if (p.warning) plan.appendChild(el('span', 'desk-error', p.warning));
     let full = null;
-    if (p.kind === 'selfie') {
+    if (p.kind === 'selfie' && !p.persona_decides) {
       const lab = el('label', 'desk-channel');
       full = el('input');
       full.type = 'checkbox';

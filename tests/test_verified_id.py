@@ -88,3 +88,18 @@ def test_selfie_check_counts_only_with_a_face_match():
     from api.integrations.persona_checks import selfie_matched
     assert selfie_matched({"verifications": [{"kind": "selfie", "status": "passed", "checks": [["selfie_account_comparison", "passed", []]]}]})
     assert not selfie_matched({"verifications": [{"kind": "selfie", "status": "passed", "checks": [["selfie_account_comparison", "not_applicable", []]]}]})
+
+
+@pytest.mark.asyncio
+async def test_one_template_in_both_fields_means_persona_decides(db):
+    from api.core.verified_id import plan
+    same = {**CFG, "selfie_template_id": CFG["template_id"]}
+    elmer, daffy = await _people(db, uuid.uuid4().hex[:10])
+    d = await plan(db, daffy, same)
+    assert d["persona_decides"] and not d["selfie_available"] and d["kind"] == "selfie" and d["warning"] is None
+    e = await plan(db, elmer, same)
+    assert e["persona_decides"] and e["kind"] == "id_selfie" and e["warning"] is None   # never verified: nothing to warn about
+    daffy.idv_revoked_at, daffy.idv_revoked_kind = NOW - timedelta(days=1), "expire"
+    await db.commit()
+    x = await plan(db, daffy, same)
+    assert x["kind"] == "id_selfie" and "approver" in x["warning"]

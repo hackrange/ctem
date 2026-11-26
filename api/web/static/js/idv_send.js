@@ -3,7 +3,7 @@
 // reaches the browser), a warning, and Send. The server starts the Persona check and sends the one-time link.
 // Everything shown goes through esc().
 window.IdvSend = (() => {
-  let dlg, who = null;
+  let dlg, who = null, plan = null;
   const API = '/api/v1/idv/people';
 
   // Only for IDV Approvers and IDV Validation (the page marks <body data-can-send-idv>; a different name from the buttons' data-idv-send, which a click is matched on); the server checks idv:send too
@@ -40,7 +40,7 @@ window.IdvSend = (() => {
           kind: dlg.querySelector('#idv-send-full') && dlg.querySelector('#idv-send-full').checked ? 'id_selfie' : 'auto' }) });
         const d = await r.json().catch(() => ({}));
         if (!r.ok) { msg.textContent = typeof d.detail === 'string' ? d.detail : 'That did not go through.'; go.disabled = false; return; }
-        msg.innerHTML = `<b style="color:var(--severity-low)">Sent</b> (${esc(d.kind === 'selfie' ? 'selfie' : 'government ID and selfie')}) by ${esc(d.channel === 'sms' ? 'text' : 'email')} to ${esc(d.to)}.
+        msg.innerHTML = `<b style="color:var(--severity-low)">Sent</b>${plan && plan.persona_decides ? '' : ` (${esc(d.kind === 'selfie' ? 'selfie' : 'government ID and selfie')})`} by ${esc(d.channel === 'sms' ? 'text' : 'email')} to ${esc(d.to)}.
           The link works for ${esc(d.expires_hours)} hours; the result shows on the IDV page when they finish.`;
         window.dispatchEvent(new Event('idv-changed'));
       } catch (err) { msg.textContent = 'That did not go through.'; go.disabled = false; }
@@ -69,13 +69,14 @@ window.IdvSend = (() => {
             c.since ? `, enrolled or changed ${esc(new Date(c.since).toLocaleDateString())}` : ''})</span>
           ${c.recent ? ` <span class="chip chip--high" style="font-size:.7rem">${c.since ? 'changed in the last 7 days' : 'enrollment date unknown'}</span>` : ''}
           ${c.available ? '' : `<span class="text-muted"> · ${esc(c.why_not)}</span>`}</span></label>`).join('');
-      const p = d.plan || { kind: 'id_selfie', why: '' };
+      const p = plan = d.plan || { kind: 'id_selfie', why: '' };
       const idTxt = p.active_id ? `${p.active_id.id_type || 'Government ID'}${p.active_id.country ? ` (${p.active_id.country})` : ''}${p.active_id.at ? `, verified ${new Date(p.active_id.at).toLocaleDateString()}` : ''}` : '';
       box.innerHTML = `<p style="margin:0 0 6px">${esc(name || 'This person')} gets a one-time Persona link. It goes only to a contact their identity provider verified.</p>
         <div style="padding:8px 10px;border-radius:6px;background:var(--surface2);margin:0 0 8px">
-          <b>They will verify with: ${p.kind === 'selfie' ? 'a selfie' : 'a government ID and a selfie'}</b>
+          <b>${p.persona_decides ? 'Persona decides what they verify with' : `They will verify with: ${p.kind === 'selfie' ? 'a selfie' : 'a government ID and a selfie'}`}</b>
           <div class="text-muted">${esc(p.why)}${idTxt ? ` On file: ${esc(idTxt)}.` : ''}</div>
-          ${p.kind === 'selfie' ? `<label style="display:flex;gap:6px;align-items:center;margin-top:6px"><input type="checkbox" id="idv-send-full"> Require a government ID and a selfie instead</label>` : ''}
+          ${p.warning ? `<div style="color:var(--severity-high);margin-top:4px">${esc(p.warning)}</div>` : ''}
+          ${p.kind === 'selfie' && !p.persona_decides ? `<label style="display:flex;gap:6px;align-items:center;margin-top:6px"><input type="checkbox" id="idv-send-full"> Require a government ID and a selfie instead</label>` : ''}
         </div>
         ${opts || '<p class="text-muted">No verified SMS MFA phone or MFA email address for this person, so nothing can be sent.</p>'}
         ${(d.missing || []).length ? `<p style="color:var(--severity-high);margin:8px 0 0">Can't send yet: ${esc(d.missing.join('; '))}.</p>` : ''}

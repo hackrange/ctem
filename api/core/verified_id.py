@@ -53,14 +53,25 @@ async def plan(db: AsyncSession, user, persona_config: dict, asked: str = "auto"
     chosen; selfie only when there is a valid ID (never a way around the ID)."""
     from fastapi import HTTPException
     has = await active_id(db, user)
-    selfie_ok = bool(has) and bool(persona_config.get("selfie_template_id"))
+    one = persona_config.get("template_id") or ""
+    # one template in both fields: Persona decides (ID + selfie if it has no ID for them, else a selfie), so CTEM
+    # can't promise which, and can't make it ask for an ID
+    persona_decides = bool(one) and persona_config.get("selfie_template_id") == one
+    selfie_ok = bool(has) and bool(persona_config.get("selfie_template_id")) and not persona_decides
     if asked == "selfie" and not has:
         raise HTTPException(409, detail="This person has no valid verified ID on file, so they must verify with a government ID and a selfie")
-    if asked == "selfie" and not selfie_ok:
+    if asked == "selfie" and not selfie_ok and not persona_decides:
         raise HTTPException(409, detail="Set a selfie-only template on the Persona integration to send a selfie check")
+    if persona_decides:
+        kind = "selfie" if has else "id_selfie"   # what CTEM will accept as proof, whatever Persona asks for
+        why = "Persona decides: a government ID and a selfie if it has no ID on file for them, otherwise a selfie."
+        warn = None if has or not user.idv_revoked_at else (
+            "Their verification was expired or revoked, so CTEM needs a fresh government ID, but this template may ask "
+            "Persona's returning users for only a selfie. If so, the pass waits in Pending for an IDV approver.")
+        return {"kind": kind, "active_id": has, "selfie_available": False, "why": why, "persona_decides": True, "warning": warn}
     kind = "id_selfie" if asked == "id_selfie" else ("selfie" if selfie_ok else "id_selfie")
     why = ("They have a verified ID on file, so a selfie is enough." if kind == "selfie"
            else "No valid verified ID on file, so they verify with a government ID and a selfie." if not has
            else "A government ID and a selfie, as chosen." if asked == "id_selfie"
            else "No selfie-only template is set, so they verify with a government ID and a selfie.")
-    return {"kind": kind, "active_id": has, "selfie_available": selfie_ok, "why": why}
+    return {"kind": kind, "active_id": has, "selfie_available": selfie_ok, "why": why, "persona_decides": False, "warning": None}

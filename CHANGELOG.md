@@ -7,6 +7,11 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.21.2] - 2026-11-26
+
+### Changed
+- With one Persona template in both fields, the Send re-verification link dialog and the ServiceNow panel say Persona decides (a government ID and a selfie if Persona has no ID on file, otherwise a selfie) instead of promising one, and hide Require a government ID and a selfie, which that template can't enforce. After an expire or revoke they warn that a selfie-only pass will wait in Pending for an IDV approver.
+
 ## [1.21.1] - 2026-11-26
 
 ### Fixed
