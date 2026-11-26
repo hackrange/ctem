@@ -70,6 +70,7 @@ def create_app() -> FastAPI:
     from api.routes.auth_first_password import router as first_password_router
     from api.routes.admin_repair import router as admin_repair_router
     from api.routes.risk_model import router as risk_model_router
+    from api.routes.idv import router as idv_router
     from api.routes.admin import router as admin_router
     from api.routes.user_access import router as user_access_router
     from api.routes.api_docs import router as api_docs_router
@@ -140,6 +141,7 @@ def create_app() -> FastAPI:
     app.include_router(first_password_router)
     app.include_router(admin_repair_router)
     app.include_router(risk_model_router)
+    app.include_router(idv_router)
     app.include_router(user_access_router)   # before admin's /users/{id} routes
     app.include_router(admin_router)
     app.include_router(api_docs_router)
@@ -324,6 +326,7 @@ def _register_web_routes(app: FastAPI) -> None:
     app.get("/software", response_class=HTMLResponse, include_in_schema=False)(_render("pages/software.html", "/software"))
     app.get("/vulns/{vuln_id}", response_class=HTMLResponse, include_in_schema=False)(_render("pages/vuln_detail.html", "/vulns"))
     app.get("/exceptions", response_class=HTMLResponse, include_in_schema=False)(_render("pages/exceptions.html", "/exceptions"))
+    app.get("/idv", response_class=HTMLResponse, include_in_schema=False)(_render("pages/idv.html", "/idv"))
 
     app.get("/dashboards", response_class=HTMLResponse, include_in_schema=False)(_render("pages/dashboards.html", "/dashboards"))
     app.get("/dashboards/{dash_id}", response_class=HTMLResponse, include_in_schema=False)(_render("pages/dashboard_view.html", "/dashboards"))

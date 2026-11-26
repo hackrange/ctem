@@ -109,6 +109,9 @@ class User(Base, UUIDPrimaryKey, TimestampMixin):
     # From the identity provider (Okta): the phone the person verifies MFA with, and their account and MFA state
     mfa_phone: Mapped[str | None] = mapped_column(EncryptedString)
     idp: Mapped[dict | None] = mapped_column(EncryptedJSON)
+    okta_id: Mapped[str | None] = mapped_column(String(40), index=True)   # Okta's user id; Persona's reference-id
+    # When an identity verification (Persona) last passed, for the IDV badge (api/integrations/persona.py)
+    idv_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # Tag-based page access -- admins assign tags like ["identity","grc"] to let
     # restricted roles access specific dashboards without a full analyst role

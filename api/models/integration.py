@@ -54,6 +54,8 @@ class Vendor(str, enum.Enum):
     azure = "azure"
     oci = "oci"
     okta = "okta"               # identity provider: devices to people, MFA phones, sign-in threats (api/integrations/okta.py)
+    persona = "persona"         # identity verification (IDV) inquiries (api/integrations/persona.py)
+    twilio = "twilio"           # SMS for the service desk's IDV requests (api/integrations/twilio.py)
 
 
 class IntegrationConfig(Base, UUIDPrimaryKey, TimestampMixin):

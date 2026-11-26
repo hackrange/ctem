@@ -17,6 +17,7 @@ from api.integrations import (  # noqa: F401
     msdefender,
     okta,
     paloalto_ngfw,
+    persona,
     qualys,
     rapid7_appsec,
     rapid7_cloudsec,
@@ -26,6 +27,7 @@ from api.integrations import (  # noqa: F401
     snyk,
     splunk,
     tanium,
+    twilio,
     zscaler,
 )
 from api.cloud import aws, azure, oci  # noqa: F401,E402  -- cloud exposure connectors register here too

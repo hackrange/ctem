@@ -84,6 +84,7 @@
 {% block extra_scripts %}
 <script src="{{ static('vendor/echarts-6.1.0/echarts.min.js') }}"></script>
 <script src="{{ static('js/asset_trend.js') }}"></script>
+<script src="{{ static('js/score_why.js') }}"></script>
 <script src="{{ static('js/asset_software.js') }}"></script>
 <link rel="stylesheet" href="{{ static('css/threat_graph.css') }}" /><script src="{{ static('js/attack_map.js') }}"></script>
 <script src="{{ static('js/asset_pentest.js') }}"></script>
@@ -252,20 +253,14 @@ async function loadDevice() {
   }
   $('dev-grade').innerHTML = `${R.grade(d.risk_grade)} ${R.score(d.risk_score)}`
     + ((d.edr_contained || oos) ? ' ' + R.adjusted(d.raw_risk_grade, d.raw_risk_score, d.risk_grade, d.risk_score) : '');
-  // Why this score, beside the grade: what drives it and the arithmetic (kept by the scoring engine)
-  const w = d.score_why;
-  $('dev-why').hidden = !w;
-  if (w) {
-    const why = String(w.why || '');
-    $('dev-why').innerHTML = `<div><b>Why ${esc(d.risk_grade || '')} ${esc(d.risk_score == null ? '' : d.risk_score)}:</b> ${esc(why.charAt(0).toUpperCase() + why.slice(1))}</div>`
-      + ((w.worst || []).length ? `<ul aria-label="What drives the worst finding">${w.worst.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : '');
-  }
+  ScoreWhy.render($('dev-why'), d);   // a "Why" link beside the grade; the reasons open in a modal
   if (assetKind) $('dev-info').innerHTML = AssetDetail.info(d, { info, txt, R, tagChips });
   else $('dev-info').innerHTML = [
     info('Assigned to', assignedCell(d)),
     info('Inventory status', statusCell(d)),
     info('Scope', scopeCell(d)),
-    info('Detected user (from sign-ins)', txt(d.detected_user) + upnLine(d.detected_user_upn, d.detected_user_title)),
+    info('Detected user (from sign-ins)', txt(d.detected_user) + (window.IdvBadge ? IdvBadge.html(d.detected_user_idv_at, true) : '')
+      + upnLine(d.detected_user_upn, d.detected_user_title)),
     info('Last login user', txt(d.last_login_user)),
     info('Recent sign-ins', (d.recent_logins || []).length ? (d.recent_logins || []).map(esc).join(', ') : txt(null)),
     // the public address sits right under the private one

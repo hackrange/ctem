@@ -56,4 +56,5 @@ def user_summary(u: User, risk: object | None = None) -> dict:
         "needs_repair": _broken(u),
         "risk_score": risk.score if risk else None,
         "risk_grade": risk.grade if risk else None,
+        "idv_verified_at": u.idv_verified_at.isoformat() if getattr(u, "idv_verified_at", None) else None,
     }

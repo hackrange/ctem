@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% set active_nav = 'idv' %}
+
+{% block title %}Identity verification -- open-ctem{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-header__title">Identity verification</h1>
+    <p class="page-header__sub">Persona checks of who people are, from Okta's verification flow and the service desk. Failed or flagged checks wait in Pending for a cyber decision.</p>
+  </div>
+</div>
+
+<div class="panel" style="padding:0">
+  <div class="panel__header" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+    <div id="idv-tabs" role="tablist" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+    <div class="search-bar-wrap">
+      <svg class="search-icon" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+      <input id="idv-search" type="search" class="search-bar" placeholder="UPN, email or username" aria-label="Search identity verifications">
+    </div>
+  </div>
+  <div id="idv-table"></div>
+</div>
+
+<dialog id="idv-review" class="modal" aria-labelledby="idv-review-title">
+  <form method="dialog" style="padding:16px;min-width:340px;max-width:520px">
+    <h2 id="idv-review-title" class="panel__title" style="margin:0 0 6px">Review identity verification</h2>
+    <p id="idv-review-who" class="text-sm text-muted" style="margin:0 0 10px"></p>
+    <label class="text-sm" for="idv-review-note">Why (kept in the audit log and sent to Persona)</label>
+    <textarea id="idv-review-note" class="form-input" rows="3" maxlength="500" required style="width:100%;margin-top:4px"></textarea>
+    <p id="idv-review-msg" class="text-sm" role="status" style="min-height:1.2em"></p>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button type="button" class="btn btn--ghost btn--sm" id="idv-review-cancel">Cancel</button>
+      <button type="button" class="btn btn--ghost btn--sm" id="idv-review-decline">Decline</button>
+      <button type="button" class="btn btn--primary btn--sm" id="idv-review-approve">Approve</button>
+    </div>
+  </form>
+</dialog>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ static('js/data_table.js') }}"></script>
+<script src="{{ static('js/idv.js') }}"></script>
+{% endblock %}

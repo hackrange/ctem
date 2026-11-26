@@ -24,7 +24,8 @@ def _person(u: User, why: str) -> dict:
     return {"id": str(u.id), "name": u.display_name or u.username, "upn": u.upn, "title": u.title, "department": u.department,
             "why": why, "mfa_phone": u.mfa_phone, "mfa_phone_kind": idp.get("mfa_phone_kind"), "mobile": u.mobile,
             "phone": u.phone, "email": u.email, "account_status": idp.get("status"), "last_login": idp.get("last_login"),
-            "factors": idp.get("factors"), "factors_at": idp.get("factors_at")}
+            "factors": idp.get("factors"), "factors_at": idp.get("factors_at"),
+            "idv_verified_at": u.idv_verified_at.isoformat() if u.idv_verified_at else None}
 
 
 @router.get("/{device_id}/identity")

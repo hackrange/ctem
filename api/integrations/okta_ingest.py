@@ -82,7 +82,7 @@ async def users(conn, client, db: AsyncSession) -> People:
         if not oid or not login:
             continue
         uid, by_upn = _match(index, login)
-        people.by_okta[oid] = {"uid": uid, "by_upn": by_upn, "login": login, "status": _clean(u.get("status"), 32),
+        people.by_okta[oid] = {"oid": oid, "uid": uid, "by_upn": by_upn, "login": login, "status": _clean(u.get("status"), 32),
                                "last_login": when(u.get("lastLogin")), "password_changed": when(u.get("passwordChanged")),
                                "profile": p}
     ids = [v["uid"] for v in people.by_okta.values() if v["uid"]]
@@ -104,6 +104,9 @@ async def users(conn, client, db: AsyncSession) -> People:
     return people
 
 
+_OKTA_ID = re.compile(r"^[A-Za-z0-9]{10,40}$")
+
+
 def merge_user(user, v: dict) -> None:
     """Okta's account facts into User.idp; profile fields only where the directory left a gap."""
     from api.core.config import get_settings
@@ -112,6 +115,8 @@ def merge_user(user, v: dict) -> None:
     if user.upn and not user.upn_local_hash:   # older rows: the key for searching by the UPN's first half
         from api.core.user_match import upn_keys
         user.upn_local_hash = upn_keys(user.upn)[1]
+    if v.get("oid") and _OKTA_ID.match(v["oid"]):   # identity verification (Persona) names people by it
+        user.okta_id = v["oid"]
     old = dict(user.idp or {})
     user.idp = {**old, "source": "okta", "status": v["status"], "last_login": _iso(v["last_login"]),
                 "password_changed": _iso(v["password_changed"])}

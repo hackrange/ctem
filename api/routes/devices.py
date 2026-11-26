@@ -217,6 +217,9 @@ async def get_device(
         "detected_user_title": device.owner.title if device.owner is not None else None,
         "out_of_scope": exempt_view(device),
         "can_set_scope": bool({"admin", "cyber"}.intersection(current_user.role_names)),
+        # identity verification is personal: admins and cyber only, like the Identity tab
+        "detected_user_idv_at": device.owner.idv_verified_at.isoformat()
+        if device.owner is not None and device.owner.idv_verified_at and {"admin", "cyber"} & set(current_user.role_names) else None,
         "score_why": await _score_why(db, device.id),
         "related_owners": await _related_owners(db, device.id, current_user),
     })

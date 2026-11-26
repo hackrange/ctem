@@ -193,7 +193,7 @@ async function loadUsers(offset = 0) {
       return `
         <tr class="user-row" data-user="${esc(u.id)}" tabindex="0" title="Show details">
           <td><span style="font-weight:600">${esc(u.username)}</span>${u.upn ? `<div class="text-sm text-muted text-mono">${esc(u.upn)}</div>` : ''}</td>
-          <td class="text-sm">${esc([u.first_name, u.last_name].filter(Boolean).join(' ') || u.display_name || '--')}</td>
+          <td class="text-sm">${esc([u.first_name, u.last_name].filter(Boolean).join(' ') || u.display_name || '--')}${window.IdvBadge ? IdvBadge.html(u.idv_verified_at, false) : ''}</td>
           <td class="text-sm text-muted">${esc(u.title || '--')}</td>
           <td class="text-sm text-mono" title="${esc(u.mobile ? 'Mobile ' + u.mobile : '')}">${esc(u.phone || u.mobile || '--')}</td>
           <td>${gradeChip(u.risk_grade)}</td>

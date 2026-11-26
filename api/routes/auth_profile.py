@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
@@ -91,6 +92,8 @@ class PrefsUpdate(BaseModel):
     reduce_motion: bool | None = None
     dyslexic_font: bool | None = None
     email: str | None = Field(None, max_length=254)
+    # sidebar links the person starred (shown bold): page paths, nothing else
+    starred_nav: list[Annotated[str, Field(pattern=r"^/[a-z0-9/_\-]{0,80}$")]] | None = Field(None, max_length=40)
 
     @field_validator("email")
     @classmethod

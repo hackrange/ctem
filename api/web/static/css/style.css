@@ -472,3 +472,10 @@ body {
 
 /* Long unbroken text (DNs, URLs, IDs) wraps instead of widening the page */
 .panel__body, .page-header__sub, .tk-note { overflow-wrap: break-word; }
+
+/* Sidebar stars (nav_stars.js): a starred link is bold; the star shows on hover, or always once starred */
+.sidebar__link--starred { font-weight: 700; }
+.nav-star { margin-left: auto; padding: 0 2px; font-size: 13px; line-height: 1; color: var(--fg-muted); opacity: 0; cursor: pointer; }
+.sidebar__link:hover .nav-star, .nav-star:focus, .sidebar__link--starred .nav-star { opacity: 1; }
+.sidebar__link--starred .nav-star { color: var(--accent); }
+.count-bubble + .nav-star { margin-left: 6px; }

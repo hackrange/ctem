@@ -400,3 +400,11 @@ a.dw-kpi:hover .dw-kpi__value { color: var(--accent); }
   border-radius:9px;background:var(--severity-critical);color:#fff;font-size:11px;font-weight:700;line-height:1;
   box-shadow:0 0 0 2px var(--surface);vertical-align:middle}
 .count-bubble[hidden]{display:none}
+
+/* IDV badge: identity verified (Persona) */
+.idv-badge { display:inline-flex; flex-direction:column; align-items:center; vertical-align:middle; margin-left:6px; color:var(--severity-low); line-height:1; }
+.idv-badge__mark { display:inline-flex; align-items:center; gap:2px; font-size:.62rem; font-weight:700; letter-spacing:.02em; }
+.idv-badge__date { font-size:.6rem; color:var(--text-muted); margin-top:2px; }
+/* <dialog class="modal"> (IDV review, Why this grade): the page dims behind it */
+dialog.modal { color: var(--fg); padding: 0; }
+dialog.modal::backdrop { background: rgba(0,0,0,0.65); backdrop-filter: blur(2px); }

@@ -99,10 +99,18 @@ async def run(db: AsyncSession, cfg, actor: str) -> dict:
     from api.models.identity import IdentityThreat, IdpAppAccess, PostureFinding
     if slug == "okta":   # what the identity provider added to people and computers
         from api.models.user import User
-        await db.execute(update(User).where(User.idp.is_not(None)).values(idp=None, mfa_phone=None)
+        await db.execute(update(User).where(User.idp.is_not(None)).values(idp=None, mfa_phone=None, okta_id=None)
                          .execution_options(synchronize_session=False))
         await db.execute(update(Device).where(Device.idp_device.is_not(None)).values(idp_device=None)
                          .execution_options(synchronize_session=False))
+    if slug == "persona":   # identity verifications and the badges they gave people
+        from api.models.idv import IdvRequest
+        from api.models.user import User
+        await db.execute(delete(IdvRequest).where(IdvRequest.integration_id == cfg_id)
+                         .execution_options(synchronize_session=False))
+        from api.integrations.persona_ingest import link_people
+        await db.flush()
+        await link_people(db)   # badges now come only from what other Persona integrations still hold
     for model in (IdentityThreat, PostureFinding, IdpAppAccess):
         await db.execute(delete(model).where(model.source == slug).execution_options(synchronize_session=False))
     same = [str(i) for (i,) in (await db.execute(select(IntegrationConfig.id).where(IntegrationConfig.vendor == vendor))).all()]

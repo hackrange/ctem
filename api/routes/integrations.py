@@ -67,6 +67,13 @@ def _check_vendor_config(vendor: Vendor, config: dict) -> None:
         except ValueError as exc:
             raise HTTPException(400, str(exc)[:200]) from exc
         return
+    if vendor in (Vendor.persona, Vendor.twilio):
+        from api.integrations.idv_config import check
+        try:
+            check(vendor.value, config)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)[:200]) from exc
+        return
     if vendor == Vendor.github_code_review:
         from api.integrations.gcr_client import GcrError, base_url
         from api.integrations.github_code_review import tag_map
@@ -89,7 +96,8 @@ def _check_vendor_config(vendor: Vendor, config: dict) -> None:
 
 router = APIRouter(prefix="/api/v1/integrations", tags=["integrations"])
 _VENDOR_LABELS = {"email": "Email (SMTP or Microsoft 365)", "github_code_review": "GitHub Code Review (SAST and DAST)", "aws": "AWS (cloud exposure)", "azure": "Azure (cloud exposure)", "oci": "Oracle Cloud OCI (cloud exposure)",
-                  "okta": "Okta (identity provider, read only)"}
+                  "okta": "Okta (identity provider, read only)", "persona": "Persona (identity verification)",
+                  "twilio": "Twilio (SMS for identity verification)"}
 
 
 @router.get("")

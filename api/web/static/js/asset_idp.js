@@ -24,7 +24,7 @@ window.AssetIdp = (() => {
       ? `${tel(p.mfa_phone)} <span class="chip chip--low" style="font-size:.65rem" title="The person proved they hold this phone when enrolling MFA">${p.mfa_phone_kind === 'call' ? 'MFA voice' : 'MFA SMS'}</span>`
       : '--';
     return `<div style="border-top:1px solid var(--border);padding:10px 14px">
-      <div><b>${esc(p.name)}</b>
+      <div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px"><b>${esc(p.name)}</b>${window.IdvBadge ? IdvBadge.html(p.idv_verified_at, true) : ''}
         <span class="chip chip--info" style="font-size:.65rem">${esc(WHY[p.why] || p.why)}</span>
         ${p.account_status && p.account_status !== 'ACTIVE' ? `<span class="chip chip--medium" style="font-size:.65rem">${esc(p.account_status)}</span>` : ''}</div>
       <div class="text-sm" style="display:grid;grid-template-columns:150px minmax(0,1fr);gap:4px 10px;margin-top:6px">

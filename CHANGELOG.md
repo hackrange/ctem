@@ -7,6 +7,27 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.15.0] - 2026-11-26
+
+### Added
+- **Identity verification (Persona).** A Persona integration reads identity verifications: Okta's own verification flow and, next, the service desk's requests. Each inquiry is matched to its person by Okta user id (the Okta sync now keeps it).
+  - **IDV page** (cyber and admin, an ID-card icon in the sidebar): Pending, Approved and Rejected tabs. A failed or flagged check waits in Pending for a cyber decision, with a count bubble in the sidebar; Review approves or declines it in Persona too, with the reason kept in the audit log. A failed check nobody reviews within 30 days lapses to Rejected.
+  - **IDV badge:** a small green certificate beside a verified person's name in Discovered Users, on their person page and on a computer's Identity tab, and under the detected user on the computer's details, with the last verification date.
+  - **Only the approved facts are kept**, encrypted: status, dates, template, the ID's state or province and country, the ID type, and the device and network the check ran on (device type, OS and browser names, VPN, proxy, Tor and datacenter flags, Persona's threat level). Never a name, birth date, address, ID number, photo, selfie, IP address or GPS position; CTEM asks Persona for as little as its API allows and drops the rest on arrival.
+  - **Calls are allow-listed:** GET on inquiries and templates; POST only to approve or decline (and, for the service desk, start an inquiry and make its one-time link), and only when "Allow actions" is on for the integration. Several Persona integrations stay apart: one's sync or truncate never touches another's requests.
+- **Twilio integration** for the text messages that will carry the service desk's verification links: send one message and read its delivery status, nothing else. Use a Restricted API key (Messaging: Messages Create and Read).
+- **IDV Validation role** (`idv_validation`) for the service desk's identity verification requests.
+
+### Changed
+- **"Why this grade" is a link beside the grade** on a computer's page. It opens a dialog with two tables, what decreases the risk and what increases it, each factor with its detail and effect, instead of taking room in the header.
+- **Sidebar stars:** star a link and it shows bold, so the pages someone uses most stand out. Saved with the person's preferences, so it follows them to any browser.
+
+### Security
+- Only Persona inquiries an API key started (Okta's integration or CTEM's service desk), or that cyber approved in CTEM, earn the IDV badge; an inquiry started from a hosted link could carry anyone's Okta id. Integrations can also name the templates they trust. An Okta id two people share links to nobody, and a request whose Okta id changes is relinked.
+- The computer page shows the detected user's verification date to admins and cyber only.
+- Persona approve and decline are never retried or held up by rate limits, and a transport failure answers 502, not 500.
+- The IDV search refuses control characters (a NUL byte made Postgres raise); found by a ZAP active scan of this release.
+
 ## [1.14.1] - 2026-11-25
 
 ### Added

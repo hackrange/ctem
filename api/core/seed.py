@@ -22,6 +22,7 @@ _ROLES = [
     ("no_access", "No Access", "Can sign in through SSO but sees only the access message; no permissions"),
     ("grc_integration", "GRC Integration", "Read-only GRC checks and evidence for FairTPRM's continuous monitors"),
     ("inventory", "Inventory",        "Sees every device; sets who it's assigned to and shipped, lost, stolen or returned"),
+    ("idv_validation", "IDV Validation", "Service desk: sends a person an identity verification request and reads the result, nothing else"),
 ]
 
 # (resource, action, scope)
@@ -41,6 +42,7 @@ _PERMISSIONS = [
     ("reports",  "read",   "all"),
     ("reports",  "write",  "all"),
     ("inventory", "write", "all"),
+    ("idv", "request", "all"),   # start an identity verification for a person and read how it went
 ]
 
 # role -> list of (resource, action) it gets
@@ -53,9 +55,10 @@ _ROLE_PERMS: dict[str, list[tuple[str, str]]] = {
         ("findings", "read"), ("findings", "write"),
         ("grc", "read"), ("grc", "write"),
         ("reports", "read"), ("reports", "write"),
-        ("inventory", "write"),
+        ("inventory", "write"), ("idv", "request"),
     ],
     "cyber": [
+        ("idv", "request"),
         ("devices", "read"), ("devices", "write"),
         ("vulns", "read"), ("vulns", "write"),
         ("findings", "read"), ("findings", "write"),
@@ -80,6 +83,8 @@ _ROLE_PERMS: dict[str, list[tuple[str, str]]] = {
     ],
     # FairTPRM's service token: control checks and evidence, nothing else
     "grc_integration": [("grc", "read")],
+    # The service desk's token or people: identity verification requests only (api/routes/idv_desk.py)
+    "idv_validation": [("idv", "request")],
     # Brand-new SSO people land here until an admin pins a real role
     "no_access": [],
     "service": [

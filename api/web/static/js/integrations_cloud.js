@@ -29,6 +29,20 @@ const CLOUD_VENDOR_FIELDS = {
     {key:'device_interval_days', label:'Device pull every N days (default 7; it is slow, about 1 minute per 750 computers; 0 = every sync)', type:'text', placeholder:'7', required:false},
     {key:'create_devices', label:'Add Okta-registered computers CTEM has never seen (active in the last 90 days)', type:'checkbox', required:false},
   ],
+  persona: [
+    {key:'api_key',        label:'API key (reads inquiries and templates)', type:'password', placeholder:'persona_production_...', required:true},
+    {key:'badge_templates', label:'Templates whose passes earn the IDV badge (itmpl_... comma separated; blank = any started by an API key)', type:'text', placeholder:'itmpl_..., itmpl_...', required:false},
+    {key:'allow_actions',  label:'Allow approve, decline and service-desk requests (needs a key with those permissions)', type:'checkbox', required:false},
+    {key:'action_api_key', label:'API key for those actions (blank = the key above)', type:'password', placeholder:'persona_production_...', required:false},
+    {key:'template_id',    label:'Inquiry template the service desk sends (itmpl_...)', type:'text', placeholder:'itmpl_...', required:false},
+    {key:'detail_budget',  label:'Device lookups per sync (default 300)', type:'text', placeholder:'300', required:false},
+  ],
+  twilio: [
+    {key:'account_sid',    label:'Account SID', type:'text', placeholder:'AC...', required:true},
+    {key:'api_key_sid',    label:'API key SID (a Restricted key: Messaging, Messages Create and Read only)', type:'text', placeholder:'SK...', required:true},
+    {key:'api_key_secret', label:'API key secret', type:'password', placeholder:'', required:true},
+    {key:'from_number',    label:'Send from (E.164)', type:'text', placeholder:'+15550100100', required:true},
+  ],
   oci: [
     {key:'tenancy_ocid',   label:'Tenancy OCID', type:'text', placeholder:'ocid1.tenancy.oc1..', required:true},
     {key:'user_ocid',      label:'User OCID',    type:'text', placeholder:'ocid1.user.oc1..', required:true},

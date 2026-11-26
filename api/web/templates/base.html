@@ -111,6 +111,29 @@
       })();
     </script>
     {% endif %}
+    {% if can_see(user, '/idv') %}
+    <a href="/idv" class="sidebar__link {% if active_nav == 'idv' %}active{% endif %}">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="2"/><circle cx="8" cy="12" r="2.5"/><path d="M4.5 17c.6-1.6 2-2.5 3.5-2.5s2.9.9 3.5 2.5M14 10h5M14 13h4"/></svg>
+      IDV <span id="nav-idv-badge" class="count-bubble" style="margin-left:auto" hidden></span>
+    </a>
+    <script>
+      // Identity verifications waiting for a cyber decision (failed, or flagged for review)
+      (() => {
+        const show = () => fetch('/api/v1/idv/summary', { headers: { Accept: 'application/json' } }).then(r => (r.ok ? r.json() : null))
+          .then(s => {
+            const n = s ? Number(s.review) || 0 : 0;
+            const b = document.getElementById('nav-idv-badge');
+            b.textContent = n > 99 ? '99+' : String(n);
+            b.hidden = !n;
+            b.title = n + (n === 1 ? ' identity verification' : ' identity verifications') + ' waiting for review';
+            b.setAttribute('aria-label', b.title);
+          }).catch(() => {});
+        show();
+        setInterval(show, 60000);
+        window.addEventListener('idv-changed', show);
+      })();
+    </script>
+    {% endif %}
   </div>
 
   <div class="sidebar__section" id="nav-favs" hidden>
@@ -285,6 +308,8 @@
     }
   });
 </script>
+<script src="{{ static('js/idv_badge.js') }}"></script>
+<script src="{{ static('js/nav_stars.js') }}"></script>
 <script src="{{ static('js/tag_focus.js') }}"></script>
 <script src="{{ static('js/collapse_rows.js') }}"></script>
 
