@@ -141,8 +141,23 @@ async def test_failures_are_recorded_and_wrong_accounts_refused(db, client_cyber
 
 
 def test_persona_link_host_is_exact():
-    from urllib.parse import urlsplit
-    for host, good in (("inquiry.withpersona.com", True), ("withpersona.com", True), ("evilwithpersona.com", False),
-                       ("withpersona.com.evil.example", False)):
-        h = urlsplit(f"https://{host}/x").hostname
-        assert (h == "withpersona.com" or h.endswith(".withpersona.com")) is good
+    from api.integrations.persona import link_host_ok
+    for host, good in (("inquiry.withpersona.com", True), ("withpersona.com", True), ("perso.na", True), ("evilwithpersona.com", False),
+                       ("withpersona.com.evil.example", False), ("perso.na.evil.example", False), ("evilperso.na", False), (None, False)):
+        assert link_host_ok(host) is good, host
+
+
+@pytest.mark.asyncio
+async def test_start_inquiry_accepts_personas_short_link(monkeypatch):
+    """Persona answers with withpersona.com and perso.na (its shortener) links; the short one goes in the text."""
+    import httpx
+    from api.integrations.persona import PersonaConnector
+    def handler(req):
+        if req.url.path == "/api/v1/inquiries":
+            return httpx.Response(201, json={"data": {"id": "inq_" + "Q" * 20}})
+        return httpx.Response(200, json={"data": {}, "meta": {"one-time-link": "https://withpersona.com/verify?code=us1-x",
+                                                              "one-time-link-short": "https://perso.na/verify?code=ABC"}})
+    c = PersonaConnector({"api_key": "persona_production_" + "k" * 36, "allow_actions": True, "template_id": "itmpl_" + "T" * 12})
+    monkeypatch.setattr(PersonaConnector, "client", lambda self: httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    iid, link = await c.start_inquiry("00uABCDEFGHIJ")
+    assert iid == "inq_" + "Q" * 20 and link == "https://perso.na/verify?code=ABC"

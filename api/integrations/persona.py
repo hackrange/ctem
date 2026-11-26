@@ -58,6 +58,12 @@ def allowed(method: str, url: str) -> bool:
     return any(r.match(p.path) for r in rules)
 
 
+def link_host_ok(host: str | None) -> bool:
+    """A one-time link CTEM may send: Persona's own hosts only (withpersona.com, and perso.na, its link shortener)."""
+    h = (host or "").lower()
+    return h in ("withpersona.com", "perso.na") or h.endswith(".withpersona.com")
+
+
 def inquiry_id(value: str) -> str:
     if not re.fullmatch(INQ, value or ""):
         raise PersonaError("not a Persona inquiry id")
@@ -232,8 +238,7 @@ class PersonaConnector(BaseConnector):
         meta = out.get("meta") or {}
         link = str(meta.get("one-time-link-short") or meta.get("one-time-link") or "")
         p = urlsplit(link)
-        host = (p.hostname or "").lower()
-        if p.scheme != "https" or not (host == "withpersona.com" or host.endswith(".withpersona.com")):
+        if p.scheme != "https" or not link_host_ok(p.hostname):
             e = PersonaError("Persona didn't return a link CTEM can send")
             e.inquiry = iid
             raise e

@@ -7,6 +7,11 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.17.3] - 2026-11-26
+
+### Fixed
+- Send re-verification link failed with "Persona didn't start the verification": Persona's short link is on perso.na, its own link shortener, which CTEM's link check didn't accept. It now accepts exactly withpersona.com, its subdomains and perso.na.
+
 ## [1.17.2] - 2026-11-26
 
 ### Added
