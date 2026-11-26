@@ -96,22 +96,22 @@ async def save_sync_state(db: AsyncSession, integration_id: str | None, state: d
 
 # ── Sync orchestration ────────────────────────────────────────────────────────
 
-async def sync_by_id(db: AsyncSession, integration_id: str) -> bool:
-    """Run one integration's sync. Returns True when it succeeded."""
+async def sync_by_id(db: AsyncSession, integration_id: str, runner: str = "app") -> bool:
+    """Run one integration's sync. Returns True when it succeeded. runner tags the job and lock (api/core/tasks_reap.py)."""
     # Two syncs of the same integration at once (a click on Sync Now during a scheduled run)
     # both insert the same rows; let the second one bow out
-    lock = await _sync_lock(str(integration_id))
+    lock = await _sync_lock(str(integration_id), runner)
     if lock is False:
         log.info("sync of %s already running; skipping this one", integration_id)
         return False
     try:
-        return await _sync_by_id(db, integration_id)
+        return await _sync_by_id(db, integration_id, runner)
     finally:
         if lock:
             await _sync_unlock(*lock)
 
 
-async def _sync_lock(integration_id: str):
+async def _sync_lock(integration_id: str, runner: str = "app"):
     """(redis, key, token) when we hold the lock, False when someone else does, None if Redis is down."""
     import secrets
 
@@ -120,7 +120,7 @@ async def _sync_lock(integration_id: str):
     from api.core.config import get_settings
     try:
         r = aioredis.from_url(get_settings().redis_url, decode_responses=True)
-        key, token = f"sync_lock:{integration_id}", secrets.token_hex(8)
+        key, token = f"sync_lock:{integration_id}", f"{runner}|{secrets.token_hex(8)}"
         if await r.set(key, token, nx=True, ex=3 * 3600):
             return r, key, token
         await r.aclose()
@@ -139,7 +139,7 @@ async def _sync_unlock(r, key: str, token: str) -> None:
         log.warning("could not release sync lock %s", key)
 
 
-async def _sync_by_id(db: AsyncSession, integration_id: str) -> bool:
+async def _sync_by_id(db: AsyncSession, integration_id: str, runner: str = "app") -> bool:
     ok = False
     result = await db.execute(
         select(IntegrationConfig).where(
@@ -156,6 +156,7 @@ async def _sync_by_id(db: AsyncSession, integration_id: str) -> bool:
         vendor=cfg.vendor.value,
         status=SyncStatus.running,
         started_at=datetime.now(timezone.utc),
+        runner=runner[:48],
     )
     db.add(job)
     await db.commit()

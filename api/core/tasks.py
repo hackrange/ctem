@@ -144,10 +144,11 @@ async def _sync_integration(integration_id: str):
     from datetime import datetime, timezone
 
     from api.core.db import get_session
+    from api.core.tasks_reap import RUNNER
     from api.integrations.base import sync_by_id
     started = datetime.now(timezone.utc)
     async for db in get_session():
-        ok = await sync_by_id(db, integration_id)
+        ok = await sync_by_id(db, integration_id, RUNNER)
     if ok:
         # Score what this sync changed now, not on the next daily pass
         post_sync_pipeline.delay(started.isoformat())
@@ -496,4 +497,4 @@ async def _record_snapshots():
         await prune(db)      # installs no source has reported for 30 days
         from api.maintenance.renormalize_software import if_rules_changed
         await if_rules_changed(db)   # once after the software name rules change
-from api.core import tasks_db, tasks_feed, tasks_history, tasks_ip, tasks_location  # noqa: E402,F401 -- registers their jobs
+from api.core import tasks_db, tasks_feed, tasks_history, tasks_ip, tasks_location, tasks_reap  # noqa: E402,F401 -- registers their jobs

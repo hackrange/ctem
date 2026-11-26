@@ -7,6 +7,11 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.22.1] - 2026-11-26
+
+### Fixed
+- A sync cut off by a worker restart (a deploy, a crash) no longer stays "running" for good or holds back that integration's syncs for 3 hours. Each job and sync lock now records which worker start runs it; when a worker starts, and every 15 minutes, CTEM closes the runs left by a worker start that is over (marked "Interrupted by a restart") and frees their locks. A second worker that answers is left alone. Any run still open after 6 hours is closed as a backstop, except an on-site collector's, which closes its own.
+
 ## [1.22.0] - 2026-11-26
 
 ### Added

@@ -86,3 +86,5 @@ class SyncJob(Base, UUIDPrimaryKey, TimestampMixin):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     records_imported: Mapped[int | None] = mapped_column()
     error_message: Mapped[str | None] = mapped_column(Text)
+    # "worker:<id of that worker start>", "app", or empty (collector runs, older rows); see api/core/tasks_reap.py
+    runner: Mapped[str | None] = mapped_column(String(48))

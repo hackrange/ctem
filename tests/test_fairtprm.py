@@ -93,7 +93,7 @@ async def test_unrated_vendor_is_not_graded_a_and_duplicates_dont_break_sync(db,
 async def test_second_concurrent_sync_bows_out(db, monkeypatch):
     from api.integrations import base
 
-    async def held(_iid):
+    async def held(_iid, _runner="app"):
         return False
     monkeypatch.setattr(base, "_sync_lock", held)
     called = []
