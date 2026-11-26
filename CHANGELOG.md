@@ -7,6 +7,14 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.18.3] - 2026-11-26
+
+### Added
+- Persona integration: Enable IDV approval. Unticked, the IDV page, its review queue and sidebar link (with its bubble) go away and approve, decline, revoke and the live ID read are refused; the IDV badges keep showing. An integration saved before this setting counts as on.
+
+### Fixed
+- Discovered Users showed in the sidebar for IT Operations and Read Only, then said "Error loading users": its data is admin and cyber only, so the page and link now are too.
+
 ## [1.18.2] - 2026-11-26
 
 ### Fixed

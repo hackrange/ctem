@@ -338,7 +338,7 @@ function updateVendorFields() {
     const id = `cfg-${f.key}`;
     if (f.type === 'checkbox') {
       return `<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:.9rem">
-        <input type="checkbox" id="${id}"> ${esc(f.label)}</label>`;
+        <input type="checkbox" id="${id}"${f.default === true ? ' checked' : ''}> ${esc(f.label)}</label>`;
     }
     if (f.type === 'select') {
       const labels = f.optionLabels || {};

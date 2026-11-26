@@ -32,6 +32,7 @@ const CLOUD_VENDOR_FIELDS = {
   persona: [
     {key:'api_key',        label:'API key (reads inquiries and templates)', type:'password', placeholder:'persona_production_...', required:true},
     {key:'badge_templates', label:'Templates whose passes earn the IDV badge (itmpl_... comma separated; blank = any started by an API key)', type:'text', placeholder:'itmpl_..., itmpl_...', required:false},
+    {key:'idv_page',       label:'Enable IDV approval (the IDV page, its review queue and sidebar link; off = only the IDV badges show)', type:'checkbox', required:false, default:true},
     {key:'allow_actions',  label:'Allow approve, decline and service-desk requests (needs a key with those permissions)', type:'checkbox', required:false},
     {key:'action_api_key', label:'API key for those actions (blank = the key above)', type:'password', placeholder:'persona_production_...', required:false},
     {key:'template_id',    label:'Inquiry template the service desk sends (itmpl_...)', type:'text', placeholder:'itmpl_...', required:false},

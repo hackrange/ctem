@@ -27,6 +27,14 @@ async def integration(db: AsyncSession, vendor) -> object | None:
                              .order_by(IntegrationConfig.created_at))).scalars().first()
 
 
+async def approval_enabled(db: AsyncSession) -> bool:
+    """The IDV page, its review queue and its sidebar link are on: Persona is connected and "Enable IDV approval" isn't
+    unticked on it (saved before the setting existed counts as on). Off, only the IDV badges show."""
+    from api.models.integration import Vendor
+    cfg = await integration(db, Vendor.persona)
+    return cfg is not None and (cfg.config or {}).get("idv_page", True) is not False
+
+
 async def readiness(db: AsyncSession) -> dict:
     """What sending needs, and what's missing, in words for the button."""
     from api.core.email import configured

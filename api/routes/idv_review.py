@@ -26,7 +26,15 @@ from api.routes.idv import view
 
 log = logging.getLogger("open-ctem.idv")
 router = APIRouter(prefix="/api/v1/idv", tags=["idv"])
-approver = require_permission("idv", "approve")
+_approver = require_permission("idv", "approve")
+
+
+async def approver(me: User = Depends(_approver), db: AsyncSession = Depends(get_session)) -> User:
+    """An IDV approver, while IDV approval is on (Persona integration: Enable IDV approval)."""
+    from api.core.idv_send import approval_enabled
+    if not await approval_enabled(db):
+        raise HTTPException(409, detail="IDV approval is turned off in the Persona integration")
+    return me
 MAX_REVOKE = 25   # approved checks declined in Persona per revoke; older ones stop counting anyway
 
 

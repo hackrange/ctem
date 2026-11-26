@@ -300,6 +300,11 @@ def _register_web_routes(app: FastAPI) -> None:
             if not can_access_page(slug, current_user.role_names, current_user.allowed_page_tags):
                 from fastapi import HTTPException
                 raise HTTPException(status_code=404)
+            from api.core.idv_send import approval_enabled
+            idv_page = await approval_enabled(db)   # Persona's "Enable IDV approval": the IDV page and its sidebar link
+            if slug == "/idv" and not idv_page:
+                from fastapi import HTTPException
+                raise HTTPException(status_code=404)
             branding = await _get_branding(db)
             ctx = {
                 "request": request,
@@ -311,6 +316,7 @@ def _register_web_routes(app: FastAPI) -> None:
                 "favicon_v": icon_version(branding.get("favicon_url")),
                 "impersonator": getattr(request.state, "impersonator", None),
                 "impersonating_until": getattr(request.state, "impersonating_until", None),
+                "idv_page": idv_page,
             }
             return templates.TemplateResponse(request, template, ctx)
         return handler

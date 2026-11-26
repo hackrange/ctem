@@ -37,8 +37,8 @@ _PAGES: dict[str, PagePolicy] = {p.slug: p for p in [
                                    tags=["dashboard"]),
     PagePolicy("/devices",         allowed_roles=["admin","cyber","it_user","read_only"],
                                    tags=["devices","cmdb"]),
-    PagePolicy("/users",           allowed_roles=["admin","cyber","it_user","read_only"],
-                                   tags=["users","devices","identity"]),
+    # Discovered Users is personal data (phones, AD groups, passwords' state): the same roles its API allows
+    PagePolicy("/users",           allowed_roles=["admin","cyber"]),
     PagePolicy("/software",        allowed_roles=["admin","cyber","it_user","read_only","inventory"],   # their own assets
                                    tags=["devices","cmdb"]),
     PagePolicy("/vulns",           allowed_roles=["admin","cyber","it_user","read_only"],   # IT users: their own assets
