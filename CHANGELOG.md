@@ -7,6 +7,19 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.18.0] - 2026-11-26
+
+### Added
+- Caller verification for the service desk, embedded in ServiceNow tickets (docs/servicenow-caller-verification.md). An analyst finds the caller, sends a Persona check to their verified MFA phone or email, and watches it live: sent, delivered, opened, verifying, then Identity verified (with the ID type and country and the face match) or Not verified with the reason and what to do next.
+- IDV page > Iframe Code (admins): make an embed (the exact service desk site, its server address ranges, the analysts' network ranges), get its token once with the steps and a paste-ready ServiceNow UI Macro, see each embed's use, and revoke any of them, which stops its token and open panels at once.
+- Locked down: only the embed's IP-bound token starts a panel (never a browser session); only its exact site may frame the panel (CSP frame-ancestors; every other page stays unframeable) and the page holds no data; a one-time launch token in the URL fragment (2 minutes) is traded once, from the analysts' network, for a 30-minute session key kept only in memory and tied to that address; no cookies; CORS stays closed; the result is posted only to the embed's site, and ServiceNow's server can read it with its token.
+
+### Changed
+- After a revoke or expire, only a new check that passed both a government ID and a selfie matching that ID brings the IDV badge back (or an approver's approval); a selfie-only re-check never does.
+- IDV Pending shows only what needs a decision (failed or flagged checks, and passed-but-not-ID-verified ones); a check the person hasn't finished, such as a link not yet opened, no longer sits there.
+- An embed's token has its own role (IDV Desk Embed) and is refused everywhere except starting panels and reading their outcome; links go only to people CTEM discovered, never to CTEM sign-in accounts; the panel says Identity verified only for a government ID with a matching face; searches per panel are counted atomically; each analyst has their own hourly send limit, with a ceiling per embed; the generated ServiceNow macro starts a fresh panel on every form render.
+- The send logic behind Send re-verification link moved to one shared module, so the button and the service desk panel follow exactly the same rules.
+
 ## [1.17.3] - 2026-11-26
 
 ### Fixed

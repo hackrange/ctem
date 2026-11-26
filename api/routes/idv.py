@@ -35,7 +35,9 @@ async def require_idv_viewer(user: User = Depends(get_current_user), db: AsyncSe
     raise HTTPException(403, detail="Cyber, Admin or IDV Approver access required")
 
 
-TABS = {"pending": ("pending", "review"), "approved": ("approved",), "rejected": ("rejected", "superseded")}   # expired (abandoned) checks aren't shown
+# Pending: what needs a decision (failed or flagged, and passed-but-not-ID-verified); a check the person hasn't
+# finished isn't one. Expired (abandoned) checks aren't shown.
+TABS = {"pending": ("review",), "approved": ("approved",), "rejected": ("rejected", "superseded")}
 
 
 def unproven_sql():
@@ -109,7 +111,7 @@ async def list_requests(tab: str = Query("pending", pattern="^(pending|approved|
         stmt = stmt.where(or_(User.upn_hash.in_(keys), User.upn_local_hash.in_(keys), User.email_hash.in_(keys),
                               User.username == term[:128]))
     total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
-    order = (IdvRequest.state != "pending").desc() if tab == "pending" else IdvRequest.state.asc()
+    order = (IdvRequest.state == "review").desc() if tab == "pending" else IdvRequest.state.asc()
     rows = (await db.execute(stmt.order_by(order, IdvRequest.created_at.desc().nullslast(), IdvRequest.id)
                              .limit(limit).offset(offset))).all()
     return {"requests": [view(r, u) for r, u in rows], "total": total, "limit": limit, "offset": offset, "older": older}

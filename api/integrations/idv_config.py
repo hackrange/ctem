@@ -22,6 +22,47 @@ def _num(config: dict, key: str, lo: int, hi: int, what: str) -> None:
         raise ValueError(f"{what} must be from {lo} to {hi}")
 
 
+_ORIGIN = re.compile(r"^https://[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$")
+
+
+def desk_origins(config: dict, strict: bool = False) -> list[str]:
+    """The ServiceNow (or other service desk) origins allowed to frame the caller verification panel: exact
+    https://host, no path, port or wildcard."""
+    out = []
+    for o in str(config.get("desk_frame_origins") or "").replace("\n", ",").split(","):
+        o = o.strip().rstrip("/").lower()
+        if not o:
+            continue
+        if not _ORIGIN.match(o):
+            if strict:
+                raise ValueError(f"Service desk origins are exact https addresses like https://acme.service-now.com (not {o[:60]!r})")
+            continue
+        out.append(o)
+    return out[:10]
+
+
+def desk_ips(config: dict, strict: bool = False) -> list[str]:
+    """The address ranges analysts' browsers must come from to use the panel (IPs or CIDRs)."""
+    import ipaddress
+    out = []
+    for e in str(config.get("desk_client_ips") or "").replace("\n", ",").split(","):
+        e = e.strip()
+        if not e:
+            continue
+        try:
+            net = ipaddress.ip_network(e, strict=False)
+        except ValueError:
+            if strict:
+                raise ValueError(f"Analyst address ranges are IPs or CIDRs like 203.0.113.0/24 (not {e[:40]!r})") from None
+            continue
+        if net.prefixlen == 0:
+            if strict:
+                raise ValueError("An analyst address range can't be the whole internet")
+            continue
+        out.append(str(net))
+    return out[:50]
+
+
 def check(vendor: str, config: dict) -> None:
     if config.get("base_url"):
         raise ValueError("This integration doesn't take a base URL")

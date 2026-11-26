@@ -98,8 +98,9 @@ async def test_revoke_takes_the_badge_until_a_new_pass(db, client_cyber, client_
     # Persona still saying approved (actions failed, or a sync) doesn't bring it back; a new pass does
     await db.refresh(ok)
     ok.state = "approved"
+    full = {"verifications": gov["verifications"] + [{"kind": "selfie", "status": "passed", "checks": [["selfie_id_comparison", "passed", []]]}]}
     db.add(IdvRequest(inquiry_id=f"inq_N{t}x", integration_id=str(cfg.id), okta_id=okta, state="approved", persona_status="completed",
-                      created_via="API", facts=gov, created_at=datetime.now(timezone.utc) + timedelta(seconds=5),
+                      created_via="API", facts=full, created_at=datetime.now(timezone.utc) + timedelta(seconds=5),
                       completed_at=datetime.now(timezone.utc) + timedelta(seconds=5)))
     await db.commit()
     await link_people(db)
@@ -316,3 +317,31 @@ async def test_bubble_counts_only_the_last_five_days(db, client_cyber):
     await db.commit()
     after = (await client_cyber.get("/api/v1/idv/summary")).json()
     assert after["review_recent"] - before["review_recent"] == 1 and after["review"] - before["review"] == 2
+
+
+@pytest.mark.asyncio
+async def test_after_a_revoke_only_id_and_face_bring_the_badge_back(db):
+    from api.integrations.persona_ingest import link_people
+    from api.models.idv import IdvRequest
+    from api.models.user import User
+    t = uuid.uuid4().hex[:10]
+    now = datetime.now(timezone.utc)
+    u = User(username=f"idvk-{t}", is_local=False, is_active=True, okta_id=f"00u{t}RvK", idv_revoked_at=now - timedelta(days=1))
+    db.add(u)
+    id_only = {"verifications": [{"kind": "government-id", "status": "passed", "checks": []}]}
+    both = {"verifications": [{"kind": "government-id", "status": "passed", "checks": []},
+                              {"kind": "selfie", "status": "passed", "checks": [["selfie_id_comparison", "passed", []]]}]}
+    db.add(IdvRequest(inquiry_id=f"inq_I{t}x", okta_id=u.okta_id, state="approved", persona_status="completed", created_via="API",
+                      facts=id_only, created_at=now - timedelta(hours=2), completed_at=now - timedelta(hours=2)))
+    await db.commit()
+    await link_people(db)
+    await db.commit()
+    await db.refresh(u)
+    assert u.idv_verified_at is None   # an ID without a matching face isn't enough after a revoke
+    db.add(IdvRequest(inquiry_id=f"inq_B{t}x", okta_id=u.okta_id, state="approved", persona_status="completed", created_via="API",
+                      facts=both, created_at=now - timedelta(hours=1), completed_at=now - timedelta(hours=1)))
+    await db.commit()
+    await link_people(db)
+    await db.commit()
+    await db.refresh(u)
+    assert u.idv_verified_at is not None

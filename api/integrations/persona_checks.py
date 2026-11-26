@@ -126,6 +126,16 @@ def gov_id_passed(facts: dict | None) -> bool | None:
     return any(v.get("kind", "").startswith("government-id") and v.get("status") == "passed" for v in vs)
 
 
+def id_and_face(facts: dict | None) -> bool:
+    """A government ID passed and a selfie passed that matches it, in this one check: what a revoked or expired
+    verification needs before the badge comes back (a selfie compared only with an earlier selfie isn't enough)."""
+    vs = (facts or {}).get("verifications") or []
+    gov = any(v.get("kind", "").startswith("government-id") and v.get("status") == "passed" for v in vs)
+    face = any(v.get("kind") == "selfie" and v.get("status") == "passed"
+               and any(c[0] == "selfie_id_comparison" and c[1] == "passed" for c in v.get("checks") or []) for v in vs)
+    return gov and face
+
+
 def explain(facts: dict | None) -> dict:
     """For the approver: what was presented, which checks failed and what each means, and what to validate."""
     vs = (facts or {}).get("verifications") or []

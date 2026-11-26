@@ -43,6 +43,8 @@ What open-ctem covers, how it scores risk, and how it has been reviewed and hard
 | 1.15.0 | 2026-11-26 | Identity verification (Persona): IDV page, badges, cyber review; Twilio connector; IDV Validation role |
 | 1.15.1 | 2026-11-26 | Discovered Users cards count everyone and filter the list; IDV fixes |
 | 1.16.0 | 2026-11-26 | IDV Approvers role; review dialog with failed checks, what to validate, live name-on-ID and network; reasons; revoke; ID-backed badges |
+| 1.17.0 | 2026-11-26 | Send re-verification link by SMS or email to verified MFA contacts |
+| 1.18.0 | 2026-11-26 | Caller verification embedded in ServiceNow; Iframe Code manager; revoke needs ID and face |
 
 The on-prem shipper has its own version numbers (1.0 to 1.7.x), separate from the application's.
 

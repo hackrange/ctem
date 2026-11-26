@@ -44,7 +44,7 @@
     history.replaceState(null, '', `?tab=${tab}`);
     table = DataTable.create({
       mount: $('idv-table'), endpoint: `${API}/requests`, listKey: 'requests',
-      emptyText: { pending: 'Nothing waiting', approved: 'No verified identities yet', rejected: 'Nothing rejected' }[tab],
+      emptyText: { pending: 'Nothing waiting for a decision', approved: 'No verified identities yet', rejected: 'Nothing rejected' }[tab],
       // the last few days by default; a search looks at every date
       params: () => { const q = $('idv-search').value.trim(), days = $('idv-days').value; return { tab, q, ...(days && !q ? { days } : {}) }; },
       columns: [
@@ -172,7 +172,8 @@
     if (d.can.review) out += h('Decision') + form('review', select('idv-review-reason', d.reasons, [['Approve because', 'approve', 'approve'], ['Decline because', 'decline', 'decline']]),
       `<button type="button" class="btn btn--ghost btn--sm" data-decide="decline">Decline</button><button type="button" class="btn btn--primary btn--sm" data-decide="approve">Approve</button>`);
     if (d.can.revoke) out += h('Require a new verification') + `<p class="text-sm" style="margin:0 0 6px;color:var(--severity-high)"><b>Warning:</b> either one removes the
-      person's IDV badge, and they must go through identity verification again (onboard with a new government ID) to get it back.
+      person's IDV badge. It comes back only when they pass a new check with <b>both a government ID and a selfie that matches it</b>
+      (a selfie-only re-check won't do). Send them a re-verification link from Discovered Users to start it.
       <b>Expire</b> when it's simply no longer enough; <b>Revoke</b> when something is wrong with it (their approved checks are declined in Persona too).</p>` +
       form('revoke', select('idv-revoke-reason', d.reasons, [['Expire because', 'expire', 'expire'], ['Revoke because', 'revoke', 'revoke']]),
         `<button type="button" class="btn btn--ghost btn--sm" data-revoke="expire">Expire verification</button><button type="button" class="btn btn--danger btn--sm" data-revoke="revoke">Revoke</button>`);
@@ -245,7 +246,7 @@
       if (kind !== mode) { $('idv-revoke-msg').textContent = `Pick a reason under "${mode === 'expire' ? 'Expire' : 'Revoke'} because".`; return; }
       if (note.length < 3) { $('idv-revoke-msg').textContent = 'Add a note.'; return; }
       if (!confirm(`${mode === 'expire' ? 'Expire' : 'Revoke'} ${cur.person.name}'s identity verification?\n\nThis forces them to onboard again: `
-        + 'their IDV badge is removed and only a new identity verification with a government ID brings it back.')) return;
+        + 'their IDV badge is removed until they pass a new check with both a government ID and a selfie that matches it.')) return;
       await send('revoke', `${API}/people/${encodeURIComponent(cur.person.id)}/revoke`, { mode, reason, note });
     }
   });

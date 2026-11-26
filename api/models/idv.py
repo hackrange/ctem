@@ -48,3 +48,50 @@ class IdvRequest(UUIDPrimaryKey, Base):
     review_note: Mapped[str | None] = mapped_column(EncryptedString)
     review_reason: Mapped[str | None] = mapped_column(String(32))   # a code from api/integrations/persona_checks.py
     synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class DeskEmbed(UUIDPrimaryKey, Base):
+    """One place the caller verification panel may be shown (an admin makes it on the IDV page: Iframe Code).
+
+    It names the exact site that may frame the panel, the server ranges its API token works from, and the network
+    ranges analysts' browsers must use. Its token (ApiToken, IP-bound) belongs to the IDV desk service account and is
+    shown once. Revoking it turns the token off and ends its open sessions."""
+    __tablename__ = "idv_desk_embeds"
+
+    name: Mapped[str] = mapped_column(String(80))
+    frame_origin: Mapped[str] = mapped_column(String(256))
+    server_ips: Mapped[list | None] = mapped_column(EncryptedJSON)
+    client_ips: Mapped[list | None] = mapped_column(EncryptedJSON)
+    token_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    created_by: Mapped[str | None] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_by: Mapped[str | None] = mapped_column(String(128))
+
+
+class DeskSession(UUIDPrimaryKey, Base):
+    """One caller verification in the service desk's embedded panel (api/routes/desk_embed.py).
+
+    ServiceNow's server starts it with an IP-bound API token and gets a one-time launch token (2 minutes, used once).
+    The framed page trades that for a session key (30 minutes) usable only from the browser address that traded it.
+    Only hashes of both are kept. The ticket and analyst come from ServiceNow's server, which the token vouches for."""
+    __tablename__ = "idv_desk_sessions"
+
+    launch_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    key_hash: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
+    token_id: Mapped[str | None] = mapped_column(String(36))          # the API token that started it
+    embed_id: Mapped[str | None] = mapped_column(String(36), index=True)   # the embed that token belongs to
+    started_by: Mapped[str | None] = mapped_column(String(36))        # that token's service account
+    analyst: Mapped[str | None] = mapped_column(String(128))          # as ServiceNow names them (email or user id)
+    ticket: Mapped[str | None] = mapped_column(String(40))
+    caller_hint: Mapped[str | None] = mapped_column(EncryptedString)  # the ticket's caller, to prefill the search
+    frame_origin: Mapped[str | None] = mapped_column(String(256))     # the ServiceNow origin the result is posted to
+    client_ip: Mapped[str | None] = mapped_column(String(45))         # the analyst's browser, fixed at the exchange
+    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))   # the caller, once picked
+    request_id: Mapped[str | None] = mapped_column(ForeignKey("idv_requests.id", ondelete="SET NULL"))
+    lookups: Mapped[int] = mapped_column(default=0)
+    launch_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    exchanged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    status_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

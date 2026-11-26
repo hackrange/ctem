@@ -9,6 +9,9 @@
     <h1 class="page-header__title">Identity verification</h1>
     <p class="page-header__sub">Persona checks of who people are, from Okta's verification flow and the service desk. Failed or flagged checks wait in Pending for an IDV approver. Click a row for what was checked, why it failed and what to validate.</p>
   </div>
+  {% if 'admin' in user.role_names %}
+  <button type="button" class="btn btn--ghost btn--sm" id="idv-embeds-open" title="Embed caller verification in the service desk">Iframe Code</button>
+  {% endif %}
 </div>
 
 <div class="panel" style="padding:0">
@@ -43,4 +46,5 @@
 {% block extra_scripts %}
 <script src="{{ static('js/data_table.js') }}"></script>
 <script src="{{ static('js/idv.js') }}"></script>
+<script src="{{ static('js/idv_embeds.js') }}"></script>
 {% endblock %}

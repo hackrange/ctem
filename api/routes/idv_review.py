@@ -4,7 +4,7 @@ the ID and the network the check came from, to compare. Every decision takes a r
 (api/integrations/persona_checks.py) and a note, goes to Persona too, and is audited.
 
 Revoking marks the person (User.idv_revoked_at): every pass before it stops counting, so the badge goes until they
-verify again, and their approved checks are declined in Persona when Persona actions are on. Okta decides when it next
+pass a new check with both a government ID and a selfie that matches it (a selfie-only re-check never brings it back), and their approved checks are declined in Persona when Persona actions are on. Okta decides when it next
 asks the person to verify; CTEM never writes to Okta."""
 from __future__ import annotations
 

@@ -294,8 +294,16 @@ async def link_people(db: AsyncSession) -> None:
     # a trusted pass with a government ID (since any revoke): a later selfie-only re-check builds on it, nothing else does
     gov_ok = {r.user_id for r in rows if trusted_pass(r) and gov(r)}
 
+    from api.integrations.persona_checks import id_and_face
+
     def counts(r) -> bool:
-        return trusted_pass(r) and (bool(r.reviewed_by) or gov(r) or r.user_id in gov_ok)
+        if not trusted_pass(r):
+            return False
+        if r.reviewed_by:
+            return True   # an approver's decision
+        if r.user_id in revoked:   # after a revoke or expire: a government ID and a face that matches it, in one check
+            return id_and_face(r.facts)
+        return gov(r) or r.user_id in gov_ok
 
     latest: dict = {}
     proven: dict = {}   # the latest pass that verified a government ID itself, or an approver approved

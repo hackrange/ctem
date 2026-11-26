@@ -165,6 +165,10 @@ async def _authenticate_api_token(raw_token: str, request: Request, db: AsyncSes
     if user is None or not user.is_active or user.is_locked or not intact_loaded(user):
         raise HTTPException(401, detail="Invalid API token")
 
+    # An embed's token starts caller verification panels and reads their outcome, and does nothing else anywhere
+    if user.username == DESK_ACCOUNT and not request.url.path.startswith("/api/v1/idv/desk/sessions"):
+        raise HTTPException(403, detail="This token only starts caller verification panels")
+
     try:
         api_token.last_used = datetime.now(timezone.utc)
         api_token.last_used_ip = caller_ip
@@ -173,6 +177,9 @@ async def _authenticate_api_token(raw_token: str, request: Request, db: AsyncSes
         log.warning("could not record token last-used", exc_info=True)
 
     return user
+
+
+DESK_ACCOUNT = "svc-idv-desk"   # api/routes/desk_admin.py
 
 
 def _ip_allowed(caller_ip: str, allowed: list[str]) -> bool:

@@ -52,9 +52,13 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains; preload"
         response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
+        if response.headers.get("x-desk-frame") == "1":   # the service desk panel: its CSP names who may frame it
+            del response.headers["x-desk-frame"]
+        else:
+            response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-XSS-Protection"] = "0"  # modern browsers use CSP instead
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        if "referrer-policy" not in response.headers:   # the desk panel sets no-referrer
+            response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=(), payment=(), usb=(), browsing-topics=()"
         # No other site's window keeps a handle on ours (sign-in uses redirects, never pop-ups)
         response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
