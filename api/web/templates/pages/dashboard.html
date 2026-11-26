@@ -111,7 +111,7 @@
           <tr>
             <th id="top-th-name">Hostname</th>
             <th>Grade</th>
-            <th>Score</th>
+            <th title="Risk score out of 100: lower is better">Risk</th>
             <th id="top-th-last">EDR</th>
           </tr>
         </thead>
@@ -133,7 +133,7 @@
           <tr>
             <th id="env-th-name">Environment</th>
             <th id="env-th-count">Devices</th>
-            <th>Avg Score</th>
+            <th title="Average risk score out of 100: lower is better">Avg risk</th>
             <th>Critical</th>
           </tr>
         </thead>
@@ -320,7 +320,7 @@ async function loadSummary() {
         <td>
           <div style="display:flex;align-items:center;gap:8px">
             <div class="score-bar" style="width:60px"><div class="score-bar__fill" style="width:${Number(d.risk_score) || 0}%;background:${scoreColor(d.risk_score)}"></div></div>
-            <span class="text-sm">${esc(d.risk_score ?? 0)}</span>
+            <span class="text-sm" style="white-space:nowrap" title="0 is no risk, 100 the worst">Risk ${esc(Math.round(d.risk_score ?? 0))}/100</span>
           </div>
         </td>
         <td>${lastCell(d)}</td>
@@ -331,7 +331,7 @@ async function loadSummary() {
       <tr>
         <td>${esc(e.env)}</td>
         <td>${Number(e.devices).toLocaleString()}</td>
-        <td>${e.avg_score == null ? '--' : esc(e.avg_score)}</td>
+        <td>${e.avg_score == null ? '--' : `${esc(Math.round(e.avg_score))}/100`}</td>
         <td>${e.critical > 0 ? `<span class="chip chip--critical">${Number(e.critical).toLocaleString()}</span>` : '<span class="text-muted">0</span>'}</td>
       </tr>
     `).join('') || '<tr><td colspan="4" class="text-muted text-sm" style="text-align:center;padding:16px">No data</td></tr>';

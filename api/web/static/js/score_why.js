@@ -55,7 +55,7 @@ window.ScoreWhy = (() => {
     const w = d.score_why;
     el.hidden = !w;
     if (!w) { el.innerHTML = ''; return; }
-    const label = `Why ${d.risk_grade || ''} ${d.risk_score == null ? '' : d.risk_score}`.trim();
+    const label = `Why ${d.risk_grade || ''}${d.risk_score == null ? '' : `, risk ${Math.round(d.risk_score)}/100`}`.trim();
     el.innerHTML = `<button type="button" class="dt-link" style="background:none;border:0;padding:0;cursor:pointer;font-size:13px">${esc(label)}?</button>`;
     el.querySelector('button').onclick = () => {
       const m = modal(), rows = (w.worst || []).map(sort);

@@ -52,7 +52,7 @@
       </dl>
       <div class="ud-h">Risk</div>
       <dl class="ud-grid">
-        ${row('Grade', v(u.risk_grade))}${row('Score', u.risk_score != null ? esc(Math.round(u.risk_score)) : dash)}${row('Scored', day(u.risk_at))}
+        ${row('Grade', v(u.risk_grade))}${row('Risk', u.risk_score != null ? `${esc(Math.round(u.risk_score))}/100 <span class="text-muted">(lower is better)</span>` : dash)}${row('Scored', day(u.risk_at))}
       </dl>
       ${factors ? `<ul class="text-sm" style="margin:0 0 12px 18px">${factors}</ul>` : ''}
       <div class="ud-h">AD groups (${esc((u.ad_groups || []).length)})</div>

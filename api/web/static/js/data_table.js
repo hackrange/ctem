@@ -167,8 +167,8 @@
     },
     // "(F 87.3 → A 0)": original grade/score, then what it is after an adjustment such as EDR containment
     adjusted(rawGrade, rawScore, grade, score) {
-      const fmt = (g, n) => `${esc(g || '?')} ${n == null ? '--' : esc(Number(n).toFixed(n % 1 ? 1 : 0))}`;
-      return `<span class="text-sm text-muted" title="Original score, then the score after containment">(${fmt(rawGrade, rawScore)} &rarr; ${fmt(grade, score)})</span>`;
+      const fmt = (g, n) => `${esc(g || '?')}, risk ${n == null ? '--' : esc(Math.round(Number(n)))}`;
+      return `<span class="text-sm text-muted" title="Original risk, then the risk after containment (out of 100, lower is better)">(${fmt(rawGrade, rawScore)} &rarr; ${fmt(grade, score)})</span>`;
     },
     // "3 days ago (EDR)": the freshest sign of life from any tool; the hover lists each tool's own date
     seenAgo(d) {
@@ -208,10 +208,14 @@
       return v ? '<span style="color:var(--severity-low)">&#10003;</span>'
                : '<span style="color:var(--severity-critical)">&#10007;</span>';
     },
+    // "Risk 37/100": a risk score, so lower is better (0 none, 100 the worst); coloured by the same bands as the grades
+    riskText(s) { return s == null ? '--' : `Risk ${Math.round(+s)}/100`; },
     score(s) {
       if (s == null) return '<span class="text-muted">--</span>';
-      const c = s >= 80 ? 'critical' : s >= 60 ? 'high' : s >= 40 ? 'medium' : 'low';
-      return `<div style="display:flex;align-items:center;gap:6px"><div class="score-bar" style="width:50px"><div class="score-bar__fill" style="width:${Math.min(100, +s)}%;background:var(--severity-${c})"></div></div><span class="text-sm">${esc(s)}</span></div>`;
+      const c = s > 80 ? 'critical' : s > 60 ? 'high' : s > 40 ? 'medium' : 'low';
+      return `<div style="display:flex;align-items:center;gap:6px" title="Risk score out of 100: 0 is no risk, 100 the worst. Lower is better.">
+        <div class="score-bar" style="width:50px"><div class="score-bar__fill" style="width:${Math.min(100, +s)}%;background:var(--severity-${c})"></div></div>
+        <span class="text-sm" style="white-space:nowrap">${esc(R.riskText(s))}</span></div>`;
     },
     date(iso) { return iso ? esc(new Date(iso).toLocaleDateString()) : '<span class="text-muted">--</span>'; },
     // Age: days from first found until today (or until fixed), colored by how much of its severity's SLA it has used:

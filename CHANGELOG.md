@@ -7,6 +7,11 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.18.4] - 2026-11-26
+
+### Changed
+- Risk scores read as what they are: "Risk 37/100" (0 is no risk, 100 the worst; lower is better, said on hover) on the devices and Discovered Users lists, device and person details, the dashboard, threat alerts and the Why link, with Score columns named Risk. Bars are coloured by the same bands as the grades. Nothing stored or exported changes.
+
 ## [1.18.3] - 2026-11-26
 
 ### Added

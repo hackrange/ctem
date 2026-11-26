@@ -56,7 +56,7 @@
         <th>Title</th>
         <th>Phone</th>
         <th>Risk Grade</th>
-        <th>Score</th>
+        <th title="Risk score out of 100: lower is better">Risk</th>
         <th>Roles</th>
         <th>MFA</th>
         <th>Service Acct</th>
@@ -217,7 +217,7 @@ async function loadUsers(offset = 0) {
           <td class="text-sm text-muted">${esc(u.title || '--')}</td>
           <td class="text-sm text-mono" title="${esc(u.mobile ? 'Mobile ' + u.mobile : '')}">${esc(u.phone || u.mobile || '--')}</td>
           <td>${gradeChip(u.risk_grade)}</td>
-          <td class="text-sm text-center">${u.risk_score != null ? parseFloat(u.risk_score).toFixed(0) : '--'}</td>
+          <td class="text-sm text-center" style="white-space:nowrap" title="0 is no risk, 100 the worst">${u.risk_score != null ? `Risk ${Math.round(parseFloat(u.risk_score))}/100` : '--'}</td>
           <td>${(u.roles || []).map(r => `<span class="chip chip--info" style="font-size:.7rem">${esc(r.role_name || r)}</span>`).join(' ')}</td>
           <td class="text-sm text-center">${u.totp_enabled ? '<span style="color:var(--severity-low)">&#10003;</span>' : '<span class="text-muted">&#8722;</span>'}</td>
           <td class="text-sm text-center">${u.is_service_account ? '<span class="chip chip--info">SVC</span>' : '<span class="text-muted">--</span>'}</td>

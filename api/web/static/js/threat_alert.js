@@ -52,7 +52,7 @@
     if (h.containment) rows.push(info('Falcon containment', txt(h.containment.replace(/_/g, ' '))));
     if (d.prevalence) rows.push(info('File prevalence', txt(['global ' + (d.prevalence.global || '?'), 'local ' + (d.prevalence.local || '?')].join(', '))));
     if (c) {
-      rows.push(info('CTEM risk', `${c.risk_grade ? `<span class="chip chip--info">${esc(c.risk_grade)}</span>` : ''} ${txt(c.risk_score)}`));
+      rows.push(info('CTEM risk', `${c.risk_grade ? `<span class="chip chip--info">${esc(c.risk_grade)}</span>` : ''} ${c.risk_score == null ? txt(null) : `${esc(Math.round(c.risk_score))}/100 <span class="text-muted">(lower is better)</span>`}`));
       rows.push(info('Open findings on host', `${esc(c.open_findings)}${c.kev_findings ? ` <span class="chip chip--critical">${esc(c.kev_findings)} KEV</span>` : ''}`));
       rows.push(info('Assigned to (CTEM)', txt(c.assigned_to || c.user)));
       if (c.internet_exposed) rows.push(info('Internet exposed', '<span class="chip chip--high">yes</span>'));
