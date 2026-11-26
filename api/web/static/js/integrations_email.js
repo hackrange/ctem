@@ -60,7 +60,47 @@ window.emailFieldsShown = vendor => {
 
 window.emailTestBtn = i => (i.shipper_managed ? ''
   : i.vendor === 'email' ? `<button class="btn btn--ghost btn--sm" onclick="sendTestEmail('${esc(i.id)}')">Send test email</button>`
-  : i.vendor === 'twilio' ? `<button class="btn btn--ghost btn--sm" onclick="sendTestSms('${esc(i.id)}')">Send test text</button>` : '');
+  : i.vendor === 'twilio' ? `<button class="btn btn--ghost btn--sm" onclick="sendTestSms('${esc(i.id)}')">Send test text</button>`
+  : i.vendor === 'persona' ? `<button class="btn btn--ghost btn--sm" onclick="personaTemplates('${esc(i.id)}')">Templates in use</button>` : '');
+
+// Persona > Templates in use: each inquiry template, its use, and what CTEM uses it for (admins)
+window.personaTemplates = async id => {
+  let wrap = document.getElementById('ptpl-dialog');
+  if (!wrap) {
+    wrap = document.createElement('div');
+    wrap.id = 'ptpl-dialog';
+    wrap.className = 'tk-backdrop';
+    wrap.setAttribute('role', 'dialog');
+    wrap.setAttribute('aria-modal', 'true');
+    wrap.setAttribute('aria-labelledby', 'ptpl-title');
+    document.body.appendChild(wrap);
+  }
+  wrap.innerHTML = `<div class="tk-dialog" style="max-width:1100px;width:94vw;max-height:88vh;overflow:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center"><h2 class="tk-title" id="ptpl-title">Persona inquiry templates</h2>
+      <button type="button" class="btn btn--ghost btn--sm" id="ptpl-close" aria-label="Close">&#10005;</button></div>
+    <p class="text-sm text-muted" style="margin:4px 0 10px">Inquiry templates (itmpl_...) are whole flows a person goes through. Verification templates (vtmpl_...) are the
+      single steps inside them and never go in CTEM. Uses come from the checks CTEM has read; "selfie only" counts runs where the template skipped the ID
+      for someone verified before.</p>
+    <div id="ptpl-body" class="text-sm">Loading...</div></div>`;
+  wrap.classList.add('is-open');
+  document.getElementById('ptpl-close').onclick = () => wrap.classList.remove('is-open');
+  const body = document.getElementById('ptpl-body');
+  try {
+    const r = await fetch(`/api/v1/integrations/${encodeURIComponent(id)}/persona-templates`, { headers: { Accept: 'application/json' } });
+    if (!r.ok) throw new Error();
+    const d = await r.json();
+    const day = s => (s ? new Date(s).toLocaleDateString() : 'never');
+    body.innerHTML = (d.error ? `<p style="color:var(--severity-high)">${esc(d.error)}</p>` : '') + `<table class="data-table" style="width:100%;font-size:13px">
+      <thead><tr><th>Template</th><th>Status</th><th>Uses</th><th>Last 30 days</th><th>Passed</th><th>Selfie only</th><th>Last used</th><th>CTEM uses it for</th></tr></thead>
+      <tbody>${d.templates.map(t => `<tr${t.uses ? '' : ' style="opacity:.6"'}>
+        <td><b>${esc(t.name || '(no name)')}</b><div class="text-mono text-muted" style="font-size:11px">${esc(t.id)}</div></td>
+        <td>${t.status === 'active' ? '<span class="chip chip--low">Active</span>' : `<span class="chip chip--info">${esc(t.status)}</span>`}</td>
+        <td>${esc(t.uses.toLocaleString())}</td><td>${esc(t.last_30_days.toLocaleString())}</td><td>${esc(t.passed.toLocaleString())}</td>
+        <td>${esc(t.selfie_only.toLocaleString())}</td><td>${esc(day(t.last_used))}</td>
+        <td>${t.ctem_uses.length ? t.ctem_uses.map(u => `<span class="chip chip--medium" style="font-size:.7rem;margin:0 4px 4px 0">${esc(u)}</span>`).join('') : '<span class="text-muted">--</span>'}</td>
+      </tr>`).join('')}</tbody></table>`;
+  } catch (e) { body.textContent = "Couldn't load the templates."; }
+};
 
 window.sendTestSms = id => {
   let wrap = document.getElementById('sms-dialog');

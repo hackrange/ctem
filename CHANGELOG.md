@@ -7,6 +7,11 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.20.1] - 2026-11-26
+
+### Added
+- Persona integration card: Templates in use (admins). Each inquiry template with its status in Persona, uses (all time and last 30 days), passes, how often it ran selfie-only, last use, and what CTEM uses it for (ID + selfie links, selfie-only links, earning the badge). Explains inquiry templates (itmpl_) against verification templates (vtmpl_).
+
 ## [1.20.0] - 2026-11-26
 
 ### Added
