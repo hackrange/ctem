@@ -95,7 +95,9 @@
     }
     if (idOnId && dir && sameName(fullName(idOnId), dir) === false && !(x.failed || []).some(f => NAME_CHECKS.has(f.check)))
       out.push(`The name on the ${esc(idOnId.id_type || 'ID')} (<b>${esc(fullName(idOnId))}</b>) differs from the directory (<b>${esc(dir)}</b>).`);
-    if (d.state === 'unproven') out.push(d.created_via && d.created_via !== 'API' && d.origin !== 'service_desk'
+    if (d.state === 'unproven' && d.person && d.person.idv_revoked_kind === 'revoke' && d.person.idv_revoked_at && d.created_at > d.person.idv_revoked_at)
+      out.push(`${esc(d.person.name)}'s verification was revoked on ${esc(day(d.person.idv_revoked_at))}. This new check passed, but after a revoke an approver must confirm it before the badge comes back.`);
+    else if (d.state === 'unproven') out.push(d.created_via && d.created_via !== 'API' && d.origin !== 'service_desk'
       ? 'Persona passed this check, but it was started from a hosted link, so anyone holding the link could have done it. It earns no badge until an approver confirms who it was.'
       : `Persona passed this check, but ${esc(d.person ? d.person.name : 'the person')} has never passed a government ID check: it was a selfie re-check, which compares a face with an earlier selfie, not with an ID.`);
     for (const note of x.notes || []) out.push(`<b>${esc(note)}</b>`);
@@ -171,10 +173,10 @@
       <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px">${label}</div><p id="idv-${kind}-msg" class="text-sm" role="status" style="min-height:1.2em;margin:4px 0 0"></p>`;
     if (d.can.review) out += h('Decision') + form('review', select('idv-review-reason', d.reasons, [['Approve because', 'approve', 'approve'], ['Decline because', 'decline', 'decline']]),
       `<button type="button" class="btn btn--ghost btn--sm" data-decide="decline">Decline</button><button type="button" class="btn btn--primary btn--sm" data-decide="approve">Approve</button>`);
-    if (d.can.revoke) out += h('Require a new verification') + `<p class="text-sm" style="margin:0 0 6px;color:var(--severity-high)"><b>Warning:</b> either one removes the
-      person's IDV badge. It comes back only when they pass a new check with <b>both a government ID and a selfie that matches it</b>
-      (a selfie-only re-check won't do). Send them a re-verification link from Discovered Users to start it.
-      <b>Expire</b> when it's simply no longer enough; <b>Revoke</b> when something is wrong with it (their approved checks are declined in Persona too).</p>` +
+    if (d.can.revoke) out += h('Require a new verification') + `<p class="text-sm" style="margin:0 0 6px;color:var(--severity-high)">Either one removes the person's IDV badge
+      and they must verify again with <b>a government ID and a selfie</b> (a selfie-only re-check won't do); you can send them the link in the same step.
+      <b>Expire</b> when it's no longer enough: their next ID-and-selfie pass restores the badge. <b>Revoke</b> when something is wrong with it:
+      their approved checks are declined in Persona, and their next pass waits for an approver.</p>` +
       form('revoke', select('idv-revoke-reason', d.reasons, [['Expire because', 'expire', 'expire'], ['Revoke because', 'revoke', 'revoke']]),
         `<button type="button" class="btn btn--ghost btn--sm" data-revoke="expire">Expire verification</button><button type="button" class="btn btn--danger btn--sm" data-revoke="revoke">Revoke</button>`);
     return out;
@@ -218,7 +220,12 @@
     msg.textContent = 'Sending to Persona...';
     try {
       const d = await getJson(url, { method: 'POST', body: JSON.stringify(payload) });
-      if (kind === 'revoke' && d.not_declined_in_persona) msg.textContent = `Revoked in CTEM; ${d.not_declined_in_persona} check(s) couldn't be declined in Persona.`;
+      if (kind === 'revoke' && window.toast) {   // the dialog redraws, so the outcome shows as a toast
+        const done = d.kind === 'expire' ? 'Verification expired' : 'Verification revoked';
+        const link = !d.link ? '' : d.link.sent ? ` Link sent by ${d.link.channel === 'sms' ? 'text' : 'email'} to ${d.link.to}.` : ` The link didn't go out: ${d.link.error}`;
+        const kept = d.not_declined_in_persona ? ` ${d.not_declined_in_persona} check(s) couldn't be declined in Persona.` : '';
+        toast(done + '.' + link + kept, d.link && !d.link.sent ? 'error' : 'ok');
+      }
       window.dispatchEvent(new Event('idv-changed'));
       tabs();
       table.reload();
@@ -245,9 +252,9 @@
       const note = $('idv-revoke-note').value.trim();
       if (kind !== mode) { $('idv-revoke-msg').textContent = `Pick a reason under "${mode === 'expire' ? 'Expire' : 'Revoke'} because".`; return; }
       if (note.length < 3) { $('idv-revoke-msg').textContent = 'Add a note.'; return; }
-      if (!confirm(`${mode === 'expire' ? 'Expire' : 'Revoke'} ${cur.person.name}'s identity verification?\n\nThis forces them to onboard again: `
-        + 'their IDV badge is removed until they pass a new check with both a government ID and a selfie that matches it.')) return;
-      await send('revoke', `${API}/people/${encodeURIComponent(cur.person.id)}/revoke`, { mode, reason, note });
+      const ok = await IdvConfirm.ask(mode, cur.person);
+      if (!ok) return;
+      await send('revoke', `${API}/people/${encodeURIComponent(cur.person.id)}/revoke`, { mode, reason, note, ...ok });
     }
   });
 

@@ -48,6 +48,8 @@ class Review(BaseModel):
 class Revoke(BaseModel):
     model_config = ConfigDict(extra="forbid")
     mode: str = Field("revoke", pattern="^(revoke|expire)$")   # expire: no longer enough, not a judgment on the check
+    send: str | None = Field(None, pattern="^(sms|email)$")      # also send a re-verification link now, to this verified contact
+    confirm_recent: bool = False                                  # the approver checked a contact enrolled or changed recently
     reason: str = Field(pattern="^[a-z_]{2,32}$")
     note: str = Field(min_length=3, max_length=500, pattern=r"^[^\x00-\x08\x0b\x0c\x0e-\x1f\x7f]*$")
 
@@ -105,9 +107,11 @@ async def review(request_id: uuid.UUID, body: Review, me: User = Depends(approve
 
 @router.post("/people/{user_id}/revoke")
 async def revoke(user_id: uuid.UUID, body: Revoke, me: User = Depends(approver), db: AsyncSession = Depends(get_session)):
-    """Take a person's verification away: the badge goes, and they need a new pass for it to come back.
-    revoke: something is wrong with it, and their approved checks are declined in Persona too. expire: it is no
-    longer enough (periodic, role change); Persona's checks stay as they are."""
+    """Take a person's verification away: the badge goes until they verify again with a government ID and a selfie
+    that matches it. expire: it is no longer enough (periodic, role change); Persona's checks stay as they are, and
+    such a pass brings the badge back. revoke: something is wrong with it; their approved checks are declined in
+    Persona too, and a new pass waits in Pending for an approver before the badge comes back. Either can send the
+    person a re-verification link at once (send)."""
     from api.integrations.persona import PersonaError
     from api.integrations.persona_ingest import link_people
     reasons = EXPIRE_REASONS if body.mode == "expire" else REVOKE_REASONS
@@ -117,7 +121,7 @@ async def revoke(user_id: uuid.UUID, body: Revoke, me: User = Depends(approver),
     if person is None or not (await db.execute(select(IdvRequest.id).where(IdvRequest.user_id == person.id).limit(1))).first():
         raise HTTPException(404)   # the same for nobody and for someone with no verification
     now = datetime.now(timezone.utc)
-    person.idv_revoked_at = now
+    person.idv_revoked_at, person.idv_revoked_kind = now, body.mode
     approved = [] if body.mode == "expire" else (await db.execute(
         select(IdvRequest).where(IdvRequest.user_id == person.id, IdvRequest.state == "approved")
         .order_by(IdvRequest.created_at.desc().nullslast()).limit(MAX_REVOKE))).scalars().all()
@@ -137,7 +141,16 @@ async def revoke(user_id: uuid.UUID, body: Revoke, me: User = Depends(approver),
     await db.flush()
     await link_people(db)
     await db.commit()
-    return {"revoked_at": now.isoformat(), "declined_in_persona": declined, "not_declined_in_persona": kept,
+    link = None
+    if body.send:   # the link goes out after the revoke is saved; if it can't, the revoke still stands
+        from api.core.idv_send import send_link
+        try:
+            _, out = await send_link(db, str(user_id), body.send, body.confirm_recent, str(me.id), me.username, note=f" after {body.mode}")
+            link = {"sent": True, "to": out["to"], "channel": out["channel"]}
+        except HTTPException as e:
+            link = {"sent": False, "error": e.detail if isinstance(e.detail, str) else "The link didn't go out"}
+    await db.refresh(person)
+    return {"revoked_at": now.isoformat(), "kind": body.mode, "link": link, "declined_in_persona": declined, "not_declined_in_persona": kept,
             "idv_verified_at": person.idv_verified_at.isoformat() if person.idv_verified_at else None}
 
 

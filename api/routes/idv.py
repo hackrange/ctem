@@ -64,7 +64,8 @@ def view(r: IdvRequest, person: User | None) -> dict:
             "device_type": f.get("device_type"), "os": f.get("os"), "browser": f.get("browser"),
             "threat_level": f.get("threat_level"), "flags": [k for k in ("vpn", "proxy", "tor", "datacenter") if f.get(k)],
             "person": {"id": person.id, "name": person.display_name or person.username, "upn": person.upn,
-                       "idv_verified_at": _iso(person.idv_verified_at), "idv_revoked_at": _iso(person.idv_revoked_at)}
+                       "idv_verified_at": _iso(person.idv_verified_at), "idv_revoked_at": _iso(person.idv_revoked_at),
+                       "idv_revoked_kind": person.idv_revoked_kind}
             if person is not None else None}
 
 

@@ -269,9 +269,12 @@ async def link_people(db: AsyncSession) -> None:
     from api.integrations.persona_checks import gov_id_passed
     users = sorted({r.user_id for r in rows if r.user_id})
     revoked: dict = {}
+    kinds: dict = {}
     for k in range(0, len(users), 1000):   # locked: a revoke committing meanwhile waits, or is seen (no stale write-back)
-        revoked.update({uid: at for uid, at in (await db.execute(select(User.id, User.idv_revoked_at).where(
-            User.id.in_(users[k:k + 1000])).order_by(User.id).with_for_update())).all() if at is not None})
+        for uid, at, kind in (await db.execute(select(User.id, User.idv_revoked_at, User.idv_revoked_kind).where(
+                User.id.in_(users[k:k + 1000])).order_by(User.id).with_for_update())).all():
+            if at is not None:
+                revoked[uid], kinds[uid] = at, kind or "revoke"
     tz = lambda d: d if d is None or d.tzinfo else d.replace(tzinfo=timezone.utc)  # noqa: E731
     after = lambda r: r.created_at is not None and (r.user_id not in revoked or tz(r.created_at) > tz(revoked[r.user_id]))  # noqa: E731
     def trusted_pass(r) -> bool:
@@ -301,8 +304,10 @@ async def link_people(db: AsyncSession) -> None:
             return False
         if r.reviewed_by:
             return True   # an approver's decision
-        if r.user_id in revoked:   # after a revoke or expire: a government ID and a face that matches it, in one check
-            return id_and_face(r.facts)
+        if r.user_id in revoked:
+            # after an expire: a government ID and a face that matches it, in one check; after a revoke: an approver
+            # decides (the pass waits in Pending), since something was wrong with the last one
+            return kinds.get(r.user_id) == "expire" and id_and_face(r.facts)
         return gov(r) or r.user_id in gov_ok
 
     latest: dict = {}

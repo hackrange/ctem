@@ -106,7 +106,9 @@ async def test_revoke_takes_the_badge_until_a_new_pass(db, client_cyber, client_
     await link_people(db)
     await db.commit()
     await db.refresh(u)
-    assert u.idv_verified_at is not None and u.idv_verified_at > u.idv_revoked_at
+    assert u.idv_revoked_kind == "revoke" and u.idv_verified_at is None   # after a revoke even a full pass waits for an approver
+    pend = (await client_idv_approver.get("/api/v1/idv/requests", params={"tab": "pending", "limit": 200})).json()["requests"]
+    assert any(r["id"] and r["state"] == "unproven" and r["person"]["id"] == u.id for r in pend)
 
 
 @pytest.mark.asyncio
@@ -326,7 +328,8 @@ async def test_after_a_revoke_only_id_and_face_bring_the_badge_back(db):
     from api.models.user import User
     t = uuid.uuid4().hex[:10]
     now = datetime.now(timezone.utc)
-    u = User(username=f"idvk-{t}", is_local=False, is_active=True, okta_id=f"00u{t}RvK", idv_revoked_at=now - timedelta(days=1))
+    u = User(username=f"idvk-{t}", is_local=False, is_active=True, okta_id=f"00u{t}RvK", idv_revoked_at=now - timedelta(days=1),
+             idv_revoked_kind="expire")
     db.add(u)
     id_only = {"verifications": [{"kind": "government-id", "status": "passed", "checks": []}]}
     both = {"verifications": [{"kind": "government-id", "status": "passed", "checks": []},
@@ -345,3 +348,51 @@ async def test_after_a_revoke_only_id_and_face_bring_the_badge_back(db):
     await db.commit()
     await db.refresh(u)
     assert u.idv_verified_at is not None
+
+
+
+@pytest.mark.asyncio
+async def test_expire_or_revoke_can_send_the_link_in_the_same_step(db, client_idv_approver, monkeypatch):
+    from api.integrations.persona import PersonaConnector
+    from api.integrations.persona_ingest import link_people
+    from api.integrations.twilio import TwilioConnector
+    from api.models.idv import IdvRequest
+    from api.models.integration import IntegrationConfig, Vendor
+    from api.models.user import User
+    t = uuid.uuid4().hex[:10]
+    from sqlalchemy import delete
+    await db.execute(delete(IntegrationConfig).where(IntegrationConfig.vendor.in_([Vendor.persona, Vendor.twilio])))
+    db.add_all([IntegrationConfig(vendor=Vendor.persona, name="P", config={"api_key": "persona_production_" + "j" * 36, "allow_actions": True,
+                                                                         "template_id": "itmpl_" + "J" * 12}),
+                IntegrationConfig(vendor=Vendor.twilio, name="T", config={"account_sid": "AC" + "9" * 32, "api_key_sid": "SK" + "0" * 32,
+                                                                         "api_key_secret": "k" * 32, "from_number": "+15550100100"})])
+    u = User(username=f"idvx-{t}", is_local=False, is_active=True, okta_id=f"00u{t}SnD", mfa_phone="+15550100144",
+             idp={"mfa_phone_kind": "sms", "status": "ACTIVE", "mfa_phone_at": "2025-01-01T00:00:00+00:00"})
+    db.add(u)
+    now = datetime.now(timezone.utc) - timedelta(days=3)
+    both = {"verifications": [{"kind": "government-id", "status": "passed", "checks": []},
+                              {"kind": "selfie", "status": "passed", "checks": [["selfie_id_comparison", "passed", []]]}]}
+    db.add(IdvRequest(inquiry_id=f"inq_X{t}x", okta_id=u.okta_id, state="approved", persona_status="completed", created_via="API",
+                      facts=both, created_at=now, completed_at=now))
+    await db.commit()
+    await link_people(db)
+    await db.commit()
+    sent = []
+
+    async def start(self, ref, fields=None):
+        return f"inq_L{t}x", "https://perso.na/verify?code=Z"
+
+    async def sms(self, to, text):
+        sent.append(to)
+        return {"sid": "SM" + "d" * 32, "status": "queued"}
+    monkeypatch.setattr(PersonaConnector, "start_inquiry", start)
+    monkeypatch.setattr(TwilioConnector, "send", sms)
+    r = await client_idv_approver.post(f"/api/v1/idv/people/{u.id}/revoke",
+                                       json={"mode": "expire", "reason": "reverify_required", "note": "Annual check", "send": "sms"})
+    assert r.status_code == 200 and r.json()["kind"] == "expire" and r.json()["link"]["sent"] and sent == ["+15550100144"]
+    await db.refresh(u)
+    assert u.idv_verified_at is None and u.idv_revoked_kind == "expire"
+    assert (await client_idv_approver.post(f"/api/v1/idv/people/{u.id}/revoke",
+                                           json={"mode": "expire", "reason": "reverify_required", "note": "x y z", "send": "fax"})).status_code == 422
+    await db.execute(delete(IdvRequest).where(IdvRequest.okta_id == u.okta_id))
+    await db.commit()

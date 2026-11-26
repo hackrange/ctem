@@ -7,6 +7,12 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.19.1] - 2026-11-26
+
+### Changed
+- IDV Expire and Revoke now differ in what brings the badge back. Expire (no longer enough): the person must verify again with a government ID and a selfie, and that pass restores the badge by itself. Revoke (something was wrong): their approved checks are declined in Persona, they can verify again, and their next pass waits in Pending for an IDV approver to confirm.
+- Both open a confirmation dialog that says the person will have to verify again with a government ID and a selfie, and offers "Also send a re-verification link now" to a verified text or email contact (with the recently-changed check); the outcome shows as a message.
+
 ## [1.19.0] - 2026-11-26
 
 ### Added

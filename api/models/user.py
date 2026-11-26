@@ -113,6 +113,7 @@ class User(Base, UUIDPrimaryKey, TimestampMixin):
     # When an identity verification (Persona) last passed, for the IDV badge (api/integrations/persona.py)
     idv_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     idv_revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))   # passes before this no longer count
+    idv_revoked_kind: Mapped[str | None] = mapped_column(String(10))   # expire: an ID + face pass restores it; revoke: an approver must
 
     # Tag-based page access -- admins assign tags like ["identity","grc"] to let
     # restricted roles access specific dashboards without a full analyst role
