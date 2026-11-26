@@ -34,6 +34,10 @@
       its trend from its daily counts. A view narrowed to a device type, a tag scope or a repository covers only the
       days kept here. Risk score history older than a year keeps one entry per week.</p>
     <p class="text-sm" id="ret-fixed-now" style="margin:0"></p>
+    <div class="panel__title" style="margin-top:8px">IP address usage history</div>
+    <label class="text-sm" style="display:block">Keep IP address usage history (Threat Hunt) for
+      <input type="number" id="ret-ip" class="input" min="30" max="3650" style="width:110px;margin-left:8px"> days</label>
+    <p class="text-sm text-muted" id="ret-ip-now" style="margin:4px 0 0">Which asset and person held each address, and when. Investigations can only look back as far as this keeps.</p>
     <div><button type="submit" class="btn btn--primary">Save</button> <span id="ret-msg" class="text-sm" role="status"></span></div>
   </form>
 </div>

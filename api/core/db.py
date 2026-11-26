@@ -50,6 +50,7 @@ async def init_db() -> None:
     import api.models.settings      # noqa: F401
     import api.models.identity      # noqa: F401
     import api.models.idv           # noqa: F401 -- identity verification (Persona)
+    import api.models.ip_history    # noqa: F401 -- IP address usage history
     import api.models.collector     # noqa: F401
     import api.models.grc           # noqa: F401
     import api.models.rules         # noqa: F401

@@ -8,12 +8,13 @@ import json
 from sqlalchemy import select
 
 KEY = "data_retention"
-LIMITS = {"stale_host_days": (7, 365), "probe_within_days": (1, 30), "remediated_days": (30, 365)}
+LIMITS = {"stale_host_days": (7, 365), "probe_within_days": (1, 30), "remediated_days": (30, 365), "ip_history_days": (30, 3650)}
 
 
 def defaults() -> dict:
     from api.core.config import get_settings
-    return {"enabled": True, "stale_host_days": get_settings().stale_host_days, "probe_within_days": 7, "remediated_days": 90}
+    return {"enabled": True, "stale_host_days": get_settings().stale_host_days, "probe_within_days": 7, "remediated_days": 90,
+            "ip_history_days": 730}   # IP address usage history (api/core/ip_history.py): two years
 
 
 def validate(raw: dict) -> dict:

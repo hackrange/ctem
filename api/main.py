@@ -78,6 +78,7 @@ def create_app() -> FastAPI:
     from api.routes.desk_admin import router as desk_admin_router
     from api.routes.admin_roles import router as admin_roles_router
     from api.routes.persona_templates import router as persona_templates_router
+    from api.routes.ip_history import router as ip_history_router
     from api.routes.admin import router as admin_router
     from api.routes.user_access import router as user_access_router
     from api.routes.api_docs import router as api_docs_router
@@ -155,6 +156,7 @@ def create_app() -> FastAPI:
     app.include_router(desk_admin_router)
     app.include_router(admin_roles_router)
     app.include_router(persona_templates_router)
+    app.include_router(ip_history_router)
     app.include_router(desk_embed_router)
     app.include_router(user_access_router)   # before admin's /users/{id} routes
     app.include_router(admin_router)
@@ -358,6 +360,7 @@ def _register_web_routes(app: FastAPI) -> None:
     app.get("/identity", response_class=HTMLResponse, include_in_schema=False)(_render("pages/identity.html", "/identity"))
     app.get("/identity/person", response_class=HTMLResponse, include_in_schema=False)(_render("pages/identity_person.html", "/identity"))
     app.get("/hunt", response_class=HTMLResponse, include_in_schema=False)(_render("pages/hunt.html", "/hunt"))
+    app.get("/hunt/ip-history", response_class=HTMLResponse, include_in_schema=False)(_render("pages/ip_history.html", "/hunt"))
     app.get("/hunt/telemetry", response_class=HTMLResponse, include_in_schema=False)(_render("pages/hunt_telemetry.html", "/hunt/telemetry"))
     app.get("/attack-paths", response_class=HTMLResponse, include_in_schema=False)(_render("pages/attack_paths.html", "/attack-paths"))
     app.get("/sites", response_class=HTMLResponse, include_in_schema=False)(_render("pages/sites.html", "/sites"))

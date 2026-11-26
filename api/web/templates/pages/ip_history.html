@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% set active_nav = 'hunt' %}
+
+{% block title %}IP Address Usage History -- open-ctem{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="text-sm"><a href="/hunt" class="dt-link" style="color:var(--fg-muted)">&larr; Threat Hunt</a></p>
+    <h1 class="page-header__title">IP Address Usage History</h1>
+    <p class="page-header__sub">Which asset, and which person on it, held an address and when. Addresses are short-lived, so this keeps a record
+      made at the time: private (RFC 1918) and public, hour by hour, with how each link was made. Times are GMT.</p>
+  </div>
+</div>
+
+<div class="panel" style="margin-bottom:16px">
+  <form id="ih-form" class="panel__body" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+    <label class="text-sm">IP address<input id="ih-ip" class="form-input text-mono" maxlength="45" placeholder="10.4.2.17 or 203.0.113.5" style="width:220px;display:block"></label>
+    <label class="text-sm">Match<select id="ih-scope" class="filter-select" style="display:block"><option value="exact">This address</option>
+      <option value="net">Anything in its /24 (IPv6 /64)</option></select></label>
+    <label class="text-sm">At (<span data-zone-label>GMT</span>)<input id="ih-at" type="datetime-local" class="form-input" style="display:block"></label>
+    <span class="text-sm text-muted" style="padding-bottom:8px">or between</span>
+    <label class="text-sm">From<input id="ih-from" type="datetime-local" class="form-input" style="display:block"></label>
+    <label class="text-sm">To<input id="ih-to" type="datetime-local" class="form-input" style="display:block"></label>
+    <button type="submit" class="btn btn--primary btn--sm">Search</button>
+    <span style="flex:1"></span>
+    <label class="text-sm">Show in time zone<select id="ih-tz" class="filter-select" style="display:block;max-width:240px"></select></label>
+  </form>
+  <p id="ih-filter" class="text-sm" hidden style="margin:0 16px 12px"></p>
+</div>
+
+<div class="panel" style="padding:0">
+  <div class="panel__header"><span class="panel__title" id="ih-title">Results</span><span id="ih-since" class="text-sm text-muted"></span></div>
+  <div id="ih-results" class="panel__body text-sm text-muted">Search by an IP address. You can also open an asset's or a person's history from a result.</div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ static('js/ip_history.js') }}"></script>
+{% endblock %}

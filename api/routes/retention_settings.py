@@ -20,6 +20,7 @@ class RetentionBody(BaseModel):
     stale_host_days: StrictInt = Field(ge=retention.LIMITS["stale_host_days"][0], le=retention.LIMITS["stale_host_days"][1])
     probe_within_days: StrictInt = Field(ge=retention.LIMITS["probe_within_days"][0], le=retention.LIMITS["probe_within_days"][1])
     remediated_days: StrictInt = Field(90, ge=retention.LIMITS["remediated_days"][0], le=retention.LIMITS["remediated_days"][1])
+    ip_history_days: StrictInt = Field(730, ge=retention.LIMITS["ip_history_days"][0], le=retention.LIMITS["ip_history_days"][1])
 
 
 @router.get("")
@@ -38,7 +39,11 @@ async def get_retention(admin: User = Depends(require_admin), db: AsyncSession =
     count = lambda *w: select(func.count()).select_from(Device).where(*w)   # noqa: E731
     from api.models.vuln import FindingStatus
     fixed_cut = datetime.now(timezone.utc) - timedelta(days=cfg["remediated_days"])
+    from api.models.ip_history import IpSighting
+    oldest = (await db.execute(select(func.min(IpSighting.first_seen)))).scalar_one_or_none()
     return {**cfg, "limits": retention.LIMITS, "defaults": retention.defaults(),
+            "ip_history": {"spans": (await db.execute(select(func.count()).select_from(IpSighting))).scalar_one(),
+                           "oldest": oldest.isoformat() if oldest else None},
             "remediated_due": (await db.execute(select(func.count()).select_from(Finding).where(
                 Finding.status == FindingStatus.remediated, Finding.last_seen < fixed_cut))).scalar_one(),
             "now": {"unseen_with_findings": (await db.execute(count(unseen(cut), has))).scalar_one(),

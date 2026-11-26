@@ -7,6 +7,12 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.21.0] - 2026-11-26
+
+### Added
+- Threat Hunt > IP Address Usage History (admin, cyber): which asset, and which person on it, held an address, and from when to when. Recorded hourly from every asset a tool saw, private (RFC 1918, carrier NAT, IPv6 unique local) and public addresses alike, as spans that grow while nothing changes and split when the address, person or asset changes. Each answer says how it was attributed: which feed put the address on the asset's record and in what role, which tools reported it, and how the person was tied to the asset (detected user from sign-in data, assigned in CTEM, or last sign-in reported by the EDR). Search by an address exactly or by its /24 (IPv6 /64), at a moment or in a window, or open every address an asset or a person held. Times are GMT, with Show in time zone (typed times are read in that zone too). Addresses are encrypted at rest and found by keyed hash; every search is audited.
+- Admin > Data retention: how long IP address usage history is kept (default two years, 30 days to ten years), with how many spans there are and the oldest.
+
 ## [1.20.1] - 2026-11-26
 
 ### Added
