@@ -33,6 +33,7 @@ class IdvRequest(UUIDPrimaryKey, Base):
     # Persona's "creator": "API" when an API key started it (Okta's integration, CTEM's service desk). Only those
     # earn the IDV badge; one started from a hosted link could carry anyone's Okta id
     created_via: Mapped[str | None] = mapped_column(String(32))
+    check_kind: Mapped[str | None] = mapped_column(String(12))   # what CTEM sent: id_selfie (government ID + selfie) or selfie
     facts: Mapped[dict | None] = mapped_column(EncryptedJSON)    # the approved fields above, nothing else
     origin: Mapped[str] = mapped_column(String(16), default="persona")   # persona (Okta's flow) | service_desk
     requested_by: Mapped[str | None] = mapped_column(String(36))          # the CTEM account or API token behind it

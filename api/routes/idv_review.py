@@ -145,7 +145,8 @@ async def revoke(user_id: uuid.UUID, body: Revoke, me: User = Depends(approver),
     if body.send:   # the link goes out after the revoke is saved; if it can't, the revoke still stands
         from api.core.idv_send import send_link
         try:
-            _, out = await send_link(db, str(user_id), body.send, body.confirm_recent, str(me.id), me.username, note=f" after {body.mode}")
+            _, out = await send_link(db, str(user_id), body.send, body.confirm_recent, str(me.id), me.username, note=f" after {body.mode}",
+                                     kind="id_selfie")   # after an expire or revoke it's always a government ID and a selfie
             link = {"sent": True, "to": out["to"], "channel": out["channel"]}
         except HTTPException as e:
             link = {"sent": False, "error": e.detail if isinstance(e.detail, str) else "The link didn't go out"}

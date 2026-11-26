@@ -379,7 +379,7 @@ async def test_expire_or_revoke_can_send_the_link_in_the_same_step(db, client_id
     await db.commit()
     sent = []
 
-    async def start(self, ref, fields=None):
+    async def start(self, ref, fields=None, kind="id_selfie"):
         return f"inq_L{t}x", "https://perso.na/verify?code=Z"
 
     async def sms(self, to, text):

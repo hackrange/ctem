@@ -88,14 +88,19 @@ def view(row) -> dict:
     if row.state == "failed":
         result = {"kind": "error", "title": "The link didn't go out", "detail": "Try the other channel, or try again in 10 minutes."}
     elif row.state == "approved":
-        from api.integrations.persona_checks import id_and_face
-        ok = gov_id_passed(f) is True and id_and_face(f)   # the same bar as a revoke: a government ID and a matching face
+        from api.integrations.persona_checks import id_and_face, selfie_matched
+        if row.check_kind == "selfie":   # sent because a valid ID was on file: the face must match the verified one
+            ok = selfie_matched(f)
+        else:
+            ok = gov_id_passed(f) is True and id_and_face(f)   # the same bar as a revoke: a government ID and a matching face
         ids = [p for p in x["presented"] if p["kind"].startswith("Government ID") and p["status"] == "passed"]
         selfie = any(k["check"] == "selfie_id_comparison" and k["status"] == "passed" for k in x["passed_key_checks"])
         what = ", ".join(filter(None, [f"{ids[-1]['id_type'] or 'Government ID'} ({ids[-1]['country']})" if ids else None,
-                                        "selfie matches the ID" if selfie else None]))
+                                        "selfie matches the ID" if selfie else None,
+                                        "selfie matches their verified ID on file" if row.check_kind == "selfie" and ok and not selfie else None]))
         result = ({"kind": "verified", "title": "Identity verified", "detail": what or "Passed in Persona"} if ok
-                  else {"kind": "warning", "title": "Passed, but not a government ID with a matching face",
+                  else {"kind": "warning", "title": "Passed, but the face wasn't matched to a verified ID" if row.check_kind == "selfie"
+                        else "Passed, but not a government ID with a matching face",
                         "detail": "Treat as not verified; use another method."} if (f.get("verifications") is not None)
                   else None)   # not read yet: the next status read fills it in
     elif row.state in ("review", "rejected", "superseded"):

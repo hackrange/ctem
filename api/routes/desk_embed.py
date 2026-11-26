@@ -244,7 +244,9 @@ async def person(user_id: uuid.UUID, s: DeskSession = Depends(desk), db: AsyncSe
     why = ineligible(u) or (None if u.okta_id else "isn't linked to an identity provider account")
     chans = [{"channel": ch, "shown": c[ch]["shown"], "source": c[ch]["source"], "since": c[ch]["since"], "recent": c[ch]["recent"],
               "available": ok} for ch, ok in (("sms", ready["twilio"] is not None), ("email", ready["email"])) if c[ch]]
-    return {**_person_card(u), "channels": chans, "blocked": why, "missing": ready["missing"]}
+    from api.core.verified_id import plan
+    what = await plan(db, u, (ready["persona"].config or {}) if ready["persona"] else {})
+    return {**_person_card(u), "channels": chans, "blocked": why, "missing": ready["missing"], "plan": what}
 
 
 class DeskSend(BaseModel):
@@ -252,6 +254,7 @@ class DeskSend(BaseModel):
     person: uuid.UUID
     channel: str = Field(pattern="^(sms|email)$")
     confirm_recent: bool = False
+    kind: str = Field("auto", pattern="^(auto|id_selfie|selfie)$")
 
 
 @router.post("/api/v1/idv/desk/s/send")
@@ -267,7 +270,7 @@ async def send(body: DeskSend, s: DeskSession = Depends(desk), db: AsyncSession 
     if mine >= PER_ANALYST_HOUR:
         raise HTTPException(429, detail="That's the most verification links one analyst can send in an hour")
     row, out = await send_link(db, str(body.person), body.channel, body.confirm_recent, started_by,
-                               f"desk:{analyst}"[:128], note=f" ticket {ticket}", sender_limit=PER_EMBED_HOUR)
+                               f"desk:{analyst}"[:128], note=f" ticket {ticket}", sender_limit=PER_EMBED_HOUR, kind=body.kind)
     s = await db.get(DeskSession, sid)
     s.user_id, s.request_id = str(body.person), row.id
     await db.commit()

@@ -71,9 +71,10 @@ def check(vendor: str, config: dict) -> None:
             v = config.get(key)
             if v not in (None, "", _KEPT) and not _PERSONA_KEY.match(str(v)):
                 raise ValueError("A Persona API key looks like persona_production_...")
-        t = config.get("template_id")
-        if t not in (None, "") and not _TEMPLATE.match(str(t)):
-            raise ValueError("The inquiry template id looks like itmpl_...")
+        for key in ("template_id", "selfie_template_id"):
+            t = config.get(key)
+            if t not in (None, "") and not _TEMPLATE.match(str(t)):
+                raise ValueError("An inquiry template id looks like itmpl_...")
         for t in str(config.get("badge_templates") or "").split(","):
             if t.strip() and not _TEMPLATE.match(t.strip()):
                 raise ValueError("Badge templates are itmpl_... ids, comma separated")

@@ -88,7 +88,7 @@ async def test_panel_flow_from_token_to_status_and_revoke(db, client_admin, clie
     card = (await client_no_auth.get(f"/api/v1/idv/desk/s/person/{caller.id}", headers=key)).json()
     assert card["channels"][0]["shown"].endswith("0155") and "5550100155" not in str(card)
 
-    async def start_inq(self, ref, fields=None):
+    async def start_inq(self, ref, fields=None, kind="id_selfie"):
         return f"inq_D{t}x", "https://perso.na/verify?code=SECRET1"
 
     async def sms(self, to, text):

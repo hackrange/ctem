@@ -104,6 +104,21 @@
       personBox.appendChild(el('div', 'desk-banner desk-banner--error', 'No verified MFA phone or email for this person. Verify them another way.'));
       return;
     }
+    const p = picked.plan || { kind: 'id_selfie', why: '' };
+    const plan = el('div', 'desk-plan');
+    plan.appendChild(el('b', null, `They will verify with: ${p.kind === 'selfie' ? 'a selfie' : 'a government ID and a selfie'}`));
+    const idTxt = p.active_id ? ` On file: ${p.active_id.id_type || 'Government ID'}${p.active_id.country ? ` (${p.active_id.country})` : ''}${
+      p.active_id.at ? `, verified ${new Date(p.active_id.at).toLocaleDateString()}` : ''}.` : '';
+    plan.appendChild(el('span', 'desk-muted', ` ${p.why || ''}${idTxt}`));
+    let full = null;
+    if (p.kind === 'selfie') {
+      const lab = el('label', 'desk-channel');
+      full = el('input');
+      full.type = 'checkbox';
+      lab.append(full, el('span', null, 'Require a government ID and a selfie instead'));
+      plan.appendChild(lab);
+    }
+    personBox.appendChild(plan);
     const list = el('div', 'desk-channels');
     usable.forEach((c, i) => {
       const lab = el('label', 'desk-channel'), r = el('input');
@@ -130,7 +145,8 @@
       send.disabled = true;
       msg.textContent = '';
       try {
-        await call('/s/send', { method: 'POST', body: JSON.stringify({ person: picked.id, channel: p.value, confirm_recent: !!(p.dataset.recent && box.checked) }) });
+        await call('/s/send', { method: 'POST', body: JSON.stringify({ person: picked.id, channel: p.value, confirm_recent: !!(p.dataset.recent && box.checked),
+                                                     kind: full && full.checked ? 'id_selfie' : 'auto' }) });
         watch();
       } catch (e) { msg.textContent = e.message; send.disabled = false; if (e.status === 401) fatal(e.message); }
     });

@@ -136,6 +136,16 @@ def id_and_face(facts: dict | None) -> bool:
     return gov and face
 
 
+def selfie_matched(facts: dict | None) -> bool:
+    """A selfie passed whose face matched the person's verified face: against the ID in this check, or the earlier
+    verified selfie on their Persona account (a selfie-only re-check for someone with a valid ID on file)."""
+    for v in (facts or {}).get("verifications") or []:
+        if v.get("kind") == "selfie" and v.get("status") == "passed" and any(
+                c[0] in ("selfie_id_comparison", "selfie_account_comparison") and c[1] == "passed" for c in v.get("checks") or []):
+            return True
+    return False
+
+
 def explain(facts: dict | None) -> dict:
     """For the approver: what was presented, which checks failed and what each means, and what to validate."""
     vs = (facts or {}).get("verifications") or []

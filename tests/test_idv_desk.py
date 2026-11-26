@@ -46,7 +46,7 @@ async def test_send_link_only_to_verified_contacts(db, client_idv_approver, clie
     await db.commit()
     calls = {"persona": [], "sms": []}
 
-    async def fake_start(self, ref, fields=None):
+    async def fake_start(self, ref, fields=None, kind="id_selfie"):
         calls["persona"].append((ref, fields))
         return f"inq_N{t}x", "https://inquiry.withpersona.com/i/secret-one-time"
 
@@ -114,7 +114,7 @@ async def test_failures_are_recorded_and_wrong_accounts_refused(db, client_idv_a
             r = await client_idv_approver.post(f"/api/v1/idv/people/{who.id}/send", json={"channel": "sms"})
             assert r.status_code == 409 and "No link can go" in r.json()["detail"]
 
-        async def no_link(self, ref, fields=None):
+        async def no_link(self, ref, fields=None, kind="id_selfie"):
             e = PersonaError("Persona answered HTTP 500")
             e.inquiry = f"inq_X{t}x"
             raise e
@@ -127,7 +127,7 @@ async def test_failures_are_recorded_and_wrong_accounts_refused(db, client_idv_a
         await db.execute(delete(IdvRequest).where(IdvRequest.user_id == ok.id))
         await db.commit()
 
-        async def started(self, ref, fields=None):
+        async def started(self, ref, fields=None, kind="id_selfie"):
             return f"inq_Y{t}x", "https://inquiry.withpersona.com/i/abc"
 
         async def down(self, to, text):

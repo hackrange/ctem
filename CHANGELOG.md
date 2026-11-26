@@ -7,6 +7,12 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.20.0] - 2026-11-26
+
+### Added
+- Selfie or ID + selfie re-verification. Someone with a valid verified government ID on file (passed in a check that counts, since their last expire or revoke) is sent a selfie-only check that matches their face to the verified one; anyone without one, and everyone after an expire or revoke, is sent a government ID and a selfie. The Send re-verification link dialog and the ServiceNow panel show which one and why ("On file: Driver's license (US), verified ..."), and the sender can require ID + selfie instead, never less.
+- Persona integration: a selfie-only template setting (blank = always ID + selfie). The panel says Identity verified for a selfie check only when the face matched the verified one.
+
 ## [1.19.1] - 2026-11-26
 
 ### Changed

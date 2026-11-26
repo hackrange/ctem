@@ -54,7 +54,7 @@ async def readiness(db: AsyncSession) -> dict:
 
 
 async def send_link(db: AsyncSession, user_id: str, channel: str, confirm_recent: bool, actor_id: str, actor_name: str,
-                    note: str = "", sender_limit: int = PER_SENDER_HOUR) -> tuple[IdvRequest, dict]:
+                    note: str = "", sender_limit: int = PER_SENDER_HOUR, kind: str = "auto") -> tuple[IdvRequest, dict]:
     """sender_limit: sends an hour for actor_id; the service desk panel counts per analyst itself and passes more."""
     """Checks and a reservation row under short locks (sender, then person), committed; then Persona and the message
     with no lock held; then the outcome on that row. Every attempt is recorded and counts toward the limits."""
@@ -94,18 +94,20 @@ async def send_link(db: AsyncSession, user_id: str, channel: str, confirm_recent
     if mine >= sender_limit:
         raise HTTPException(429, detail="That's the most links one person can send in an hour")
     persona_cfg, twilio_cfg = ready["persona"], ready["twilio"]
-    row = IdvRequest(inquiry_id=f"sending_{uuid.uuid4().hex}", integration_id=str(persona_cfg.id), user_id=u.id, okta_id=u.okta_id,
+    from api.core.verified_id import plan
+    what = await plan(db, u, persona_cfg.config or {}, kind)   # a selfie with a valid ID on file, else ID + selfie
+    row = IdvRequest(check_kind=what["kind"], inquiry_id=f"sending_{uuid.uuid4().hex}", integration_id=str(persona_cfg.id), user_id=u.id, okta_id=u.okta_id,
                      state="sending", persona_status=None, created_via="API", origin="service_desk", requested_by=actor_id,
                      channels=[{"channel": channel, "to": to["shown"], "at": now.isoformat(), "status": "sending"}],
                      created_at=now, updated_at=now, template_id=str((persona_cfg.config or {}).get("template_id") or "") or None)
     db.add(row)
     db.add(AuditLog(actor_user_id=actor_id, actor_username=actor_name, action="idv.send", resource_type="user",
-                    resource_id=str(u.id), detail=f"{channel} requested{note}"[:300]))
+                    resource_id=str(u.id), detail=f"{channel} {what['kind']} requested{note}"[:300]))
     await db.commit()   # the locks go; the vendors are called with none held
     okta_id, names = u.okta_id, {"name-first": u.first_name, "name-last": u.last_name}
     sent, iid, link = dict(row.channels[0]), None, None
     try:
-        iid, link = await get_connector("persona", persona_cfg.config or {}).start_inquiry(okta_id, names)
+        iid, link = await get_connector("persona", persona_cfg.config or {}).start_inquiry(okta_id, names, what["kind"])
     except PersonaError as e:
         log.warning("Persona inquiry for %s failed: %s", u.id, e)
         iid = getattr(e, "inquiry", None)
@@ -138,4 +140,4 @@ async def send_link(db: AsyncSession, user_id: str, channel: str, confirm_recent
         raise HTTPException(502, detail="Persona didn't start the verification; nothing was sent")
     if not delivered:
         raise HTTPException(502, detail="The verification started, but the message didn't go out; try the other channel")
-    return row, {"sent": True, "channel": channel, "to": to["shown"], "expires_hours": 24}
+    return row, {"sent": True, "channel": channel, "to": to["shown"], "expires_hours": 24, "kind": what["kind"]}

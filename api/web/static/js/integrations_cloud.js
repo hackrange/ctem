@@ -35,7 +35,8 @@ const CLOUD_VENDOR_FIELDS = {
     {key:'idv_page',       label:'Enable IDV approval (the IDV page, its review queue and sidebar link; off = only the IDV badges show)', type:'checkbox', required:false, default:true},
     {key:'allow_actions',  label:'Allow approve, decline and service-desk requests (needs a key with those permissions)', type:'checkbox', required:false},
     {key:'action_api_key', label:'API key for those actions (blank = the key above)', type:'password', placeholder:'persona_production_...', required:false},
-    {key:'template_id',    label:'Inquiry template the service desk sends (itmpl_...)', type:'text', placeholder:'itmpl_...', required:false},
+    {key:'template_id',    label:'Inquiry template for government ID + selfie (itmpl_...)', type:'text', placeholder:'itmpl_...', required:false},
+    {key:'selfie_template_id', label:'Inquiry template for a selfie only, for people with a verified ID on file (itmpl_...; blank = always ID + selfie)', type:'text', placeholder:'itmpl_...', required:false},
     {key:'detail_budget',  label:'Device lookups per sync (default 300)', type:'text', placeholder:'300', required:false},
   ],
   twilio: [

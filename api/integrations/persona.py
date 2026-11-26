@@ -216,11 +216,12 @@ class PersonaConnector(BaseConnector):
                                  "ip_region": txt(a, "region-name", 60), "gps_country": txt(a, "gps-country-code", 2)})
         return {"on_id": ids, "sessions": sorted(sessions, key=lambda x: x["at"] or "", reverse=True)[:5]}
 
-    async def start_inquiry(self, reference_id: str, fields: dict | None = None) -> tuple[str, str]:
+    async def start_inquiry(self, reference_id: str, fields: dict | None = None, kind: str = "id_selfie") -> tuple[str, str]:
         """Start an inquiry on the service desk's template for a person (reference-id = their Okta id, so the result
         finds them) and make its one-time link. Returns (inquiry id, link). The link is a bearer secret: it goes to
         the person and is never stored or logged."""
-        tid = str(self.config.get("template_id") or "")
+        # id_selfie: the government ID + selfie template; selfie: the selfie-only one (a face against the verified one)
+        tid = str(self.config.get("selfie_template_id" if kind == "selfie" else "template_id") or "")
         if not re.fullmatch(r"itmpl_[A-Za-z0-9]{8,40}", tid):
             raise PersonaError("Set the inquiry template the service desk sends in the Persona integration")
         attrs = {"inquiry-template-id": tid, "reference-id": reference_id}

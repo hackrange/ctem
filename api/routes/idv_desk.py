@@ -29,6 +29,7 @@ class Send(BaseModel):
     model_config = ConfigDict(extra="forbid")
     channel: str = Field(pattern="^(sms|email)$")
     confirm_recent: bool = False   # the sender checked a contact enrolled or changed in the last 7 days
+    kind: str = Field("auto", pattern="^(auto|id_selfie|selfie)$")   # auto: a selfie with a valid ID on file, else ID + selfie
 
 
 async def _person(db: AsyncSession, user_id: uuid.UUID) -> User:
@@ -46,7 +47,9 @@ async def contacts(user_id: uuid.UUID, _: User = Depends(requester), db: AsyncSe
     from api.core.idv_send import readiness
     ready = await readiness(db)
     c = verified_contacts(u)
-    out = {"channels": [], "missing": list(ready["missing"]), "reference": bool(u.okta_id)}
+    from api.core.verified_id import plan
+    out = {"channels": [], "missing": list(ready["missing"]), "reference": bool(u.okta_id),
+           "plan": await plan(db, u, (ready["persona"].config or {}) if ready["persona"] else {})}
     why = ineligible(u) or (None if u.okta_id else "the person isn't linked to an identity provider account")
     if why:
         out["missing"].append(why)
@@ -61,5 +64,5 @@ async def contacts(user_id: uuid.UUID, _: User = Depends(requester), db: AsyncSe
 @router.post("/people/{user_id}/send")
 async def send(user_id: uuid.UUID, body: Send, me: User = Depends(requester), db: AsyncSession = Depends(get_session)):
     from api.core.idv_send import send_link
-    _, out = await send_link(db, str(user_id), body.channel, body.confirm_recent, str(me.id), me.username)
+    _, out = await send_link(db, str(user_id), body.channel, body.confirm_recent, str(me.id), me.username, kind=body.kind)
     return out
