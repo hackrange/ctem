@@ -7,6 +7,11 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.17.1] - 2026-11-26
+
+### Changed
+- Email integration form shows only the fields for the chosen way of sending: SMTP host, port, security, username and password for an SMTP server; tenant ID, app (client) ID and client secret for Microsoft 365 (Graph API). Switching hides the others, and hidden fields aren't saved.
+
 ## [1.17.0] - 2026-11-26
 
 ### Added

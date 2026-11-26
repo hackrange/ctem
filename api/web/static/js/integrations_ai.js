@@ -45,6 +45,7 @@ const AI_VENDOR_FIELDS = {
 
 // Show only the credential fields the chosen Bedrock sign-in needs. Called after the fields render or fill.
 function aiFieldsShown(vendor) {
+  if (window.emailFieldsShown) emailFieldsShown(vendor);   // the same show-by-mode for the Email integration
   if (vendor !== 'bedrock') return;
   const mode = document.getElementById('cfg-auth_mode');
   if (!mode) return;

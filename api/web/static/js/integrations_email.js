@@ -4,19 +4,36 @@ Object.assign(VENDOR_FIELDS, {
   email: [
     { key: 'mode', label: 'Send with', type: 'select', options: ['smtp', 'ms365'],
       optionLabels: { smtp: 'SMTP server', ms365: 'Microsoft 365 (Graph API)' }, required: true },
-    { key: 'from_address', label: 'From address (the Microsoft 365 mailbox for Graph)', type: 'text', placeholder: 'ctem@acme.example.com', required: true },
-    { key: 'smtp_host', label: 'SMTP host (SMTP)', type: 'text', placeholder: 'smtp.acme.example.com', required: false },
-    { key: 'smtp_port', label: 'SMTP port (SMTP)', type: 'number', placeholder: '587', required: false },
-    { key: 'smtp_security', label: 'Security (SMTP)', type: 'select', options: ['starttls', 'ssl', 'none'],
-      optionLabels: { starttls: 'STARTTLS (port 587)', ssl: 'SSL/TLS (port 465)', none: 'None (internal relay only)' }, required: false },
-    { key: 'smtp_username', label: 'SMTP username (blank = no login)', type: 'text', placeholder: '', required: false },
-    { key: 'smtp_password', label: 'SMTP password', type: 'password', placeholder: '', required: false },
-    { key: 'ms365_tenant_id', label: 'Tenant ID (Microsoft 365)', type: 'text', placeholder: '00000000-0000-0000-0000-000000000000', required: false },
-    { key: 'ms365_client_id', label: 'App (client) ID (Microsoft 365)', type: 'text', placeholder: '', required: false },
-    { key: 'ms365_client_secret', label: 'Client secret (Microsoft 365; the app needs the Mail.Send application permission)', type: 'password', placeholder: '', required: false },
+    { key: 'from_address', label: 'From address', type: 'text', placeholder: 'ctem@acme.example.com', required: true },
+    // mode: shown only for that way of sending (emailFieldsShown below); hidden fields aren't saved
+    { key: 'smtp_host', label: 'SMTP host', type: 'text', placeholder: 'smtp.acme.example.com', required: false, mode: 'smtp' },
+    { key: 'smtp_port', label: 'SMTP port', type: 'number', placeholder: '587', required: false, mode: 'smtp' },
+    { key: 'smtp_security', label: 'Security', type: 'select', options: ['starttls', 'ssl', 'none'],
+      optionLabels: { starttls: 'STARTTLS (port 587)', ssl: 'SSL/TLS (port 465)', none: 'None (internal relay only)' }, required: false, mode: 'smtp' },
+    { key: 'smtp_username', label: 'SMTP username (blank = no login)', type: 'text', placeholder: '', required: false, mode: 'smtp' },
+    { key: 'smtp_password', label: 'SMTP password', type: 'password', placeholder: '', required: false, mode: 'smtp' },
+    { key: 'ms365_tenant_id', label: 'Tenant ID', type: 'text', placeholder: '00000000-0000-0000-0000-000000000000', required: false, mode: 'ms365' },
+    { key: 'ms365_client_id', label: 'App (client) ID', type: 'text', placeholder: '', required: false, mode: 'ms365' },
+    { key: 'ms365_client_secret', label: 'Client secret (the app needs the Mail.Send application permission)', type: 'password', placeholder: '', required: false, mode: 'ms365' },
   ],
 });
 AI_VENDORS.add('email');   // a "Test" card (Connected / Test failed) rather than a sync card
+
+// Only the fields for the chosen way of sending: SMTP's server settings or Microsoft 365's app registration
+window.emailFieldsShown = vendor => {
+  const mode = vendor === 'email' && document.getElementById('cfg-mode');
+  if (!mode) return;
+  const apply = () => {
+    for (const f of VENDOR_FIELDS.email) {
+      const el = f.mode && document.getElementById(`cfg-${f.key}`);
+      if (el) el.parentElement.hidden = f.mode !== mode.value;
+    }
+    const from = document.getElementById('cfg-from_address');
+    if (from) from.placeholder = mode.value === 'ms365' ? 'the Microsoft 365 mailbox, e.g. ctem@acme.example.com' : 'ctem@acme.example.com';
+  };
+  mode.addEventListener('change', apply);
+  apply();
+};
 
 window.emailTestBtn = i => (i.vendor === 'email' && !i.shipper_managed
   ? `<button class="btn btn--ghost btn--sm" onclick="sendTestEmail('${esc(i.id)}')">Send test email</button>` : '');
