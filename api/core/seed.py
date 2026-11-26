@@ -46,7 +46,8 @@ _PERMISSIONS = [
     ("inventory", "write", "all"),
     ("idv", "request", "all"),   # start an identity verification for a person and read how it went
     ("idv", "approve", "all"),
-    ("idv", "desk", "all"),      # start a caller verification panel (the service desk embed's token only)   # approve, decline or revoke an identity verification (IDV Approvers only)
+    ("idv", "desk", "all"),
+    ("idv", "send", "all"),      # send a person a re-verification link (IDV Approvers and IDV Validation)      # start a caller verification panel (the service desk embed's token only)   # approve, decline or revoke an identity verification (IDV Approvers only)
 ]
 
 # role -> list of (resource, action) it gets
@@ -88,9 +89,9 @@ _ROLE_PERMS: dict[str, list[tuple[str, str]]] = {
     # FairTPRM's service token: control checks and evidence, nothing else
     "grc_integration": [("grc", "read")],
     # The service desk's token or people: identity verification requests only (api/routes/idv_desk.py)
-    "idv_validation": [("idv", "request")],
+    "idv_validation": [("idv", "request"), ("idv", "send")],
     # The only role that decides identity verifications; admin and cyber can see them, not decide
-    "idv_approvers": [("idv", "approve")],
+    "idv_approvers": [("idv", "approve"), ("idv", "send")],
     # An embed's token (api/routes/desk_admin.py): only POST/GET /api/v1/idv/desk/sessions (api/auth/middleware.py)
     "idv_desk": [("idv", "desk")],
     # Brand-new SSO people land here until an admin pins a real role

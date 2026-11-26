@@ -6,7 +6,8 @@ window.IdvSend = (() => {
   let dlg, who = null;
   const API = '/api/v1/idv/people';
 
-  const button = (userId, name) => (userId
+  // Only for IDV Approvers and IDV Validation (the page marks <body data-idv-send>); the server checks idv:send too
+  const button = (userId, name) => (userId && document.body.dataset.idvSend === '1'
     ? `<button type="button" class="btn btn--ghost btn--sm" data-idv-send="${esc(userId)}" data-idv-name="${esc(name || '')}"
         style="margin-left:6px;padding:1px 8px;font-size:12px" title="Send a Persona identity verification link to this person">Send re-verification link</button>`
     : '');

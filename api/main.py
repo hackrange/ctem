@@ -76,6 +76,7 @@ def create_app() -> FastAPI:
     from api.routes.sms_test import router as sms_test_router
     from api.routes.desk_embed import router as desk_embed_router
     from api.routes.desk_admin import router as desk_admin_router
+    from api.routes.admin_roles import router as admin_roles_router
     from api.routes.admin import router as admin_router
     from api.routes.user_access import router as user_access_router
     from api.routes.api_docs import router as api_docs_router
@@ -151,6 +152,7 @@ def create_app() -> FastAPI:
     app.include_router(idv_desk_router)
     app.include_router(sms_test_router)
     app.include_router(desk_admin_router)
+    app.include_router(admin_roles_router)
     app.include_router(desk_embed_router)
     app.include_router(user_access_router)   # before admin's /users/{id} routes
     app.include_router(admin_router)

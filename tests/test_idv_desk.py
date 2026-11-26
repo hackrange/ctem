@@ -27,7 +27,7 @@ def test_okta_factors_give_only_verified_contacts():
 
 
 @pytest.mark.asyncio
-async def test_send_link_only_to_verified_contacts(db, client_cyber, client_it_user, monkeypatch):
+async def test_send_link_only_to_verified_contacts(db, client_idv_approver, client_cyber, client_it_user, monkeypatch):
     from api.integrations.persona import PersonaConnector
     from api.integrations.twilio import TwilioConnector
     from api.models.idv import IdvRequest
@@ -58,17 +58,20 @@ async def test_send_link_only_to_verified_contacts(db, client_cyber, client_it_u
     try:
         assert (await client_it_user.get(f"/api/v1/idv/people/{u.id}/contacts")).status_code == 403
         assert (await client_it_user.post(f"/api/v1/idv/people/{u.id}/send", json={"channel": "sms"})).status_code == 403
-        c = (await client_cyber.get(f"/api/v1/idv/people/{u.id}/contacts")).json()
+        # cyber and admin can see IDV, but sending is for IDV Approvers and IDV Validation
+        assert (await client_cyber.get(f"/api/v1/idv/people/{u.id}/contacts")).status_code == 403
+        assert (await client_cyber.post(f"/api/v1/idv/people/{u.id}/send", json={"channel": "sms"})).status_code == 403
+        c = (await client_idv_approver.get(f"/api/v1/idv/people/{u.id}/contacts")).json()
         assert [x["channel"] for x in c["channels"]] == ["sms"] and "0199" in c["channels"][0]["shown"]
         assert "5550100199" not in str(c) and "turn on Persona actions" in c["missing"]
-        assert (await client_cyber.post(f"/api/v1/idv/people/{u.id}/send", json={"channel": "sms"})).status_code == 409   # actions off
+        assert (await client_idv_approver.post(f"/api/v1/idv/people/{u.id}/send", json={"channel": "sms"})).status_code == 409   # actions off
         persona.config = {**persona.config, "allow_actions": True, "template_id": "itmpl_" + "T" * 12}
         await db.commit()
-        assert (await client_cyber.post(f"/api/v1/idv/people/{u.id}/send", json={"channel": "email"})).status_code == 409   # none verified
-        assert (await client_cyber.post(f"/api/v1/idv/people/{u.id}/send", json={"channel": "sms", "to": "+15550109999"})).status_code == 422
-        recent = await client_cyber.post(f"/api/v1/idv/people/{u.id}/send", json={"channel": "sms"})
+        assert (await client_idv_approver.post(f"/api/v1/idv/people/{u.id}/send", json={"channel": "email"})).status_code == 409   # none verified
+        assert (await client_idv_approver.post(f"/api/v1/idv/people/{u.id}/send", json={"channel": "sms", "to": "+15550109999"})).status_code == 422
+        recent = await client_idv_approver.post(f"/api/v1/idv/people/{u.id}/send", json={"channel": "sms"})
         assert recent.status_code == 409 and "7 days" in recent.json()["detail"] and not calls["persona"]   # a just-changed factor
-        r = await client_cyber.post(f"/api/v1/idv/people/{u.id}/send", json={"channel": "sms", "confirm_recent": True})
+        r = await client_idv_approver.post(f"/api/v1/idv/people/{u.id}/send", json={"channel": "sms", "confirm_recent": True})
         assert r.status_code == 200 and "0199" in r.json()["to"] and "secret" not in r.text
         assert calls["persona"] == [(u.okta_id, {"name-first": "Jane", "name-last": "Doe"})]
         assert calls["sms"][0][0] == "+15550100199" and "secret-one-time" in calls["sms"][0][1]   # the MFA phone, not the directory one
@@ -76,9 +79,9 @@ async def test_send_link_only_to_verified_contacts(db, client_cyber, client_it_u
         assert row.origin == "service_desk" and row.user_id == u.id and row.state == "pending"
         assert "secret" not in str(row.channels) and "5550100199" not in str(row.channels)
         assert (await db.execute(select(AuditLog).where(AuditLog.action == "idv.send", AuditLog.resource_id == u.id))).scalars().first()
-        again = await client_cyber.post(f"/api/v1/idv/people/{u.id}/send", json={"channel": "sms", "confirm_recent": True})
+        again = await client_idv_approver.post(f"/api/v1/idv/people/{u.id}/send", json={"channel": "sms", "confirm_recent": True})
         assert again.status_code == 429 and len(calls["persona"]) == 1
-        assert (await client_cyber.post(f"/api/v1/idv/people/{uuid.uuid4()}/send", json={"channel": "sms"})).status_code == 404
+        assert (await client_idv_approver.post(f"/api/v1/idv/people/{uuid.uuid4()}/send", json={"channel": "sms"})).status_code == 404
     finally:
         await db.execute(delete(IdvRequest).where(IdvRequest.user_id == u.id))
         await db.execute(delete(IntegrationConfig).where(IntegrationConfig.id.in_([persona.id, twilio.id])))
@@ -86,7 +89,7 @@ async def test_send_link_only_to_verified_contacts(db, client_cyber, client_it_u
 
 
 @pytest.mark.asyncio
-async def test_failures_are_recorded_and_wrong_accounts_refused(db, client_cyber, monkeypatch):
+async def test_failures_are_recorded_and_wrong_accounts_refused(db, client_idv_approver, monkeypatch):
     from api.integrations.persona import PersonaConnector, PersonaError
     from api.integrations.twilio import TwilioConnector, TwilioError
     from api.models.idv import IdvRequest
@@ -108,7 +111,7 @@ async def test_failures_are_recorded_and_wrong_accounts_refused(db, client_cyber
     await db.commit()
     try:
         for who in (svc, gone):
-            r = await client_cyber.post(f"/api/v1/idv/people/{who.id}/send", json={"channel": "sms"})
+            r = await client_idv_approver.post(f"/api/v1/idv/people/{who.id}/send", json={"channel": "sms"})
             assert r.status_code == 409 and "No link can go" in r.json()["detail"]
 
         async def no_link(self, ref, fields=None):
@@ -116,11 +119,11 @@ async def test_failures_are_recorded_and_wrong_accounts_refused(db, client_cyber
             e.inquiry = f"inq_X{t}x"
             raise e
         monkeypatch.setattr(PersonaConnector, "start_inquiry", no_link)
-        assert (await client_cyber.post(f"/api/v1/idv/people/{ok.id}/send", json={"channel": "sms"})).status_code == 502
+        assert (await client_idv_approver.post(f"/api/v1/idv/people/{ok.id}/send", json={"channel": "sms"})).status_code == 502
         row = (await db.execute(select(IdvRequest).where(IdvRequest.user_id == ok.id))).scalar_one()
         assert row.inquiry_id == f"inq_X{t}x" and row.state == "failed"
         # it still counts toward the limit, so retrying can't spray inquiries
-        assert (await client_cyber.post(f"/api/v1/idv/people/{ok.id}/send", json={"channel": "sms"})).status_code == 429
+        assert (await client_idv_approver.post(f"/api/v1/idv/people/{ok.id}/send", json={"channel": "sms"})).status_code == 429
         await db.execute(delete(IdvRequest).where(IdvRequest.user_id == ok.id))
         await db.commit()
 
@@ -131,7 +134,7 @@ async def test_failures_are_recorded_and_wrong_accounts_refused(db, client_cyber
             raise TwilioError("Twilio didn't answer (ConnectTimeout)")
         monkeypatch.setattr(PersonaConnector, "start_inquiry", started)
         monkeypatch.setattr(TwilioConnector, "send", down)
-        assert (await client_cyber.post(f"/api/v1/idv/people/{ok.id}/send", json={"channel": "sms"})).status_code == 502
+        assert (await client_idv_approver.post(f"/api/v1/idv/people/{ok.id}/send", json={"channel": "sms"})).status_code == 502
         row = (await db.execute(select(IdvRequest).where(IdvRequest.user_id == ok.id))).scalar_one()
         assert row.inquiry_id == f"inq_Y{t}x" and row.state == "failed" and "abc" not in str(row.channels)
     finally:

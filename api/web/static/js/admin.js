@@ -107,7 +107,7 @@ async function loadRoles() {
     document.getElementById('roles-tbody').dataset.loaded = '1';
     document.getElementById('roles-tbody').innerHTML = (data.roles || []).map(r => `
       <tr>
-        <td style="font-weight:500"><code>${esc(r.name)}</code></td>
+        <td style="font-weight:500"><button type="button" class="dt-link" style="background:none;border:0;padding:0;cursor:pointer" data-role-members="${esc(r.name)}" title="See who holds this role"><code>${esc(r.name)}</code></button></td>
         <td>${esc(r.display_name)}</td>
         <td>${r.is_builtin ? '<span class="chip chip--info">Built-in</span>' : '<span class="chip">Custom</span>'}</td>
       </tr>

@@ -7,6 +7,14 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.18.1] - 2026-11-26
+
+### Added
+- Admin > Roles: click a role to see who holds it (username, name, email, kind, status, last sign-in).
+
+### Changed
+- Send re-verification link (Discovered Users, a device's detected user) is only for IDV Approvers and IDV Validation members: the button shows only for them, and the server checks the new idv:send permission. Cyber and admin still see IDV details.
+
 ## [1.18.0] - 2026-11-26
 
 ### Added

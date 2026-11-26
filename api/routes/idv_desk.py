@@ -1,6 +1,6 @@
 """Send a person a Persona re-verification link, by SMS or email, from Discovered Users or a device's detected user.
 
-Who: anyone with idv:request (admin, cyber, IDV Validation). Where it goes: only a contact the person's SSO/MFA
+Who: IDV Approvers and IDV Validation (permission idv:send). Where it goes: only a contact the person's SSO/MFA
 provider verified (api/core/verified_contacts.py), never a number or address typed in, so the link reaches the person
 the account belongs to. What happens: CTEM starts a Persona inquiry on the service desk's template with the person's
 Okta id as its reference, makes a one-time link (24 hours), and sends it through Twilio (SMS) or CTEM's email
@@ -22,7 +22,7 @@ from api.core.verified_contacts import ineligible, verified_contacts
 from api.models.user import User
 
 router = APIRouter(prefix="/api/v1/idv", tags=["idv"])
-requester = require_permission("idv", "request")
+requester = require_permission("idv", "send")   # IDV Approvers and IDV Validation only
 
 
 class Send(BaseModel):
