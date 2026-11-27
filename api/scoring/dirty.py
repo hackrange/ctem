@@ -61,8 +61,10 @@ def _collect(session: Session, flush_context, instances) -> None:
     from api.models.edr_policy import EdrPolicy
     from api.models.vuln import Finding, Vulnerability
     picked = session.info.setdefault("dirty_objects", [])
-    for obj in [*session.new, *session.dirty, *session.deleted]:
-        new_or_gone = obj in session.new or obj in session.deleted
+    # session.new and .deleted build a new set on every access: read them once, or a big flush is quadratic
+    added, gone = session.new, session.deleted
+    for obj in [*added, *session.dirty, *gone]:
+        new_or_gone = obj in added or obj in gone
         if isinstance(obj, Device):
             if new_or_gone or _changed(obj, DEVICE_INPUTS) or _offline_flip(obj):
                 picked.append(("device", obj, ()))

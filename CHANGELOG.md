@@ -7,6 +7,11 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.23.2] - 2026-11-27
+
+### Fixed
+- Saving a large batch was quadratic: the rescoring hook checked every changed object against a set it rebuilt on each check (SQLAlchemy builds `session.new` anew on every access). A Tanium page of 28,000 new findings took about two minutes; it now takes seconds, and every big import gains the same.
+
 ## [1.23.1] - 2026-11-27
 
 ### Fixed
