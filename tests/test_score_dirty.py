@@ -193,3 +193,54 @@ async def test_a_save_marking_many_devices_says_why(db, caplog):
         devs[0].edr_active = False
         await db.commit()
     assert not [r for r in caplog.records if "score inputs" in r.getMessage()]   # a few: quiet
+
+
+@pytest.mark.asyncio
+async def test_an_unchanged_firewall_policy_from_the_shipper_rescores_nobody(db):
+    """A firewall ruleset with port ranges, sent again unchanged through the shipper's batch, marks no host (its ranges
+    arrive as tuples and read back as lists, which used to look like a change every upload). A changed rule, or the
+    rules in another order, still marks them."""
+    import uuid as _u
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import select
+
+    from api.collector.schemas import CrowdStrikeBatch
+    from api.core.edr_policies import upsert
+    from api.models.device import Device, DeviceType
+    t = _u.uuid4().hex[:8]
+    pid = "f" * 24 + t
+    rules = [{"name": "Block SMB IN", "action": "DENY", "direction": "IN", "enabled": True, "protocol": "6", "local_port": [[445, 445], [139, 139]]},
+             {"name": "Allow scanner", "action": "ALLOW", "direction": "IN", "enabled": True, "protocol": "6", "local_port": [[21047, 21047]]}]
+
+    def sent(rs):
+        b = CrowdStrikeBatch.model_validate({"kind": "crowdstrike", "run_id": str(_u.uuid4()), "edr_policies": [
+            {"id": pid, "kind": "firewall", "name": "Hosts", "enabled": True, "enforce": True, "default_inbound": "DENY", "rules": rs}]})
+        return [p.model_dump(exclude_none=True) for p in b.edr_policies]
+    d = Device(hostname=f"fw-{t}", device_type=DeviceType.workstation, edr_vendor="crowdstrike", edr_firewall_policy=pid)
+    db.add(d)
+    await upsert(db, "crowdstrike", sent(rules))
+    await db.commit()
+
+    async def marked():
+        old = datetime.now(timezone.utc) - timedelta(days=1)
+        d.score_inputs_at = old
+        await db.commit()
+        return old
+
+    async def after(old):
+        got = (await db.execute(select(Device.score_inputs_at).where(Device.id == d.id).execution_options(populate_existing=True))).scalar_one()
+        got = got if got.tzinfo else got.replace(tzinfo=timezone.utc)
+        return got > old + timedelta(hours=1)
+    old = await marked()
+    await upsert(db, "crowdstrike", sent(rules))          # the next upload: the same ruleset
+    await db.commit()
+    assert not await after(old)
+    old = await marked()
+    await upsert(db, "crowdstrike", sent(rules[::-1]))    # the order counts: first match decides
+    await db.commit()
+    assert await after(old)
+    old = await marked()
+    await upsert(db, "crowdstrike", sent([{**rules[0], "local_port": [[3389, 3389]]}, rules[1]]))   # another port
+    await db.commit()
+    assert await after(old)

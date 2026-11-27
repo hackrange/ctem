@@ -7,6 +7,11 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.26.2] - 2026-11-27
+
+### Fixed
+- Every CrowdStrike firewall policy with port ranges looked changed on every shipper upload, so every host on it was rescored for nothing (4,046, 321 and 141 hosts here, about 10 minutes of rescoring each time). The ranges arrive as pairs that Python keeps as tuples and read back from the database as lists, and a tuple never equals a list, although the stored JSON was byte for byte the same. Policy bodies are now kept as stored JSON and only written when they differ, and the rescoring check compares JSON values in their stored form. Rules keep the order CrowdStrike reports; a real change, including the rules in another order, still rescores the policy's hosts.
+
 ## [1.26.1] - 2026-11-27
 
 ### Added

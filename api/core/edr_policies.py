@@ -4,6 +4,7 @@ Stored once per policy (api/models/edr_policy.py); hosts point at theirs. The vi
 the asset page shows (the Firewall and USB tabs) and into the protections the scoring credits."""
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 from sqlalchemy import select
@@ -24,8 +25,13 @@ async def upsert(db: AsyncSession, vendor: str, policies: list[dict]) -> int:
             row = EdrPolicy(vendor=vendor, policy_id=p["id"], kind=p["kind"])
             db.add(row)
         row.name, row.enabled, row.platform, row.reported_at = p.get("name"), bool(p.get("enabled")), p.get("platform"), now
-        row.body = {k: p.get(k) for k in ("settings", "enforce", "test_mode", "default_inbound", "default_outbound", "rules",
-                                          "enforcement", "classes") if p.get(k) is not None}
+        # As stored JSON (a port range arrives as a tuple, comes back as a list): rules keep CrowdStrike's order, and an
+        # unchanged policy is left alone. It used to compare unequal on every upload, rescoring every host on it.
+        body = json.loads(json.dumps({k: p.get(k) for k in ("settings", "enforce", "test_mode", "default_inbound",
+                                                            "default_outbound", "rules", "enforcement", "classes")
+                                      if p.get(k) is not None}))
+        if row.body != body:
+            row.body = body
         n += 1
     return n
 

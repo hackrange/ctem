@@ -41,9 +41,22 @@ def _which(obj, names) -> list[str]:
     out = []
     for n in names:
         h = st.attrs[n].history
-        if h.added and (not h.deleted or h.added[0] != h.deleted[0]):
+        if h.added and (not h.deleted or not _same(h.added[0], h.deleted[0])):
             out.append(n)
     return out
+
+
+def _same(a, b) -> bool:
+    """Equal, or the same once stored: a JSON value set as tuples reads back as lists (order still counts)."""
+    if a == b:
+        return True
+    if isinstance(a, (dict, list, tuple)) and isinstance(b, (dict, list, tuple)):
+        import json
+        try:
+            return json.dumps(a, sort_keys=True, default=str) == json.dumps(b, sort_keys=True, default=str)
+        except (TypeError, ValueError):
+            return False
+    return False
 
 
 LOUD = 100   # a save marking more devices than this is logged with why (counts and field names, never data)
