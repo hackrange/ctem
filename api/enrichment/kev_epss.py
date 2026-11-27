@@ -143,20 +143,27 @@ async def enrich(db: AsyncSession) -> dict:
         except Exception as e:
             await db.rollback()
             log.warning("KEV refresh failed: %s", type(e).__name__)
+        scores: dict[str, float] = {}
+        answered: list[str] = []
         try:
-            scores: dict[str, float] = {}
-            answered: list[str] = []
             due = await _epss_due(db, cves)   # was all 156,000 every run: about 1,560 requests to a free API
+            result["epss_asked"] = len(due)
             for i in range(0, len(due), _EPSS_BATCH):
                 chunk = due[i:i + _EPSS_BATCH]
-                body = await _get_json(client, EPSS_URL, {"cve": ",".join(chunk), "limit": len(chunk)})
+                try:
+                    body = await _get_json(client, EPSS_URL, {"cve": ",".join(chunk), "limit": len(chunk)})
+                except Exception as e:  # noqa: BLE001 -- FIRST refused or timed out (a rate limit, say): stop asking
+                    log.warning("EPSS refresh stopped after %d of %d CVEs: %s; the rest are asked on the next run",
+                                len(answered), len(due), type(e).__name__)
+                    break
                 got = parse_epss(body)
                 scores.update(got)
                 if got:   # FIRST answered for this batch: the rest of it has no score yet, ask again tomorrow
                     answered += chunk
                 await asyncio.sleep(0.2)  # be polite to a free API
+            # What was answered is kept even when a later request failed, so the next run carries on instead of
+            # asking all of them again (a failure near the end cost every post-sync run its full 8 minutes)
             result["epss"] = await apply_epss(db, scores, answered)
-            result["epss_asked"] = len(due)
         except Exception as e:
             await db.rollback()
             log.warning("EPSS refresh failed: %s", type(e).__name__)

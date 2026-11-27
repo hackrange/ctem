@@ -7,6 +7,11 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.25.1] - 2026-11-27
+
+### Fixed
+- The daily EPSS refresh (about 1,570 requests to FIRST for 157,000 CVEs, roughly 8 minutes) threw away every score it had fetched when one request failed near the end (FIRST rate-limits), so every post-sync run after that spent another 8 minutes asking again and failing again, holding rescoring back. It now keeps what was answered and stops at the first refused request; the next run asks only for the rest.
+
 ## [1.25.0] - 2026-11-27
 
 ### Added

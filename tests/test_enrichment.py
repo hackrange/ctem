@@ -66,6 +66,37 @@ async def _noop():
 
 
 @pytest.mark.asyncio
+async def test_epss_keeps_what_it_got_when_first_stops_answering(db, monkeypatch):
+    """A refused request part way (FIRST rate-limits) keeps the scores already fetched, so the next run asks only the
+    rest instead of starting over (which cost every post-sync run its full refresh)."""
+    from api.enrichment import kev_epss
+    from api.models.vuln import Vulnerability
+    tag = uuid.uuid4().int % 10**5
+    db.add_all([Vulnerability(cve_id=f"CVE-2098-{tag:05d}{i}", title="x", source="t_epss") for i in range(6)])
+    await db.commit()
+    asks = []
+
+    def fake_client(**_):
+        def handler(request):
+            if request.url.host == "www.cisa.gov":
+                return httpx.Response(200, json={"vulnerabilities": []})
+            asked = request.url.params["cve"].split(",")
+            asks.append(len(asked))
+            if len(asks) == 2:
+                return httpx.Response(429, json={})
+            return httpx.Response(200, json={"data": [{"cve": c, "epss": "0.1"} for c in asked]})
+        return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    monkeypatch.setattr(kev_epss, "safe_client", fake_client)
+    monkeypatch.setattr(kev_epss.asyncio, "sleep", lambda *_: _noop())
+    monkeypatch.setattr(kev_epss, "_EPSS_BATCH", 2)
+    first = await kev_epss.enrich(db)
+    assert first["epss"] >= 2 and len(asks) == 2           # the first batch was kept, then it stopped
+    asks.clear()
+    second = await kev_epss.enrich(db)
+    assert second["epss_asked"] == first["epss_asked"] - 2  # only what wasn't answered is asked again
+
+
+@pytest.mark.asyncio
 async def test_small_kev_download_does_not_clear_flags(db):
     from sqlalchemy import select
 
