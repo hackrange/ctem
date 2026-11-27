@@ -18,10 +18,10 @@ const SOURCES = {
   crowdstrike: { label: 'CrowdStrike Falcon', fields: [
     { key: 'cloud', label: 'Cloud', type: 'select', opts: [['us-1', 'us-1'], ['us-2', 'us-2'], ['eu-1', 'eu-1'], ['us-gov-1', 'us-gov-1']] },
     { key: 'client_id', label: 'API client ID', ph: '32 hex characters', req: true },
+    // Each Falcon product a checkbox (on is skipped with a note if it isn't licensed or the API client lacks its scope)
     ...[['policies', 'Policies (prevention, firewall, USB)'], ['posture', 'Zero Trust Assessment'], ['spotlight', 'Spotlight vulnerabilities'],
         ['discover', 'Discover applications'], ['alerts', 'Alerts (endpoint, identity...)'], ['intel', 'Intel indicators'],
-        ['event_stream', 'Event stream (real time)']].map(([key, label]) => (
-      { key, label, type: 'select', opts: [['on', 'On (skipped if not licensed)'], ['off', 'Off']] })),
+        ['event_stream', 'Event stream (real time)']].map(([key, label]) => ({ key, label: `Pull ${label}`, type: 'onoff' })),
     { key: 'alert_updates', label: 'Alert updates from CTEM (needs Alerts: Write; approve on the box)', type: 'select', opts: [['', 'Off (read only)'], ['on', 'On: cyber and admin can close, classify and comment']] },
     { key: 'fdr', label: 'Falcon Data Replicator (hunting)', type: 'select', opts: [['off', 'Off'], ['on', 'On']] },
     { key: 'fdr_queue_url', label: 'FDR SQS queue URL', ph: 'https://sqs.us-west-1.amazonaws.com/123456789012/acme-fdr', wide: true },
@@ -136,6 +136,10 @@ async function load() {
 function field(kind, f, val) {
   const id = `f-${kind}-${f.key}`;
   const v = val == null ? '' : val;
+  if (f.type === 'onoff') {   // "on" unless saved "off"; sent as on/off, the shipper's own setting
+    return `<label class="sh-label" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+      <input id="${id}" type="checkbox"${String(v) === 'off' ? '' : ' checked'}> ${esc(f.label)}</label>`;
+  }
   const input = f.type === 'select'
     ? `<select id="${id}" class="sh-input">${f.opts.map(([o, l]) => `<option value="${esc(o)}"${String(v) === o ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>`
     : `<input id="${id}" class="sh-input" type="${f.type || 'text'}" placeholder="${esc(f.ph || '')}" value="${esc(v)}" autocomplete="off">`;
@@ -165,6 +169,7 @@ function collect() {
     if (!document.getElementById(`use-${kind}`).checked) continue;
     const s = {};
     for (const f of def.fields) {
+      if (f.type === 'onoff') { s[f.key] = document.getElementById(`f-${kind}-${f.key}`).checked ? 'on' : 'off'; continue; }
       const raw = document.getElementById(`f-${kind}-${f.key}`).value.trim();
       if (raw === '') continue;
       s[f.key] = f.type === 'number' || f.num ? Number(raw) : raw;

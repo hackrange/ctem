@@ -158,8 +158,10 @@ async def _crowdstrike_finished(db: AsyncSession, cfg: IntegrationConfig, run_id
     await prune_run(db, "crowdstrike_discover", started)   # a Discover pass mirrors Falcon's installed apps
     row = (await db.execute(select(AppSetting).where(AppSetting.key == f"spotlight_full_run.{cfg.id}"))).scalar_one_or_none()
     if row is not None and row.value == run_id:
-        from api.integrations.crowdstrike_spotlight import close_unseen
-        await close_unseen(db, started, str(cfg.id))
+        from api.core.cs_spotlight import pulling
+        if await pulling(db, str(cfg.id)):   # Spotlight off: its batches were dropped, so nothing is "no longer listed"
+            from api.integrations.crowdstrike_spotlight import close_unseen
+            await close_unseen(db, started, str(cfg.id))
         await db.delete(row)
 
 
@@ -190,7 +192,8 @@ async def apply_batch(db: AsyncSession, batch: LdapBatch | Rapid7Batch | CrowdSt
             from api.core.edr_policies import upsert as upsert_policies
             await upsert_policies(db, "crowdstrike", [p.model_dump(exclude_none=True) for p in batch.edr_policies])
         n = await cs._upsert([d.model_dump(exclude_none=True) for d in batch.devices], [], db)
-        if batch.spotlight:
+        from api.core.cs_spotlight import pulling
+        if batch.spotlight and await pulling(db, str(integration_id)):   # off: a pass already on its way is dropped
             from api.integrations.crowdstrike_spotlight import upsert as spotlight
             n += await spotlight(db, [c.model_dump(exclude_none=True) for c in batch.spotlight_cves],
                                  [v.model_dump(exclude_none=True) for v in batch.spotlight], integration_id)

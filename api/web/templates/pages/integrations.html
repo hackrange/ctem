@@ -166,7 +166,7 @@ function _renderCards(list) {
       <div class="text-muted text-sm" style="margin-bottom:12px">
         ${lastLabel}: ${i.last_sync_at ? new Date(i.last_sync_at).toLocaleString() : 'Never'}
         ${i.sync_schedule && !isAI ? `&nbsp;&bull;&nbsp;<span title="cron: ${esc(i.sync_schedule)}">Scheduled</span>` : ''}
-      </div>${syncNote(i)}
+      </div>${syncNote(i)}${window.spotlightBox ? spotlightBox(i) : ''}
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${shipper
         ? `<span class="chip chip--info" title="Its connection, credentials and schedule live on the shipper">Managed by a shipper</span>
            <a class="btn btn--ghost btn--sm" href="/settings/shippers">Open Shippers</a>${truncateBtn(i)}`
@@ -496,5 +496,5 @@ document.addEventListener('DOMContentLoaded', loadIntegrations);
 </script>
 <script src="{{ static('js/integrations_rapid7.js') }}"></script>
 <script src="{{ static('js/integration_truncate.js') }}"></script>
-<script src="{{ static('js/integrations_email.js') }}"></script><script src="{{ static('js/integration_pause.js') }}"></script>
+<script src="{{ static('js/integrations_email.js') }}"></script><script src="{{ static('js/integration_pause.js') }}"></script><script src="{{ static('js/integration_spotlight.js') }}"></script>
 {% endblock %}

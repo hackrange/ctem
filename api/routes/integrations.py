@@ -108,7 +108,10 @@ async def list_integrations(
 ):
     result = await db.execute(select(IntegrationConfig).order_by(IntegrationConfig.vendor))
     owned = await _shipper_owned(db)
-    return {"integrations": [{**_summary(i), "shipper_managed": str(i.id) in owned} for i in result.scalars()],
+    from api.core.cs_spotlight import states
+    spot = await states(db)   # a shipper-fed CrowdStrike's Spotlight switch, shown on its card
+    return {"integrations": [{**_summary(i), "shipper_managed": str(i.id) in owned,
+                              **({"spotlight": spot[str(i.id)]} if str(i.id) in spot else {})} for i in result.scalars()],
             "can_truncate": "admin" in u.role_names}
 
 

@@ -7,6 +7,14 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.26.0] - 2026-11-27
+
+### Added
+- CrowdStrike Spotlight on or off with a checkbox, on the CrowdStrike integration's card and on the shipper's CrowdStrike source: one setting (the shipper's own), shown and changed in both places, audited. The box stops asking Falcon for Spotlight at its next check-in; CTEM drops Spotlight data still on its way while it's off, so a full pass closes nothing then. Existing Spotlight findings are kept.
+
+### Changed
+- The shipper's Falcon products (policies, Zero Trust Assessment, Spotlight, Discover, alerts, Intel, event stream) are checkboxes instead of On/Off lists.
+
 ## [1.25.2] - 2026-11-27
 
 ### Fixed
