@@ -100,6 +100,10 @@ async def sync_by_id(db: AsyncSession, integration_id: str, runner: str = "app")
     """Run one integration's sync. Returns True when it succeeded. runner tags the job and lock (api/core/tasks_reap.py)."""
     # Two syncs of the same integration at once (a click on Sync Now during a scheduled run)
     # both insert the same rows; let the second one bow out
+    from api.core import sync_pause
+    if await sync_pause.paused(db):   # paused in Settings > Integrations: queued and clicked syncs bow out too
+        log.info("integration syncing is paused; skipping %s", integration_id)
+        return False
     lock = await _sync_lock(str(integration_id), runner)
     if lock is False:
         log.info("sync of %s already running; skipping this one", integration_id)
@@ -203,7 +207,10 @@ async def _sync_by_id(db: AsyncSession, integration_id: str, runner: str = "app"
 
 
 async def run_due_syncs(db: AsyncSession) -> None:
-    """Check all enabled integrations and kick off any that are past their schedule."""
+    """Check all enabled integrations and kick off any that are past their schedule (none while syncing is paused)."""
+    from api.core import sync_pause
+    if await sync_pause.paused(db):
+        return
     result = await db.execute(
         select(IntegrationConfig).where(
             IntegrationConfig.is_enabled == True,  # noqa: E712

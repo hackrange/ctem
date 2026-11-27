@@ -7,6 +7,11 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.25.0] - 2026-11-27
+
+### Added
+- Pause syncing on the Integrations page (admins): all integration syncing stops for 30 minutes, 1 hour, 4 hours or until resumed. No scheduled sync starts, Sync Now and already-queued syncs are skipped, and on-prem shipper uploads are refused with "send again on the next run" (the shipper keeps its data). Running syncs finish and scoring carries on, so the worker can drain before maintenance. A banner shows who paused it and when it resumes; a timed pause ends on its own; both changes are audited. Kept in the database, so it holds across restarts.
+
 ## [1.24.1] - 2026-11-27
 
 ### Changed

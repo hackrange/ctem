@@ -109,6 +109,7 @@ def create_app() -> FastAPI:
     from api.routes.software import router as software_router
     from api.routes.software_exceptions import router as software_exc_router
     from api.routes.integration_truncate import router as truncate_router
+    from api.routes.integration_pause import router as sync_pause_router
     from api.routes.device_edr import router as device_edr_router
     from api.routes.device_context import router as device_context_router
     from api.routes.device_identity import router as device_identity_router
@@ -165,6 +166,7 @@ def create_app() -> FastAPI:
     app.include_router(device_assign_router)  # before devices so /assignable-users never hits /{device_id}
     app.include_router(devices_router)
     app.include_router(device_trend_router)
+    app.include_router(sync_pause_router)   # before /{integration_id}, which would take "/sync-pause" as an id
     app.include_router(integrations_router)
     app.include_router(cmdb_router)
     app.include_router(vulns_router)

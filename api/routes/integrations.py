@@ -332,6 +332,9 @@ async def trigger_sync(
     from api.integrations.base import is_collector_fed
     if is_collector_fed(cfg):
         raise HTTPException(409, detail="This integration is fed by an on-prem collector; run open-ctem-collector run-now on that box")
+    from api.core import sync_pause
+    if await sync_pause.paused(db):
+        raise HTTPException(409, detail="Integration syncing is paused; resume it to sync")
     from api.core.tasks import sync_integration
     task = sync_integration.delay(str(integration_id))
     return {"task_id": task.id, "status": "queued"}

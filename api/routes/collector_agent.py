@@ -192,6 +192,9 @@ async def ingest_batch(integration_id: str, request: Request, db: AsyncSession =
     from api.core.integration_truncate import running
     if await running(str(cfg.id)):
         raise HTTPException(409, detail="This source's data is being truncated; send again on the next run")
+    from api.core import sync_pause
+    if await sync_pause.paused(db):
+        raise HTTPException(409, detail=sync_pause.MESSAGE)
     try:
         count = await ingest.apply_batch(db, batch, str(cfg.id))
         if getattr(batch, "spotlight_mode", None) == "full":
