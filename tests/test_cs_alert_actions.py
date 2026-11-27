@@ -136,7 +136,12 @@ async def test_a_shipper_update_is_queued_sent_once_and_its_answer_shows(db, cli
     r = await client_cyber.post("/api/v1/threat/alerts/update",
                                 json={"ids": [key], "status": "closed", "classification": "true_positive", "comment": "Contained and reimaged"})
     assert r.status_code == 200 and r.json()["via"] == "shipper" and r.json()["updates"][0]["state"] == "queued"
-    assert (await db.execute(select(AuditLog).where(AuditLog.action == "threat.alert_update", AuditLog.resource_id == key))).scalar_one()
+    # The key is longer than the audit log's resource id column (Postgres refused it and the update failed): it's
+    # recorded as its UUIDv5, and the alert is named in the detail
+    assert len(key) > 36
+    audit = (await db.execute(select(AuditLog).where(AuditLog.action == "threat.alert_update",
+                                                     AuditLog.resource_id == str(uuid.uuid5(uuid.NAMESPACE_URL, key))))).scalar_one()
+    assert len(audit.resource_id) == 36 and key.removeprefix("threat_alert_") in audit.detail
 
     got = (await client.get(f"/api/v1/collector/alert-actions/{iid}", headers=_auth(tok))).json()["actions"]
     mine = [a for a in got if a["body"]["composite_ids"] == [key.removeprefix("threat_alert_")]]
@@ -267,3 +272,11 @@ def test_an_alert_saved_without_a_link_gets_one_like_the_others():
     assert console_link("cc:ind:dd:4-5-6", links) == "https://falcon.crowdstrike.com/activity-v2/detections/cc:ind:dd:4-5-6?_cid=g0abc"
     assert console_link("cc:ind:dd:4", ["https://evil.example/activity-v2/detections/x"]) is None
     assert console_link("cc:ind:dd:4", []) is None
+
+
+def test_an_audit_entry_always_fits_its_column():
+    from api.models.settings import AuditLog
+    long = "threat_alert_" + "a" * 120
+    assert AuditLog(action="x", resource_id=long).resource_id == str(uuid.uuid5(uuid.NAMESPACE_URL, long))
+    assert AuditLog(action="x", resource_id="short-id").resource_id == "short-id"
+    assert AuditLog(action="x", resource_id=None).resource_id is None

@@ -7,6 +7,11 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.25.2] - 2026-11-27
+
+### Fixed
+- Updating a CrowdStrike alert from Cyber Threats always failed ("The server refused that"): the audit entry recorded the alert's key (about 110 characters) as its resource id, a 36-character column, so Postgres refused the insert and the whole update rolled back. An audit resource id longer than the column is now stored as its UUIDv5 (the same for the same resource, so still searchable), and the alert update's audit detail names the alerts. The tests had missed it because SQLite doesn't enforce column lengths; they now check the stored id fits.
+
 ## [1.25.1] - 2026-11-27
 
 ### Fixed

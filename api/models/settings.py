@@ -5,7 +5,7 @@ import uuid as _uuid
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, Integer, String, Text
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, validates
 
 from api.core.encryption import EncryptedString
 from api.models.base import Base, TimestampMixin, UUIDPrimaryKey
@@ -36,6 +36,15 @@ class AuditLog(Base):
     resource_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     detail: Mapped[str | None] = mapped_column(Text, nullable=True)
     ip_address: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
+
+    @validates("resource_id")
+    def _fits(self, _key, value):
+        """A resource id longer than the column (a CrowdStrike alert key is about 110 characters) is recorded as its
+        UUIDv5: the same id every time for the same resource, so it can still be searched, never a failed write that
+        takes the change it records down with it. Callers put the readable name in detail."""
+        if isinstance(value, str) and len(value) > 36:
+            return str(_uuid.uuid5(_uuid.NAMESPACE_URL, value))
+        return value
 
 
 class AIUsage(Base):

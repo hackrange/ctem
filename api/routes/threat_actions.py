@@ -52,8 +52,9 @@ async def update_alerts(body: UpdateBody, request: Request, me: User = Depends(r
         raise HTTPException(409 if isinstance(e, act.Unavailable) else 400, detail=str(e)) from None
     what = act.csx.describe(body.status, body.classification) or "comment"
     db.add(AuditLog(actor_user_id=str(me.id), actor_username=me.username, action="threat.alert_update",
-                    resource_type="alert", resource_id=ids[0][:255],
-                    detail=f"CrowdStrike alert update ({what}) on {len(ids)} alert(s) via {rows[0].via}"[:500],
+                    resource_type="alert", resource_id=ids[0],   # a long key is stored as its UUIDv5 (AuditLog)
+                    detail=(f"CrowdStrike alert update ({what}) on {len(ids)} alert(s) via {rows[0].via}: "
+                            + ", ".join(i.removeprefix("threat_alert_") for i in ids[:5]))[:1000],
                     ip_address=_client_ip(request)))
     await db.commit()
     return {"via": rows[0].via, "updates": [{"id": str(a.id), "alert": a.alert_key, "state": a.state, "error": a.error}
