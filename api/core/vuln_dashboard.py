@@ -10,9 +10,7 @@ rollup records (source, kind of work); a view narrowed to a device type, scope o
 """
 from __future__ import annotations
 
-import json
 import logging
-import time
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import Date, and_, case, cast, func, or_, select
@@ -36,32 +34,11 @@ OPEN = (FindingStatus.open, FindingStatus.in_progress)
 DIRTY_KEY = "vulndash:dirty_at"   # when the data last changed; a view built before it is out of date
 VIEWERS_KEY = "vulndash:scoped_viewers"   # people who see only some devices and opened the dashboard lately
 VIEWER_DAYS, MAX_WARM_VIEWERS = 7, 25
-CACHE_SECONDS = 1800   # the scheduler rebuilds the unfiltered view every 15 minutes
 
 
 def _sev():
     c = Vulnerability.cvss_base
     return case((c >= 9.0, "critical"), (c >= 7.0, "high"), (c >= 4.0, "medium"), else_="low")
-
-
-async def forget_cached() -> int:
-    """After a sync changes the data: mark every cached Vulnerability Dashboard view out of date (the next visit gets
-    it at once and a fresh one is rebuilt in the background, see cached()), and drop the custom dashboards' widget
-    cache. Wiping the views instead made the next visitor wait for a full rebuild, up to 20 seconds."""
-    import redis.asyncio as aioredis
-
-    from api.core.config import get_settings
-    r = aioredis.from_url(get_settings().redis_url)
-    n = 0
-    try:
-        await r.set(DIRTY_KEY, str(_now().timestamp()))
-        async for key in r.scan_iter(match="dashw:*", count=500):
-            n += await r.delete(key)
-    except Exception:  # noqa: BLE001 -- a stale view for a few more minutes is the worst case
-        log.warning("dashboard cache not cleared")
-    finally:
-        await r.aclose()
-    return n
 
 
 async def configured_sources(db) -> list[str]:
@@ -356,87 +333,6 @@ async def build(db: AsyncSession, source: str | None, device_type: str | None, s
             "exceptions": await _exceptions(db) if scope is None else {"active": None, "pending": 0, "ending_14d": 0}}
 
 
-def _rebuild_later(source, device_type, kind, viewer, code=None) -> None:
-    try:
-        from api.core.tasks import refresh_vuln_view
-        refresh_vuln_view.delay(source, device_type, kind, viewer, code)
-    except Exception:  # noqa: BLE001 -- the view runs out within CACHE_SECONDS anyway
-        log.warning("vuln dashboard rebuild not queued")
-
-
-def sliced(out: dict, range_key: str) -> dict:
-    """The trend cut to the chosen range."""
-    days = RANGES.get(range_key)
-    tr = out["trend"]
-    if days and len(tr["days"]) > days:
-        tr = {k: v[-days:] for k, v in tr.items()}
-    return {**out, "trend": tr, "range": range_key}
-
-
-async def cached(db: AsyncSession, range_key: str, source: str | None, device_type: str | None, fresh: bool = False,
-                 scope=None, viewer: str | None = None, kind: str = "all", code: dict | None = None, access: str = "") -> dict:
-    """Fleet-wide numbers change with syncs, not by the second: keep each filter combination for 15 minutes."""
-    import redis.asyncio as aioredis
-
-    from api.core.config import get_settings
-    # a scoped viewer's numbers are theirs alone, so their cache entry is too
-    kind = kind if kind in KINDS else "all"
-    code = {k: v for k, v in (code or {}).items() if v} if kind == "code" else {}
-    code_key = "-"
-    if code:   # names can be long and hold ":"; a digest keeps the key short and unambiguous
-        import hashlib
-        code_key = hashlib.sha256(json.dumps(code, sort_keys=True, default=sorted).encode()).hexdigest()[:24]
-    # a scoped viewer's entry also carries what they may see now, so losing access is never answered from a cache
-    key = f"vulndash:v5:{kind}:{source or '-'}:{device_type or '-'}:{f'{viewer}.{access}' if scope is not None else 'all'}"
-    if code:
-        key += f":c:{code_key}"
-    r = aioredis.from_url(get_settings().redis_url)
-    try:
-        try:
-            if scope is not None and viewer and not fresh and not source and not device_type and not code:
-                await r.zadd(VIEWERS_KEY, {viewer: time.time()})   # warmed by warm() while they keep coming back
-            hit = None if fresh else await r.get(key)
-            if hit:
-                out = json.loads(hit)
-                dirty = await r.get(DIRTY_KEY)
-                if dirty and datetime.fromisoformat(out["generated_at"]).timestamp() < float(dirty):
-                    # out of date: answer now with it, and rebuild once in the background
-                    if await r.set(f"vulndash:rebuilding:{key}", "1", nx=True, ex=600):
-                        _rebuild_later(source, device_type, kind, viewer if scope is not None else None, code or None)
-                return sliced(out, range_key)
-        except Exception:  # noqa: BLE001 -- no Redis means no cache, not no dashboard
-            log.warning("vuln dashboard cache unavailable")
-        out = await build(db, source, device_type, scope, kind, code or None)
-        try:
-            await r.set(key, json.dumps(out, default=str), ex=CACHE_SECONDS)
-        except Exception:  # noqa: BLE001 -- the answer is still good, it just won't be cached
-            log.warning("vuln dashboard result not cached")
-        return sliced(out, range_key)
-    finally:
-        await r.aclose()
-
-
-async def warm(db: AsyncSession, refresh) -> None:
-    """Every 15 minutes: the unfiltered views, then the tabs of each person with scoped access who opened the
-    dashboard in the last week, so their first click doesn't wait for a build (about 12s on a large fleet)."""
-    import redis.asyncio as aioredis
-
-    from api.core.config import get_settings
-    await cached(db, "90d", None, None, fresh=True)                  # dashboards' widgets: every finding
-    for kind in ("infra", "code", "web", "cloud"):                  # the Vulnerability Dashboard's tabs
-        await cached(db, "90d", None, None, fresh=True, kind=kind)
-    r = aioredis.from_url(get_settings().redis_url, decode_responses=True)
-    try:
-        await r.zremrangebyscore(VIEWERS_KEY, 0, time.time() - VIEWER_DAYS * 86400)
-        viewers = await r.zrevrange(VIEWERS_KEY, 0, MAX_WARM_VIEWERS - 1)
-    except Exception:  # noqa: BLE001 -- no Redis, no warming; the page still builds on demand
-        log.warning("scoped dashboard viewers not read")
-        return
-    finally:
-        await r.aclose()
-    for v in viewers:
-        for kind in ("infra", "code", "web", "cloud"):
-            try:
-                await refresh(None, None, kind, v)
-            except Exception:  # noqa: BLE001 -- one person's view failing doesn't stop the rest
-                log.exception("scoped dashboard view not warmed")
+# The cache of built views (one build per view, kept and refreshed in the background): api/core/vuln_dashboard_cache.py
+from api.core.vuln_dashboard_cache import (CACHE_SECONDS, WAIT_SECONDS, _rebuild_later, cached, forget_cached,  # noqa: E402,F401
+                                           sliced, warm)

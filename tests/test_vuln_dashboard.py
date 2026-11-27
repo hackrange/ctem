@@ -136,6 +136,9 @@ class _Redis:
     async def delete(self, k):
         return 1 if self.store.pop(k, None) is not None else 0
 
+    async def exists(self, k):
+        return int(k in self.store)
+
     async def scan_iter(self, match="*", count=None):
         import fnmatch
         for k in list(self.store):
@@ -170,6 +173,51 @@ async def test_after_a_sync_the_old_view_answers_at_once_and_rebuilds_in_the_bac
     assert again["n"] == 1 and len(builds) == 1          # answered from the old view, nobody waited
     await vd.cached(None, "90d", None, None, kind="code")
     assert queued == [(None, None, "code", None, None)]  # rebuilt once, not once per visitor
+
+
+@pytest.mark.asyncio
+async def test_a_new_view_is_built_once_for_everyone_and_a_page_never_waits_long(monkeypatch):
+    """A hundred people opening a view nobody built yet run one build; a page request gives up after `wait` (the page
+    asks again) instead of being cut off by the proxy; an old build answers at once and is redone in the background."""
+    import asyncio
+    import json
+    import redis.asyncio as aioredis
+    from api.core import vuln_dashboard_cache as vc
+    _Redis.store = {}
+    monkeypatch.setattr(aioredis, "from_url", lambda *a, **k: _Redis())
+    builds, queued, gate = [], [], asyncio.Event()
+
+    async def build(db, source, device_type, scope=None, kind="all", code=None):
+        builds.append(device_type)
+        await gate.wait()
+        return {"generated_at": vd._now().isoformat(), "trend": {"days": []}, "n": len(builds)}
+
+    async def sessions():
+        yield None
+    monkeypatch.setattr(vd, "build", build)
+    monkeypatch.setattr(vd, "_rebuild_later", lambda *a: queued.append(a))
+    monkeypatch.setattr("api.core.db.get_session", sessions)
+    assert await vd.cached(None, "90d", None, "workstation", kind="infra", wait=0.6) is None   # not ready: the page asks again
+    waiting = [asyncio.create_task(vd.cached(None, "90d", None, "workstation", kind="infra", wait=10)) for _ in range(100)]
+    await asyncio.sleep(0.1)
+    gate.set()
+    got = await asyncio.gather(*waiting)
+    assert builds == ["workstation"] and all(g["n"] == 1 for g in got)   # one build, everyone got it
+    key = next(k for k in _Redis.store if k.startswith("vulndash:v5:infra:-:workstation"))
+    old = json.loads(_Redis.store[key])
+    old["generated_at"] = (vd._now() - __import__("datetime").timedelta(seconds=vc.CACHE_SECONDS + 5)).isoformat()
+    _Redis.store[key] = json.dumps(old).encode()
+    assert (await vd.cached(None, "90d", None, "workstation", kind="infra", wait=10))["n"] == 1 and len(queued) == 1
+
+
+@pytest.mark.asyncio
+async def test_the_page_hears_202_while_its_view_is_built(client_admin, monkeypatch):
+    async def building(*a, **k):
+        assert k.get("wait") == vd.WAIT_SECONDS
+        return None
+    monkeypatch.setattr(vd, "cached", building)
+    r = await client_admin.get("/api/v1/vuln-dashboard", params={"device_type": "workstation"})
+    assert r.status_code == 202 and r.json() == {"building": True}
 
 
 @pytest.mark.asyncio

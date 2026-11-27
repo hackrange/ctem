@@ -256,8 +256,10 @@
     $('vd-all').innerHTML = '<div class="text-muted text-sm">Loading...</div>';
     const one = async k => {
       try {
-        const r = await fetch(`/api/v1/vuln-dashboard?range=${encodeURIComponent($('vd-range').value)}&kind=${k}`, { headers: { Accept: 'application/json' } });
-        return r.ok ? r.json() : null;
+        const get = () => fetch(`/api/v1/vuln-dashboard?range=${encodeURIComponent($('vd-range').value)}&kind=${k}`, { headers: { Accept: 'application/json' } });
+        let r = await get();
+        for (let i = 0; r.status === 202 && i < 40; i++) r = await new Promise(ok => setTimeout(ok, 3000)).then(get);   // being built
+        return r.ok && r.status !== 202 ? r.json() : null;
       } catch (e) { return null; }
     };
     if (pending) { pending.abort(); pending = null; }   // a single-tab answer still on its way no longer applies
@@ -325,10 +327,15 @@
     $('vd-kpis').classList.add('is-loading');
     if (!data) document.querySelector('.vd-grid').hidden = true;   // no empty charts while the first answer comes
     status('Loading the dashboard...', true);
-    const slow = setTimeout(() => mine === pending && status('Still working: your view is being built from the latest data, which can take about 15 seconds the first time.', true), 4000);
+    const slow = setTimeout(() => mine === pending && status('Still working: your view is being built from the latest data.', true), 4000);
     const limit = setTimeout(() => { mine.timedOut = true; mine.abort(); }, 120000);
     try {
-      const res = await fetch(`/api/v1/vuln-dashboard?${q}`, { headers: { Accept: 'application/json' }, signal: mine.signal });
+      const get = () => fetch(`/api/v1/vuln-dashboard?${q}`, { headers: { Accept: 'application/json' }, signal: mine.signal });
+      let res = await get();
+      while (res.status === 202 && mine === pending) {   // built once for everyone asking; it opens at once after that
+        status('Still working: this view is being built from the latest data for the first time.', true);
+        res = await new Promise(ok => setTimeout(ok, 3000)).then(get);
+      }
       if (res.status === 422 && kind === 'code' && (code.org || code.app || code.repo)) {
         // an organization, application or repository from an old link that no longer exists (or isn't yours)
         code.org = code.app = code.repo = '';

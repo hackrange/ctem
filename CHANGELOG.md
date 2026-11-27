@@ -7,6 +7,16 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.24.0] - 2026-11-27
+
+### Changed
+- One software title per product whichever tool reports it. Titles are keyed by their normalized name, not vendor and name, so vendor spellings ("SolarWinds Worldwide, LLC" and "SolarWinds") are one title, and a name sent without a vendor (Tanium) joins the title that is that name led by its vendor ("PuTTY release" and "Simon Tatham PuTTY release" are "Simon Tatham PuTTY"). Versions in brackets ("- (2024.2.0.50539)") and a trailing "release" are dropped from titles. Stored titles regroup once (about 14,900 to 10,600 here), keeping the strictest review decision and exceptions.
+- One vulnerability per CVE across InsightVM and Tanium: a Tanium finding uses InsightVM's catalog entry when InsightVM has a check about that CVE alone (never a bundle check), so the Vulnerabilities page lists the CVE once with every affected machine, and an exception on it covers both tools. Existing Tanium findings move at the next Tanium sync; Tanium's emptied catalog rows are removed.
+- Identity > person: the cards open what is behind them. Identity risk shows its parts, Leaked, Reused and Weak passwords filter the password table to those apps, and ITDR alerts and Posture findings go to their lists.
+
+### Fixed
+- The Vulnerability Dashboard could say it couldn't load: a filtered view nobody had opened in the last 30 minutes was built during the request (about 35 seconds with Tanium's findings) and the proxy gave up. Each view is now built once and kept: visits answer at once from the last build and an old build is redone in the background; a view never opened before is built once for everyone asking (the page shows that it is being built), at most two at a time per app process.
+
 ## [1.23.3] - 2026-11-27
 
 ### Changed

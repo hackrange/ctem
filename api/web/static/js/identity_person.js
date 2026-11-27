@@ -22,15 +22,38 @@
     : `Grip identity ${esc(d.user_display || '')}, not matched to anyone in the directory`;
   if (p) $('ip-actions').innerHTML = `<a class="btn btn--ghost btn--sm" href="/users?person=${encodeURIComponent(p.id)}">Directory record &rsaquo;</a>`;
 
-  const tile = (n, label) => `<div class="ip-tile"><b>${esc(n ?? '--')}</b>${esc(label)}</div>`;
+  // Each card opens what is behind its number: the risk's parts, the password apps of that kind, or the list below.
+  // A card with nothing more to show here (a count Grip gives without detail) is plain, with a tooltip saying so.
+  const tile = (n, label, go, why) => go
+    ? `<button type="button" class="ip-tile" data-go="${esc(go)}" aria-pressed="false"><b>${esc(n ?? '--')}</b>${esc(label)}</button>`
+    : `<div class="ip-tile" title="${esc(why || '')}"><b>${esc(n ?? '--')}</b>${esc(label)}</div>`;
   const sc = d.scores;
-  $('ip-tiles').innerHTML = [tile(Math.round(sc.composite_identity_score || 0), 'Identity risk'), tile(c.leaked, 'Leaked passwords'),
-    tile(c.reused, 'Reused passwords'), tile(c.weak, 'Weak passwords'), tile(c.mfa_coverage_pct == null ? '--' : `${c.mfa_coverage_pct}%`, 'MFA coverage'),
-    tile(c.risky_extensions, 'Risky extensions'), tile(d.threats.length, 'ITDR alerts'), tile(d.posture.length, 'Posture findings')].join('');
+  const pw = (n, kind) => (n && c.apps.some(a => a[kind]) ? `pw:${kind}` : null);
+  $('ip-tiles').innerHTML = [tile(Math.round(sc.composite_identity_score || 0), 'Identity risk', 'scores'),
+    tile(c.leaked, 'Leaked passwords', pw(c.leaked, 'leaked'), 'No app tied to these yet'),
+    tile(c.reused, 'Reused passwords', pw(c.reused, 'reused'), 'No app tied to these yet'),
+    tile(c.weak, 'Weak passwords', pw(c.weak, 'weak'), 'No app tied to these yet'),
+    tile(c.mfa_coverage_pct == null ? '--' : `${c.mfa_coverage_pct}%`, 'MFA coverage', null, 'From Grip, as a percentage only'),
+    tile(c.risky_extensions, 'Risky extensions', null, 'From Grip, as a count only'),
+    tile(d.threats.length, 'ITDR alerts', d.threats.length ? 'threats' : null, 'None'),
+    tile(d.posture.length, 'Posture findings', d.posture.length ? 'posture' : null, 'None')].join('');
+  const PARTS = [['itdr_score', 'ITDR alerts'], ['posture_score', 'Posture findings'], ['credential_score', 'Passwords and MFA'],
+    ['shadow_saas_score', 'Shadow SaaS'], ['shadow_ai_score', 'Shadow AI']];
+  $('ip-scores-body').innerHTML = PARTS.map(([k, l]) => `<div><div class="text-sm text-muted">${esc(l)}</div><b style="font-size:1.2rem">${esc(sc[k] == null ? '--' : Math.round(sc[k]))}</b></div>`).join('');
+  const flash = el => { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); el.classList.remove('ip-flash'); void el.offsetWidth; el.classList.add('ip-flash'); };
+  $('ip-tiles').addEventListener('click', e => {
+    const b = e.target.closest('button[data-go]');
+    if (!b) return;
+    const go = b.dataset.go, on = b.getAttribute('aria-pressed') !== 'true';
+    document.querySelectorAll('#ip-tiles button[data-go]').forEach(x => x.setAttribute('aria-pressed', 'false'));
+    if (go === 'scores') { $('ip-scores').hidden = !on; if (on) { b.setAttribute('aria-pressed', 'true'); flash($('ip-scores')); } }
+    else if (go.startsWith('pw:')) { pwOnly(on ? go.slice(3) : null); if (on) b.setAttribute('aria-pressed', 'true'); flash($('ip-pw-panel')); }
+    else flash($(`ip-${go}-panel`));
+  });
 
   const yes = (on, cls, word) => (on ? `<span class="chip ${cls}">${word}</span>` : '');
   $('ip-pw').innerHTML = c.apps.length
-    ? `<table class="data-table"><thead><tr><th>App</th><th>What is wrong</th><th>How sure</th></tr></thead><tbody>${c.apps.map(a => `<tr>
+    ? `<div id="ip-pw-only" class="text-sm" style="padding:8px 16px" hidden></div><table class="data-table"><thead><tr><th>App</th><th>What is wrong</th><th>How sure</th></tr></thead><tbody>${c.apps.map((a, i) => `<tr data-pw="${i}">
         <td><b>${esc(a.app)}</b></td>
         <td>${yes(a.leaked, 'chip--critical', 'Leaked in a breach list')} ${yes(a.reused, 'chip--high', 'Reused elsewhere')} ${yes(a.weak, 'chip--medium', 'Weak')}</td>
         <td class="text-sm">${a.certain ? 'This account' : '<span class="text-muted">Possibly this account</span>'}</td></tr>`).join('')}</tbody></table>`
@@ -78,4 +101,18 @@
       <td>${chip(f.severity)}</td><td class="text-sm"><b>${esc(f.title)}</b></td><td class="text-sm">${esc(f.app_name || '--')}</td>
       <td class="text-sm">${esc(when(f.detected_at))}</td></tr>`).join('')
     : '<tr><td colspan="4" class="text-muted text-sm" style="text-align:center;padding:16px">None</td></tr>';
+
+  // The password table, only the apps with that kind of problem (a card's click), or all of them again
+  function pwOnly(kind) {
+    const WORD = { leaked: 'leaked', reused: 'reused', weak: 'weak' };
+    document.querySelectorAll('#ip-pw tr[data-pw]').forEach(tr => { tr.hidden = !!kind && !c.apps[+tr.dataset.pw][kind]; });
+    const note = $('ip-pw-only');
+    if (!note) return;
+    note.hidden = !kind;
+    note.innerHTML = kind ? `Showing apps where the password is ${esc(WORD[kind])}. <button type="button" class="btn btn--ghost btn--sm" id="ip-pw-all">Show all</button>` : '';
+    if (kind) $('ip-pw-all').addEventListener('click', () => {
+      pwOnly(null);
+      document.querySelectorAll('#ip-tiles button[data-go]').forEach(x => x.setAttribute('aria-pressed', 'false'));
+    });
+  }
 })();

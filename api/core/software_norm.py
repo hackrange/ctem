@@ -10,7 +10,7 @@ import re
 
 # Bump with every change to the rules below: the hourly maintenance job then regroups what's stored once
 # (api/maintenance/renormalize_software.py), carrying review decisions and exceptions to the new titles
-RULES_VERSION = 4
+RULES_VERSION = 5
 
 _SUFFIX = re.compile(r"[,\s]+(inc|incorporated|corp|corporation|co|company|llc|l\.l\.c|ltd|limited|gmbh|ag|s\.a|sa|bv|"
                      r"b\.v|plc|pty|srl|s\.r\.l|s\.r\.o|sro|spol|oy|ab|as|kk|nv|n\.v|pte|sas|spa|s\.p\.a|ltda|sl|s\.l|a\.s)\.?$", re.I)
@@ -32,11 +32,11 @@ _HOST = re.compile(r"\s+[a-z0-9-]+(?:\.[a-z0-9-]+){2,}\s*$", re.I)   # a server 
 _ARCH = re.compile(r"\([^()]*\b(?:x64|x86|amd64|arm64|64-bit|32-bit|[a-z]{2}-[a-z]{2})\b[^()]*\)|"
                    r"\b(?:x64|x86|amd64|arm64|win64|win32|64-bit|32-bit|64 bit|32 bit)\b", re.I)
 _EMPTY = re.compile(r"\(\s*\)|\[\s*\]|\s+-\s+[a-z]{2}-[a-z]{2}\s*$", re.I)
-_VERSION = re.compile(r"(?:\s+|-|_)v?\d+(?:[._]\d+)+[a-z0-9.\-+_]*\s*$|(?:\s+)v?\d+\s*$|\s+(?:19|20)\d{2}\s*$", re.I)
+_VERSION = re.compile(r"\s*\(\s*v?\d+(?:[._]\d+)+[^()]*\)\s*$|(?:\s+|-|_)v?\d+(?:[._]\d+)+[a-z0-9.\-+_]*\s*$|(?:\s+)v?\d+\s*$|\s+(?:19|20)\d{2}\s*$", re.I)
 # Editions and channels of the same product (Office Professional Plus and Office are one title)
 _EDITION = re.compile(r"\s+(?:esr|lts|x64 edition|update(?: \d+)?|professional plus|professional|standard|enterprise|"
                       r"business|home and business|home and student|ultimate|community edition|community|premium|"
-                      r"pro plus|stable|beta|insider|preview)\s*$", re.I)
+                      r"pro plus|stable|beta|insider|preview|release)\s*$", re.I)
 _SPACE = re.compile(r"\s{2,}")
 
 # System: what comes with the operating system rather than software someone chose to install
@@ -90,7 +90,16 @@ def title(name: str | None, vendor_name: str = "") -> str:
 
 
 def key(vendor_name: str, title_name: str) -> str:
-    return f"{vendor_name.lower()}|{title_name.lower()}"[:300]
+    """The title alone: it already leads with its vendor (title()), so "SolarWinds Worldwide, LLC" and "SolarWinds"
+    are one product, and a tool that sends no vendor (Tanium) lands on the same title when the name matches."""
+    return title_name.lower()[:300]
+
+
+def bare(vendor_name: str, title_name: str) -> str | None:
+    """The title without the vendor that leads it ("Microsoft Teams" -> "teams"), how a tool that sends no vendor
+    names it; None when the title doesn't lead with its vendor."""
+    v, t = (vendor_name or "").lower(), title_name.lower()
+    return t[len(v) + 1:] if v and t.startswith(v + " ") and len(t) > len(v) + 1 else None
 
 
 def system(vendor_name: str, title_name: str, kind: str | None = None, cpe: str | None = None) -> bool:

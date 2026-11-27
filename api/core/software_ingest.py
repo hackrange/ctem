@@ -20,20 +20,21 @@ async def upsert(db: AsyncSession, items: list[dict], source: str, host_cache: d
     from api.models.software import SoftwareInstall, SoftwareTitle
     now = datetime.now(timezone.utc)
     hosts = host_cache if host_cache is not None else {}
-    titles: dict[str, SoftwareTitle] = {}
+    named = [(it, software_norm.normalize(it.get("vendor"), it.get("product"), it.get("family"), it.get("type"), it.get("cpe")))
+             for it in items]
+    titles = await _titles(db, {n["key"] for _, n in named if n}, {n["key"] for _, n in named if n and not n["vendor"]})
     count = 0
-    for it in items:
-        n = software_norm.normalize(it.get("vendor"), it.get("product"), it.get("family"), it.get("type"), it.get("cpe"))
+    for it, n in named:
         if n is None:
             continue
         t = titles.get(n["key"])
         if t is None:
-            t = (await db.execute(select(SoftwareTitle).where(SoftwareTitle.key == n["key"]))).scalar_one_or_none()
-            if t is None:
-                t = SoftwareTitle(key=n["key"], vendor=n["vendor"], title=n["title"], system=n["system"], first_seen=now)
-                db.add(t)
-                await db.flush()
+            t = SoftwareTitle(key=n["key"], vendor=n["vendor"], title=n["title"], system=n["system"], first_seen=now)
+            db.add(t)
+            await db.flush()
             titles[n["key"]] = t
+        elif n["vendor"] and not t.vendor:   # a tool that names the vendor fills it in
+            t.vendor = n["vendor"]
         t.last_seen = now
         dev_ids = []
         for h in it.get("hosts") or []:
@@ -64,6 +65,33 @@ async def upsert(db: AsyncSession, items: list[dict], source: str, host_cache: d
             count += 1
     await db.commit()
     return count
+
+
+async def _titles(db: AsyncSession, keys: set[str], vendorless: set[str]) -> dict:
+    """{key: SoftwareTitle} for these keys. A name sent without its vendor ("Teams Machine-Wide Installer", from a
+    tool like Tanium) that has no title of its own goes to the one title that is that name led by its vendor
+    ("Microsoft Teams Machine-Wide Installer"), when exactly one is."""
+    from sqlalchemy import func
+
+    from api.models.software import SoftwareTitle
+    out: dict = {}
+    ks = sorted(keys)
+    for i in range(0, len(ks), 500):
+        for t in (await db.execute(select(SoftwareTitle).where(SoftwareTitle.key.in_(ks[i:i + 500])))).scalars():
+            out[t.key] = t
+    want = sorted(k for k in vendorless if k not in out)
+    if want:
+        tail = func.substr(func.lower(SoftwareTitle.title), func.length(SoftwareTitle.vendor) + 2)
+        hits: dict = {}
+        for i in range(0, len(want), 500):
+            for t in (await db.execute(select(SoftwareTitle).where(
+                    SoftwareTitle.vendor != "", tail.in_(want[i:i + 500]),
+                    func.lower(SoftwareTitle.title).startswith(func.lower(SoftwareTitle.vendor) + " ")))).scalars():
+                b = software_norm.bare(t.vendor, t.title)
+                if b:
+                    hits.setdefault(b, []).append(t)
+        out.update({k: ts[0] for k, ts in hits.items() if len(ts) == 1})
+    return out
 
 
 def _reported(it: dict) -> dict:

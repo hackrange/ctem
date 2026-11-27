@@ -201,3 +201,41 @@ async def test_a_deadlocked_page_is_retried(db, monkeypatch):
         raise DBAPIError("UPDATE devices", {}, Exception("some other error"))
     with pytest.raises(DBAPIError):
         await t.retry(db, other)   # anything but a deadlock fails at once
+
+
+@pytest.mark.asyncio
+async def test_a_cve_the_scanner_has_its_own_check_for_is_one_vulnerability(db, monkeypatch):
+    """Tanium's finding uses InsightVM's catalog row for a CVE when that check is about the CVE alone (never a bundle),
+    so the Vulnerabilities page lists it once; a finding stored under Tanium's own row moves and the empty row goes."""
+    from api.integrations import tanium as t
+    from api.models.device import Device, DeviceType
+    from api.models.integration import IntegrationConfig, Vendor
+    from api.models.vuln import Finding, Vulnerability
+    tag = str(uuid.uuid4().int)[:5]
+    one, bundled, moved = f"CVE-2026-{tag}1", f"CVE-2026-{tag}2", f"CVE-2026-{tag}3"
+    cfg = IntegrationConfig(vendor=Vendor.tanium, name=f"T {tag}", config={})
+    dev = Device(hostname=f"tc{tag}", device_type=DeviceType.workstation, source="ldap", sources=",ldap,")
+    r7 = Vulnerability(source="rapid7_insightvm", source_vuln_id=f"acme-tool-{one.lower()}", cve_id=one, title="Acme Tool: x")
+    r7m = Vulnerability(source="rapid7_insightvm", source_vuln_id=f"acme-cpu-{tag}", cve_id=bundled, cve_ids=[bundled, one], title="Acme CPU")
+    r7c = Vulnerability(source="rapid7_insightvm", source_vuln_id=f"msft-{moved.lower()}", cve_id=moved, title="Windows: y")
+    old = Vulnerability(source="tanium", source_vuln_id=moved, cve_id=moved, cve_ids=[moved], title="Windows: " + moved)
+    db.add_all([cfg, dev, r7, r7m, r7c, old])
+    await db.commit()
+    db.add(Finding(device_id=dev.id, vuln_id=old.id, source="tanium", source_id=f"{dev.id}:{moved}", integration_id=str(cfg.id), status="open"))
+    await db.commit()
+    gw = FakeGateway([{"id": "1", "name": f"tc{tag}", "compliance": {"cveFindings": [_cve(one), _cve(bundled), _cve(moved)]}}])
+    monkeypatch.setattr(t.TaniumConnector, "_gw", lambda self: gw)
+    conn = t.TaniumConnector({"api_url": "https://acme-api.cloud.tanium.com", "api_token": "x", "pull_software": False})
+    conn.integration_id = str(cfg.id)
+    await conn.sync(db)
+    got = {v.cve_id: v for _f, v in (await db.execute(select(Finding, Vulnerability).join(Vulnerability, Vulnerability.id == Finding.vuln_id)
+                                                      .where(Finding.device_id == dev.id).execution_options(populate_existing=True))).all()}
+    assert set(got) == {one, bundled, moved} and len((await db.execute(select(Finding).where(Finding.device_id == dev.id))).scalars().all()) == 3
+    assert got[one].id == r7.id and got[moved].id == r7c.id      # the scanner's own check for that CVE
+    assert got[bundled].source == "tanium"                         # a bundle of CVEs isn't that CVE's vulnerability
+    assert (await db.execute(select(Vulnerability).where(Vulnerability.id == old.id))).scalar_one_or_none() is None
+    await db.execute(delete(Finding).where(Finding.device_id == dev.id))
+    await db.execute(delete(Vulnerability).where(Vulnerability.cve_id.in_([one, bundled, moved])))
+    await db.execute(delete(Device).where(Device.id == dev.id))
+    await db.execute(delete(IntegrationConfig).where(IntegrationConfig.id == cfg.id))
+    await db.commit()

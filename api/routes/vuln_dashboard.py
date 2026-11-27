@@ -51,7 +51,10 @@ async def dashboard(u: User = Depends(_viewer), db: AsyncSession = Depends(get_s
     kw = {"code": code} if code else {}
     from api.auth.device_scope import access_key
     out = await vd.cached(db, range, source or None, device_type or None, scope=scope, viewer=str(u.id), kind=kind,
-                          access=await access_key(u, db) if scope is not None else "", **kw)
+                          access=await access_key(u, db) if scope is not None else "", wait=vd.WAIT_SECONDS, **kw)
+    if out is None:   # being built (once, however many ask): the page asks again in a few seconds
+        from fastapi.responses import JSONResponse
+        return JSONResponse({"building": True}, status_code=202, headers={"Retry-After": "3", "Cache-Control": "no-store"})
     # Only sources this install uses: a configured integration, or open findings left from one
     used = set(await vd.configured_sources(db)) | {r["source"] for r in out.get("by_source") or []} | ({source} if source else set())
     from api.core.finding_domain import sources_by_domain
