@@ -224,6 +224,8 @@ async def get_device(
         if device.owner is not None and device.owner.idv_verified_at and {"admin", "cyber"} & set(current_user.role_names) else None,
         # for "Send re-verification link" next to it (same audience)
         "detected_user_id": device.owner.id if device.owner is not None and {"idv_approvers", "idv_validation"} & set(current_user.role_names) else None,
+        # the detected user's manager, from the directory: personal, so admins and cyber only (like the Identity tab)
+        "detected_user_manager": await _manager(db, device.owner) if device.owner is not None and {"admin", "cyber"} & set(current_user.role_names) else None,
         "last_patch": patch_view(device.tanium),   # the newest patch Tanium saw installed
         "score_why": await _score_why(db, device.id),
         "related_owners": await _related_owners(db, device.id, current_user),
@@ -410,3 +412,8 @@ def _finding_summary(f: Finding, contained: bool = False, cloud_ports: list | No
         "last_seen": _iso(f.last_seen),
         "closed_note": f.closed_note,
     }
+
+
+async def _manager(db, person):
+    from api.core.manager import manager_of
+    return await manager_of(db, person)

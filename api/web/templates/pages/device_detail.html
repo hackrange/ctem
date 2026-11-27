@@ -84,7 +84,7 @@
 {% block extra_scripts %}
 <script src="{{ static('vendor/echarts-6.1.0/echarts.min.js') }}"></script>
 <script src="{{ static('js/asset_trend.js') }}"></script>
-<script src="{{ static('js/score_why.js') }}"></script>
+<script src="{{ static('js/score_why.js') }}"></script><script src="{{ static('js/manager_modal.js') }}"></script>
 <script src="{{ static('js/asset_software.js') }}"></script>
 <link rel="stylesheet" href="{{ static('css/threat_graph.css') }}" /><script src="{{ static('js/attack_map.js') }}"></script>
 <script src="{{ static('js/asset_pentest.js') }}"></script>
@@ -260,7 +260,7 @@ async function loadDevice() {
     info('Inventory status', statusCell(d)),
     info('Scope', scopeCell(d)),
     info('Detected user (from sign-ins)', txt(d.detected_user) + (window.IdvBadge ? IdvBadge.html(d.detected_user_idv_at, true) : '') + (window.IdvSend ? IdvSend.button(d.detected_user_id, d.detected_user) : '')
-      + upnLine(d.detected_user_upn, d.detected_user_title)),
+      + upnLine(d.detected_user_upn, d.detected_user_title) + (d.detected_user_manager && window.Manager ? `<div class="text-sm">Manager: ${Manager.link(d.detected_user_manager)}</div>` : '')),
     info('Last login user', txt(d.last_login_user)),
     info('Recent sign-ins', (d.recent_logins || []).length ? (d.recent_logins || []).map(esc).join(', ') : txt(null)),
     // the public address sits right under the private one

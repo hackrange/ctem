@@ -53,7 +53,9 @@ async def upsert_directory(users: list[dict], computers: list[dict], db: AsyncSe
         if u.get("display_name"):
             user.display_name = u["display_name"]
         if u.get("ad_dn"):
+            from api.core.manager import set_dn
             user.ad_dn = u["ad_dn"]
+            set_dn(user, u["ad_dn"])   # and its key, so the people it manages find it
         user.ad_groups = u.get("groups", [])
         user.ad_disabled = bool(u.get("disabled"))
         for src, dst in _AD_STATE:

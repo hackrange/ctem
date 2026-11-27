@@ -131,6 +131,14 @@ def merge_user(user, v: dict) -> None:
             setattr(user, col, normalize(raw, p.get("countryCode"), region) or raw)
     if not user.display_name and _clean(p.get("displayName")):
         user.display_name = _clean(p.get("displayName"))
+    # The manager, as AD names it (a DN) through Okta's AD sync, and the person's own DN so their reports find them
+    from api.core.manager import is_dn, set_dn
+    if is_dn(user.ad_dn):
+        set_dn(user, user.ad_dn)    # the directory's own copy wins (kept current: someone moved to another OU)
+    elif is_dn(p.get("dn")):
+        set_dn(user, p.get("dn"))
+    if "manager" in p:
+        user.manager_dn = p["manager"].strip()[:1024] if is_dn(p.get("manager")) else None
 
 
 def _owner(embedded: list) -> tuple[str | None, list[str]]:

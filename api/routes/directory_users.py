@@ -142,6 +142,7 @@ async def list_directory_users(
 @router.get("/users/{user_id}")
 async def directory_user(user_id: uuid.UUID, _: User = Depends(require_cyber_or_admin), db: AsyncSession = Depends(get_session)):
     """One discovered person in full: profile, where they work, AD account and password, groups, machines, risk."""
+    from api.core.manager import manager_of
     from api.models.device import Device, DeviceAssignment
     from api.models.risk import RiskScore
 
@@ -164,5 +165,6 @@ async def directory_user(user_id: uuid.UUID, _: User = Depends(require_cyber_or_
                       "department": u.department},
             "risk_factors": factors if isinstance(factors, (dict, list)) else None,
             "risk_at": when(risk.calculated_at) if risk else None,
+            "manager": await manager_of(db, u),   # from the directory (AD through Okta): name, title, email
             "devices": [{"id": str(d.id), "hostname": d.hostname, "ip": d.ip, "type": d.device_type.value if d.device_type else None,
                          "last_seen": when(d.last_seen), "how": "assigned" if d.id in assigned else "signs in"} for d in rows]}

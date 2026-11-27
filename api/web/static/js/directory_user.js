@@ -41,7 +41,7 @@
       <div class="ud-h">Person</div>
       <dl class="ud-grid">
         ${row('Username', `<span class="text-mono">${esc(u.username)}</span>`)}${row('UPN', v(u.upn))}${row('Email', v(u.email_display))}
-        ${row('Title', v(u.title))}${row('Department', v(w.department))}${row('Phone', v(u.phone))}${row('Mobile', v(u.mobile))}
+        ${row('Title', v(u.title))}${row('Manager', u.manager && window.Manager ? Manager.link(u.manager) : dash)}${row('Department', v(w.department))}${row('Phone', v(u.phone))}${row('Mobile', v(u.mobile))}
         ${row('Office', v([w.office, w.city, w.state, w.postal_code].filter(Boolean).join(', ')))}
         ${row('Service account', u.is_service_account ? 'Yes' : 'No')}
       </dl>

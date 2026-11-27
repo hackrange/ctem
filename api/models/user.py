@@ -65,6 +65,8 @@ class User(Base, UUIDPrimaryKey, TimestampMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_local: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     ad_dn: Mapped[str | None] = mapped_column(EncryptedString)
+    ad_dn_hash: Mapped[str | None] = mapped_column(String(64), index=True)   # HMAC of the DN, for finding someone's reports
+    manager_dn: Mapped[str | None] = mapped_column(EncryptedString)         # the directory's manager, by DN (api/core/manager.py)
     ad_username: Mapped[str | None] = mapped_column(String(256), index=True)
     last_login: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # A browser session that signed in before this no longer counts (set by a new password; api/auth/sessions.py)

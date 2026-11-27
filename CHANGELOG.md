@@ -7,6 +7,11 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.28.0] - 2026-11-27
+
+### Added
+- A person's manager: on Discovered Users (a Manager line) and on an asset's Details under the detected user (a Manager link opening the manager's first and last name, email, title and department, with a link to their record). Admins and cyber only, like the asset's Identity tab. The manager comes from the directory: AD names them by DN (Okta's AD sync brings it), and CTEM matches the person with that DN (case and spacing ignored); a manager CTEM hasn't seen shows by name. People now keep a keyed hash of their DN for the lookup (the DN stays encrypted); it fills in at the next LDAP and Okta syncs.
+
 ## [1.27.0] - 2026-11-27
 
 ### Added
