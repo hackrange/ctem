@@ -93,7 +93,20 @@ async def test_found_by_names_both_and_shows_proof(db):
     await reconcile(db)
     row = {"source": "rapid7_insightvm"}
     await found_by(db, [(row, d.id, f"CVE-2026-{tag}1")])
-    assert row["found_by"] == ["Rapid7 InsightVM", "Tanium"] and row["proof"]["tests"][0]["found"] == "python.exe 3.12.6"
+    assert row["found_by"] == ["Rapid7 InsightVM", "Tanium"]
+    # The Proof dialog: InsightVM's live lookup (not configured here) plus Tanium's stored evidence; Tanium's own
+    # finding shows its evidence too
+    from api.core.finding_proof import fetch
+    from sqlalchemy.orm import selectinload
+    r7, tan = [(await db.execute(select(Finding).options(selectinload(Finding.vuln)).where(Finding.device_id == d.id, Finding.source == s)
+                                 .execution_options(populate_existing=True))).scalar_one() for s in ("rapid7_insightvm", "tanium")]
+    got = await fetch(db, r7)
+    assert got["available"] and [x["tool"] for x in got["instances"]] == ["Tanium"] and "python.exe 3.12.6" in got["instances"][0]["proof"]
+    assert "< 3.12.11" in got["instances"][0]["proof"] and got["note"]
+    own = await fetch(db, tan)
+    assert own["available"] and own["instances"][0]["proof"] == got["instances"][0]["proof"]
+    tan.details = {}
+    assert not (await fetch(db, tan))["available"]
     await db.execute(delete(Finding).where(Finding.device_id == d.id))
     await db.execute(delete(Vulnerability).where(Vulnerability.id.in_([r7a.id, r7b.id, ta.id, tb.id])))
     await db.execute(delete(Device).where(Device.id == d.id))

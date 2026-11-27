@@ -1,4 +1,5 @@
-"""Proof for one finding, fetched live from the scanner when someone asks (nothing is stored).
+"""Proof for one finding: fetched live from the scanner when someone asks (nothing is stored), plus the evidence an
+agent such as Tanium reported with its own finding for the same CVE on the same host (stored with that finding).
 
 Rapid7 returns the evidence for each instance of a vulnerability on an asset: what it found and where (for
 example "Vulnerable software installed: PHP 8.5.1 (C:\\...\\php.exe)"), the port, and the fix. The proof is
@@ -78,11 +79,53 @@ async def _rapid7(db: AsyncSession):
     return None
 
 
+def agent_instance(p) -> dict | None:
+    """An agent's stored proof (what it found against the vulnerable range) as one instance of the proof dialog."""
+    tests = [t for t in (p or {}).get("tests") or [] if isinstance(t, dict) and t.get("found")]
+    if not tests:
+        return None
+    lines = [f"Detected: {', '.join(str(x) for x in p.get('products') or [])}"] if p.get("products") else []
+    for t in tests:
+        lines.append(f"Found: {t['found']}" + (f"\nVulnerable: {t['expected']}" if t.get("expected") else ""))
+    s = lambda v: str(v)[:40] if v else None  # noqa: E731
+    return {"tool": str(p.get("tool") or "Agent")[:40], "proof": "\n\n".join(lines)[:MAX_TEXT], "port": None,
+            "protocol": None, "solution": str(p.get("remediation") or "")[:2000] or None, "fix": None,
+            "first_found": s(p.get("first_found")), "last_found": s(p.get("last_found"))}
+
+
+async def _agents(db: AsyncSession, finding) -> list[dict]:
+    """The proof of agent findings merged into this scanner finding (same host, same CVE, still reported)."""
+    from api.integrations.scanner_merge import AGENT_SOURCES
+    from api.models.vuln import Finding, FindingStatus, Vulnerability
+    cve = finding.vuln.cve_id if finding.vuln else None
+    if not cve:
+        return []
+    rows = (await db.execute(select(Finding.details).join(Vulnerability, Vulnerability.id == Finding.vuln_id).where(
+        Finding.device_id == finding.device_id, Vulnerability.cve_id == cve, Finding.source.in_(AGENT_SOURCES),
+        Finding.status == FindingStatus.merged, Finding.closed_at.is_(None)).limit(5))).scalars().all()
+    return [x for x in (agent_instance((d or {}).get("proof")) for d in rows) if x]
+
+
 async def fetch(db: AsyncSession, finding) -> dict:
-    """{'available': bool, 'reason'?: str, 'instances': [...]} for one finding."""
+    """{'available': bool, 'reason'?: str, 'instances': [...]} for one finding: the scanner's, then any agent's."""
+    from api.integrations.scanner_merge import AGENT_SOURCES
+    if finding.source in AGENT_SOURCES:
+        one = agent_instance((finding.details or {}).get("proof"))
+        return {"available": True, "instances": [one]} if one else \
+            {"available": False, "reason": "The agent reported no evidence with this finding.", "instances": []}
     if finding.source != "rapid7_insightvm":
-        return {"available": False, "reason": "Proof is only available for Rapid7 InsightVM findings so far.",
+        return {"available": False, "reason": "Proof is only available for Rapid7 InsightVM and Tanium findings so far.",
                 "instances": []}
+    out = await _scanner(db, finding)
+    agents = await _agents(db, finding)
+    if not agents:
+        return out
+    if not out["available"]:
+        return {"available": True, "note": out.get("reason"), "instances": agents}
+    return {**out, "instances": out["instances"] + agents}
+
+
+async def _scanner(db: AsyncSession, finding) -> dict:
     from api.integrations import rapid7_common as r7
     aid, _, vid = (finding.source_id or "").partition(":")
     if not (r7.safe_id(aid) and r7.safe_id(vid)):
@@ -108,7 +151,7 @@ async def fetch(db: AsyncSession, finding) -> dict:
             if not isinstance(f, dict) or f.get("vulnerability_id") != vid:
                 continue
             port = f.get("port")
-            out.append({"proof": as_text(f.get("proof")),
+            out.append({"tool": "Rapid7 InsightVM", "proof": as_text(f.get("proof")),
                         "port": port if isinstance(port, int) and 0 <= port <= 65535 else None,
                         "protocol": str(f.get("protocol") or "")[:16] or None,
                         "solution": as_text(f.get("solution_summary")),

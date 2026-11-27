@@ -82,7 +82,7 @@
   async function proof(findingId, label) {
     const d = dialog('fp-modal', 'Proof');
     d.sub.textContent = label || '';
-    d.body.innerHTML = '<p class="text-muted">Asking the scanner for the evidence...</p>';
+    d.body.innerHTML = '<p class="text-muted">Getting the evidence...</p>';
     d.actions.appendChild(button('Close', 'btn--primary', d.close));
     let r;
     try {
@@ -99,11 +99,16 @@
       return;
     }
     const pre = t => `<pre class="text-mono" style="white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;margin:4px 0 0;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:6px"></pre>`;
-    d.body.innerHTML = exc + r.instances.map((x, i) => `<div style="margin-bottom:14px">
+    // Each tool's evidence under its own heading: the scanner's instances first, then an agent's (Tanium)
+    const many = t => r.instances.filter(x => x.tool === t).length > 1;
+    const n = {};
+    const head = x => `What ${x.tool || 'the scanner'} found${many(x.tool) ? `, instance ${(n[x.tool] = (n[x.tool] || 0) + 1)}` : ''}`;
+    const note = r.note ? `<div class="tk-note">${esc(r.note)}</div>` : '';
+    d.body.innerHTML = exc + note + r.instances.map((x, i) => `<div style="margin-bottom:14px">
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:baseline">
-          <b>${r.instances.length > 1 ? `Instance ${i + 1}` : 'What the scanner found'}</b>
+          <b>${esc(head(x))}</b>
           ${x.port != null ? `<span class="chip chip--info" style="font-size:.7rem">${esc(`${x.protocol || ''} ${x.port}`.trim())}</span>` : ''}
-          <span class="text-sm text-muted">${x.last_found ? `last found ${esc(new Date(x.last_found).toLocaleString())}` : ''}</span>
+          <span class="text-sm text-muted">${x.last_found ? `last found ${esc(/^\d{4}-\d\d-\d\d$/.test(x.last_found) ? x.last_found : new Date(x.last_found).toLocaleString())}` : ''}</span>
         </div>
         <div data-proof="${i}">${pre()}</div>
         ${x.solution || x.fix ? `<details style="margin-top:6px"><summary class="text-sm" style="cursor:pointer">How to fix</summary><div data-fix="${i}">${pre()}</div></details>` : ''}
@@ -114,7 +119,7 @@
       if (fix) fix.textContent = [x.solution, x.fix].filter(Boolean).join('\n\n');
     });
     d.actions.prepend(button('Copy', 'btn--ghost', () => {
-      const text = r.instances.map(x => x.proof || '').join('\n\n');
+      const text = r.instances.map(x => `${x.tool ? x.tool + ':\n' : ''}${x.proof || ''}`).join('\n\n');
       navigator.clipboard && navigator.clipboard.writeText(text);
     }));
   }

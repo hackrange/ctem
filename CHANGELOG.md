@@ -7,6 +7,14 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.23.3] - 2026-11-27
+
+### Changed
+- Tanium findings have a **Proof** button, like InsightVM's, on a device's findings and a vulnerability's affected devices. It opens the same Proof dialog with what Tanium found against the vulnerable range and its fix. On an InsightVM finding Tanium also found, the dialog shows InsightVM's live proof and then Tanium's, each under its tool's name.
+
+### Fixed
+- The inline Tanium proof under a finding's title closed by itself a moment after it was opened, because the findings table redraws. It is gone; the Proof dialog replaces it.
+
 ## [1.23.2] - 2026-11-27
 
 ### Fixed

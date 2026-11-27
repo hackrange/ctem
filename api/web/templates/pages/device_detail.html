@@ -445,7 +445,7 @@ function startFindings() {
       { label: 'First detected', sort: 'first_detected', firstOrder: 'desc', render: f => dim(f, R.date(f.first_detected)) },
       { label: 'Age', sort: 'age', firstOrder: 'desc', render: f => dim(f, R.age(f)) },
       { label: 'Last seen', sort: 'last_seen', firstOrder: 'desc', render: f => dim(f, R.date(f.last_seen)) },
-      { label: '', render: f => f.source === 'rapid7_insightvm'
+      { label: '', render: f => ['rapid7_insightvm', 'tanium'].includes(f.source)
         ? `<button type="button" class="btn btn--ghost btn--sm" data-proof="${esc(f.id)}" data-label="${esc(f.cve_id || f.title)}">Proof</button>` : '' },
     ],
   });
