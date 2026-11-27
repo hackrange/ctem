@@ -427,6 +427,7 @@ def _affected_row(f: Finding, cvss: float | None = None, attack_vector: str | No
         **reach_view(f, bool(d and (d.edr_contained or is_exempt(d))), attack_vector, cloud_ports),
         "first_detected": _iso(f.first_detected),
         "last_seen": _iso(f.last_seen),
+        "closed_note": f.closed_note,
         **age.view(f.first_detected, f.last_seen, f.status.value, cvss),
     }
 

@@ -17,7 +17,7 @@ class FindingStatus(str, enum.Enum):
     remediated = "remediated"
     risk_accepted = "risk_accepted"
     false_positive = "false_positive"
-    merged = "merged"   # a pentest's finding for a CVE a scanner also has open on that host (api/integrations/pentest_merge.py)
+    merged = "merged"   # a duplicate of another tool's finding for that CVE on that host (pentest_merge, scanner_merge)
 
 
 class Vulnerability(Base, UUIDPrimaryKey, TimestampMixin):
@@ -45,6 +45,7 @@ class Vulnerability(Base, UUIDPrimaryKey, TimestampMixin):
     # infra (hosts, network, cloud) | code (SAST, packages, secrets, IaC) | web (DAST): see api.core.finding_domain
     domain: Mapped[str] = mapped_column(String(8), nullable=False, default="infra", server_default=text("'infra'"), index=True)
     source_vuln_id: Mapped[str | None] = mapped_column(String(256))
+    cve_ids: Mapped[list | None] = mapped_column(JSON)   # every CVE a scanner check covers (cve_id is the first)
     # Devices with an open finding, refreshed by each scoring run (global view only)
     affected_devices: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False, index=True)
     # When its oldest open finding was first found (kept with affected_devices), so lists sort and filter by age
@@ -73,6 +74,8 @@ class Finding(Base, UUIDPrimaryKey, TimestampMixin):
     status: Mapped[FindingStatus] = mapped_column(Enum(FindingStatus), default=FindingStatus.open, nullable=False)
     first_detected: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))   # when a source stopped reporting it
+    closed_note: Mapped[str | None] = mapped_column(String(200))   # why CTEM closed it (api/integrations/scanner_merge.py)
 
     # Composite risk (recalculated by scoring engine)
     composite_score: Mapped[float | None] = mapped_column(Float)

@@ -89,7 +89,7 @@
 <link rel="stylesheet" href="{{ static('css/threat_graph.css') }}" /><script src="{{ static('js/attack_map.js') }}"></script>
 <script src="{{ static('js/asset_pentest.js') }}"></script>
 <script src="{{ static('js/asset_context.js') }}"></script>
-<script src="{{ static('js/asset_posture_except.js') }}"></script><script src="{{ static('js/asset_edr.js') }}"></script><script src="{{ static('js/asset_idp.js') }}"></script>
+<script src="{{ static('js/asset_posture_except.js') }}"></script><script src="{{ static('js/asset_edr.js') }}"></script><script src="{{ static('js/asset_idp.js') }}"></script><script src="{{ static('js/asset_tanium.js') }}"></script>
 <script src="{{ static('js/data_table.js') }}"></script>
 <script src="{{ static('js/device_assign.js') }}"></script>
 <script src="{{ static('js/exception_modal.js') }}"></script>
@@ -272,6 +272,7 @@ async function loadDevice() {
     info('Criticality', txt(d.criticality)),
     info('Sources', (d.sources || []).map(c => `<span class="chip chip--info" style="font-size:.7rem">${esc(c)}</span>`).join(' ') || txt(null)),
     info('Last seen', R.seenAgo(d)),
+    ...(d.last_patch ? [info('Last patch installed', AssetTanium.lastPatch(d.last_patch))] : []),
     info('Open findings', R.num(d.open_findings)),
     info('KEV findings', d.kev_findings ? `<span class="chip chip--critical">${R.num(d.kev_findings)}</span>` : '0'),
     info('EDR', `${R.bool(d.edr_active)} ${txt(d.edr_vendor)}${d.edr_contained ? ' <span class="chip chip--info">Contained</span>' : ''}${d.edr_hidden ? ' <span class="chip chip--medium" title="Hidden in the Falcon console: its detections may not show there">Hidden in Falcon</span>' : ''}`),
@@ -284,7 +285,7 @@ async function loadDevice() {
   ].join('');
   cloudPanel(d.cloud || []);
   AssetTrend.mount(d.id, d.hostname);
-  AssetSoftware.mount(d.id); AssetEdr.mount(d.id); AssetIdp.mount(d.id); AssetContext.mount(d.id);
+  AssetSoftware.mount(d.id); AssetEdr.mount(d.id); AssetIdp.mount(d.id); AssetTanium.mount(d.id); AssetContext.mount(d.id);
   document.querySelectorAll('[data-fw-rules]').forEach(b => { b.onclick = () => firewallDialog(d.cloud || []); });
   syncShipFields();
   if (!table) startFindings();  // reloading after an assignment shouldn't mount a second table

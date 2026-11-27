@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.core.ssrf import safe_client
 from api.integrations import rapid7_common as r7
-from api.integrations.base import BaseConnector, load_sync_state, register, save_sync_state
+from api.integrations.base import BaseConnector, load_sync_state, pulls, register, save_sync_state
 from api.integrations.rapid7_insightvm_console import ConsoleMixin
 from api.models.integration import Vendor
 from api.core import fixes
@@ -61,6 +61,10 @@ class InsightVMConnector(ConsoleMixin, BaseConnector):
         count, seen_ids = 0, set()
 
         async def take(page, known_first: bool) -> int:
+            if not pulls(self.config, "vulns"):   # Pull vulnerabilities off: assets only
+                n = await self._upsert_cloud(page, {}, db)
+                db.expunge_all()
+                return n
             wanted = {f["vulnerability_id"] for a in page for f in a.get("same", []) + a.get("new", [])
                       + a.get("remediated", []) if r7.safe_id(f.get("vulnerability_id", ""))}
             todo = sorted(wanted - fetched - vuln_ids.keys())
@@ -208,6 +212,7 @@ class InsightVMConnector(ConsoleMixin, BaseConnector):
                 db.add(vuln)
             cves = [c.strip() for c in (v.get("cves") or "").split(",") if c.strip()]
             vuln.cve_id = cves[0][:32] if cves else None
+            vuln.cve_ids = [c[:32] for c in cves[:500]] or None   # all of them, for the cross-tool merge
             vuln.title = (v.get("title") or vid)[:512]
             vuln.description = v.get("description")
             vuln.cvss_base = float(v.get("cvss_v3_score") or v.get("cvss_v2_score") or 0.0)
@@ -284,6 +289,7 @@ class InsightVMConnector(ConsoleMixin, BaseConnector):
                     existing[vuln_id] = finding
                 if finding.status == FindingStatus.remediated:
                     finding.status = FindingStatus.open  # it came back, sadly
+                    finding.closed_at = finding.closed_note = None   # whatever closed it, Rapid7 still sees it
                 finding.first_detected = r7.parse_dt(f.get("first_found"))
                 finding.last_seen = r7.parse_dt(f.get("last_found"))
                 # Found on a listening port, or by a local check with none tied to it (a fact from this scan)

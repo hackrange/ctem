@@ -313,6 +313,8 @@ async def recalculate_all(db: AsyncSession) -> None:
     await expire_scope_exemptions(db)
     from api.integrations.pentest_merge import reconcile
     await reconcile(db)   # one finding per CVE per host when the pentest and a scanner both have it
+    from api.integrations import scanner_merge
+    await scanner_merge.reconcile(db)   # and when an agent (Tanium) and a scanner both have it
     from api.core.vuln_exceptions import sync_all
     await sync_all(db)   # expire exceptions and cover new findings before scoring
     devices_result = await db.execute(select(Device))
@@ -347,6 +349,8 @@ async def recalculate_changed(db: AsyncSession, since: datetime) -> int:
     )
     from api.integrations.pentest_merge import reconcile
     merged = await reconcile(db)   # one finding per CVE per host when the pentest and a scanner both have it
+    from api.integrations import scanner_merge
+    merged |= await scanner_merge.reconcile(db, since)   # and when an agent (Tanium) and a scanner both have it
     ids = [r[0] for r in (await db.execute(ids_q)).all()] + sorted(merged)
     ids += await expire_scope_exemptions(db)
     from api.core.vuln_exceptions import sync_all

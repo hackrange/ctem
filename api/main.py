@@ -112,6 +112,7 @@ def create_app() -> FastAPI:
     from api.routes.device_edr import router as device_edr_router
     from api.routes.device_context import router as device_context_router
     from api.routes.device_identity import router as device_identity_router
+    from api.routes.device_tanium import router as device_tanium_router
     from api.routes.locations import router as locations_router
     from api.routes.retention_settings import router as retention_router
     from api.routes.me_hidden import router as me_hidden_router
@@ -198,6 +199,7 @@ def create_app() -> FastAPI:
     app.include_router(device_edr_router)
     app.include_router(device_context_router)
     app.include_router(device_identity_router)
+    app.include_router(device_tanium_router)
     app.include_router(locations_router)
     app.include_router(retention_router)
     app.include_router(me_hidden_router)

@@ -117,7 +117,7 @@ class ConsoleMixin:
             cvss = (v.get("cvss") or {}).get("v3", {}).get("score") or (v.get("cvss") or {}).get("v2", {}).get("score") or 0.0
             db.add(Vulnerability(cve_id=cve_id, cvss_base=float(cvss), title=(v.get("title") or cve_id)[:512],
                                  description=(v.get("description") or {}).get("text") if isinstance(v.get("description"), dict) else v.get("description"),
-                                 source="rapid7_insightvm", source_vuln_id=v.get("id")))
+                                 source="rapid7_insightvm", source_vuln_id=v.get("id"), cve_ids=[c[:32] for c in cves[:500]]))
             count += 1
         await db.commit()
         return count

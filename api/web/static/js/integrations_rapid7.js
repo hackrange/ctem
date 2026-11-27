@@ -1,4 +1,5 @@
-// Rapid7 form fields; one Insight Platform key can cover AppSec + InsightVM cloud.
+// Rapid7 and Tanium form fields; one Insight Platform key can cover AppSec + InsightVM cloud. Pull options choose
+// which tool brings vulnerabilities, software and disk encryption; a CVE both tools report is one finding.
 const R7_REGIONS = ['us','us2','us3','eu','ca','au','ap'];
 Object.assign(VENDOR_FIELDS, {
 rapid7_appsec: [
@@ -20,6 +21,8 @@ rapid7_insightvm: [
   {key:'username',   label:'Console Username', type:'text',    placeholder:'svc-ctem', required:false},
   {key:'password',   label:'Console Password', type:'password', placeholder:'', required:false},
   {key:'tls_skip_verify', label:'Skip certificate check (lab only)', type:'checkbox', placeholder:'', required:false},
+  {key:'pull_vulns', label:'Pull vulnerabilities', type:'checkbox', default:true, required:false},
+  {key:'pull_software', label:'Pull software inventory (the console sends it)', type:'checkbox', default:true, required:false},
 ],
 rapid7_cloudsec: [
   {key:'base_url',   label:'InsightCloudSec URL', type:'text', placeholder:'https://us1.cloudsec.insight.rapid7.com', required:true},
@@ -27,5 +30,12 @@ rapid7_cloudsec: [
   {key:'min_severity', label:'Minimum Insight Severity', type:'select', options:['high','critical','medium','low'], required:false},
   {key:'max_insights', label:'Max Insights per Sync (blank = all)', type:'number', placeholder:'all', required:false},
   {key:'max_findings', label:'Max Findings per Sync (blank = all)', type:'number', placeholder:'all', required:false},
+],
+tanium: [
+  {key:'api_url',    label:'API URL', type:'text', placeholder:'https://<tenant>-api.cloud.tanium.com', required:true},
+  {key:'api_token',  label:'API token (read-only role; add this server to its trusted IP addresses)', type:'password', placeholder:'', required:true},
+  {key:'pull_vulns', label:'Pull vulnerabilities (Tanium Comply, with proof)', type:'checkbox', default:true, required:false},
+  {key:'pull_software', label:'Pull software inventory', type:'checkbox', default:true, required:false},
+  {key:'pull_disk_encryption', label:'Pull disk encryption (BitLocker)', type:'checkbox', default:true, required:false},
 ],
 });

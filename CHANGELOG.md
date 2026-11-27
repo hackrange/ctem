@@ -7,6 +7,17 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.23.0] - 2026-11-27
+
+### Added
+- Tanium integration, rebuilt and verified against a real tenant: Tanium's API Gateway over GET only, read queries only, an allow-list of sensors (never BitLocker Key). It brings endpoints (matched to existing assets) with hardware, users, disk encryption and patch installation history; installed software; and Tanium Comply CVE findings with their proof (the file and version found against the vulnerable range, the person's profile folder masked). Findings close when Tanium checks again and no longer reports them, or when a machine leaves Tanium; a machine with no results is left as it was, and a CVE excepted in Tanium is closed with that note. Set the API URL and a read-only token; add this server to the token's trusted IP addresses.
+- Asset page Tanium tab and a Last patch installed line (Not patching past 30 days), to find machines that stopped patching. Posture findings for computers with no patch in 30 days, no successful patch scan in 7, and no disk encryption.
+- Pull options on the InsightVM and Tanium cards: Pull vulnerabilities, Pull software inventory and (Tanium) Pull disk encryption, so each kind comes from the tool you choose. Existing integrations keep pulling everything.
+- One finding per CVE per machine across InsightVM and Tanium: Tanium's merges into InsightVM's ("Found by Rapid7 InsightVM + Tanium", with Tanium's proof), the earlier first-found date wins and a fix counts once. When Tanium sees it fixed after InsightVM's last look (and knew every CVE of that check), InsightVM's closes with a note until InsightVM's next check.
+
+### Changed
+- InsightVM keeps every CVE a check covers, not just the first, so checks like an Oracle Java CPU line up with other tools CVE by CVE (existing checks fill in at the next full sync; Microsoft checks already carry their CVE in their id).
+
 ## [1.22.1] - 2026-11-26
 
 ### Fixed

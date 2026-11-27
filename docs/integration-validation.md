@@ -21,6 +21,7 @@ fields may not match the real API (the Horizon3 connector, for one, called endpo
 | Anthropic | Real API |
 | Zscaler (OneAPI) | Real tenant, 2026-11-24: token POST plus GETs on an allow-list; Client Connector (15,244 devices), ZDX devices, ZIA URL, SSL, firewall and DLP rules and admins |
 | Okta | Real tenant, 2026-11-25: GET only on the allow-list; users, devices (11,729 active Windows and macOS computers; Okta pages devices with users 20 at a time), MFA factors, System Log security events, per-person app lists (67 apps for a sampled user) and SSO sign-ins (about 1,000 an hour); rate-limit headers honored with half of each bucket left for the org |
+| Tanium (Cloud API Gateway) | Real tenant, 2026-11-27: GraphQL over GET only, read queries only, an allow-list of sensors (never BitLocker Key); 10,470 endpoints with users, encryption and patch installation history, installed applications, Comply CVE findings with OVAL proof (about 280 per endpoint); Tanium's cursors work only with the query that made them, and "[no results]" rows are placeholders |
 | Grip Security | Real tenant, 2026-11-24: every read endpoint, a full sync (227 ITDR threats, 606 posture findings, 3,266 SaaS apps, 68 AI agents, 14,665 identities) with GET only; paths match open-fairtprm's working client |
 
 ## In progress
@@ -47,7 +48,6 @@ from documented responses, and test against a real tenant where one is available
 | [ ] Snyk | yes | some | REST vs v1 API, org and project paging |
 | [ ] Microsoft Defender for Endpoint | yes | some | Entra app, machine and vulnerability APIs |
 | [ ] SentinelOne | yes | some | API token, sites, agents, threats |
-| [ ] Tanium | yes | none | Gateway GraphQL vs REST |
 | [ ] Palo Alto NGFW | yes | none | XML/REST API, keygen |
 | [ ] GitHub Advanced Security | yes | none | code scanning, Dependabot, secret scanning alerts |
 | [ ] ForgeRepo | yes | none | |

@@ -200,6 +200,7 @@ async def get_device(
     device = await _visible_device(device_id, current_user, db)
     base = dq.summary(device)
     from api.cloud.exposure import for_device
+    from api.routes.device_tanium import patch_view
     cloud = await for_device(db, device.id)   # instances, public IPs, attached firewalls and open ports
     base.update({
         "cloud": cloud,
@@ -223,6 +224,7 @@ async def get_device(
         if device.owner is not None and device.owner.idv_verified_at and {"admin", "cyber"} & set(current_user.role_names) else None,
         # for "Send re-verification link" next to it (same audience)
         "detected_user_id": device.owner.id if device.owner is not None and {"idv_approvers", "idv_validation"} & set(current_user.role_names) else None,
+        "last_patch": patch_view(device.tanium),   # the newest patch Tanium saw installed
         "score_why": await _score_why(db, device.id),
         "related_owners": await _related_owners(db, device.id, current_user),
     })
@@ -406,4 +408,5 @@ def _finding_summary(f: Finding, contained: bool = False, cloud_ports: list | No
         "first_detected": _iso(f.first_detected),
         **age.view(f.first_detected, f.last_seen, f.status.value, v.cvss_base if v else None),
         "last_seen": _iso(f.last_seen),
+        "closed_note": f.closed_note,
     }

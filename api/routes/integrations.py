@@ -97,7 +97,8 @@ def _check_vendor_config(vendor: Vendor, config: dict) -> None:
 router = APIRouter(prefix="/api/v1/integrations", tags=["integrations"])
 _VENDOR_LABELS = {"email": "Email (SMTP or Microsoft 365)", "github_code_review": "GitHub Code Review (SAST and DAST)", "aws": "AWS (cloud exposure)", "azure": "Azure (cloud exposure)", "oci": "Oracle Cloud OCI (cloud exposure)",
                   "okta": "Okta (identity provider, read only)", "persona": "Persona (identity verification)",
-                  "twilio": "Twilio (SMS for identity verification)"}
+                  "twilio": "Twilio (SMS for identity verification)",
+                  "tanium": "Tanium (endpoints, patches, vulnerabilities; read only)"}
 
 
 @router.get("")

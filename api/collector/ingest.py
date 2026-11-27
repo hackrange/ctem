@@ -205,11 +205,15 @@ async def apply_batch(db: AsyncSession, batch: LdapBatch | Rapid7Batch | CrowdSt
         if batch.detections:
             await cs._cache_threats([d.model_dump(exclude_none=True) for d in batch.detections], db)
         return n + len(batch.detections)
+    from api.integrations.base import pulls
     from api.integrations.rapid7_insightvm import InsightVMConnector
+    cfg = await db.get(IntegrationConfig, integration_id) if integration_id else None
+    want = (cfg.config if cfg else None) or {}   # the integration's Pull options: what it was set not to bring is dropped
     conn = InsightVMConnector({})
     n = await conn._console_upsert_assets([a.model_dump(exclude_none=True) for a in batch.assets], db)
-    n += await conn._console_upsert_vulns([v.model_dump(exclude_none=True) for v in batch.vulnerabilities], db)
-    if batch.software:
+    if pulls(want, "vulns"):
+        n += await conn._console_upsert_vulns([v.model_dump(exclude_none=True) for v in batch.vulnerabilities], db)
+    if batch.software and pulls(want, "software"):
         from api.core.software_ingest import upsert
         n += await upsert(db, [s.model_dump(exclude_none=True) for s in batch.software], "rapid7_insightvm")
     return n

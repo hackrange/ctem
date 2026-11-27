@@ -104,6 +104,7 @@ class Device(Base, UUIDPrimaryKey, TimestampMixin):
     score_inputs_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)   # api/scoring/dirty.py
     idp_login_keys: Mapped[str | None] = mapped_column(Text)   # ",hash,hash,": who the identity provider saw sign in, for search
     idp_device: Mapped[dict | None] = mapped_column(EncryptedJSON)   # the identity provider's device record (Okta): users, posture
+    tanium: Mapped[dict | None] = mapped_column(EncryptedJSON)   # Tanium's view: users, encryption, patches (api/integrations/tanium.py)
 
     # Network exposure
     is_internet_exposed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

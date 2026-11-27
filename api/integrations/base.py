@@ -216,6 +216,11 @@ async def run_due_syncs(db: AsyncSession) -> None:
             sync_integration.delay(str(cfg.id))
 
 
+def pulls(config: dict | None, what: str) -> bool:
+    """An integration's Pull option (vulns, software, disk_encryption): on unless switched off."""
+    return (config or {}).get(f"pull_{what}") is not False
+
+
 def is_collector_fed(cfg: IntegrationConfig) -> bool:
     return (cfg.config or {}).get("mode") == "collector"
 

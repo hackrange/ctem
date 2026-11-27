@@ -181,7 +181,18 @@
     // Where the scanner found a finding and what its CVSS vector needs; the hover text is the score's reason
     // One line per CVE: when more than one tool found it on this host (a scanner, and the pentest that proved it), say so
     foundBy(f) {
-      return (f.found_by || []).length > 1 ? `<div class="text-sm text-muted">Found by ${esc(f.found_by.join(' + '))}</div>` : '';
+      const by = (f.found_by || []).length > 1 ? `<div class="text-sm text-muted">Found by ${esc(f.found_by.join(' + '))}</div>` : '';
+      const note = f.closed_note ? `<div class="text-sm text-muted">${esc(f.closed_note)}</div>` : '';
+      return by + note + R.proof(f.proof);
+    },
+    // An agent's evidence (Tanium): the product, and what it found against the vulnerable range
+    proof(p) {
+      if (!p || !(p.tests || []).length) return '';
+      const lines = p.tests.map(t => `${t.found}${t.expected ? '\n  ' + t.expected : ''}`).join('\n');
+      const what = (p.products || []).join(', ');
+      return `<details class="text-sm"><summary class="text-muted">Proof (${esc(p.tool || 'agent')}${what ? ': ' + esc(what) : ''})</summary>`
+        + `<pre style="white-space:pre-wrap;max-width:60rem">${esc(lines)}</pre>`
+        + (p.remediation ? `<div class="text-muted">${esc(p.remediation)}</div>` : '') + '</details>';
     },
     reach(f) {
       // A scanner's finding the autonomous pentest also reached on this host: one finding, marked validated
