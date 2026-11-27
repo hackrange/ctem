@@ -7,6 +7,11 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.26.1] - 2026-11-27
+
+### Added
+- A warning in the log when one save marks more than 100 devices for rescoring, saying why: how many directly and through EDR policies, and which inputs changed (counts and field names only, never hostnames or values); bulk marking names the module that did it. Some CrowdStrike shipper uploads mark about 4,500 devices whose score inputs end up unchanged; this shows what does it.
+
 ## [1.26.0] - 2026-11-27
 
 ### Added

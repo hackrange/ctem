@@ -168,3 +168,28 @@ async def test_a_policy_report_marks_its_hosts_only_when_the_policy_changed(db):
     p.body = {"settings": [{"id": "x", "value": False}]}   # a protection switched off
     await db.commit()
     assert at(await _marked(db, Device, d.id)) > past
+
+
+@pytest.mark.asyncio
+async def test_a_save_marking_many_devices_says_why(db, caplog):
+    """More than LOUD devices marked in one save: one warning with counts and the fields that changed, no data."""
+    import logging
+    import uuid as _u
+
+    from api.models.device import Device, DeviceType
+    from api.scoring import dirty
+    n = _u.uuid4().hex[:6]
+    devs = [Device(hostname=f"loud-{n}-{i}", device_type=DeviceType.workstation, edr_active=False) for i in range(dirty.LOUD + 5)]
+    db.add_all(devs)
+    await db.commit()
+    with caplog.at_level(logging.WARNING, logger="open-ctem.score_dirty"):
+        for d in devs:
+            d.edr_active = True
+        await db.commit()
+    msg = " ".join(r.getMessage() for r in caplog.records if "score inputs" in r.getMessage())
+    assert f"{dirty.LOUD + 5} devices marked" in msg and "device edr_active" in msg and f"loud-{n}" not in msg
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="open-ctem.score_dirty"):
+        devs[0].edr_active = False
+        await db.commit()
+    assert not [r for r in caplog.records if "score inputs" in r.getMessage()]   # a few: quiet
