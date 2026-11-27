@@ -4,7 +4,7 @@ from __future__ import annotations
 import uuid
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -284,4 +284,42 @@ def _serialize_threat(t: IdentityThreat) -> dict:
         "country": t.country,
         "detected_at": t.detected_at.isoformat() if t.detected_at else None,
         "resolved_at": t.resolved_at.isoformat() if t.resolved_at else None,
+        "count": int((t.raw or {}).get("count") or 1) if isinstance(t.raw, dict) else 1,   # repeats folded into it
     }
+
+
+# What an alert's raw event may show, by name (it came from outside: known keys only, text only, length-capped)
+_RAW_SHOWN = {"reason": "Reason", "eventType": "Event", "severity": "Okta severity", "risk": "Okta risk", "asOrg": "Network owner",
+              "isProxy": "Through a proxy", "zone": "Network zone", "userAgent": "User agent", "last_seen": "Last seen"}
+
+
+def _raw_view(raw) -> dict:
+    if not isinstance(raw, dict):
+        return {}
+    out = {}
+    for k in _RAW_SHOWN:
+        v = raw.get(k)
+        if v is None or v == "" or v == "null" or isinstance(v, (dict, list)):
+            continue
+        out[k] = str(v)[:300]
+    o = raw.get("outcome")
+    if isinstance(o, dict) and o.get("result"):
+        out["outcome"] = str(o["result"])[:40]
+    return out
+
+
+@router.get("/threats/{threat_id}")
+async def get_itdr_threat(threat_id: uuid.UUID, _: User = Depends(require_cyber_or_admin),
+                          db: AsyncSession = Depends(get_session)):
+    """One ITDR alert in full: where it came from (IP, country, network), what the identity provider decided and why,
+    how many times it repeated, and the person if there is one."""
+    t = await db.get(IdentityThreat, str(threat_id))
+    if t is None:
+        raise HTTPException(404, detail="Not found")
+    from api.routes.identity_people import people_for, person_view
+    who = (await people_for(db, {t.user_email_hash})).get(t.user_email_hash) if t.user_email_hash else None
+    iid = (await db.execute(select(IdentityRiskScore.id).where(IdentityRiskScore.user_email_hash == t.user_email_hash))
+           ).scalar_one_or_none() if t.user_email_hash else None
+    return {**_serialize_threat(t), "source_ip": t.source_ip, "details": _raw_view(t.raw), "labels": _RAW_SHOWN,
+            "person": person_view(who), "identity_id": str(iid) if iid else None,
+            "merged_into": (t.raw or {}).get("merged_into") if isinstance(t.raw, dict) else None}

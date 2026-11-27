@@ -173,5 +173,49 @@ async def threats(conn, client, db: AsyncSession, people: People) -> int:
         db.add(t)
         n += 1
     await db.commit()
+    await merge_repeats(db)
     await save_sync_state(db, conn.integration_id, {**state, "logs_since": newest.isoformat()})
     return n
+
+
+REPEAT_GAP = timedelta(hours=24)   # repeats further apart than this are a new alert
+
+
+async def merge_repeats(db: AsyncSession) -> int:
+    """Okta ThreatInsight logs one event per request it blocks, so one password spray was dozens of alerts. Active
+    alerts with no person, the same title, source IP and Okta's reason, each within REPEAT_GAP of the last, are one:
+    the first keeps the count and the first and last time seen; the others are resolved with a pointer to it (kept,
+    not deleted). Safe to run again: returns how many were folded in."""
+    from api.models.identity import IdentityThreat, ItdrAlertStatus
+    rows = (await db.execute(select(IdentityThreat).where(
+        IdentityThreat.source == SOURCE, IdentityThreat.status == ItdrAlertStatus.active,
+        IdentityThreat.user_email_hash.is_(None), IdentityThreat.source_ip.is_not(None))
+        .order_by(IdentityThreat.detected_at))).scalars().all()
+    groups: dict[tuple, list] = {}
+    for t in rows:
+        groups.setdefault((t.title, t.source_ip, str((t.raw or {}).get("reason") or "")), []).append(t)
+    now, folded = datetime.now(timezone.utc), 0
+
+    def aware(d):
+        return d if d is None or d.tzinfo else d.replace(tzinfo=timezone.utc)
+    for items in groups.values():
+        keep = None
+        for t in items:
+            raw = dict(t.raw or {})
+            last = aware(when((keep.raw or {}).get("last_seen"))) if keep is not None else None
+            if keep is None or last is None or aware(t.detected_at) - last > REPEAT_GAP:
+                keep = t   # the first of a new run
+                if "count" not in raw:
+                    raw.update(count=1, last_seen=aware(t.detected_at).isoformat())
+                    t.raw = raw
+                continue
+            kr = dict(keep.raw or {})
+            kr["count"] = int(kr.get("count") or 1) + int(raw.get("count") or 1)
+            kr["last_seen"] = max(aware(when(kr.get("last_seen"))) or aware(keep.detected_at),
+                                  aware(when(raw.get("last_seen"))) or aware(t.detected_at)).isoformat()
+            keep.raw = kr
+            t.status, t.resolved_at, t.raw = ItdrAlertStatus.resolved, now, {**raw, "merged_into": str(keep.id)}
+            folded += 1
+    if folded:
+        await db.commit()
+    return folded

@@ -1,5 +1,5 @@
-// Identity: click a row for its detail. An identity opens its own page (/identity/person); a posture finding or an
-// app opens in a panel here (GET /api/v1/identity/posture/{id}, /saas-apps/{id}). Everything goes through esc().
+// Identity: click a row for its detail. An identity opens its own page (/identity/person); an ITDR alert, a posture
+// finding or an app opens in a panel here (GET /api/v1/identity/threats/{id}, /posture/{id}, /saas-apps/{id}). Everything goes through esc().
 (() => {
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const when = s => (s ? new Date(s).toLocaleString() : '--');
@@ -54,6 +54,22 @@
     ]);
   }
 
+  // An ITDR alert: where it came from, what the identity provider decided and why, how often it repeated, and who
+  function threat(t) {
+    title.textContent = t.title || 'ITDR alert';
+    const d = t.details || {}, L = t.labels || {};
+    const repeats = t.count > 1 ? `${esc(t.count)} times, ${esc(when(t.detected_at))} to ${esc(when(d.last_seen))}` : esc(when(t.detected_at));
+    body.innerHTML = grid([
+      ['Severity', esc(t.severity)], ['Type', esc((t.threat_type || '').replace(/_/g, ' '))], ['Source', esc(t.source)],
+      ['App', esc(t.app_name)], ['Identity', t.person || t.user_display ? person(t.person, t.user_display, t.identity_id)
+        : '<span class="text-muted">None: the request was stopped before anyone signed in</span>'],
+      ['Source IP', t.source_ip ? `<code>${esc(t.source_ip)}</code>` : ''], ['Country', esc(t.country)],
+      ['Outcome', esc(d.outcome)], ...['reason', 'risk', 'asOrg', 'isProxy', 'zone', 'eventType', 'severity'].map(k => [L[k] || k, esc(d[k])]),
+      ['Seen', repeats], ['MITRE', t.mitre_technique_id ? `<code>${esc(t.mitre_technique_id)}</code>` : ''],
+      ['Status', esc(t.status)], ['User agent', d.userAgent ? `<span class="text-sm">${esc(d.userAgent)}</span>` : ''],
+    ]) + (t.description ? `<p style="white-space:pre-wrap;overflow-wrap:anywhere;font-size:.88rem;margin:0">${esc(t.description)}</p>` : '');
+  }
+
   async function open(kind, id) {
     if (!ID.test(id || '')) return;
     if (kind === 'identity') { location.href = `/identity/person?id=${encodeURIComponent(id)}`; return; }
@@ -61,9 +77,10 @@
     title.textContent = 'Loading...';
     body.textContent = '';
     try {
-      const r = await fetch(`/api/v1/identity/${kind === 'posture' ? 'posture' : 'saas-apps'}/${encodeURIComponent(id)}`, { headers: { Accept: 'application/json' } });
+      const path = { posture: 'posture', threat: 'threats' }[kind] || 'saas-apps';
+      const r = await fetch(`/api/v1/identity/${path}/${encodeURIComponent(id)}`, { headers: { Accept: 'application/json' } });
       if (!r.ok) throw new Error(r.status === 404 ? 'Not found' : r.statusText);
-      (kind === 'posture' ? posture : app)(await r.json());
+      ({ posture, threat }[kind] || app)(await r.json());
     } catch (e) { title.textContent = 'Could not load this'; body.textContent = e.message; }
   }
 

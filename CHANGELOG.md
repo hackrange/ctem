@@ -7,6 +7,14 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.27.0] - 2026-11-27
+
+### Added
+- Every ITDR alert opens in full from Identity Risk (and a person's page): the source IP and country, what the identity provider decided and why (for Okta ThreatInsight: denied, "Password Spray, Login Failures"), the network owner, proxy, zone and user agent, how many times it repeated and over what span, and the person when there is one. Cyber and admin only; only known fields of the raw event are shown. Alerts with no person used to open nothing.
+
+### Fixed
+- One Okta ThreatInsight attack was dozens of alerts, one per blocked request. After each Okta sync, active alerts with no person, the same title, source IP and Okta reason, each within 24 hours of the last, are one alert with a count (x28) and its first and last time seen; the repeats are resolved with a pointer to it, not deleted. Here 54 alerts become 3.
+
 ## [1.26.2] - 2026-11-27
 
 ### Fixed

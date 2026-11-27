@@ -92,7 +92,7 @@
     });
   }
 
-  $('ip-threats').innerHTML = d.threats.length ? d.threats.map(t => `<tr><td>${chip(t.severity)}</td>
+  $('ip-threats').innerHTML = d.threats.length ? d.threats.map(t => `<tr class="id-row" tabindex="0" data-kind="threat" data-id="${esc(t.id)}"><td>${chip(t.severity)}</td>
       <td class="text-sm">${esc((t.threat_type || '').replace(/_/g, ' '))}</td><td class="text-sm"><b>${esc(t.title)}</b>
       ${t.description ? `<br><span class="text-muted">${esc(t.description)}</span>` : ''}</td><td class="text-sm">${esc(t.app_name || '--')}</td>
       <td class="text-sm">${esc(t.status)}</td><td class="text-sm">${esc(when(t.detected_at))}</td></tr>`).join('')

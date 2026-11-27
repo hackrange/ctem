@@ -339,10 +339,10 @@ async function loadThreats(offset = 0) {
       return;
     }
     tb.innerHTML = d.threats.map(t => `
-      <tr class="id-row" tabindex="0" data-kind="${t.identity_id ? 'identity' : ''}" data-id="${esc(t.identity_id || '')}">
+      <tr class="id-row" tabindex="0" data-kind="threat" data-id="${esc(t.id)}">
         <td>${sev(t.severity)}</td>
         <td class="text-sm">${esc((t.threat_type || '').replace(/_/g, ' '))}</td>
-        <td class="text-sm"><b>${esc(t.title)}</b>${t.description ? `<br><span class="text-muted">${esc(t.description.substring(0,80))}${t.description.length>80?'&hellip;':''}</span>` : ''}</td>
+        <td class="text-sm"><b>${esc(t.title)}</b>${t.count > 1 ? ` <span class="chip chip--info" style="font-size:.7rem" title="Repeats of the same alert, folded into one">&times;${esc(t.count)}</span>` : ''}${t.description ? `<br><span class="text-muted">${esc(t.description.substring(0,80))}${t.description.length>80?'&hellip;':''}</span>` : ''}</td>
         <td class="text-sm">${who(t.person, t.user_display)}</td>
         <td class="text-sm">${esc(t.app_name || '--')}</td>
         <td class="text-sm">${t.mitre_technique_id ? `<code>${esc(t.mitre_technique_id)}</code>` : '--'}</td>
