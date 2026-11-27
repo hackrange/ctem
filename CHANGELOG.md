@@ -7,6 +7,15 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.24.1] - 2026-11-27
+
+### Changed
+- A Linux distribution's own packages are system components, not third-party software (about 2,800 "Linux ..." titles here, all shown as third-party before). A scanner reports every Linux package with the vendor "Linux"; the distribution's own carry its release tag in the version (el8_10, amzn2023, ubuntu, deb12u, a SUSE 15 build number). Vendors' packages built for a distribution (falcon-sensor, mysql-community, Oracle jdk and others) and packages with no tag (CyberArk, Teradata tools, Chrome) stay third-party. Stored titles are reclassed once.
+
+### Fixed
+- Tanium's software from Linux endpoints is named like a scanner's ("Linux <package>"), so it meets the same title, and a Windows product Tanium reports without a vendor no longer joins a Linux package of the same name (CylancePROTECT on Windows had landed on "Linux CylancePROTECT"; it moves at the next Tanium sync).
+- A title whose product name is only an edition word after its vendor ("Enterprise" from Splunk, titled "Splunk Enterprise") was renamed to the bare vendor on the next regroup and back on the next upload; it keeps its name now, and a regroup never tries to create a title that already exists.
+
 ## [1.24.0] - 2026-11-27
 
 ### Changed

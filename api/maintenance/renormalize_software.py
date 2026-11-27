@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import case, delete, exists, select
+from sqlalchemy import case, delete, exists, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.core import software_norm
@@ -72,7 +72,7 @@ async def _rekey_titles(db: AsyncSession, by_key: dict) -> int:
         moved += 1
     led: dict = {}
     for t in by_key.values():
-        b = software_norm.bare(t.vendor, t.title)
+        b = software_norm.bare(t.vendor, t.title) if (t.vendor or "").lower() != software_norm.PACKAGES else None
         if b:
             led.setdefault(b, []).append(t)
     for k, old in list(by_key.items()):
@@ -102,6 +102,10 @@ async def run(db: AsyncSession) -> dict:
             if n is None or n["key"] == old.key or (not n["vendor"] and software_norm.bare(old.vendor, old.title) == n["key"]):
                 continue   # unchanged, or a name without its vendor already on its vendor's title
             new = by_key.get(n["key"])
+            if new is None:   # a title merged away earlier in this run still holds its key until the end
+                new = (await db.execute(select(SoftwareTitle).where(SoftwareTitle.key == n["key"]))).scalar_one_or_none()
+                if new is not None:
+                    by_key[n["key"]] = new
             if new is None:
                 new = SoftwareTitle(key=n["key"], vendor=n["vendor"], title=n["title"], system=n["system"],
                                     first_seen=old.first_seen or now, last_seen=old.last_seen or now)
@@ -134,6 +138,15 @@ async def run(db: AsyncSession) -> dict:
     for t in (await db.execute(select(SoftwareTitle).where(SoftwareTitle.system == False))).scalars():  # noqa: E712
         if software_norm.system(t.vendor, t.title):
             t.system = True
+    # ... and a Linux distribution's own packages, known by the release tag in a reported version
+    pkgs = (await db.execute(select(SoftwareInstall.title_id, SoftwareInstall.vendor_raw, SoftwareInstall.product, SoftwareInstall.version)
+                             .join(SoftwareTitle, SoftwareTitle.id == SoftwareInstall.title_id)
+                             .where(SoftwareTitle.system == False, func.lower(SoftwareTitle.vendor) == software_norm.PACKAGES))).all()  # noqa: E712
+    os_titles = {tid for tid, v, p, ver in pkgs if software_norm.os_package(v, p, ver)}
+    ids = sorted(os_titles)
+    for i in range(0, len(ids), 500):
+        await db.execute(update(SoftwareTitle).where(SoftwareTitle.id.in_(ids[i:i + 500])).values(system=True)
+                         .execution_options(synchronize_session=False))
     empty = ~exists().where(SoftwareInstall.title_id == SoftwareTitle.id)
     unused = ~exists().where(SoftwareException.title_id == SoftwareTitle.id)
     r = await db.execute(delete(SoftwareTitle).where(empty, unused, SoftwareTitle.status == "unreviewed")

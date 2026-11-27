@@ -10,7 +10,7 @@ import re
 
 # Bump with every change to the rules below: the hourly maintenance job then regroups what's stored once
 # (api/maintenance/renormalize_software.py), carrying review decisions and exceptions to the new titles
-RULES_VERSION = 5
+RULES_VERSION = 6
 
 _SUFFIX = re.compile(r"[,\s]+(inc|incorporated|corp|corporation|co|company|llc|l\.l\.c|ltd|limited|gmbh|ag|s\.a|sa|bv|"
                      r"b\.v|plc|pty|srl|s\.r\.l|s\.r\.o|sro|spol|oy|ab|as|kk|nv|n\.v|pte|sas|spa|s\.p\.a|ltda|sl|s\.l|a\.s)\.?$", re.I)
@@ -54,6 +54,32 @@ _SYSTEM_NAMES = re.compile(
 _PACKAGE = re.compile(r"^(?:microsoft|microsoftwindows|windows|microsoftcorporationii|windowsapps|ms)\.[a-z0-9._-]+$", re.I)
 
 
+# Linux packages: a scanner reports every installed package with the vendor "Linux" (Tanium's Linux endpoints too).
+# The distribution's own packages carry its release tag in the version (1.2-3.el8_10, 2.4.0-1.amzn2023, 1.2-3ubuntu1,
+# 1.2+deb12u1, 15.1-150500.3.1 on SUSE): those are the operating system. A vendor's package built for a distribution
+# (falcon-sensor-7.1.el8) is third-party whatever its version says.
+PACKAGES = "linux"
+_DISTRO = re.compile(r"(?:^|[._\-+~:\d])(?:el\d+|amzn\d*|fc\d+|mga\d+|suse|sles?\d*|lp\d+|ubuntu|deb\d+u?\d*|debian|ph\d|"
+                     r"oe\d+|mariner|cm\d|azl\d|module\+el)|-1[56]\d{2}00\.\d", re.I)   # ...-150400.3.49.1: a SUSE Linux Enterprise 15 build
+_VENDOR_PKG = re.compile(
+    r"^(?:falcon-sensor|mysql-community|jdk-|jre-|nginx-plus|google-chrome|microsoft-edge|mdatp|docker-ce|containerd\.io|zabbix|"
+    r"splunk|qualys|cylance|tanium|r7|rapid7|mongodb-|percona-|elasticsearch|kibana|logstash|filebeat|metricbeat|auditbeat|grafana|"
+    r"teleport|sentinel|ds_agent|trend|mcafee|trellix|sophos|nessus|cark|cyberark|rundeck|msodbcsql|mssql-|powershell|code$|teams|"
+    r"zoom|slack|1password|gc-guest-agent|dcs-|datadog|newrelic|dynatrace|crowdstrike|forti|globalprotect|cisco|zscaler|"
+    r"wazuh|osquery|nvidia-driver|cuda|pgdg|postgresql\d)", re.I)
+_OS_PKG_NAMES = {"gpg-pubkey"}
+
+
+def os_package(vendor_raw: str | None, product: str | None, version: str | None) -> bool:
+    """A Linux distribution's own package, so a system component rather than third-party software."""
+    if (vendor_raw or "").strip().lower() != PACKAGES:
+        return False
+    name = (product or "").strip()
+    if _VENDOR_PKG.match(name):
+        return False
+    return name.lower() in _OS_PKG_NAMES or bool(_DISTRO.search(version or ""))
+
+
 def vendor(raw: str | None) -> str:
     v = " ".join(str(raw or "").replace("®", "").replace("™", "").split()).strip(" ,.")
     if not v or re.search(r"[\\/]", v):   # a registry or file path some installers leave as the publisher
@@ -75,7 +101,9 @@ def title(name: str | None, vendor_name: str = "") -> str:
         n = _SPACE.sub(" ", n).strip(" -_,")
         n = _VERSION.sub("", n).strip(" -_,")
         cut = _EDITION.sub("", n).strip(" -_,")
-        if not re.search(r"\b(for|and|of|the|with)$", cut, re.I):   # "Apps for enterprise" keeps its last word
+        own = set(re.findall(r"[a-z0-9+]+", cut.lower())) - set(re.findall(r"[a-z0-9+]+", vendor_name.lower()))
+        # "Apps for enterprise" keeps its last word, and so does "Splunk Enterprise" (nothing but the vendor would be left)
+        if not re.search(r"\b(for|and|of|the|with)$", cut, re.I) and (own or not vendor_name):
             n = cut
         if n == before:
             break

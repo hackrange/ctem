@@ -463,3 +463,38 @@ async def test_one_title_whatever_vendor_spelling_or_none(db):
     await db.execute(delete(Device).where(Device.id == d.id))
     await db.execute(delete(SoftwareTitle).where(SoftwareTitle.title.like(f"%{n}%")))
     await db.commit()
+
+
+@pytest.mark.parametrize("product,version,os_pkg", [
+    ("NetworkManager", "1:1.40.16-15.el8_10", True), ("acl", "2.4.0-1.amzn2023.0.1", True), ("bash", "5.1-6ubuntu1", True),
+    ("openssl", "3.0.11-1~deb12u2", True), ("libzypp", "17.31.15-150400.3.49.1", True), ("gpg-pubkey", "05707a62", True),
+    ("falcon-sensor", "6.12.0-10913.el7", False), ("mysql-community-libs", "8.0.46-1.el7", False), ("TaniumClient", "7.6.4.2086-1.rhe9", False),
+    ("CARKpsmp", "14.1.4-4", False), ("google-chrome-stable", "158.0.8127.36-1", False), ("qualys-cloud-agent", "3.1.0-45", False),
+])
+def test_a_distributions_own_packages_are_system(product, version, os_pkg):
+    from api.core.software_norm import os_package
+    assert os_package("Linux", product, version) is os_pkg
+    assert os_package("Acme", product, version) is False   # only what a scanner reports as a Linux package
+
+
+@pytest.mark.asyncio
+async def test_linux_packages_are_classed_and_never_meet_a_windows_product(db):
+    from sqlalchemy import delete, select
+
+    from api.core.software_ingest import upsert
+    from api.models.device import Device, DeviceType
+    from api.models.software import SoftwareInstall, SoftwareTitle
+    n = uuid.uuid4().hex[:6]
+    lx, win = Device(hostname=f"lx-{n}", device_type=DeviceType.server), Device(hostname=f"win-{n}", device_type=DeviceType.workstation)
+    db.add_all([lx, win])
+    await db.commit()
+    await upsert(db, [{"vendor": "Linux", "product": f"netman{n}", "version": "1.40.16-15.el8_10", "hosts": [lx.hostname]},
+                      {"vendor": "Linux", "product": f"Agent{n}", "version": "2.1.1574", "hosts": [lx.hostname]}], "scan_x")
+    await upsert(db, [{"vendor": "Linux", "product": f"netman{n}", "version": "1.40.16", "hosts": [lx.hostname]},   # Tanium, Linux host
+                      {"product": f"Agent{n}", "version": "2.1.1574", "hosts": [win.hostname]}], "agent_x")         # Tanium, Windows host
+    got = {(t.title, t.system): sorted(s for (s,) in (await db.execute(select(SoftwareInstall.source).where(SoftwareInstall.title_id == t.id))).all())
+           for t in (await db.execute(select(SoftwareTitle).where(SoftwareTitle.title.like(f"%{n}%")))).scalars()}
+    assert got == {(f"Linux netman{n}", True): ["agent_x", "scan_x"], (f"Linux Agent{n}", False): ["scan_x"], (f"Agent{n}", False): ["agent_x"]}
+    await db.execute(delete(Device).where(Device.id.in_([lx.id, win.id])))
+    await db.execute(delete(SoftwareTitle).where(SoftwareTitle.title.like(f"%{n}%")))
+    await db.commit()

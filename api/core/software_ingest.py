@@ -20,8 +20,11 @@ async def upsert(db: AsyncSession, items: list[dict], source: str, host_cache: d
     from api.models.software import SoftwareInstall, SoftwareTitle
     now = datetime.now(timezone.utc)
     hosts = host_cache if host_cache is not None else {}
-    named = [(it, software_norm.normalize(it.get("vendor"), it.get("product"), it.get("family"), it.get("type"), it.get("cpe")))
-             for it in items]
+    named = []
+    for it in items:
+        if not it.get("type") and software_norm.os_package(it.get("vendor"), it.get("product"), it.get("version")):
+            it = {**it, "type": "package"}   # the distribution's own package: a system component
+        named.append((it, software_norm.normalize(it.get("vendor"), it.get("product"), it.get("family"), it.get("type"), it.get("cpe"))))
     titles = await _titles(db, {n["key"] for _, n in named if n}, {n["key"] for _, n in named if n and not n["vendor"]})
     count = 0
     for it, n in named:
@@ -35,6 +38,8 @@ async def upsert(db: AsyncSession, items: list[dict], source: str, host_cache: d
             titles[n["key"]] = t
         elif n["vendor"] and not t.vendor:   # a tool that names the vendor fills it in
             t.vendor = n["vendor"]
+        if n["system"] and not t.system:   # a distribution package reported with its release tag
+            t.system = True
         t.last_seen = now
         dev_ids = []
         for h in it.get("hosts") or []:
@@ -84,8 +89,8 @@ async def _titles(db: AsyncSession, keys: set[str], vendorless: set[str]) -> dic
         tail = func.substr(func.lower(SoftwareTitle.title), func.length(SoftwareTitle.vendor) + 2)
         hits: dict = {}
         for i in range(0, len(want), 500):
-            for t in (await db.execute(select(SoftwareTitle).where(
-                    SoftwareTitle.vendor != "", tail.in_(want[i:i + 500]),
+            for t in (await db.execute(select(SoftwareTitle).where(   # never a Linux package for a name without a vendor
+                    SoftwareTitle.vendor != "", func.lower(SoftwareTitle.vendor) != software_norm.PACKAGES, tail.in_(want[i:i + 500]),
                     func.lower(SoftwareTitle.title).startswith(func.lower(SoftwareTitle.vendor) + " ")))).scalars():
                 b = software_norm.bare(t.vendor, t.title)
                 if b:

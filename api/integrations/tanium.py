@@ -177,13 +177,17 @@ class TaniumConnector(BaseConnector):
     async def _software(self, gw: Gateway, db: AsyncSession, started) -> int:
         from api.core.software_ingest import prune_run, upsert
         n, cache = 0, {}
-        async for page in gw.pages("endpoints", "name installedApplications { name version }", _PAGE):
+        async for page in gw.pages("endpoints", "name os { platform } installedApplications { name version }", _PAGE):
             items: dict[tuple, dict] = {}
             for p in page:
+                # A Linux endpoint's software is its packages: named like a scanner names them (vendor "Linux"), so
+                # they meet the same titles and never a Windows product of the same name
+                linux = "linux" in str((p.get("os") or {}).get("platform") or "").lower()
                 for a in p.get("installedApplications") or []:
                     name, ver = _clean(a.get("name"), 256), _clean(a.get("version"), 128) or ""
                     if name and p.get("name"):
-                        items.setdefault((name, ver), {"product": name, "version": ver, "hosts": []})["hosts"].append(p["name"])
+                        items.setdefault((name, ver, linux), {"product": name, "version": ver, "hosts": [],
+                                                              **({"vendor": "Linux"} if linux else {})})["hosts"].append(p["name"])
             n += await retry(db, lambda items=items: upsert(db, list(items.values()), SOURCE, cache))
         await prune_run(db, SOURCE, started)
         await db.commit()
