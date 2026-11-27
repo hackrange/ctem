@@ -2,6 +2,7 @@
 vulnerabilities (api/integrations/tanium_vulns.py). Each kind follows the integration's Pull options."""
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from datetime import datetime, timedelta, timezone
@@ -131,40 +132,47 @@ class TaniumConnector(BaseConnector):
         return n
 
     async def _endpoints(self, gw: Gateway, db: AsyncSession, listed: set[str]) -> int:
-        from api.core.device_match import add_source, find_devices, host_os, type_from_os
-        from api.core.encryption import search_hash
-        from api.models.device import Device, DeviceType
         enc, count = pulls(self.config, "disk_encryption"), 0
         async for page in gw.pages("endpoints", _ENDPOINT % sensor_args(_SENSORS), _PAGE):
             page = [p for p in page if _clean(p.get("name"), 253)]
-            hit = await find_devices(db, [(p["name"], p.get("domainName") and f"{p['name']}.{p['domainName']}") for p in page])
-            devs = []
-            for p in page:
-                dev = hit.get(p["name"])
-                if dev is None:
-                    dev = Device(hostname=p["name"][:253], source=SOURCE, device_type=DeviceType.workstation)
-                    db.add(dev)
-                add_source(dev, SOURCE)
-                dev.os = host_os(dev.os, _clean((p.get("os") or {}).get("name")))
-                dev.device_type = type_from_os(dev.os, dev.device_type)
-                if not dev.ip and _clean(p.get("ipAddress"), 45):
-                    dev.ip, dev.ip_hash = p["ipAddress"], search_hash(p["ipAddress"])
-                macs = [m for m in p.get("macAddresses") or [] if _clean(m, 17)]
-                dev.mac_address = dev.mac_address or (macs[0][:17] if macs else None)
-                try:
-                    seen = datetime.fromisoformat(str(p.get("eidLastSeen")).replace("Z", "+00:00"))
-                    if dev.last_seen is None or seen > (dev.last_seen if dev.last_seen.tzinfo else dev.last_seen.replace(tzinfo=timezone.utc)):
-                        dev.last_seen = seen
-                except ValueError:
-                    pass
-                dev.tanium = view(p, enc)
-                count += 1
-                devs.append(dev)
-            await db.flush()
-            listed.update(str(d.id) for d in devs)
-            await db.commit()
-            db.expunge_all()
+            n, ids = await retry(db, lambda page=page: self._endpoint_page(db, page, enc))
+            count += n
+            listed.update(ids)
         return count
+
+    async def _endpoint_page(self, db: AsyncSession, page: list[dict], enc: bool) -> tuple[int, list[str]]:
+        from api.core.device_match import add_source, find_devices, host_os, type_from_os
+        from api.core.encryption import search_hash
+        from api.models.device import Device, DeviceType
+        count = 0
+        hit = await find_devices(db, [(p["name"], p.get("domainName") and f"{p['name']}.{p['domainName']}") for p in page])
+        devs = []
+        for p in page:
+            dev = hit.get(p["name"])
+            if dev is None:
+                dev = Device(hostname=p["name"][:253], source=SOURCE, device_type=DeviceType.workstation)
+                db.add(dev)
+            add_source(dev, SOURCE)
+            dev.os = host_os(dev.os, _clean((p.get("os") or {}).get("name")))
+            dev.device_type = type_from_os(dev.os, dev.device_type)
+            if not dev.ip and _clean(p.get("ipAddress"), 45):
+                dev.ip, dev.ip_hash = p["ipAddress"], search_hash(p["ipAddress"])
+            macs = [m for m in p.get("macAddresses") or [] if _clean(m, 17)]
+            dev.mac_address = dev.mac_address or (macs[0][:17] if macs else None)
+            try:
+                seen = datetime.fromisoformat(str(p.get("eidLastSeen")).replace("Z", "+00:00"))
+                if dev.last_seen is None or seen > (dev.last_seen if dev.last_seen.tzinfo else dev.last_seen.replace(tzinfo=timezone.utc)):
+                    dev.last_seen = seen
+            except ValueError:
+                pass
+            dev.tanium = view(p, enc)
+            count += 1
+            devs.append(dev)
+        await db.flush()
+        ids = [str(d.id) for d in devs]
+        await db.commit()
+        db.expunge_all()
+        return count, ids
 
     async def _software(self, gw: Gateway, db: AsyncSession, started) -> int:
         from api.core.software_ingest import prune_run, upsert
@@ -176,10 +184,26 @@ class TaniumConnector(BaseConnector):
                     name, ver = _clean(a.get("name"), 256), _clean(a.get("version"), 128) or ""
                     if name and p.get("name"):
                         items.setdefault((name, ver), {"product": name, "version": ver, "hosts": []})["hosts"].append(p["name"])
-            n += await upsert(db, list(items.values()), SOURCE, cache)
+            n += await retry(db, lambda items=items: upsert(db, list(items.values()), SOURCE, cache))
         await prune_run(db, SOURCE, started)
         await db.commit()
         return n
+
+
+async def retry(db: AsyncSession, fn, tries: int = 4):
+    """Run one page's writes; a deadlock with another job writing the same assets (an EDR import) rolls the page back
+    and runs it again, so the sync doesn't fail on it."""
+    from sqlalchemy.exc import DBAPIError
+    for i in range(tries):
+        try:
+            return await fn()
+        except DBAPIError as e:
+            if "deadlock" not in str(e).lower() or i == tries - 1:
+                raise
+            await db.rollback()
+            db.expunge_all()
+            log.info("Tanium: a page hit a deadlock with another job; retrying it")
+            await asyncio.sleep(1 + 2 * i)
 
 
 async def posture(db: AsyncSession, encryption: bool) -> None:

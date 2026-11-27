@@ -88,56 +88,64 @@ async def _catalog(db: AsyncSession, found: dict[str, dict]) -> dict[str, str]:
 
 async def sync(gw, db: AsyncSession, integration_id: str | None, listed: set[str]) -> int:
     """listed: the devices Tanium's endpoint list had this run; machines not on it are retired and their findings close."""
+    from api.integrations.tanium import retry
+    count = 0
+    async for page in gw.pages("endpoints", _FIELDS, _PAGE):
+        count += await retry(db, lambda page=page: _page(db, page, integration_id))
+    await _close_gone(db, integration_id, listed)
+    return count
+
+
+async def _page(db: AsyncSession, page: list[dict], integration_id: str | None) -> int:
+    """One page of endpoints: their new, returning and fixed CVEs (one transaction, so a retry starts clean)."""
     from api.core.device_match import find_devices
     from api.models.vuln import Finding, FindingStatus
     from api.scoring.dirty import mark_devices
     count = 0
-    async for page in gw.pages("endpoints", _FIELDS, _PAGE):
-        per = {p["name"]: reported(p) for p in page if p.get("name")}
-        hit = await find_devices(db, [n for n, r in per.items() if r])
-        found = {c: f for r in per.values() if r for c, f in r.items() if not f.get("excepted")}
-        vids = await _catalog(db, found)
-        devs = {str(hit[n].id): r for n, r in per.items() if r and n in hit}
-        existing: dict[str, dict[str, Finding]] = {}
-        ids = list(devs)
-        for i in range(0, len(ids), 200):
-            for f in (await db.execute(select(Finding).where(Finding.source == SOURCE, Finding.device_id.in_(ids[i:i + 200])))).scalars():
-                existing.setdefault(str(f.device_id), {})[f.vuln_id] = f
-        changed, now = set(), datetime.now(timezone.utc)
-        for dev, rep in devs.items():
-            want = {vids[c]: f for c, f in rep.items() if c in vids and not f.get("excepted")}
-            mine = existing.get(dev, {})
-            for vid, f in want.items():
-                row = mine.get(vid)
-                last = _day(f.get("lastFound")) or now
-                if row is None:
-                    db.add(Finding(device_id=dev, vuln_id=vid, source=SOURCE, source_id=f"{dev}:{f.get('cveId')}"[:256],
-                                   integration_id=integration_id, status=FindingStatus.open, details={"proof": proof(f)},
-                                   first_detected=_day(f.get("firstFound")) or now, last_seen=last, exposure="local"))
-                    changed.add(dev)
-                    count += 1
-                    continue
-                if row.integration_id not in (None, integration_id):
-                    continue   # another Tanium integration's
-                if row.status == FindingStatus.remediated or (row.status == FindingStatus.merged and row.closed_at):
-                    row.status, row.closed_at, row.closed_note = FindingStatus.open, None, None
-                    row.details = {"proof": proof(f)}
-                    changed.add(dev)
-                if row.last_seen is None or row.last_seen.date() != last.date():
-                    row.last_seen = last
+    per = {p["name"]: reported(p) for p in page if p.get("name")}
+    hit = await find_devices(db, [n for n, r in per.items() if r])
+    found = {c: f for r in per.values() if r for c, f in r.items() if not f.get("excepted")}
+    vids = await _catalog(db, found)
+    devs = {str(hit[n].id): r for n, r in per.items() if r and n in hit}
+    existing: dict[str, dict[str, Finding]] = {}
+    ids = list(devs)
+    for i in range(0, len(ids), 200):
+        for f in (await db.execute(select(Finding).where(Finding.source == SOURCE, Finding.device_id.in_(ids[i:i + 200])))).scalars():
+            existing.setdefault(str(f.device_id), {})[f.vuln_id] = f
+    changed, now = set(), datetime.now(timezone.utc)
+    for dev, rep in devs.items():
+        want = {vids[c]: f for c, f in rep.items() if c in vids and not f.get("excepted")}
+        mine = existing.get(dev, {})
+        for vid, f in want.items():
+            row = mine.get(vid)
+            last = _day(f.get("lastFound")) or now
+            if row is None:
+                db.add(Finding(device_id=dev, vuln_id=vid, source=SOURCE, source_id=f"{dev}:{f.get('cveId')}"[:256],
+                               integration_id=integration_id, status=FindingStatus.open, details={"proof": proof(f)},
+                               first_detected=_day(f.get("firstFound")) or now, last_seen=last, exposure="local"))
+                changed.add(dev)
                 count += 1
-            for vid, row in mine.items():
-                if vid not in want and row.status in (FindingStatus.open, FindingStatus.merged) and row.closed_at is None \
-                        and row.integration_id in (None, integration_id):
-                    row.status, row.closed_at = FindingStatus.remediated, now   # Tanium checked again and no longer finds it
-                    row.closed_note = "Excepted in Tanium" if any(vids.get(c) == vid for c, x in rep.items() if x.get("excepted")) else None
-                    changed.add(dev)
+                continue
+            if row.integration_id not in (None, integration_id):
+                continue   # another Tanium integration's
+            if row.status == FindingStatus.remediated or (row.status == FindingStatus.merged and row.closed_at):
+                row.status, row.closed_at, row.closed_note = FindingStatus.open, None, None
+                row.details = {"proof": proof(f)}
+                changed.add(dev)
+            if row.last_seen is None or row.last_seen.date() != last.date():
+                row.last_seen = last
+            count += 1
+        for vid, row in mine.items():
+            if vid not in want and row.status in (FindingStatus.open, FindingStatus.merged) and row.closed_at is None \
+                    and row.integration_id in (None, integration_id):
+                row.status, row.closed_at = FindingStatus.remediated, now   # Tanium checked again and no longer finds it
+                row.closed_note = "Excepted in Tanium" if any(vids.get(c) == vid for c, x in rep.items() if x.get("excepted")) else None
+                changed.add(dev)
+    await db.commit()
+    if changed:
+        await mark_devices(db, list(changed))
         await db.commit()
-        if changed:
-            await mark_devices(db, list(changed))
-            await db.commit()
-        db.expunge_all()
-    await _close_gone(db, integration_id, listed)
+    db.expunge_all()
     return count
 
 

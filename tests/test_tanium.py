@@ -179,3 +179,25 @@ async def test_device_tab_hides_people_from_other_roles(db, client_admin, client
     assert r.status_code in (200, 403, 404) and (r.status_code != 200 or r.json().get("users") is None)
     await db.execute(delete(Device).where(Device.id == d.id))
     await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_a_deadlocked_page_is_retried(db, monkeypatch):
+    from sqlalchemy.exc import DBAPIError
+    from api.integrations import tanium as t
+    import asyncio
+    real = asyncio.sleep
+    monkeypatch.setattr(t.asyncio, "sleep", lambda s: real(0))
+    calls = []
+
+    async def page():
+        calls.append(1)
+        if len(calls) < 3:
+            raise DBAPIError("UPDATE devices", {}, Exception("deadlock detected"))
+        return 7
+    assert await t.retry(db, page) == 7 and len(calls) == 3
+
+    async def other():
+        raise DBAPIError("UPDATE devices", {}, Exception("some other error"))
+    with pytest.raises(DBAPIError):
+        await t.retry(db, other)   # anything but a deadlock fails at once

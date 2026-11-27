@@ -7,6 +7,11 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.23.1] - 2026-11-27
+
+### Fixed
+- Tanium's first sync failed on a database deadlock with the EDR import, both updating the same assets. Each page of a Tanium sync is now its own transaction that is rolled back and run again (up to four times) when it hits a deadlock.
+
 ## [1.23.0] - 2026-11-27
 
 ### Added
