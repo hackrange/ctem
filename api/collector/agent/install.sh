@@ -58,7 +58,7 @@ setup_args() {
 
 pick_python() {
   local py
-  for py in python3.12 python3.11 python3.10 python3.9 python3; do
+  for py in python3.14 python3.13 python3.12 python3.11 python3.10 python3.9 python3; do
     if command -v "$py" >/dev/null && "$py" -c 'import sys; sys.exit(sys.version_info < (3, 9))' 2>/dev/null; then
       command -v "$py"; return 0
     fi

@@ -7,6 +7,15 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.29.1] - 2026-11-28
+
+### Security
+- The CTEM image and the shipper image run Python 3.13.18 (were 3.12.16 and 3.12.15), pinned to the exact image rather than a moving tag. That carries the fixes for CVE-2026-115557 and CVE-2026-3446 (the latter has no 3.12 fix). The full test suite passes on 3.13.18. Rebuild Docker shippers to pick it up; a shipper installed without Docker now prefers python3.14 or 3.13 when the box has them. CVE-2026-115559 (and four more) and CVE-2026-124249 are fixed only in CPython 3.16, not released yet.
+- A software title's "reported as" names came from every asset, so a person who sees only some assets also saw the exact names (versions included) reported on others. They now come only from that person's assets, like the rest of the title.
+
+### Changed
+- SBOMs for both images, always current: `sbom.cdx.json` (CTEM) and the new `sbom-collector.cdx.json` (shipper), each built inside its exact base image by `scripts/make_sbom.sh`, and each naming its base image and Python runtime as well as every package. The precheck fails when either falls behind a pinned package or a base image.
+
 ## [1.29.0] - 2026-11-28
 
 ### Added

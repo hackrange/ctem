@@ -101,8 +101,8 @@ async def title_detail(title_id: uuid.UUID, u: User = Depends(require_permission
         .group_by(SoftwareInstall.version))).all()
     if scope is not None and not rows:
         raise HTTPException(404)   # nothing of it on this person's assets: the same answer as absent
-    names = [n for (n,) in (await db.execute(select(SoftwareInstall.product).where(
-        SoftwareInstall.title_id == t.id, SoftwareInstall.product.is_not(None)).distinct().limit(20))).all()]
+    names = [n for (n,) in (await db.execute(select(SoftwareInstall.product).where(   # as reported on this person's assets only
+        SoftwareInstall.title_id == t.id, SoftwareInstall.product.is_not(None), _live(), *_scoped(scope)).distinct().limit(20))).all()]
     return {**_title(t), "can_decide": _deciders(u), "reported_as": sorted(set(names)),
             "versions": sorted([{"version": v or "(unknown)", "raw": v, "assets": n, "last_seen": ls.isoformat() if ls else None}
                                 for v, n, ls in rows], key=lambda x: _vkey(x["raw"]), reverse=True)}

@@ -62,8 +62,11 @@ def test_the_app_code_is_not_owned_by_the_user_it_runs_as():
 
 
 def test_the_collector_image_python_is_patched():
-    m = re.search(r"^FROM python:3\.12\.(\d+)", (ROOT / "api" / "collector" / "agent" / "Dockerfile").read_text(), re.M)
-    assert m and int(m.group(1)) >= 14
+    """Both images pin an exact, patched Python (a moving tag hides what ships from the SBOM and the scanners)."""
+    for df in (ROOT / "api" / "collector" / "agent" / "Dockerfile", ROOT / "docker" / "Dockerfile"):
+        m = re.search(r"^FROM python:(\d+)\.(\d+)\.(\d+)-", df.read_text(), re.M)
+        assert m, f"{df} must pin an exact Python version"
+        assert tuple(int(x) for x in m.groups()) >= (3, 12, 14)
 
 
 def test_the_scheduler_keeps_its_schedule_file_outside_the_read_only_code():

@@ -429,11 +429,10 @@ Runtime dependencies live in `requirements.txt`; test and SBOM tooling live in `
 
 ## SBOM
 
-A CycloneDX Software Bill of Materials for the runtime image ships at `sbom.cdx.json`. Regenerate it whenever `requirements.txt` changes:
+CycloneDX Software Bills of Materials ship with the code: `sbom.cdx.json` for the CTEM image and `sbom-collector.cdx.json` for the on-prem shipper image. Each lists every installed Python package plus its base image and Python runtime, and is built inside that exact base image, so it describes what really ships. Regenerate both whenever a base image or a pinned package changes (requirements.txt, or the shipper Dockerfile's pins); the precheck fails until they match:
 
 ```bash
-python3 -m venv /tmp/sbom-env && /tmp/sbom-env/bin/pip install -r requirements.txt
-.venv/bin/cyclonedx-py environment /tmp/sbom-env/bin/python --of JSON -o sbom.cdx.json
+scripts/make_sbom.sh
 ```
 
 ---
