@@ -163,7 +163,7 @@ async def _recalculate_device(device: Device, db: AsyncSession) -> RiskScore:
         score, grade = 0.0, "A"
 
     # Per-finding scores feed the sortable finding lists on the device and vuln pages
-    worst = (-1.0, [])
+    worst = (-1.0, [], None)   # (score, reasons, the finding): the page names the finding the reasons are about
     for i, (f, data) in enumerate(zip(findings, findings_data)):
         if app:
             fs, why = per_finding[i][0], per_finding[i][2]
@@ -171,7 +171,7 @@ async def _recalculate_device(device: Device, db: AsyncSession) -> RiskScore:
         elif "cloud" in data:
             fs, mult = data["cloud"]
             if fs > worst[0]:
-                worst = (fs, list(mult))
+                worst = (fs, list(mult), f.id)
         else:
             fs, mult = score_finding(
                 cvss_base=data["cvss_base"], epss_score=data["epss_score"], is_kev=data["is_kev"],
@@ -179,12 +179,12 @@ async def _recalculate_device(device: Device, db: AsyncSession) -> RiskScore:
                 ctx=data["control_context"],
             )
             if fs > worst[0] and mult and str(mult[0]).startswith("Likelihood "):
-                worst = (fs, list(mult))   # the risk-based reasons already name CVSS, EPSS, KEV and criticality
+                worst = (fs, list(mult), f.id)   # the risk-based reasons already name CVSS, EPSS, KEV and criticality
             elif fs > worst[0]:
                 base = [f"CVSS {data['cvss_base']:.1f}", f"EPSS {data['epss_score'] * 100:.1f}%"]
                 base += ["known exploited (KEV)"] if data["is_kev"] else []
                 base += [f"asset criticality {data['asset_criticality']:.2f}"]
-                worst = (fs, base + list(mult))
+                worst = (fs, base + list(mult), f.id)
         f.raw_score, f.raw_grade = round(fs, 1), device_grade(fs)
         f.composite_score = 0.0 if contained else f.raw_score
         f.risk_grade = "A" if contained else f.raw_grade
@@ -194,7 +194,7 @@ async def _recalculate_device(device: Device, db: AsyncSession) -> RiskScore:
                if findings else "no open findings")
         if contained:
             why = "contained by the EDR or not in scope, so nothing counts right now"
-        breakdown = json.dumps({"model": "host", "why": why, "worst": worst[1]})[:1000]
+        breakdown = _fit({"model": "host", "why": why, "worst": worst[1], "finding_id": str(worst[2]) if worst[2] else None})
     # Contained or Not In Scope: the findings stay stored and shown, but none of them count
     device.open_findings = 0 if contained else len(findings)
     device.kev_findings = 0 if contained else sum(1 for f in findings if f.vuln and f.vuln.is_kev)
@@ -406,6 +406,16 @@ async def refresh_affected_counts(db: AsyncSession) -> None:
 
 # Scanner-assigned business criticality beats the server/workstation guess
 _CRITICALITY = {"Very High": 1.0, "High": 0.85, "Medium": 0.6, "Low": 0.4, "Very Low": 0.25}
+
+
+def _fit(out: dict, cap: int = 1000) -> str:
+    """The breakdown as JSON within its column: drop the least telling reasons rather than cut the JSON mid-way."""
+    reasons = list(out.get("worst") or [])
+    while True:
+        text = json.dumps({**out, "worst": reasons})
+        if len(text) <= cap or not reasons:
+            return text[:cap]
+        reasons.pop()
 
 
 def _days_since(dt: datetime | None) -> int:

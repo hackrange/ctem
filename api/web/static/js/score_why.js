@@ -46,9 +46,28 @@ window.ScoreWhy = (() => {
         <h2 id="score-why-title" class="panel__title" style="margin:0"></h2>
         <button type="button" class="btn btn--ghost btn--sm" data-close aria-label="Close">&#10005;</button></div>
       <div id="score-why-body"></div></div>`;
-    dlg.addEventListener('click', e => { if (e.target === dlg || e.target.closest('[data-close]')) dlg.close(); });
+    dlg.addEventListener('click', e => {
+      if (e.target === dlg || e.target.closest('[data-close]')) dlg.close();
+      const t = e.target.closest('[data-tab]');   // a tab on this page: close and open it
+      if (t && window.AssetSoftware) { e.preventDefault(); dlg.close(); AssetSoftware.show(t.dataset.tab); }
+    });
     document.body.appendChild(dlg);
     return dlg;
+  }
+
+  // The finding the reasons are about, linked to its vulnerability: ": CVE-2026-1234 Acme Viewer heap overflow"
+  function worst(f) {
+    if (!f) return ':';
+    const what = [f.cve_id, f.title && f.title !== f.cve_id ? f.title : null].filter(Boolean).join(' ') || 'this finding';
+    return `: <a class="dt-link" href="/vulns/${encodeURIComponent(f.vuln_id)}">${esc(what)}</a>`;
+  }
+
+  // Which pentest proved it, and when
+  function proved(f) {
+    const p = f && f.pentest;
+    if (!p || !(p.name || p.completed_at)) return '';
+    const when = p.completed_at ? new Date(p.completed_at).toLocaleDateString() : '';
+    return `<p class="text-sm" style="margin:6px 0 0">Proved by the NodeZero pentest ${p.name ? `<b>${esc(p.name)}</b>` : ''}${when ? ` completed ${esc(when)}` : ''}; the proof and how it got in are on the <a class="dt-link" href="#pentest" data-tab="pentest">Pentest</a> tab.</p>`;
   }
 
   function render(el, d) {
@@ -62,7 +81,8 @@ window.ScoreWhy = (() => {
       m.querySelector('#score-why-title').textContent = label;
       m.querySelector('#score-why-body').innerHTML =
         `<p class="text-sm" style="margin:6px 0 0">${esc(cap(String(w.why || '')))}</p>`
-        + (rows.length ? '<p class="text-sm text-muted" style="margin:2px 0 0">For the finding that weighs most on this score:</p>' : '')
+        + (rows.length ? `<p class="text-sm text-muted" style="margin:2px 0 0">For the finding that weighs most on this score${worst(w.finding)}</p>` : '')
+        + proved(w.finding)
         + table('What decreases the risk', rows.filter(r => r.side === 'down'), '--severity-low')
         + table('What increases the risk', rows.filter(r => r.side === 'up'), '--severity-critical');
       m.showModal();

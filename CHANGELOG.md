@@ -7,6 +7,11 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.29.5] - 2026-11-28
+
+### Fixed
+- "Why C, risk 54/100?" on an asset listed reasons (say, "A pentest exploited it here") without saying what: which finding they were about, or which pentest. It now names the finding that weighs most, as a link to its vulnerability, and the NodeZero pentest that proved it and when (found on the finding, or on the pentest's own finding for that CVE merged into it), with a link to the Pentest tab. An asset shows it from its next rescore. The explanation also stays valid when its reasons are long (the least telling are dropped instead of the text being cut).
+
 ## [1.29.4] - 2026-11-28
 
 ### Changed

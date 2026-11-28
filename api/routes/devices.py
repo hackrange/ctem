@@ -278,7 +278,34 @@ async def _score_why(db, device_id: str) -> dict | None:
         out = json.loads(raw) if raw else None
     except ValueError:
         return None
-    return out if isinstance(out, dict) else None
+    if not isinstance(out, dict):
+        return None
+    if out.get("finding_id"):
+        out["finding"] = await _worst_finding(db, device_id, str(out["finding_id"]))
+    return out
+
+
+async def _worst_finding(db, device_id: str, finding_id: str) -> dict | None:
+    """The finding the score's reasons are about: its CVE and title, and the pentest that proved it (on the finding,
+    or on the pentest's own finding for that CVE here, merged into it)."""
+    from api.integrations.pentest_merge import PENTEST_SOURCES
+    f = (await db.execute(select(Finding).options(selectinload(Finding.vuln)).where(
+        Finding.id == finding_id, Finding.device_id == str(device_id)))).scalar_one_or_none()   # only this device's
+    if f is None:
+        return None
+    v = f.vuln
+    pt = (f.details or {}).get("pentest") if isinstance(f.details, dict) else None
+    if not pt and v is not None and v.cve_id:
+        for d in (await db.execute(select(Finding.details).join(Vulnerability, Vulnerability.id == Finding.vuln_id).where(
+                Finding.device_id == str(device_id), Finding.source.in_(PENTEST_SOURCES),
+                Vulnerability.cve_id == v.cve_id))).scalars():
+            if isinstance(d, dict) and isinstance(d.get("pentest"), dict):
+                pt = d["pentest"]
+                break
+    return {"id": str(f.id), "vuln_id": str(f.vuln_id), "cve_id": v.cve_id if v else None,
+            "title": (v.title if v else None), "source": f.source,
+            "pentest": {"name": str(pt.get("name") or "")[:200] or None, "completed_at": pt.get("completed_at")}
+            if isinstance(pt, dict) else None}
 
 
 def _findings_query(device_id: str, status: str | None, q: str | None):
