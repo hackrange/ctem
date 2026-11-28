@@ -7,6 +7,11 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.29.2] - 2026-11-28
+
+### Changed
+- README: "What's in this repository", near the top, says which files and folders are needed to run CTEM and which are development only (the test suite, test and SBOM tooling, repository housekeeping), so the public repository reads clearly. The version line at the top is current again (it said 1.15.0).
+
 ## [1.29.1] - 2026-11-28
 
 ### Security

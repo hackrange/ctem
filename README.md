@@ -3,7 +3,7 @@
 **Continuous Threat Exposure Management** -- open source, risk-based, built to outclass every commercial CTEM product.
 
 > Author: Tim Rice &lt;tim.j.rice@hackrange.com&gt;  
-> Version: 1.15.0  
+> Version: 1.29.2  
 > License: MIT
 
 ## Install
@@ -15,6 +15,42 @@ curl -fsSL https://raw.githubusercontent.com/hackrange/ctem/main/get-ctem.sh | s
 Ubuntu 22.04 or newer. Installs Docker and everything else it needs, then prints how to sign in. Add `-s -- --restore FILE` after `bash` to rebuild a server from a backup. Details in [Installation and backups](#installation-and-backups).
 
 ---
+
+## What's in this repository
+
+Only `api/`, `requirements.txt` and the `docker/` files go into the running CTEM; installing uses the scripts at the
+top. Everything marked *development only* is for people working on the code and never ships in the image.
+
+| Path | What it is | Needed to run CTEM? |
+|---|---|---|
+| `get-ctem.sh`, `install.sh`, `upgrade.sh` | One-line bootstrap (checks Ubuntu, clones, installs), the installer, and the upgrader | Yes: how you install and upgrade |
+| `api/` | The application (below) | Yes |
+| `docker/` | Dockerfile, docker-compose.yml, nginx.conf | Yes |
+| `requirements.txt` | Runtime Python packages, pinned | Yes |
+| `.env.example` | The settings file the installer fills in | Yes, as a template |
+| `scripts/installer/` | install.sh helpers: dependencies, backup, restore, maintenance agent | Yes, used by install.sh |
+| `sbom.cdx.json`, `sbom-collector.cdx.json` | Software Bills of Materials for the CTEM and shipper images | No: a record of what ships |
+| `docs/` | Longer write-ups (project overview, integration validation, ServiceNow caller verification) | No: reading |
+| `CHANGELOG.md`, `LICENSE` | Release history and the MIT license | No |
+| `tests/` | The automated test suite (about 1,400 tests that check the code behaves as intended) | No: development only |
+| `requirements-dev.txt`, `pytest.ini` | Test and SBOM tooling and the test settings | No: development only |
+| `scripts/make_sbom.sh` | Regenerates both SBOMs inside their exact base images | No: development only |
+| `.github/`, `.gitleaks.toml`, `.gitignore` | Secret-scanning settings and repository housekeeping | No: development only |
+
+Inside `api/`:
+
+```
+api/
+  auth/          OIDC, local login, TOTP, RBAC middleware
+  core/          Config, DB, encryption, SSRF client, Celery tasks, security middleware
+  collector/     On-prem shipper: ingest + profile rules (server) and agent/ (the code installed on the box)
+  integrations/  Vendor connectors (one file per vendor)
+  maintenance/   Data repair commands, backup archive format, post-restore key check, host maintenance agent
+  models/        SQLAlchemy ORM models
+  routes/        FastAPI route handlers
+  scoring/       Risk engine: compensating controls, admin sign-ins, CVE chains, device/user scores
+  web/           Jinja2 templates + static assets
+```
 
 ## What it does
 
@@ -486,26 +522,6 @@ Counts are server-side totals across every device you can see. Click a risk card
 - Spoof-proof client IPs: API token IP binding and rate limits use the address nginx vetted, never a raw header
 - Encryption: AES-256-GCM column encryption with per-record nonce; HMAC-SHA256 for indexed lookups
 - Headers: HSTS, CSP, X-Frame-Options: DENY, X-Content-Type-Options: nosniff
-
----
-
-## Project layout
-
-```
-api/
-  auth/        OIDC, local login, TOTP, RBAC middleware
-  core/        Config, DB, encryption, SSRF client, Celery tasks, security middleware
-  collector/   On-prem shipper: ingest + profile rules (server) and agent/ (the code installed on the box)
-  integrations/ Vendor connectors (one file per vendor)
-  maintenance/ Data repair commands, backup archive format, post-restore key check, host maintenance agent
-  models/      SQLAlchemy ORM models
-  routes/      FastAPI route handlers
-  scoring/     Risk engine: compensating controls, CVE chains, device/user scores
-  web/         Jinja2 templates + static assets
-docker/        Dockerfile, docker-compose.yml, nginx.conf
-scripts/installer/  install.sh helpers: dependencies, backup, restore, maintenance agent
-get-ctem.sh    One-line bootstrap: checks Ubuntu, installs git, clones, runs install.sh
-```
 
 ---
 
