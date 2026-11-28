@@ -7,6 +7,11 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.29.6] - 2026-11-28
+
+### Fixed
+- The asset's "Why" also names the pentest behind NodeZero's own findings (for example a weakness with no CVE): the pentest's name and date from the asset's newest pentest view when it's the same pentest, otherwise when NodeZero last found it.
+
 ## [1.29.5] - 2026-11-28
 
 ### Fixed

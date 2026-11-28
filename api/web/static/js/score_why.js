@@ -67,7 +67,9 @@ window.ScoreWhy = (() => {
     const p = f && f.pentest;
     if (!p || !(p.name || p.completed_at)) return '';
     const when = p.completed_at ? new Date(p.completed_at).toLocaleDateString() : '';
-    return `<p class="text-sm" style="margin:6px 0 0">Proved by the NodeZero pentest ${p.name ? `<b>${esc(p.name)}</b>` : ''}${when ? ` completed ${esc(when)}` : ''}; the proof and how it got in are on the <a class="dt-link" href="#pentest" data-tab="pentest">Pentest</a> tab.</p>`;
+    const what = p.name ? `Proved by the NodeZero pentest <b>${esc(p.name)}</b>${when ? ` completed ${esc(when)}` : ''}`
+      : `NodeZero last found it on ${esc(when)}`;
+    return `<p class="text-sm" style="margin:6px 0 0">${what}; the proof and how it got in are on the <a class="dt-link" href="#pentest" data-tab="pentest">Pentest</a> tab.</p>`;
   }
 
   function render(el, d) {

@@ -294,7 +294,13 @@ async def _worst_finding(db, device_id: str, finding_id: str) -> dict | None:
     if f is None:
         return None
     v = f.vuln
-    pt = (f.details or {}).get("pentest") if isinstance(f.details, dict) else None
+    det = f.details if isinstance(f.details, dict) else {}
+    pt = det.get("pentest") if isinstance(det.get("pentest"), dict) else None
+    if not pt and det.get("last_pentest"):   # NodeZero's own finding: its last pentest by id, named from the device's view
+        from api.models.device import Device
+        view = (await db.get(Device, str(device_id))).pentest or {}
+        same = str(view.get("pentest_id") or "") == str(det["last_pentest"])
+        pt = {"name": view.get("pentest") if same else None, "completed_at": (view.get("tested_at") if same else None) or det.get("last_seen")}
     if not pt and v is not None and v.cve_id:
         for d in (await db.execute(select(Finding.details).join(Vulnerability, Vulnerability.id == Finding.vuln_id).where(
                 Finding.device_id == str(device_id), Finding.source.in_(PENTEST_SOURCES),
