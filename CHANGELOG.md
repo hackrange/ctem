@@ -7,6 +7,12 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.29.7] - 2026-11-28
+
+### Fixed
+- The daily full rescore didn't run when the server was deployed more than once a day: it was a "every 24 hours from when the scheduler started" timer, which restarts with every deploy, so many assets went days without a full rescore (anything that didn't change, such as days offline or a new scoring factor, waited). The full rescore now runs at 05:00 UTC and the threat intel refresh at 01:30 UTC every day, whatever restarts in between; a test keeps any job from running on a day-long timer again.
+- A NodeZero sync could do an hour of work and then lose all of it to a deadlock with another job writing the same assets in its last save (every open weakness, then the rest closed). That save is now retried from the start, as each pentest's own save already was.
+
 ## [1.29.6] - 2026-11-28
 
 ### Fixed

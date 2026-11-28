@@ -3,7 +3,7 @@
 **Continuous Threat Exposure Management**: open source, risk-based exposure management that scores what an attacker can actually reach.
 
 > Author: Tim Rice &lt;tim.j.rice@hackrange.com&gt;  
-> Version: 1.29.6  
+> Version: 1.29.7  
 > License: MIT
 
 ## Install

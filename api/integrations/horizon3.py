@@ -198,6 +198,30 @@ class Horizon3Connector(BaseConnector):
                 await asyncio.sleep(2 * (attempt + 1))
         return 0
 
+    async def _save_series(self, db, apply, series, open_series, proof, tries: int = 3) -> tuple[int, int]:
+        """Every open weakness written and the rest closed, in one transaction; a deadlock with another writer to the
+        same assets (an EDR import) rolls it back and runs it again from the start (it's an upsert), instead of losing
+        the whole sync's work."""
+        import asyncio
+
+        from sqlalchemy.exc import DBAPIError
+        iid = getattr(self, "integration_id", None)
+        for attempt in range(tries):
+            cache: dict = {}   # devices looked up in this attempt's transaction
+            try:
+                wrote, seen = await series.apply(db, open_series, proof, lambda ip: apply._device(db, ip, None, cache), iid)
+                closed = await series.close_the_rest(db, seen, iid)
+                await series.mark_exploited(db)   # what's still open and proved, now that the rest is gone
+                await db.commit()
+                return wrote, closed
+            except DBAPIError as e:
+                await db.rollback()
+                if "deadlock" not in str(e).lower() or attempt == tries - 1:
+                    raise
+                log.warning("Horizon3: deadlock saving the open weaknesses; retrying")
+                await asyncio.sleep(5 * (attempt + 1))
+        return 0, 0
+
     async def sync(self, db: AsyncSession) -> int:
         self.notes = []
         days = int(self.config.get("op_days") or 30)
@@ -232,12 +256,7 @@ class Horizon3Connector(BaseConnector):
                         key = (w.get("ip"), str(w.get("vuln_id") or "")[:200])
                         if not isinstance(proof.get(key), dict):   # ops come newest first: the newest proof wins
                             proof[key] = story.proof_of(w, op)
-                cache: dict = {}
-                iid = getattr(self, "integration_id", None)
-                wrote, seen = await series.apply(db, open_series, proof, lambda ip: apply._device(db, ip, None, cache), iid)
-                closed = await series.close_the_rest(db, seen, iid)
-                await series.mark_exploited(db)   # what's still open and proved, now that the rest is gone
-                await db.commit()
+                wrote, closed = await self._save_series(db, apply, series, open_series, proof)
                 from api.integrations.pentest_merge import reconcile
                 await reconcile(db)   # what a scanner also has open stays one finding (the scanner's)
                 log.info("Horizon3: %d open weaknesses from %d series, %d closed", wrote, len(open_series), closed)
