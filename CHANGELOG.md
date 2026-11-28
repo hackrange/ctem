@@ -7,6 +7,11 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.33.1] - 2026-11-28
+
+### Changed
+- Installing where ports 80 or 443 are already in use no longer fails. The installer says which port is taken and by what, gives open-ctem free ports on this server only (HTTP 8080, HTTPS 8443, the reverse proxy listener 8085, or the next free ones) in `.env`, trusts the client address a reverse proxy on this server forwards, and ends by saying what to point the proxy at. A restore onto such a server does the same. With 80 and 443 free nothing changes; the ports are now settings (`PUBLIC_BIND`, `HTTP_PORT`, `HTTPS_PORT`, `LB_PORT`).
+
 ## [1.33.0] - 2026-11-28
 
 ### Added

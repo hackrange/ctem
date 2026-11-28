@@ -137,23 +137,83 @@ ensure_py_crypto() {
   _apt install python3 python3-cryptography >/dev/null || die "Could not install python3-cryptography."
 }
 
+port_busy() { [[ -n "$(ss -Hltn "sport = :${1}" 2>/dev/null | head -n1)" ]]; }
+
+free_port() {   # free_port <first>: the first free TCP port from there on
+  local p="$1" i
+  for ((i = 0; i < 100; i++, p++)); do port_busy "$p" || { echo "$p"; return 0; }; done
+  die "No free port found from ${1}."
+}
+
+# Ports 80 and 443 taken (another web server or a reverse proxy already there): don't fail. open-ctem takes free
+# ports on this server only instead, and the install ends by saying what to point the reverse proxy at.
+PROXY_MODE=0 TAKEN=""
 check_ports() {
-  local port busy
+  local port busy taken=()
   for port in 80 443; do
     busy=$(ss -Hltnp "sport = :${port}" 2>/dev/null | head -n1)
     if [[ -n "$busy" ]]; then
       warn "Port ${port} is already in use on this server:"
       hint "${busy}"
-      die "open-ctem serves on ports 80 and 443. Stop whatever is using them, then run this again."
+      taken+=("$port")
     fi
   done
+  (( ${#taken[@]} )) || { port_busy 8085 && die "Port 8085 (the load balancer and reverse proxy listener) is in use; free it, then run this again."; return 0; }
+  PROXY_MODE=1
+  TAKEN=$( (( ${#taken[@]} == 2 )) && echo "Ports 80 and 443 are" || echo "Port ${taken[0]} is")
+  HTTP_PORT=$(free_port 8080); HTTPS_PORT=$(free_port 8443); LB_PORT=$(free_port 8085)
+  warn "${TAKEN} already in use, so open-ctem won't take the public ports 80 and 443."
+  hint "It listens on this server only instead: HTTP ${HTTP_PORT}, HTTPS ${HTTPS_PORT}, and the reverse proxy port ${LB_PORT}."
+}
+
+# Writes the ports chosen above into .env (a fresh install's or a restored one), once.
+apply_port_env() {
+  (( PROXY_MODE )) || return 0
+  grep -q '^HTTPS_PORT=' "$ENV_FILE" && return 0
+  {
+    echo
+    echo "# ── Ports (80 or 443 were in use at install: a reverse proxy in front) ─────────────"
+    echo "PUBLIC_BIND=127.0.0.1:"
+    echo "HTTP_PORT=${HTTP_PORT}"
+    echo "HTTPS_PORT=${HTTPS_PORT}"
+    echo "LB_PORT=${LB_PORT}"
+  } >> "$ENV_FILE"
+}
+
+# A reverse proxy on this server reaches the listener through Docker's network gateway: trust the client address it
+# forwards (X-Forwarded-For) from that address only, so CTEM sees real client IPs. Once, after the stack is up.
+trust_local_proxy() {
+  (( PROXY_MODE )) || return 0
+  grep -q '^LB_TRUSTED_IPS=.' "$ENV_FILE" && return 0
+  local net gw
+  net=$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$(_compose ps -q nginx)" 2>/dev/null | awk '{print $1}')
+  gw=$(docker network inspect -f '{{range .IPAM.Config}}{{.Gateway}} {{end}}' "$net" 2>/dev/null | awk '{print $1}')
+  [[ "$gw" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || { warn "Couldn't find Docker's gateway: client IPs behind the proxy show as the proxy."; return 0; }
+  echo "LB_TRUSTED_IPS=${gw}" >> "$ENV_FILE"
+  _compose up -d --no-deps nginx </dev/null >/dev/null 2>&1 || true
+}
+
+# What to point the reverse proxy at, for the end of an install or restore
+proxy_hints() {
+  (( PROXY_MODE )) || return 0
+  echo
+  warn "$(echo "${TAKEN:-Ports 80 and 443 are}" | sed 's/ are$/ were/; s/ is$/ was/') already in use, so open-ctem did not take the public ports."
+  hint "Point your reverse proxy at:   http://127.0.0.1:${LB_PORT}   (TLS ends at your proxy; send Host and X-Forwarded-For)"
+  hint "open-ctem's own HTTPS, for checks on this server: https://127.0.0.1:${HTTPS_PORT}"
+  hint "Then set PUBLIC_URL to your proxy's https address, and add its host name to ALLOWED_HOSTS, in ${ENV_FILE}."
+}
+
+env_port() {   # the HTTPS port open-ctem publishes (443 unless .env moved it)
+  local p
+  p=$(grep -m1 '^HTTPS_PORT=' "$ENV_FILE" 2>/dev/null | cut -d= -f2)
+  [[ "$p" =~ ^[0-9]{1,5}$ ]] && echo "$p" || echo 443
 }
 
 wait_healthy() {
   local secs="${1:-180}" i
   say "Waiting for the app to become healthy (up to $((secs / 60)) minutes)..."
   for ((i = 0; i < secs; i += 3)); do
-    if curl -fsk --max-time 5 https://localhost/health >/dev/null 2>&1; then echo; ok "App is healthy."; return 0; fi
+    if curl -fsk --max-time 5 "https://localhost:$(env_port)/health" >/dev/null 2>&1; then echo; ok "App is healthy."; return 0; fi
     printf '.'; sleep 3
   done
   echo

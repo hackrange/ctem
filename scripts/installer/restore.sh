@@ -219,6 +219,7 @@ do_restore() {
   if [[ "$mode" != inplace ]]; then
     : > "$RESTORE_MARK"
     mv "$newenv" "$ENV_FILE"
+    apply_port_env   # 80 or 443 in use on this server: the restored .env takes the free ports chosen above
     _put_host_files
     say "Pulling and building the containers (a few minutes)..."
     _compose pull --quiet --ignore-buildable </dev/null || die "Could not pull the container images."
@@ -251,6 +252,8 @@ do_restore() {
   # Containers keep the environment they were created with; every one must pick up the restored keys
   _compose up -d --no-deps --force-recreate app worker beat nginx </dev/null || die "Could not restart the app."
   wait_healthy 600 || die "The app did not come up. Check: docker compose -f ${COMPOSE_FILE} logs app"
+  trust_local_proxy
+  proxy_hints
   _compose exec -T app python -m api.maintenance.restore_check </dev/null \
     || die "The restored data does not open with the restored keys. Do not use this server; check the backup."
   ok "Encryption keys open the restored data."

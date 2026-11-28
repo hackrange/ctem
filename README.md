@@ -3,7 +3,7 @@
 **Continuous Threat Exposure Management**: open source, risk-based exposure management that scores what an attacker can actually reach.
 
 > Author: Tim Rice &lt;tim.j.rice@hackrange.com&gt;  
-> Version: 1.33.0  
+> Version: 1.33.1  
 > License: MIT
 
 ## Install
@@ -456,6 +456,10 @@ sudo /data/docker/ctem/upgrade.sh --check    # only say whether an update is ava
 ```
 
 `upgrade.sh` fetches from `origin`, lists the new commits (and exits if there are none), waits for any integration sync that is running to finish (up to 30 minutes; `--wait N` changes that, `--now` skips it), then runs `install.sh --upgrade`. That upgrade refuses to run over uncommitted local changes, takes a full encrypted backup into `backups/` (adding `BACKUP_ENCRYPTION_PASSWORD` to `.env` first if an older install has none), fast-forwards the checkout from `origin`, pulls the base images, rebuilds the app, worker and beat images, restarts the stack and waits for `/health`. If the app doesn't come up healthy it rolls the code back and rebuilds the previous version, unless the new version has already re-encrypted secrets the old one can't read: then the code stays, and you fix the cause or restore the backup with `--restore`. Restore the backup too if you need the data back. A local `docker/docker-compose.override.yml` is honored. Schema changes apply on startup, so there's no separate migration step. Shippers on other boxes are upgraded separately (see On-prem shippers).
+
+### Behind a reverse proxy on the same server
+
+If ports 80 or 443 are already in use when you install (another web server, or a reverse proxy already on the box), the installer doesn't fail: it says which port is taken and by what, gives open-ctem free ports on this server only instead (HTTP 8080, HTTPS 8443 and the reverse proxy listener 8085, or the next free ones), writes them to `.env` (`PUBLIC_BIND`, `HTTP_PORT`, `HTTPS_PORT`, `LB_PORT`), and ends by saying what to point the proxy at, for example `http://127.0.0.1:8085`. TLS ends at your proxy, which sends `Host` and `X-Forwarded-For`; the installer trusts the forwarded client address from Docker's gateway on this server only, so open-ctem sees real client IPs. Then set `PUBLIC_URL` to the proxy's https address and add its host name to `ALLOWED_HOSTS`. With 80 and 443 free, nothing changes.
 
 ### Behind an upstream load balancer
 

@@ -290,8 +290,10 @@ say "Pulling and building the containers (a few minutes)..."
 _compose pull --quiet --ignore-buildable </dev/null || die "Could not pull the container images."
 _compose build --pull --quiet </dev/null || die "Building the app image failed."
 say "Starting open-ctem..."
+apply_port_env
 _compose up -d --remove-orphans </dev/null
 wait_healthy 300 || die "App did not respond. Check logs: docker compose -f ${COMPOSE_FILE} logs app"
+trust_local_proxy
 touch "$SEAL_MARK"   # a new install seals its first admin itself
 
 echo
@@ -300,7 +302,11 @@ printf '%s║           open-ctem is ready                         ║%s\n' "$c_
 printf '%s╚══════════════════════════════════════════════════════╝%s\n' "$c_ok" "$c_off"
 echo
 printf '%s  Save these -- you will not see them again%s\n\n' "$c_warn" "$c_off"
-printf '  Web UI:           https://%s\n' "$(hostname -f 2>/dev/null || echo localhost)"
+if (( PROXY_MODE )); then
+  printf '  Web UI:           through your reverse proxy (see below), or https://127.0.0.1:%s on this server\n' "${HTTPS_PORT}"
+else
+  printf '  Web UI:           https://%s\n' "$(hostname -f 2>/dev/null || echo localhost)"
+fi
 printf '  Admin user:       %s\n' "${ADMIN_USER}"
 printf '  Admin password:   %s\n' "${ADMIN_PASS}"
 printf '  Backup password:  %s\n' "${BACKUP_PASS}"
@@ -310,4 +316,5 @@ hint "Backups:   Admin > Maintenance, or sudo bash ${INSTALL_DIR}/install.sh --b
 hint "Upgrade:   sudo ${INSTALL_DIR}/upgrade.sh"
 hint "Logs:      docker compose -f ${COMPOSE_FILE} logs -f"
 hint "Creds:     cat ${ENV_FILE}  (chmod 600, root-only)"
+proxy_hints
 echo
