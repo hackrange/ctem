@@ -6,8 +6,8 @@ verified and which aren't yet.
 - **Verified:** checked against the vendor's API reference or official SDK, run against a real tenant, and covered
   by tests.
 - **In progress:** rebuilt and confirmed against a live tenant, waiting on a first full run before it's checked off.
-- **Not yet verified:** written, but not yet checked that way. Its endpoints, authentication or response fields may
-  not match the real API, so treat it as untested.
+- **Coming soon:** written, but not yet checked that way. Its endpoints, authentication or response fields may
+  not match the real API, so treat it as untested until it moves up this page.
 
 Vendor APIs are read only, except where a feature needs to write and says so (see the README's Integrations section).
 
@@ -27,18 +27,18 @@ Vendor APIs are read only, except where a feature needs to write and says so (se
 | Okta | GETs on an allow-list of paths; rate-limit headers honored, with half of each bucket left for the org |
 | Tanium (Cloud API Gateway) | GraphQL over GET, read queries only, an allow-list of sensors (never BitLocker Key) |
 | Grip Security | GET only |
+| Rapid7 InsightCloudSec | GET only; confirmed against a live tenant and in production use |
 | Persona | Identity verification: creates, approves and declines inquiries |
 
 ## In progress
 
 | Integration | Status |
 |---|---|
-| Rapid7 InsightCloudSec | Rebuilt on GET endpoints confirmed against a live tenant; checked off after its first full sync |
 | Horizon3.ai NodeZero | Rebuilt on the GraphQL API, confirmed field by field against a live tenant; checked off after its first full sync |
 | Email (SMTP, Microsoft 365) | Checked off after a test send on each |
 | Twilio | SMS for identity verification; checked off after a test send |
 
-## Not yet verified
+## Coming soon
 
 Palo Alto Cortex XDR, Fortinet (FortiGate / FortiAnalyzer), Snyk, Microsoft Defender for Endpoint, SentinelOne,
 Palo Alto NGFW, GitHub Advanced Security, ForgeRepo, Qualys VMDR, Akamai Guardicore, ServiceNow (ticket write-back),
