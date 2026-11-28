@@ -269,6 +269,7 @@ async def test_a_probe_answer_counts_as_last_seen(db, client_cyber):
                   last_seen=now - timedelta(days=40), alive_at=now - timedelta(minutes=5)))
     await db.commit()
     d = [x for x in (await client_cyber.get("/api/v1/devices", params={"q": name})).json()["devices"] if x["hostname"].lower() == name][0]
-    assert d["last_seen_by"] == "net probe" and d["last_seen"].startswith(now.date().isoformat())
+    seen = datetime.fromisoformat(d["last_seen"])   # the probe's answer 5 minutes ago (not today's date: midnight)
+    assert d["last_seen_by"] == "net probe" and abs((seen - (now - timedelta(minutes=5))).total_seconds()) < 60
     assert d["scan_last_seen"].startswith((now - timedelta(days=40)).date().isoformat())   # the scanner's own date stays
     assert "net probe" in d["seen_by"]

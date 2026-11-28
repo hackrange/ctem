@@ -15,6 +15,7 @@ class ControlContext:
     nodezero_confirmed_not_exploitable: bool = False
     is_internet_exposed: bool = False
     holds_privileged_creds: bool = False    # domain admin, service account with high priv
+    admin_signin: tuple | None = None       # (factor, reason): an admin signs in interactively here (api/scoring/admin_signin.py)
     device_offline_days: int = 0            # how long since last seen
     # Reachability facts for this finding
     attack_vector: str | None = None        # CVSS: network, adjacent, local, physical
@@ -46,7 +47,10 @@ def apply_multipliers(base_score: float, ctx: ControlContext) -> tuple[float, li
     if ctx.is_internet_exposed:
         score *= 1.5
         reasons.append("Internet-exposed asset (+50%)")
-    if ctx.holds_privileged_creds:
+    if ctx.admin_signin:
+        score *= ctx.admin_signin[0]
+        reasons.append(ctx.admin_signin[1])
+    elif ctx.holds_privileged_creds:
         score *= 1.4
         reasons.append("Asset holds privileged credentials (+40%)")
     if not ctx.edr_active:
@@ -100,7 +104,10 @@ def protections(ctx: ControlContext) -> tuple[float, float, list[str]]:
         lik *= 0.7
         reasons.append(f"Device offline {ctx.device_offline_days}d (-30%)")
     imp = 1.0
-    if ctx.holds_privileged_creds:
+    if ctx.admin_signin:   # what a compromise costs: the admin's credentials, from memory
+        imp = ctx.admin_signin[0]
+        reasons.append(ctx.admin_signin[1])
+    elif ctx.holds_privileged_creds:
         imp = 1.4
         reasons.append("Asset holds privileged credentials (+40%)")
     return lik, imp, reasons

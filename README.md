@@ -30,7 +30,7 @@ reachability = pentest proof, else listening service (internet-facing or interna
 impact       = CVSS and asset criticality                                           × privileged credentials held
 ```
 
-A device's score is the average of its worst tenth of findings. Weights, the likelihood values and the reachability ladder are set in **Admin > Risk model** (Reset restores the defaults); turning it off goes back to the classic CVE-weighted score (CVSS 25%, EPSS 30%, KEV 20%, criticality 15%, reachability 10%, then multipliers).
+**Admin sign-ins** count as privileged credentials held: an admin signing in interactively leaves their credentials in memory, so a flaw there leads to whatever they administer. On a workstation, where admins should use runas or sudo, any admin sign-in raises impact 40% (25% when only a recent sign-in was an admin). On a server, an account in a privileged AD group (Domain Admins and the like) raises it 40%, an admin-named account (the admin sign-in check's patterns, Administrator, root) 25%, a recent one 10%; servers the admin sign-in check's curated rules leave out (jump servers) don't count. The score's reasons say which. A device's score is the average of its worst tenth of findings. Weights, the likelihood values and the reachability ladder are set in **Admin > Risk model** (Reset restores the defaults); turning it off goes back to the classic CVE-weighted score (CVSS 25%, EPSS 30%, KEV 20%, criticality 15%, reachability 10%, then multipliers).
 
 **Cloud Inventory.** The Cloud page lists every AWS, Azure and OCI instance with its internet reachability (ports and the firewall that allows them), scanner and EDR coverage and findings, and singles out the ones breachable now.
 

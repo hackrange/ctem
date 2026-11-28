@@ -7,6 +7,11 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.29.0] - 2026-11-28
+
+### Added
+- An admin signing in interactively raises a host's risk (impact, through the privileged-credentials factor the model already had but nothing set). Workstations, where admins should use runas or sudo: any admin as the last sign-in +40%, an admin among recent sign-ins only +25%, with no exceptions. Servers: an account in a privileged AD group +40%, an admin-named account +25% (the admin sign-in check's patterns plus Administrator and root), recent only +10%; servers the admin sign-in check's curated rules leave out (jump servers) don't count. The score's reasons name it. Here about 500 hosts have an admin as their last sign-in and 110 among recent ones; most move one grade (A to B, B to C). A change of last sign-in rescores the host; recent sign-ins and AD group changes count at the nightly full rescore.
+
 ## [1.28.0] - 2026-11-27
 
 ### Added

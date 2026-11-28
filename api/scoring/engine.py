@@ -119,6 +119,8 @@ async def _recalculate_device(device: Device, db: AsyncSession) -> RiskScore:
     await risk_model.load(db)   # which model, and its weights
     days_offline = _days_since(device.last_seen)
     edr = await _edr_facts(device, db)
+    from api.scoring import admin_signin
+    admin = admin_signin.factor(device, await admin_signin.context(db))   # an admin signs in here: their creds are exposed
     for f in findings:
         ctx = ControlContext(
             device_type=device.device_type.value,
@@ -131,7 +133,7 @@ async def _recalculate_device(device: Device, db: AsyncSession) -> RiskScore:
             attack_vector=f.vuln.attack_vector if f.vuln else None,
             exposure=f.exposure, ports=f.ports, cloud_ports=cloud_ports,
             threat_actors=(f.vuln.threat_actors or None) if f.vuln else None,
-            port_closed=port_closed_note(f),
+            port_closed=port_closed_note(f), admin_signin=admin,
             **_edr_context(edr, f),
         )
         findings_data.append({

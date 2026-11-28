@@ -4,6 +4,7 @@ findings) through scoring every run.
 
 Inputs, by where they live (api/scoring/engine.py reads exactly these):
   device         EDR on and its policies, USB, internet exposure, criticality, type, containment, not-in-scope,
+                 who signed in last (an admin raises it; recent sign-ins and AD groups at the nightly rescore),
                  back from offline (over 30 days), its tags (repositories and sites), its cloud firewall
   finding        status, reachability and who said so, exposure, ports, domain, its vulnerability, details
   vulnerability  CVSS, EPSS, KEV, attack vector, threat actors, title and description (memory-flaw check)
@@ -20,7 +21,8 @@ from sqlalchemy import event, inspect, update
 from sqlalchemy.orm import Session
 
 DEVICE_INPUTS = ("edr_active", "edr_vendor", "edr_prevention_policy", "edr_firewall_policy", "usb_storage_blocked",
-                 "is_internet_exposed", "criticality", "device_type", "edr_contained", "scope_exempt_until")
+                 "is_internet_exposed", "criticality", "device_type", "edr_contained", "scope_exempt_until",
+                 "last_login_user")   # an admin signing in raises the score (api/scoring/admin_signin.py)
 FINDING_INPUTS = ("status", "is_reachable", "reachability_source", "exposure", "ports", "domain", "vuln_id",
                   "device_id", "details", "exception_id")
 VULN_INPUTS = ("cvss_base", "epss_score", "is_kev", "attack_vector", "threat_actors", "title", "description", "cve_id")
