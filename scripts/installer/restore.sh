@@ -203,7 +203,7 @@ do_restore() {
   if [[ "$mode" == inplace ]]; then
     warn "This replaces EVERYTHING on this server (data, users, settings, keys) with the backup."
     if [[ "${CTEM_RESTORE_CONFIRM:-}" != RESTORE ]]; then
-      [[ "$(ask_tty "Type RESTORE to continue:")" == RESTORE ]] || die "Restore cancelled. Nothing was changed."
+      [[ "$(ask_tty "Type RESTORE to continue:")" == RESTORE ]] || die "Restore canceled. Nothing was changed."
     fi
     say "Taking a safety backup of this server first..."
     local keep="${CTEM_BACKUP_PASSWORD-}"

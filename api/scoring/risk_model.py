@@ -3,8 +3,8 @@ and what it would cost, combined as a weighted geometric mean so a weak dimensio
 nobody can reach stays low; a reachable, likely one rises). Protections in place (the EDR and what its policy
 blocks, days offline, privileged credentials) then scale it, as in the classic model.
 
-Defaults come from this server's data (2026-11-25, 3.9 million open findings): reachability evidence existed for
-0.4% of findings, so the ladder infers it from the CVSS attack vector, whether a service is listening, the host's
+Defaults were set from a large real deployment: reachability evidence existed for well under 1% of findings, so the
+ladder infers it from the CVSS attack vector, whether a service is listening, the host's
 internet exposure and its role, instead of treating "unknown" as half. Admins tune the weights and the ladder in
 Admin > Risk model, and Reset brings these back."""
 from __future__ import annotations
@@ -26,7 +26,7 @@ DEFAULTS: dict = {
     "impact": {"severity": 0.6, "criticality": 0.4},
 }
 LIMITS = {"weights": (0.0, 1.0), "likelihood": (0.0, 1.0), "reachability": (0.0, 1.0), "impact": (0.0, 1.0)}
-# Of 3.9 million open findings on 2026-11-25, 99.9% had EPSS under 10%; the curve below was set from that
+# In a large real deployment nearly every open finding had EPSS under 10%; the curve below was set from that
 _cache: dict = {"at": 0.0, "cfg": None}
 
 

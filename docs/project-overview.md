@@ -8,45 +8,7 @@ What open-ctem covers, how it scores risk, and how it has been reviewed and hard
 - **The Python rewrite:** the PHP application was then rewritten from PHP to Python, as FastAPI, async SQLAlchemy on PostgreSQL with TimescaleDB, Celery and Redis.
 - **This repository:** it starts at the Python version, **1.0.1 on 2026-11-19**. The PHP versions are not in this repository's history, and the dates in this repository are when each change was actually made.
 
-| Version | Date | Theme |
-|---|---|---|
-| 1.0.1 | 2026-11-19 | First Python release: API, SSO and local sign-in with MFA, RBAC, column encryption, scoring engine, connector framework |
-| 1.1.0 | 2026-11-19 | All connectors, identity risk, attack paths, GRC, ServiceNow, installer; first hardening pass |
-| 1.2.0 | 2026-11-20 | On-prem shippers with sealed secrets, one device per host across sources, AD account health, SSO wizard, Cyber Threats |
-| 1.3.0 | 2026-11-21 | Vulnerability exceptions, vulnerability dashboard, dashboard builder with AI, cloud exposure (AWS, Azure, OCI), Bedrock |
-| 1.4.0 | 2026-11-22 | Code and web app assets (GitHub Code Review), per-user data access, SLAs, software inventory, EDR policy scoring, Horizon3 |
-| 1.5.0 | 2026-11-23 | NodeZero across all pentests, encrypted backups and restore, admin-only admin areas, read-only vendor tenants, cloud findings |
-| 1.6.0 | 2026-11-24 | Asset locations and Sites, network discovery, data retention, Threat Curated Rules |
-| 1.7.0 | 2026-11-24 | View as, stale AD user export, cloud finding grades, security review fixes, CVE de-duplication across scanner and pentest |
-| 1.8.0 | 2026-11-24 | CrowdStrike alert updates from CTEM, interactive attack maps for alerts, hunts and pentests, AI alert reads, PDF hunt reports, built-in hunt rules, stricter headers |
-| 1.8.1 | 2026-11-24 | Logon and identity details on alerts and in hunt rule findings, more of the Falcon console in CTEM, old alerts fetched again, shipper approval fix |
-| 1.8.2 | 2026-11-24 | Every connector loaded; Grip verified against a real tenant |
-| 1.9.0 | 2026-11-24 | Zscaler read-only posture and coverage, Grip extensions and credential risk, alert allow list, process and file in hunt findings, alert PDF, database upkeep |
-| 1.9.1 | 2026-11-24 | Zscaler silent agents counted per machine |
-| 1.9.2 | 2026-11-24 | Identity ITDR threats list loads again; summary cards open their tabs |
-| 1.10.0 | 2026-11-25 | Identity people, password apps and notices; clickable attack paths; maps fill the screen and show the clicked path; FairTPRM alone for shadow checks |
-| 1.10.1 | 2026-11-25 | Posture exceptions by device, tag, device type or everywhere |
-| 1.10.2 | 2026-11-25 | Load balancer trust list, read-only app code, patched collector Python |
-| 1.11.0 | 2026-11-25 | Remediated findings rolled up and removed, suppress similar alerts, context-weighed curated rules |
-| 1.11.1 | 2026-11-25 | Scheduler schedule file moved out of the read-only code directory |
-| 1.11.2 | 2026-11-25 | Fixes from a third-party penetration test |
-| 1.11.3 | 2026-11-25 | Fixes from a second penetration test; shipper 1.8.2 |
-| 1.11.4 | 2026-11-25 | Encrypted values written in the bound envelope; stored secrets re-sealed |
-| 1.12.0 | 2026-11-25 | Okta identity provider integration, Identity tab, bulk software approval, double-submitted sign-in fix |
-| 1.12.1 | 2026-11-25 | Okta: retry its intermittent 500s; a failed device pull no longer fails the sync |
-| 1.13.0 | 2026-11-25 | Okta app access: who holds which app and their last sign-in to it |
-| 1.13.1 | 2026-11-25 | Fixes from a third penetration test |
-| 1.13.2 | 2026-11-25 | Accounts and API tokens sealed; admin-set passwords one-time; NodeZero findings scoped to their integration |
-| 1.13.3 | 2026-11-25 | Post-sync scoring: only changed devices, one run at a time, EPSS once a day |
-| 1.14.0 | 2026-11-25 | Risk-based scoring (likelihood, reachability, impact), tunable in Admin > Risk model |
-| 1.14.1 | 2026-11-25 | Vulnerability dashboard: Risk grade view (F to A) |
-| 1.15.0 | 2026-11-26 | Identity verification (Persona): IDV page, badges, cyber review; Twilio connector; IDV Validation role |
-| 1.15.1 | 2026-11-26 | Discovered Users cards count everyone and filter the list; IDV fixes |
-| 1.16.0 | 2026-11-26 | IDV Approvers role; review dialog with failed checks, what to validate, live name-on-ID and network; reasons; revoke; ID-backed badges |
-| 1.17.0 | 2026-11-26 | Send re-verification link by SMS or email to verified MFA contacts |
-| 1.18.0 | 2026-11-26 | Caller verification embedded in ServiceNow; Iframe Code manager; revoke needs ID and face |
-
-The on-prem shipper has its own version numbers (1.0 to 1.7.x), separate from the application's.
+Every release since then, with its date and what changed, is in the [CHANGELOG](../CHANGELOG.md). The on-prem shipper has its own version numbers, separate from the application's.
 
 ## Scope
 
@@ -67,7 +29,7 @@ open-ctem is a Continuous Threat Exposure Management platform. It brings asset, 
 
 ## Integrations
 
-There are about 30 connectors. Each one reads from the vendor; none changes anything in a vendor's tenant. The exceptions are the tools CTEM is meant to send data to (FairTPRM, GitHub Code Review, ServiceNow tickets and the AI providers) and CrowdStrike alert updates: cyber and admin can close, reopen, classify and comment on a Falcon alert from CTEM, and nothing else in Falcon is ever changed. Which connectors have been checked against a real vendor API is tracked in [integration-validation.md](integration-validation.md).
+There are about 30 connectors. Each one reads from the vendor; none changes anything in a vendor's tenant. The exceptions are the tools CTEM is meant to send data to (FairTPRM, GitHub Code Review, ServiceNow tickets and the AI providers), identity verification (Persona inquiries are created, approved and declined, and Twilio sends the verification SMS), and CrowdStrike alert updates: cyber and admin can close, reopen, classify and comment on a Falcon alert from CTEM, and nothing else in Falcon is ever changed. Which connectors have been checked against a real vendor API is tracked in [integration-validation.md](integration-validation.md).
 
 | Category | Connectors |
 |---|---|
@@ -75,7 +37,7 @@ There are about 30 connectors. Each one reads from the vendor; none changes anyt
 | Cloud | Rapid7 InsightCloudSec (CSPM), AWS, Azure, Oracle Cloud (read-only, allow-listed actions) |
 | Pentest | Horizon3 NodeZero (GraphQL queries only) |
 | EDR and threat | CrowdStrike Falcon (hosts, alerts, policies, Discover, event streams, Data Replicator), SentinelOne, Microsoft Defender, Palo Alto Cortex XDR |
-| Identity | LDAP and Active Directory, Grip Security |
+| Identity | LDAP and Active Directory, Okta, Grip Security; identity verification with Persona and Twilio |
 | Network | Palo Alto NGFW, Fortinet, Zscaler ZIA/ZPA, Guardicore, plus the shipper's own network discovery |
 | AppSec | GitHub Code Review, GitHub Advanced Security, Snyk, ForgeRepo |
 | SIEM | Splunk (search, and a feed of CTEM's high-fidelity alerts) |
@@ -92,17 +54,22 @@ Sources inside the network (LDAP, an on-prem scanner console, CrowdStrike Data R
 
 Every score is 0 to 100 and every grade is A to F: A up to 20, B up to 40, C up to 60, D up to 80, F above 80. Each asset type is scored on terms that make sense for it, and every score carries its reasons.
 
-**Host findings** combine severity, exploit likelihood and context:
+**Host findings** are scored on risk, not CVE severity alone. By default (the risk-based model, tunable in Admin > Risk model):
 
 ```
-base = 0.25 × CVSS + 0.30 × EPSS + 0.20 × KEV + 0.15 × asset criticality + 0.10 × reachability
+score = 100 × likelihood^0.45 × reachability^0.35 × impact^0.20
+likelihood   = strongest of KEV, EPSS, pentest proof, threat actors, × EDR protection and days offline
+reachability = pentest proof, else a listening service (internet-facing or internal), a client-side flaw, adjacent,
+               local or physical access, scaled down by host firewall and segmentation
+impact       = CVSS and asset criticality, × privileged credentials exposed (an admin signing in interactively)
 ```
 
-- **Known exploited:** a CISA KEV finding never scores below 75.
 - **Reachability** comes only from facts:
-  - physical access ×0.3, local ×0.5, adjacent network ×0.8;
-  - found by a local check with no listening service tied to it ×0.75;
-  - a NodeZero-confirmed exploit is never discounted, and NodeZero-confirmed safe is ×0.3.
+  - physical, local and adjacent access rank below a listening network service;
+  - a finding from a local check with no listening service tied to it ranks lower;
+  - a NodeZero-confirmed exploit is never discounted, and NodeZero-confirmed safe ranks far lower.
+- **Admin sign-ins:** an admin signing in interactively leaves their credentials on the host. On a workstation (where admins should use runas or sudo) any admin sign-in raises impact 40%; on a server, a privileged AD group 40%, an admin-named account 25%; a recent rather than the last sign-in counts less.
+- **Classic model:** with the risk model off, the earlier CVE-weighted score applies (`0.25 × CVSS + 0.30 × EPSS + 0.20 × KEV + 0.15 × criticality + 0.10 × reachability`, then the same controls as multipliers, and a CISA KEV finding never below 75).
 - **Compensating controls** move the score only when a host's policies actually enforce them: EDR prevention (not just detection), exploit mitigations, host firewall rules on the finding's port, USB blocking and segmentation.
 - **Out of scope:** a host that is EDR-contained or marked Not In Scope counts nothing, but its findings stay visible next to the raw score.
 - **Device score:** the average of its worst 10% of findings, so one stray finding doesn't decide the grade.
@@ -136,7 +103,8 @@ What the check is about then moves it: +20 for public or internet-facing, +10 fo
   - pip-audit for vulnerable dependencies;
   - OWASP pattern checks (raw SQL, shell calls, id routes without an access check);
   - file size limits;
-  - the full test suite: more than 900 tests, covering access control, CSRF, sessions, SSRF, exports and every connector.
+  - SBOMs that match what ships;
+  - the full automated test suite (kept with the maintainers), covering access control, CSRF, sessions, SSRF, exports and every connector.
 - **UI review (1.3.0):** every page was checked in light mode, dark mode and phone width.
 - **Independent security review (1.7.0):** an outside AI code review produced a list of recommendations.
   - Each one was checked against the running system and its compensating controls.
@@ -184,4 +152,4 @@ Grouped by area; the version each landed in is in the CHANGELOG.
 - **Supply chain:**
   - Dependencies are kept clear of known advisories, with current pip in the image.
   - XML is parsed with defusedxml.
-  - A CycloneDX SBOM ships with every release.
+  - CycloneDX SBOMs for the CTEM and shipper images ship with every release, built inside each image's exact base image and checked before release; base images are pinned to exact Python versions.
