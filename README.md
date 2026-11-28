@@ -3,7 +3,7 @@
 **Continuous Threat Exposure Management** -- open source, risk-based, built to outclass every commercial CTEM product.
 
 > Author: Tim Rice &lt;tim.j.rice@hackrange.com&gt;  
-> Version: 1.29.2  
+> Version: 1.29.3  
 > License: MIT
 
 ## Install
@@ -32,8 +32,7 @@ top. Everything marked *development only* is for people working on the code and 
 | `sbom.cdx.json`, `sbom-collector.cdx.json` | Software Bills of Materials for the CTEM and shipper images | No: a record of what ships |
 | `docs/` | Longer write-ups (project overview, integration validation, ServiceNow caller verification) | No: reading |
 | `CHANGELOG.md`, `LICENSE` | Release history and the MIT license | No |
-| `tests/` | The automated test suite (about 1,400 tests that check the code behaves as intended) | No: development only |
-| `requirements-dev.txt`, `pytest.ini` | Test and SBOM tooling and the test settings | No: development only |
+| `requirements-dev.txt` | Test and SBOM tooling | No: development only |
 | `scripts/make_sbom.sh` | Regenerates both SBOMs inside their exact base images | No: development only |
 | `.github/`, `.gitleaks.toml`, `.gitignore` | Secret-scanning settings and repository housekeeping | No: development only |
 
@@ -454,12 +453,7 @@ Set `LB_BIND_IP` in `.env` to the private IP your load balancer reaches this hos
 
 ## Testing
 
-```bash
-python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
-.venv/bin/python -m pytest
-```
-
-Runtime dependencies live in `requirements.txt`; test and SBOM tooling live in `requirements-dev.txt` and never ship in the image.
+The automated test suite (about 1,400 tests) is kept with the maintainers rather than published here, and every release passes it before it ships, along with the security, dependency and SBOM checks. Runtime dependencies live in `requirements.txt`; test and SBOM tooling live in `requirements-dev.txt` and never ship in the image.
 
 ---
 
@@ -527,6 +521,6 @@ Counts are server-side totals across every device you can see. Click a risk card
 
 ## Contributing
 
-Every commit runs local pre-ship checks first: secrets scan, SAST (Bandit), dependency audit (pip-audit), and the full test suite. Nothing merges with a failure.
+Every commit runs pre-ship checks first: secrets scan, SAST (Bandit), dependency audit (pip-audit), the SBOM check, and the maintainers' full test suite. Nothing merges with a failure.
 
-Example credentials in tests and `.env.example` are fake and are declared in `.github/secret_scanning.yml` and `.gitleaks.toml` so scanners skip them.
+Example credentials in `.env.example` are fake and are declared in `.github/secret_scanning.yml` and `.gitleaks.toml` so scanners skip them.

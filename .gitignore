@@ -124,3 +124,7 @@ test-infra/
 # Admin > Maintenance agent: spool, status and keys
 /run/
 .accounts-sealed
+
+# The automated test suite and its settings: kept with the maintainers, run before every release, not published
+tests/
+pytest.ini

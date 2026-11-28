@@ -7,6 +7,11 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.29.3] - 2026-11-28
+
+### Changed
+- The automated test suite (`tests/`) and its settings (`pytest.ini`) are no longer published in the repository; they aren't needed to run CTEM. They stay with the maintainers, and every release still passes them before it ships. Both are in `.gitignore`. Earlier releases' history still contains them.
+
 ## [1.29.2] - 2026-11-28
 
 ### Changed
