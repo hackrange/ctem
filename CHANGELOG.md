@@ -7,6 +7,12 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.33.0] - 2026-11-28
+
+### Added
+- Tanium: **Pull running processes**, off by default, finds AI agents running on endpoints from Tanium's Running Processes sensor (local model servers such as Ollama, LM Studio and llama.cpp; coding and desktop agents such as Claude, Codex, Aider, Cursor and Copilot; MCP servers). Only processes named like an AI agent are kept, never the rest. It needs read access to that sensor in Tanium; when Tanium refuses it, the rest of the sync still succeeds and the card says what to ask for.
+- AI Inventory: a Running AI Agents tab (each process, how many endpoints run it and which), and a machine's Tanium tab lists the AI agents seen running on it.
+
 ## [1.32.0] - 2026-11-28
 
 ### Added

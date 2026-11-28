@@ -52,4 +52,6 @@ async def device_tanium(device_id: uuid.UUID, u: User = Depends(require_permissi
                                                  "scan_note", "reboot_required", "last_reboot")},
                       "recent": p.get("recent") or [], "view": patch_view(t)},
             "encryption": {"encrypted": t.get("encrypted"), "bitlocker": t.get("bitlocker") or []} if "encrypted" in t else None,
-            "vulns": {"open": open_n, "also_by_scanner": merged_n}}
+            "vulns": {"open": open_n, "also_by_scanner": merged_n},
+            "ai_processes": t.get("ai_processes"),   # AI agents seen running (only when the Running Processes pull is on)
+            }

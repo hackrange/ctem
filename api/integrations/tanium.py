@@ -128,6 +128,9 @@ class TaniumConnector(BaseConnector):
         if pulls(self.config, "vulns"):
             from api.integrations import tanium_vulns
             n += await tanium_vulns.sync(gw, db, self.integration_id, listed)
+        from api.integrations import tanium_processes
+        if tanium_processes.on(self.config):   # off by default: needs read access to Tanium's Running Processes sensor
+            await tanium_processes.sync(gw, db, self.warnings)
         await posture(db, pulls(self.config, "disk_encryption"))
         return n
 

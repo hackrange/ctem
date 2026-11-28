@@ -6,6 +6,7 @@ from what CTEM already holds:
   apps        AI apps people use (Grip and FairTPRM shadow AI), with users and whether they're sanctioned
   extensions  AI browser extensions (Grip)
   software    AI software installed on assets (the software inventory: InsightVM, Tanium, CrowdStrike Discover)
+  running     AI agents seen running on endpoints (Tanium's Running Processes, when the integration's pull is on)
 
 The concerns that make an agent worth a look (concerns()) are shared with the AI agents control check."""
 from __future__ import annotations
@@ -103,6 +104,18 @@ async def software(db: AsyncSession) -> list[dict]:
              "assets": n, "last_seen": _when(ls)} for i, t, v, st, n, ls in rows][:MAX_ROWS]
 
 
+async def running(db: AsyncSession) -> tuple[list[dict], bool]:
+    """AI agents seen running on endpoints (Tanium's Running Processes, when that pull is on), and whether it is."""
+    from api.integrations import tanium_processes as tp
+    from api.models.integration import IntegrationConfig, Vendor
+    on = any(tp.on(c) for (c,) in (await db.execute(select(IntegrationConfig.config).where(
+        IntegrationConfig.vendor == Vendor.tanium, IntegrationConfig.is_enabled == True))).all())  # noqa: E712
+    s = await tp.summary(db) if on else None
+    rows = [{"name": p.get("name"), "hosts": int(p.get("hosts") or 0), "devices": (p.get("devices") or [])[:tp.MAX_DEVICES],
+             "state": "unreviewed", "last_seen": (s or {}).get("at")} for p in (s or {}).get("processes") or []]
+    return rows[:MAX_ROWS], on
+
+
 def summary(sec: list[dict], key: str = "state") -> dict:
     out = {"total": len(sec), "sanctioned": 0, "unsanctioned": 0, "unreviewed": 0}
     for r in sec:
@@ -111,6 +124,8 @@ def summary(sec: list[dict], key: str = "state") -> dict:
 
 
 async def inventory(db: AsyncSession) -> dict:
-    sections = {"agents": await agents(db), "apps": await apps(db), "extensions": await extensions(db), "software": await software(db)}
+    run, processes_on = await running(db)
+    sections = {"agents": await agents(db), "apps": await apps(db), "extensions": await extensions(db), "software": await software(db),
+                "running": run}
     return {"sections": sections, "summary": {k: summary(v) for k, v in sections.items()},
-            "agents_with_concerns": sum(1 for a in sections["agents"] if a["concerns"])}
+            "agents_with_concerns": sum(1 for a in sections["agents"] if a["concerns"]), "processes_on": processes_on}

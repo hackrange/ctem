@@ -26,6 +26,8 @@ window.AssetTanium = (() => {
       ${recent ? `<table class="table" style="margin:0 14px 10px;width:calc(100% - 28px)"><thead><tr><th>Installed</th><th>Patch</th><th>By</th></tr></thead><tbody>${recent}</tbody></table>` : ''}
       ${e ? head('Disk encryption') + grid([row('Encrypted', yes(e.encrypted)), ...(e.bitlocker || []).map(b => row(`BitLocker ${b.drive || ''}`,
         esc([b.protection, b.conversion, b.method, b.percent ? b.percent + '%' : null].filter(Boolean).join(', ') || '--')))]) : ''}
+      ${Array.isArray(d.ai_processes) ? head('AI agents running') + grid([row('Seen running', d.ai_processes.length
+        ? d.ai_processes.map(x => `<code>${esc(x)}</code>`).join(' ') : txt(null))]) : ''}
       ${head('Vulnerabilities')}${grid([row('Open, found by Tanium', txt(d.vulns.open)), row('Also found by a scanner', txt(d.vulns.also_by_scanner))])}
       ${head('Device')}${grid([row('Model', txt([h.manufacturer, h.model].filter(Boolean).join(' '))), row('Serial', txt(h.serial)),
         row('Type', txt(h.chassis)), row('OS', txt(h.os)), row('Last reported to Tanium', txt(d.seen ? new Date(d.seen).toLocaleString() : null)),

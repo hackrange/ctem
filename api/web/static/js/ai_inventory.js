@@ -13,6 +13,7 @@
     apps: 'AI apps people use (shadow AI from Grip and FairTPRM), with how many use each.',
     extensions: 'AI browser extensions (from Grip).',
     software: 'AI software installed on assets, from the software inventory. Mark titles approved or unauthorized in Software.',
+    running: 'AI agents seen running on endpoints (model servers, coding and desktop agents, MCP servers), from Tanium\'s Running Processes sensor.',
   };
   let data = null, tab = (location.hash || '').slice(1) || 'agents';
 
@@ -31,6 +32,10 @@
       ['Risk', a => esc(a.risk || '--')], ['Last seen', a => day(a.last_seen)]],
     software: [['Software', a => `<a class="dt-link" href="/software?title=${encodeURIComponent(a.id)}"><b>${esc(a.name)}</b></a>${a.vendor ? `<div class="text-sm text-muted">${esc(a.vendor)}</div>` : ''}`],
       ['Assets', a => n(a.assets)], ['Review', a => chip(a.state)], ['Last reported', a => day(a.last_seen)]],
+    running: [['Process', a => `<b class="text-mono">${esc(a.name)}</b>`], ['Endpoints', a => n(a.hosts)],
+      ['Running on', a => (a.devices || []).slice(0, 8).map(d => `<a class="dt-link" href="/devices/${encodeURIComponent(d.id)}">${esc(d.hostname)}</a>`).join(', ')
+        + (a.hosts > 8 ? ` <span class="text-muted">and ${esc(n(a.hosts - 8))} more</span>` : '')],
+      ['As of', a => day(a.last_seen)]],
   };
 
   function tiles() {
@@ -41,6 +46,7 @@
       t('AI agents', s.agents.total, `${n(data.agents_with_concerns)} with concerns, ${n(s.agents.unreviewed)} not reviewed`, 'agents', data.agents_with_concerns > 0),
       t('AI apps', s.apps.total, `${n(s.apps.unsanctioned + s.apps.unreviewed)} not sanctioned`, 'apps'),
       t('AI browser extensions', s.extensions.total, `${n(s.extensions.unsanctioned + s.extensions.unreviewed)} not sanctioned`, 'extensions'),
+      t('Running AI agents', s.running.total, data.processes_on ? 'processes seen on endpoints' : 'off: turn on in the Tanium integration', 'running'),
       t('Installed AI software', s.software.total, `${n(s.software.unsanctioned)} unauthorized, ${n(s.software.unreviewed)} not reviewed`, 'software', s.software.unsanctioned > 0),
     ].join('');
   }
@@ -56,7 +62,9 @@
       ? `<table class="data-table"><thead><tr>${c.map(([h]) => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${
           rows.map(r => `<tr>${c.map(([, f]) => `<td class="text-sm">${f(r)}</td>`).join('')}</tr>`).join('')}</tbody></table>`
         + `<p class="text-sm text-muted" style="padding:8px 14px;margin:0">${esc(n(rows.length))} shown</p>`
-      : '<p class="text-muted text-sm" style="padding:24px;text-align:center">Nothing matches.</p>';
+      : `<p class="text-muted text-sm" style="padding:24px;text-align:center">${tab === 'running' && !data.processes_on
+          ? 'Off. In Settings &gt; Integrations, edit Tanium and check <b>Pull running processes</b> (it needs read access to the Running Processes sensor in Tanium).'
+          : 'Nothing matches.'}</p>`;
   }
 
   document.addEventListener('click', e => {

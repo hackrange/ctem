@@ -37,5 +37,6 @@ tanium: [
   {key:'pull_vulns', label:'Pull vulnerabilities (Tanium Comply, with proof)', type:'checkbox', default:true, required:false},
   {key:'pull_software', label:'Pull software inventory', type:'checkbox', default:true, required:false},
   {key:'pull_disk_encryption', label:'Pull disk encryption (BitLocker)', type:'checkbox', default:true, required:false},
+  {key:'pull_processes', label:'Pull running processes (finds AI agents on endpoints; needs read access to the Running Processes sensor)', type:'checkbox', default:false, required:false},
 ],
 });

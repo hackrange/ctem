@@ -19,6 +19,7 @@ SENSORS = {
     "Reboot Required": [],
     "Last Reboot": [],
     "BitLocker Details": [],
+    "Running Processes": [],   # only when the integration's "Pull running processes" is on (api/integrations/tanium_processes.py)
 }
 _WRITE = re.compile(r"\b(mutation|subscription)\b", re.I)
 _RETRY = {429, 502, 503, 504}
