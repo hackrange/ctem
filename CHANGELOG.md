@@ -7,6 +7,11 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.31.0] - 2026-11-28
+
+### Added
+- A control check for unauthorized AI software, `ctem_unauthorized_ai_software`: assets running AI software that isn't approved, found by name (assistants, chat and agent apps, browser extensions and local model runners such as ChatGPT, Claude, Copilot, Gemini, DeepSeek, Perplexity, Ollama and LM Studio). Software marked unauthorized fails the check; AI software not reviewed yet warns, because it's shadow AI nobody has decided on; approved AI, and AI an exception allows on an asset, doesn't count. Its report (the check's page, and the signed CSV) lists each asset with the AI software, version, status, why it's unauthorized, and which tool reported it.
+
 ## [1.30.0] - 2026-11-28
 
 ### Added

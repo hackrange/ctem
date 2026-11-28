@@ -3,7 +3,7 @@
 **Continuous Threat Exposure Management**: open source, risk-based exposure management that scores what an attacker can actually reach.
 
 > Author: Tim Rice &lt;tim.j.rice@hackrange.com&gt;  
-> Version: 1.30.0  
+> Version: 1.31.0  
 > License: MIT
 
 ## Install
@@ -271,7 +271,7 @@ Charts use [Apache ECharts](https://echarts.apache.org/) 6.1.0 (Apache-2.0) and 
 
 **Editing risks from CTEM.** Admins and the `grc` role can edit a risk's status, review date and treatment plan on the GRC page (**(edit)** on each row). The change goes straight to FairTPRM through `PUT /api/v2/grc/risks/{id}/review`, which records who made it in CTEM plus the before and after values in FairTPRM's audit log; CTEM audits it too. Likelihood, impact, treatment, category, owner and controls stay editable only in FairTPRM. This needs a FairTPRM token with **read_write** scope and FairTPRM with the review endpoint; if either is missing the page says so and nothing changes.
 
-**CTEM updates FairTPRM.** CTEM answers 25 control checks that FairTPRM continuous monitors call on their schedule; each run becomes FairTPRM evidence and updates control effectiveness in every framework the control maps to.
+**CTEM updates FairTPRM.** CTEM answers 26 control checks that FairTPRM continuous monitors call on their schedule; each run becomes FairTPRM evidence and updates control effectiveness in every framework the control maps to.
 
 | Check | Measures |
 |---|---|
@@ -284,6 +284,7 @@ Charts use [Apache ECharts](https://echarts.apache.org/) 6.1.0 (Apache-2.0) and 
 | `ctem_vuln_age` | Open findings older than allowed for Infrastructure, Code and Web apps: each severity's SLA from Change SLAs (or one ceiling), with the age profile |
 | `ctem_admin_local_logons` | Workstations and servers where an admin or service account (`adm*`, `svc_*`, `sulocal_*` and similar admin-account patterns by default) signed in interactively, from the EDR's sign-in history; rules can change the patterns and leave out jump servers |
 | `ctem_deprovisioning` | Leaver access left behind, from AD/LDAP: disabled accounts still in groups, enabled accounts in a Disabled/Terminated OU, and long-idle enabled accounts (suits controls like "Automated deprovision of account triggers") |
+| `ctem_unauthorized_ai_software` | Assets running AI software (assistants, chat and agent apps, browser extensions, local model runners, found by name) that isn't approved: marked unauthorized fails, not reviewed yet warns; approved AI and per-asset exceptions don't count |
 | `ctem_unauthorized_software` | Assets running software marked Unauthorized in the software inventory (an error, never a pass, until some source reports software) |
 | `ctem_exposed_criticals` | Internet-facing devices with critical or KEV findings |
 | `ctem_attack_paths` | Open validated attack paths |
