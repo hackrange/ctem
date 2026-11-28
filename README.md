@@ -3,7 +3,7 @@
 **Continuous Threat Exposure Management**: open source, risk-based exposure management that scores what an attacker can actually reach.
 
 > Author: Tim Rice &lt;tim.j.rice@hackrange.com&gt;  
-> Version: 1.31.0  
+> Version: 1.32.0  
 > License: MIT
 
 ## Install
@@ -166,6 +166,8 @@ Every source is matched to the same device row by host name, however it spells i
 
 **Self-healing.** Background work fixes passing problems itself. A sync that fails for a reason that should pass (a database deadlock or lock timeout, a dropped connection, the vendor timing out, rate-limiting or answering 5xx) runs again on its own after 5, then 15, then 45 minutes, and its card says when ("Retrying automatically at 14:20 UTC, attempt 2 of 3"); after three, the next scheduled sync takes over. A failure a person has to fix (401 or 403, bad credentials, a missing scope or setting) is not retried in a loop: the card says what's wrong. Daily jobs (the full rescore at 05:00 UTC, threat intel at 01:30, database upkeep at 02:15, the finding history roll-up) that didn't run at their time, because the scheduler was paused or restarting, run as soon as it's noticed, within 5 minutes. A sync a restart cut off is closed and its lock freed when the worker comes back. Writes that touch many assets take their row locks in a consistent order, so two jobs rarely deadlock in the first place.
 
+**AI Inventory** (cyber and admin) puts every kind of AI in one place, each marked sanctioned, unsanctioned or not reviewed: **AI agents** people built (from Grip: custom Copilot agents and the like) with their owner, whether they're shared or reach the internet, and the concerns that spread their risk (shared, internet-connected, no owner, marked unsanctioned); **AI apps** people use (shadow AI from Grip and FairTPRM) with their users; **AI browser extensions**; and **installed AI software** on assets (the software inventory, matched by name). A person's identity page lists the agents they own. Two control checks cover it: `ctem_ai_agents` and `ctem_unauthorized_ai_software`. Grip doesn't report what an agent can access (its scopes), so agents are judged by who can reach them.
+
 **Pause syncing** (admins, at the top of Integrations) stops all integration syncing for 30 minutes, 1 hour, 4 hours or until resumed: no scheduled sync starts, Sync Now and syncs already queued are skipped, and on-prem shippers are told to send again on their next run (they keep their data). Syncs already running finish and scoring carries on, so the worker can drain for maintenance. A banner says who paused it and when it resumes; a timed pause ends on its own, and pausing and resuming are audited.
 
 **Truncate** (admins, on each integration card) removes the data that integration's source reported, so the next sync starts clean: its findings, software installs, cached alerts, tag links and sync history, and the assets no other source reports (assets other sources also report are kept, minus this source's data). Software review decisions, tags and their access rules, and vulnerabilities with an exception are kept. Data is tagged by source, not by integration, so two integrations of the same vendor (say, InsightVM cloud and an InsightVM console) share it, and the warning names the other one. It runs in the background behind a warning that lists what goes, needs the integration's name typed to confirm, pauses that source's syncs and shipper uploads while it runs, rescores afterwards, and is audited. Cards also show the last sync's warnings, such as a shipper skipping software it can't read. A sync cut off by a worker restart is closed as "Interrupted by a restart" when the worker comes back, and its integration syncs again on schedule.
@@ -271,7 +273,7 @@ Charts use [Apache ECharts](https://echarts.apache.org/) 6.1.0 (Apache-2.0) and 
 
 **Editing risks from CTEM.** Admins and the `grc` role can edit a risk's status, review date and treatment plan on the GRC page (**(edit)** on each row). The change goes straight to FairTPRM through `PUT /api/v2/grc/risks/{id}/review`, which records who made it in CTEM plus the before and after values in FairTPRM's audit log; CTEM audits it too. Likelihood, impact, treatment, category, owner and controls stay editable only in FairTPRM. This needs a FairTPRM token with **read_write** scope and FairTPRM with the review endpoint; if either is missing the page says so and nothing changes.
 
-**CTEM updates FairTPRM.** CTEM answers 26 control checks that FairTPRM continuous monitors call on their schedule; each run becomes FairTPRM evidence and updates control effectiveness in every framework the control maps to.
+**CTEM updates FairTPRM.** CTEM answers 27 control checks that FairTPRM continuous monitors call on their schedule; each run becomes FairTPRM evidence and updates control effectiveness in every framework the control maps to.
 
 | Check | Measures |
 |---|---|
@@ -284,6 +286,7 @@ Charts use [Apache ECharts](https://echarts.apache.org/) 6.1.0 (Apache-2.0) and 
 | `ctem_vuln_age` | Open findings older than allowed for Infrastructure, Code and Web apps: each severity's SLA from Change SLAs (or one ceiling), with the age profile |
 | `ctem_admin_local_logons` | Workstations and servers where an admin or service account (`adm*`, `svc_*`, `sulocal_*` and similar admin-account patterns by default) signed in interactively, from the EDR's sign-in history; rules can change the patterns and leave out jump servers |
 | `ctem_deprovisioning` | Leaver access left behind, from AD/LDAP: disabled accounts still in groups, enabled accounts in a Disabled/Terminated OU, and long-idle enabled accounts (suits controls like "Automated deprovision of account triggers") |
+| `ctem_ai_agents` | AI agents people built (Grip) that aren't sanctioned: unsanctioned, or unreviewed and shared, internet-connected or with no owner, fail; other unreviewed agents warn |
 | `ctem_unauthorized_ai_software` | Assets running AI software (assistants, chat and agent apps, browser extensions, local model runners, found by name) that isn't approved: marked unauthorized fails, not reviewed yet warns; approved AI and per-asset exceptions don't count |
 | `ctem_unauthorized_software` | Assets running software marked Unauthorized in the software inventory (an error, never a pass, until some source reports software) |
 | `ctem_exposed_criticals` | Internet-facing devices with critical or KEV findings |

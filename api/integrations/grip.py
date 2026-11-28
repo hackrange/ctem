@@ -16,6 +16,7 @@ import html
 import json
 import logging
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -263,6 +264,9 @@ class GripSecurityConnector(BaseConnector):
                 "is_connected_to_internet": agent.get("isConnectedToInternet"),
                 "saas_scopes": agent.get("saasScopes") or [],
                 "sharing": agent.get("sharingAttributes"),
+                # Grip's review state (New, Sanctioned, Unsanctioned...) and the platform it's built on (the host only)
+                "sanction_state": str(agent.get("sanctionState") or "")[:32] or None,
+                "platform": (urlparse(str(agent.get("siteUrl") or "")).hostname or "")[:120] or None,
                 # knowledge_files and identities_permissions are high-PII -- omit from storage
             }
             db.add(rec)

@@ -58,7 +58,7 @@ class UserIndex:
             rest = b[len(p):] if b.startswith(p) else ""
             if rest in self.ids:
                 return self.ids[rest], True
-            if rest in self.firsts:  # sulocal_akash, when there's exactly one Akash
+            if rest in self.firsts:  # localadm_pat, when there's exactly one Pat
                 return self.firsts[rest], True
         return None, False
 
@@ -86,7 +86,7 @@ def _unique_first_names(rows) -> dict[str, str]:
 
 
 def sign_in_names(q: str) -> list[str]:
-    """dhollin also finds machines where they signed in as sulocal_dhollin."""
+    """jdoe also finds machines where they signed in as localadm_jdoe."""
     from api.core.config import get_settings
 
     b = bare(q)

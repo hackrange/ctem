@@ -92,6 +92,14 @@
     });
   }
 
+  const agents = d.ai_agents || [];
+  if (agents.length) {
+    const word = { sanctioned: 'Sanctioned', unsanctioned: 'Unsanctioned', unreviewed: 'Not reviewed' };
+    $('ip-agents-panel').hidden = false;
+    $('ip-agents').innerHTML = agents.map(a => `<tr><td class="text-sm"><b>${esc(a.name)}</b>${a.platform ? `<br><span class="text-muted">${esc(a.platform)}</span>` : ''}</td>
+      <td class="text-sm">${esc(word[a.state] || a.state)}</td>
+      <td class="text-sm">${esc((a.concerns || []).join(', ') || '--')}</td><td class="text-sm">${esc(when(a.last_seen))}</td></tr>`).join('');
+  }
   $('ip-threats').innerHTML = d.threats.length ? d.threats.map(t => `<tr class="id-row" tabindex="0" data-kind="threat" data-id="${esc(t.id)}"><td>${chip(t.severity)}</td>
       <td class="text-sm">${esc((t.threat_type || '').replace(/_/g, ' '))}</td><td class="text-sm"><b>${esc(t.title)}</b>
       ${t.description ? `<br><span class="text-muted">${esc(t.description)}</span>` : ''}</td><td class="text-sm">${esc(t.app_name || '--')}</td>

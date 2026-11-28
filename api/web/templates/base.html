@@ -154,7 +154,7 @@
     })();
   </script>
 
-  {% if can_see_any(user, ['/threat', '/identity', '/hunt', '/cloud', '/sites', '/attack-paths', '/grc', '/cmdb']) %}
+  {% if can_see_any(user, ['/threat', '/identity', '/ai', '/hunt', '/cloud', '/sites', '/attack-paths', '/grc', '/cmdb']) %}
   <div class="sidebar__section">
     <div class="sidebar__label">Analysis</div>
 {% if can_see(user, '/threat') %}
@@ -167,6 +167,12 @@
     <a href="/identity" class="sidebar__link {% if active_nav == 'identity' %}active{% endif %}">
       <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
       Identity Risk
+    </a>
+    {% endif %}
+{% if can_see(user, '/ai') %}
+    <a href="/ai" class="sidebar__link {% if active_nav == 'ai' %}active{% endif %}">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="4" y="7" width="16" height="12" rx="2"/><path d="M12 3v4M9 12h.01M15 12h.01M9 16h6"/></svg>
+      AI Inventory
     </a>
     {% endif %}
 {% if can_see(user, '/hunt') %}

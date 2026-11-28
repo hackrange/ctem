@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% set active_nav = 'ai' %}
+
+{% block title %}AI Inventory -- open-ctem{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-header__title">AI Inventory</h1>
+    <p class="page-header__sub">Every AI agent, AI app, browser extension and installed AI tool, and whether it's sanctioned</p>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center">
+    <select id="ai-state" class="filter-select" aria-label="Show">
+      <option value="">Everything</option>
+      <option value="unsanctioned">Unsanctioned</option>
+      <option value="unreviewed">Not reviewed yet</option>
+      <option value="sanctioned">Sanctioned</option>
+      <option value="concerns">Agents with concerns</option>
+    </select>
+    <input id="ai-q" type="search" class="filter-select" placeholder="Search names, owners..." aria-label="Search">
+  </div>
+</div>
+
+<div id="ai-tiles" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px;margin-bottom:20px"></div>
+
+<div role="tablist" style="display:flex;border-bottom:2px solid var(--border);margin-bottom:16px;overflow-x:auto">
+  <button type="button" class="ai-tab active" role="tab" data-tab="agents">AI Agents</button>
+  <button type="button" class="ai-tab" role="tab" data-tab="apps">AI Apps</button>
+  <button type="button" class="ai-tab" role="tab" data-tab="extensions">Browser Extensions</button>
+  <button type="button" class="ai-tab" role="tab" data-tab="software">Installed AI Software</button>
+</div>
+<p class="text-sm text-muted" id="ai-about" style="margin:-6px 0 12px"></p>
+<div class="panel" style="padding:0"><div id="ai-table" style="overflow-x:auto"><p class="text-muted text-sm" style="padding:24px;text-align:center">Loading...</p></div></div>
+
+<style>
+.ai-tab { background: none; border: 0; border-bottom: 2px solid transparent; margin-bottom: -2px; padding: 8px 16px;
+  font: inherit; font-size: .9rem; color: var(--text-muted); cursor: pointer; white-space: nowrap; }
+.ai-tab.active, .ai-tab:hover { color: var(--text); border-bottom-color: var(--accent, #5b8df0); }
+</style>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ static('js/ai_inventory.js') }}"></script>
+{% endblock %}

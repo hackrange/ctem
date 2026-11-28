@@ -7,6 +7,17 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.32.0] - 2026-11-28
+
+### Added
+- AI Inventory (cyber and admin): every AI agent, AI app, AI browser extension and installed AI tool in one place, each marked sanctioned, unsanctioned or not reviewed, with filters and search. Agents show their owner (linked to their identity page), whether they're shared or connected to the internet, and their concerns; apps and extensions show their users; installed AI software shows how many assets run it.
+- A control check for AI agents, `ctem_ai_agents`: an agent that's marked unsanctioned, or unreviewed and shared, internet-connected or without an owner, fails; other unreviewed agents warn; no AI agent data is an error, never a pass.
+- A person's identity page lists the AI agents they own.
+- Grip AI agents keep their review state and the platform they're built on. Grip's API doesn't say what an agent can access, so agents are judged by who can reach them.
+
+### Changed
+- Code comments use generic example names.
+
 ## [1.31.0] - 2026-11-28
 
 ### Added

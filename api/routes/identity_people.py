@@ -114,10 +114,18 @@ async def person(score_id: uuid.UUID, _: User = Depends(require_cyber_or_admin),
         "threats": [_serialize_threat(t) for t in threats],
         "posture": [{"id": str(f.id), "severity": f.severity, "title": f.title, "app_name": f.app_name,
                      "detected_at": _iso(f.detected_at)} for f in posture],
+        # AI agents this person owns (the AI inventory matches owners to identities)
+        "ai_agents": [{k: a[k] for k in ("name", "platform", "state", "concerns", "sharing", "internet", "last_seen")}
+                      for a in await _agents_owned(db, str(rec.id))],
         "notified_at": _iso(rec.notified_at), "notified_by": rec.notified_by, "last_synced": _iso(rec.last_synced),
         "notice": notice(who, apps, await _org(db)) if who and apps else None,
         "email_on": await email.configured(),
     }
+
+
+async def _agents_owned(db: AsyncSession, identity_id: str) -> list[dict]:
+    from api.core.ai_inventory import agents
+    return [a for a in await agents(db) if a["owner_identity_id"] == identity_id]
 
 
 class NotifyBody(BaseModel):

@@ -209,7 +209,7 @@ def build_query(scope, q: str | None, grade: str | None, device_type: DeviceType
         named = select(User.id).where(person)
         assigned_to = select(DeviceAssignment.device_id).where(DeviceAssignment.user_id.in_(named))
         from api.models.tag import Tag
-        # A tag's name or its value: "specops" finds app:SPECOPS, "pat@" finds app_owner:pat@acme.example
+        # A tag's name or its value: "payroll" finds app:PAYROLL, "pat@" finds app_owner:pat@acme.example
         tagged_like = select(DeviceTag.device_id).join(Tag, Tag.id == DeviceTag.tag_id).where(Tag.name.ilike(like, escape="\\"))
         stmt = stmt.where(or_(
             Device.id.in_(tagged_like),

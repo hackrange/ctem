@@ -111,6 +111,7 @@ def create_app() -> FastAPI:
     from api.routes.integration_truncate import router as truncate_router
     from api.routes.integration_pause import router as sync_pause_router
     from api.routes.integration_spotlight import router as spotlight_router
+    from api.routes.ai_inventory import router as ai_inventory_router
     from api.routes.device_edr import router as device_edr_router
     from api.routes.device_context import router as device_context_router
     from api.routes.device_identity import router as device_identity_router
@@ -169,6 +170,7 @@ def create_app() -> FastAPI:
     app.include_router(device_trend_router)
     app.include_router(sync_pause_router)   # before /{integration_id}, which would take "/sync-pause" as an id
     app.include_router(spotlight_router)
+    app.include_router(ai_inventory_router)
     app.include_router(integrations_router)
     app.include_router(cmdb_router)
     app.include_router(vulns_router)
@@ -365,6 +367,7 @@ def _register_web_routes(app: FastAPI) -> None:
     app.get("/threat/alert/map", response_class=HTMLResponse, include_in_schema=False)(_render("pages/threat_alert_map.html", "/threat"))
     app.get("/identity", response_class=HTMLResponse, include_in_schema=False)(_render("pages/identity.html", "/identity"))
     app.get("/identity/person", response_class=HTMLResponse, include_in_schema=False)(_render("pages/identity_person.html", "/identity"))
+    app.get("/ai", response_class=HTMLResponse, include_in_schema=False)(_render("pages/ai.html", "/ai"))
     app.get("/hunt", response_class=HTMLResponse, include_in_schema=False)(_render("pages/hunt.html", "/hunt"))
     app.get("/hunt/ip-history", response_class=HTMLResponse, include_in_schema=False)(_render("pages/ip_history.html", "/hunt"))
     app.get("/hunt/telemetry", response_class=HTMLResponse, include_in_schema=False)(_render("pages/hunt_telemetry.html", "/hunt/telemetry"))
