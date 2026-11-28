@@ -3,7 +3,7 @@
 **Continuous Threat Exposure Management**: open source, risk-based exposure management that scores what an attacker can actually reach.
 
 > Author: Tim Rice &lt;tim.j.rice@hackrange.com&gt;  
-> Version: 1.29.7  
+> Version: 1.30.0  
 > License: MIT
 
 ## Install
@@ -163,6 +163,8 @@ Every source is matched to the same device row by host name, however it spells i
 **Approving software on an asset** (admins and cyber): on its Software tab, select titles (or all of them) and choose **Approve only here** (an exception on this asset, with a reason and optional end date) or **Approve everywhere** (the titles' own status).
 
 **CrowdStrike Spotlight on or off**: Spotlight vulnerabilities come through the shipper's CrowdStrike source. Its **Pull Spotlight vulnerabilities** checkbox is on the shipper (Settings > Shippers, with the other Falcon products, now checkboxes too) and on the CrowdStrike integration's card; both are the same setting. The shipper stops asking Falcon at its next check-in, and CTEM ignores any Spotlight data still on its way, so a full pass never closes findings while it's off. Existing Spotlight findings stay as they are. Changing it is audited.
+
+**Self-healing.** Background work fixes passing problems itself. A sync that fails for a reason that should pass (a database deadlock or lock timeout, a dropped connection, the vendor timing out, rate-limiting or answering 5xx) runs again on its own after 5, then 15, then 45 minutes, and its card says when ("Retrying automatically at 14:20 UTC, attempt 2 of 3"); after three, the next scheduled sync takes over. A failure a person has to fix (401 or 403, bad credentials, a missing scope or setting) is not retried in a loop: the card says what's wrong. Daily jobs (the full rescore at 05:00 UTC, threat intel at 01:30, database upkeep at 02:15, the finding history roll-up) that didn't run at their time, because the scheduler was paused or restarting, run as soon as it's noticed, within 5 minutes. A sync a restart cut off is closed and its lock freed when the worker comes back. Writes that touch many assets take their row locks in a consistent order, so two jobs rarely deadlock in the first place.
 
 **Pause syncing** (admins, at the top of Integrations) stops all integration syncing for 30 minutes, 1 hour, 4 hours or until resumed: no scheduled sync starts, Sync Now and syncs already queued are skipped, and on-prem shippers are told to send again on their next run (they keep their data). Syncs already running finish and scoring carries on, so the worker can drain for maintenance. A banner says who paused it and when it resumes; a timed pause ends on its own, and pausing and resuming are audited.
 

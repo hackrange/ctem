@@ -7,6 +7,15 @@ open-ctem is a Python rewrite of an earlier PHP version begun about 18 months be
 
 ## [Unreleased]
 
+## [1.30.0] - 2026-11-28
+
+### Added
+- Self-healing for background work, so a passing problem fixes itself instead of becoming a support ticket. A sync that fails for a reason that should pass (a database deadlock or lock timeout, a dropped connection, the vendor timing out, rate-limiting or answering 5xx) retries on its own after 5, 15 and 45 minutes, and its card says when; a failure a person must fix (401/403, credentials, a missing scope or setting) isn't retried in a loop. This covers every connector, with no per-connector code: a sync is an upsert, so running it again is safe. Previously a failed sync waited for its next schedule (three days for a NodeZero sync that runs every third day).
+- Daily jobs that didn't run at their time of day (the scheduler paused or restarting then) run as soon as it's noticed, within 5 minutes: the full rescore, the threat intel refresh, database upkeep and the finding history roll-up.
+
+### Changed
+- Writes that mark many assets for rescoring take their row locks in a consistent order, so two jobs writing the same assets rarely deadlock in the first place.
+
 ## [1.29.7] - 2026-11-28
 
 ### Fixed

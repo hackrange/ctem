@@ -171,6 +171,7 @@ async def _sync_by_id(db: AsyncSession, integration_id: str, runner: str = "app"
     # changes to them are silently never saved. That left jobs "running" forever.
     job_vals: dict = {"status": SyncStatus.failed}
     cfg_vals: dict = {"last_sync_status": SyncStatus.failed}
+    retry = False   # a passing failure (deadlock, timeout, 5xx): retried on its own (api/core/self_heal.py)
     try:
         from api.core import tag_roles
         await tag_roles.ensure(db)   # connectors that export owners or environments read the tag mapping
@@ -195,9 +196,22 @@ async def _sync_by_id(db: AsyncSession, integration_id: str, runner: str = "app"
             # Some errors (timeouts, dropped connections) carry no text: never record an empty reason
             why = str(e).strip() or f"{type(e).__name__} (no details from the connector)"
             log.warning("sync of %s failed: %s", cfg_id, type(e).__name__)
+        from api.core.self_heal import passing
+        retry = passing(e, why)
+        if isinstance(e, SQLAlchemyError) and retry:
+            why = why.replace("; the next sync retries.", ".")
         job_vals = {"status": SyncStatus.failed, "error_message": why[:1000]}
         cfg_vals = {"last_sync_status": SyncStatus.failed, "last_sync_error": why[:500]}
     finally:
+        try:
+            from api.core.self_heal import after_sync
+            plan = await after_sync(db, cfg_id, ok, retry)
+        except Exception:  # noqa: BLE001 -- planning a retry never stops the outcome being recorded
+            log.warning("sync of %s: retry not planned", cfg_id, exc_info=True)
+            plan = None
+        if plan:
+            for vals, field, cap in ((job_vals, "error_message", 1000), (cfg_vals, "last_sync_error", 500)):
+                vals[field] = f"{vals.get(field) or ''} {plan}".strip()[:cap]
         done = datetime.now(timezone.utc)
         await db.execute(update(SyncJob).where(SyncJob.id == job_id).values(finished_at=done, **job_vals))
         await db.execute(update(IntegrationConfig).where(IntegrationConfig.id == cfg_id)

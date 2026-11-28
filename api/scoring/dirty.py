@@ -134,11 +134,11 @@ def _stamp(session: Session, flush_context) -> None:
     devs.discard(None)
     vulns.discard(None)
     now = datetime.now(timezone.utc)
-    ids = [str(i) for i in devs]
+    ids = sorted(str(i) for i in devs)   # the same order everywhere: two writers lock rows alike, not crosswise
     for i in range(0, len(ids), 500):
         session.execute(update(Device).where(Device.id.in_(ids[i:i + 500])).values(score_inputs_at=now)
                         .execution_options(synchronize_session=False))
-    vids = [str(i) for i in vulns]
+    vids = sorted(str(i) for i in vulns)
     for i in range(0, len(vids), 500):
         session.execute(update(Vulnerability).where(Vulnerability.id.in_(vids[i:i + 500])).values(score_inputs_at=now)
                         .execution_options(synchronize_session=False))
@@ -163,7 +163,7 @@ def install() -> None:
 async def mark_devices(db, ids) -> None:
     """For bulk statements the flush hook can't see: these devices' scores must be worked out again."""
     from api.models.device import Device
-    ids = [str(i) for i in {*ids} if i]
+    ids = sorted(str(i) for i in {*ids} if i)   # a consistent lock order, so concurrent writers don't deadlock
     if len(ids) > LOUD:
         import sys
         caller = sys._getframe(1).f_globals.get("__name__", "?")   # the module, never data
